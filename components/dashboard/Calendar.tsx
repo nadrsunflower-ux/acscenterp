@@ -181,9 +181,9 @@ export default function Calendar({
                 ) : null}
               </div>
 
-              {/* 근무 스케줄 요약 (매장 색) */}
-              <div className="mt-1 flex-1 space-y-0.5 overflow-hidden">
-                {cellShifts.slice(0, 2).map((s) => (
+              {/* 근무 스케줄 요약 (매장 색) - 근무자 전원 표시 */}
+              <div className="mt-1 flex-1 space-y-0.5">
+                {cellShifts.map((s) => (
                   <div
                     key={s.id}
                     className={
@@ -197,11 +197,6 @@ export default function Calendar({
                     {s.staffName}
                   </div>
                 ))}
-                {cellShifts.length > 2 ? (
-                  <div className="px-1 text-[10px] text-gray-400">
-                    +{cellShifts.length - 2}
-                  </div>
-                ) : null}
               </div>
 
               {/* 생일 이벤트 마커 (점) */}
