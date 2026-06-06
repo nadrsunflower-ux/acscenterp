@@ -1,0 +1,45 @@
+{
+  "name": "acscent-management",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "scheduler:clear-schedules": "tsx scripts/scheduler/clear-schedules.ts",
+    "scheduler:clear-all": "tsx scripts/scheduler/clear-all-data.ts",
+    "scheduler:check": "tsx scripts/scheduler/check-schedules.ts",
+    "scheduler:import-shifts": "tsx scripts/scheduler/import-from-shifts.ts"
+  },
+  "dependencies": {
+    "firebase": "10.14.1",
+    "html2canvas": "1.4.1",
+    "next": "14.2.35",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "20.16.11",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "autoprefixer": "10.4.20",
+    "dotenv": "16.4.7",
+    "postcss": "8.5.15",
+    "tailwindcss": "3.4.14",
+    "tailwindcss-animate": "1.0.7",
+    "tsx": "4.19.2",
+    "typescript": "5.6.3"
+  },
+  "browserslist": [
+    "Chrome >= 90",
+    "Firefox >= 90",
+    "Safari >= 14",
+    "Edge >= 90",
+    "iOS >= 14"
+  ],
+  "overrides": {
+    "undici": "6.26.0",
+    "postcss": "8.5.15"
+  }
+}
