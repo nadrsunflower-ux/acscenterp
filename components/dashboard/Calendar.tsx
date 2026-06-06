@@ -107,7 +107,10 @@ export default function Calendar({
       {/* 날짜 그리드 */}
       <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
         {weeks.flat().map((cell) => {
-          const cellShifts = shiftsByDate.get(cell.ymd) ?? [];
+          // 아이디(id) 근무자를 위에, 와우(wow) 근무자를 아래에 정렬
+          const cellShifts = [...(shiftsByDate.get(cell.ymd) ?? [])].sort(
+            (a, b) => (a.store === "id" ? 0 : 1) - (b.store === "id" ? 0 : 1)
+          );
           const cellTasks = tasksForDate(tasks, cell.ymd);
           const cellEvents = events.filter((e) =>
             isWithinRange(cell.ymd, e.startDate, e.endDate)
