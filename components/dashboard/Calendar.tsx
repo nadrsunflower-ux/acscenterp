@@ -173,11 +173,11 @@ export default function Calendar({
                   >
                     ❗
                   </span>
-                ) : hasTask ? (
+                ) : hasIncomplete ? (
                   <span
                     className="text-xs leading-none"
-                    title={`${cellTasks.length}건의 업무`}
-                    aria-label={`${cellTasks.length}건의 업무`}
+                    title="미완료 업무가 있습니다"
+                    aria-label="미완료 업무 있음"
                   >
                     🔔
                   </span>
@@ -231,8 +231,8 @@ export default function Calendar({
           <span className="inline-block h-2.5 w-2.5 rounded bg-wow-light ring-1 ring-wow/30" />
           악센트 와우
         </span>
-        <span className="flex items-center gap-1">🔔 업무</span>
-        <span className="flex items-center gap-1">❗ 미완료</span>
+        <span className="flex items-center gap-1">🔔 미완료 업무</span>
+        <span className="flex items-center gap-1">❗ 기한 지난 미완료</span>
         <span className="flex items-center gap-1">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-wow" />
           생일 이벤트
