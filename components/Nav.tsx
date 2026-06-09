@@ -11,6 +11,7 @@ interface NavItem {
 // 관리자(/admin)는 네비게이션에 노출하지 않음 — 직접 URL 로만 접근(미들웨어 비번 보호).
 const NAV_ITEMS: NavItem[] = [
   { href: "/", label: "대시보드" },
+  { href: "/suggestions", label: "건의함" },
   { href: "/id", label: "악센트 아이디" },
   { href: "/wow", label: "악센트 와우" },
 ];
@@ -26,7 +27,7 @@ export default function Nav() {
 
   return (
     <header className="sticky top-0 z-30 border-b border-black/5 bg-white/80 backdrop-blur">
-      <nav className="mx-auto flex w-full max-w-5xl items-center gap-1 px-4 py-3 sm:gap-2 sm:px-6">
+      <nav className="mx-auto flex w-full items-center gap-1 px-2 py-3 sm:gap-2 sm:px-4">
         <Link href="/" className="mr-2 shrink-0 text-base font-bold text-brand-dark">
           악센트
         </Link>

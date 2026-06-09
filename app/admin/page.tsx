@@ -10,12 +10,14 @@ import PromotionAdmin from "@/components/admin/PromotionAdmin";
 import FragranceAdmin from "@/components/admin/FragranceAdmin";
 import CleaningAdmin from "@/components/admin/CleaningAdmin";
 import DailyTaskAdmin from "@/components/admin/DailyTaskAdmin";
+import SuggestionAdmin from "@/components/admin/SuggestionAdmin";
 import SchedulerApp from "@/components/scheduler/SchedulerApp";
 
 type TabKey =
   | "worklog"
   | "dailytask"
   | "event"
+  | "suggestion"
   | "product"
   | "promotion"
   | "fragrance"
@@ -25,6 +27,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "worklog", label: "근무 일지" },
   { key: "dailytask", label: "일일 업무" },
   { key: "event", label: "생일 이벤트" },
+  { key: "suggestion", label: "건의함" },
   { key: "product", label: "상품" },
   { key: "promotion", label: "매장 이벤트" },
   { key: "fragrance", label: "향료 교체일" },
@@ -140,15 +143,15 @@ export default function AdminPage() {
       <div>
         {tab === "dailytask" ? <DailyTaskAdmin /> : null}
         {tab === "event" ? <EventAdmin /> : null}
+        {tab === "suggestion" ? <SuggestionAdmin /> : null}
         {tab === "product" ? <ProductAdmin /> : null}
         {tab === "promotion" ? <PromotionAdmin /> : null}
         {tab === "fragrance" ? <FragranceAdmin /> : null}
         {tab === "cleaning" ? <CleaningAdmin /> : null}
-        {/* 근무 일지: 주간 그리드/리포트가 넓어 max-w-5xl 컨테이너를 벗어나
-            전체 폭(full-bleed)으로 표시한다. 안쪽은 max-w-[1600px]로 재중앙정렬. */}
+        {/* 근무 일지: 주간 그리드/리포트가 넓어 전체 폭(full-bleed)으로 표시한다. */}
         {tab === "worklog" ? (
           <div className="relative left-1/2 right-1/2 -mx-[50vw] w-screen overflow-x-clip">
-            <div className="mx-auto w-full max-w-[1600px] px-3 sm:px-4">
+            <div className="w-full px-2 sm:px-3">
               <SchedulerApp />
             </div>
           </div>

@@ -53,6 +53,10 @@ export default function DashboardPage() {
   const [checks, setChecks] = useState<Record<string, CheckState>>({});
   // 월 범위 완료 여부 (key = `${taskId}_${date}` -> checked) — 캘린더 미완료 마커용
   const [monthChecks, setMonthChecks] = useState<Record<string, boolean>>({});
+  // 월 범위 관리자 확인 여부 (key = `${taskId}_${date}` -> approved) — 미완료 집계 제외용
+  const [monthApprovals, setMonthApprovals] = useState<Record<string, boolean>>(
+    {}
+  );
 
   const [loading, setLoading] = useState(true);
   const configured = isFirebaseConfigured();
@@ -90,14 +94,20 @@ export default function DashboardPage() {
         setTasks(taskRows);
         setEvents(eventRows);
         const m: Record<string, boolean> = {};
-        for (const r of checkRows) m[`${r.taskId}_${r.date}`] = !!r.checked;
+        const a: Record<string, boolean> = {};
+        for (const r of checkRows) {
+          m[`${r.taskId}_${r.date}`] = !!r.checked;
+          a[`${r.taskId}_${r.date}`] = !!r.adminApproved;
+        }
         setMonthChecks(m);
+        setMonthApprovals(a);
       } catch {
         if (cancelled) return;
         setShifts([]);
         setTasks([]);
         setEvents([]);
         setMonthChecks({});
+        setMonthApprovals({});
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -118,7 +128,11 @@ export default function DashboardPage() {
         if (cancelled) return;
         const map: Record<string, CheckState> = {};
         for (const r of rows)
-          map[r.taskId] = { checked: !!r.checked, note: r.note ?? "" };
+          map[r.taskId] = {
+            checked: !!r.checked,
+            note: r.note ?? "",
+            approved: !!r.adminApproved,
+          };
         setChecks(map);
       } catch {
         if (!cancelled) setChecks({});
@@ -135,7 +149,11 @@ export default function DashboardPage() {
     (taskId: string, checked: boolean) => {
       setChecks((prev) => ({
         ...prev,
-        [taskId]: { checked, note: prev[taskId]?.note ?? "" },
+        [taskId]: {
+          checked,
+          note: prev[taskId]?.note ?? "",
+          approved: prev[taskId]?.approved ?? false,
+        },
       }));
       setMonthChecks((prev) => ({
         ...prev,
@@ -149,9 +167,32 @@ export default function DashboardPage() {
   const handleNote = useCallback((taskId: string, note: string) => {
     setChecks((prev) => ({
       ...prev,
-      [taskId]: { checked: prev[taskId]?.checked ?? false, note },
+      [taskId]: {
+        checked: prev[taskId]?.checked ?? false,
+        note,
+        approved: prev[taskId]?.approved ?? false,
+      },
     }));
   }, []);
+
+  // 관리자 확인 토글(낙관적) — 선택 날짜 + 월범위 마커 동시 갱신
+  const handleApproved = useCallback(
+    (taskId: string, approved: boolean) => {
+      setChecks((prev) => ({
+        ...prev,
+        [taskId]: {
+          checked: prev[taskId]?.checked ?? false,
+          note: prev[taskId]?.note ?? "",
+          approved,
+        },
+      }));
+      setMonthApprovals((prev) => ({
+        ...prev,
+        [`${taskId}_${selectedDate}`]: approved,
+      }));
+    },
+    [selectedDate]
+  );
 
   // 월 이동 핸들러
   const goPrev = useCallback(() => {
@@ -245,6 +286,7 @@ export default function DashboardPage() {
               tasks={tasks}
               events={events}
               monthChecks={monthChecks}
+              monthApprovals={monthApprovals}
               onPrev={goPrev}
               onNext={goNext}
               onToday={goToday}
@@ -265,6 +307,7 @@ export default function DashboardPage() {
               checks={checks}
               onChecked={handleChecked}
               onNote={handleNote}
+              onApproved={handleApproved}
               checkDisabled={!configured}
             />
           </Section>

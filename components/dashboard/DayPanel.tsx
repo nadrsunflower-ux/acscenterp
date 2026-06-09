@@ -16,10 +16,11 @@ interface DayPanelProps {
   shifts: WorkShift[];
   tasks: Task[];
   events: CalendarEvent[];
-  // taskId -> {checked, note}
+  // taskId -> {checked, note, approved}
   checks: Record<string, CheckState>;
   onChecked: (taskId: string, checked: boolean) => void;
   onNote: (taskId: string, note: string) => void;
+  onApproved: (taskId: string, approved: boolean) => void;
   // Firebase 미설정 시 체크 저장 불가
   checkDisabled?: boolean;
 }
@@ -62,6 +63,7 @@ function StoreBlock({
   checks,
   onChecked,
   onNote,
+  onApproved,
   checkDisabled,
 }: {
   store: Store;
@@ -72,6 +74,7 @@ function StoreBlock({
   checks: Record<string, CheckState>;
   onChecked: (taskId: string, checked: boolean) => void;
   onNote: (taskId: string, note: string) => void;
+  onApproved: (taskId: string, approved: boolean) => void;
   checkDisabled: boolean;
 }) {
   const style = STORE_STYLE[store];
@@ -139,6 +142,7 @@ function StoreBlock({
           checks={checks}
           onChecked={onChecked}
           onNote={onNote}
+          onApproved={onApproved}
           disabled={checkDisabled}
           hideStore
         />
@@ -187,6 +191,7 @@ export default function DayPanel({
   checks,
   onChecked,
   onNote,
+  onApproved,
   checkDisabled = false,
 }: DayPanelProps) {
   const stores: Store[] = storeFilter === "all" ? ["id", "wow"] : [storeFilter];
@@ -217,6 +222,7 @@ export default function DayPanel({
           checks={checks}
           onChecked={onChecked}
           onNote={onNote}
+          onApproved={onApproved}
           checkDisabled={checkDisabled}
         />
       ))}

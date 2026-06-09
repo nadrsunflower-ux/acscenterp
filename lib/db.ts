@@ -13,8 +13,10 @@ import {
   query,
   where,
   orderBy,
+  deleteField,
   type Firestore,
   type QueryConstraint,
+  type UpdateData,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
@@ -31,6 +33,8 @@ import type {
   FragranceReplacement,
   CleaningGuide,
   CleaningZone,
+  Suggestion,
+  SuggestionStatus,
 } from "./types";
 import {
   defaultProducts,
@@ -50,6 +54,7 @@ const COL = {
   products: "products",
   promotions: "promotions",
   settings: "settings", // 향료 교체일 / 청소 가이드 등 단건 설정
+  suggestions: "suggestions", // 건의함
 } as const;
 
 // 설정 문서 id 생성 헬퍼
@@ -297,11 +302,11 @@ export async function listTaskChecks(opts: {
   return snap.docs.map((s) => docToData<TaskCheck>(s.id, s.data()));
 }
 
-// 체크 상태/비고 부분 업데이트 (merge) — checked 또는 note 한쪽만 보내도 다른 값 유지
+// 체크 상태/비고 부분 업데이트 (merge) — checked/note/adminApproved 중 보낸 값만 갱신, 나머지는 유지
 export async function setTaskCheck(
   taskId: string,
   date: string,
-  patch: { checked?: boolean; note?: string }
+  patch: { checked?: boolean; note?: string; adminApproved?: boolean; adminApprovedAt?: number }
 ): Promise<void> {
   const d = db();
   if (!d) return;
@@ -480,6 +485,80 @@ export async function setCleaning(
   if (!d) return;
   const payload: CleaningGuide = { store, zones };
   await setDoc(doc(d, COL.settings, cleaningDocId(store)), payload);
+}
+
+// ---------------------------------------------------------------------------
+// Suggestion (건의함)
+// ---------------------------------------------------------------------------
+export async function listSuggestions(): Promise<Suggestion[]> {
+  const d = db();
+  if (!d) return [];
+  const snap = await getDocs(collection(d, COL.suggestions));
+  const rows = snap.docs.map((s) => docToData<Suggestion>(s.id, s.data()));
+  // 최신순(내림차순) — 정렬은 클라이언트에서 (인덱스 불필요)
+  rows.sort((a, b) => b.createdAt - a.createdAt);
+  return rows;
+}
+
+// 근무자 제출 — confirmed/createdAt 은 서버에서 채운다.
+export async function createSuggestion(data: {
+  title: string;
+  author: string;
+  content: string;
+  suggestionDate: string;
+}): Promise<string> {
+  const d = db();
+  if (!d) return "";
+  const refDoc = await addDoc(collection(d, COL.suggestions), {
+    title: data.title,
+    author: data.author,
+    content: data.content,
+    suggestionDate: data.suggestionDate,
+    confirmed: false,
+    createdAt: Date.now(),
+  });
+  return refDoc.id;
+}
+
+// 관리자 처리 — 확인 토글 등 부분 업데이트.
+export async function updateSuggestion(
+  id: string,
+  data: Partial<Suggestion>
+): Promise<void> {
+  const d = db();
+  if (!d) return;
+  await updateDoc(doc(d, COL.suggestions, id), data);
+}
+
+// 관리자 답변 저장 — 상태(미선택=null 이면 필드 삭제) + 코멘트 + 완료정보를 함께 기록.
+// completedDate/completedComment 는 null 이면 필드 삭제(완료가 아닐 때 정리).
+export async function setSuggestionResponse(
+  id: string,
+  resp: {
+    status: SuggestionStatus | null;
+    adminComment: string;
+    completedDate: string | null;
+    completedComment: string | null;
+  }
+): Promise<void> {
+  const d = db();
+  if (!d) return;
+  const payload: UpdateData<Suggestion> = {
+    adminComment: resp.adminComment,
+    status: resp.status === null ? deleteField() : resp.status,
+    completedDate:
+      resp.completedDate === null ? deleteField() : resp.completedDate,
+    completedComment:
+      resp.completedComment === null ? deleteField() : resp.completedComment,
+    handledAt: Date.now(),
+  };
+  await updateDoc(doc(d, COL.suggestions, id), payload);
+}
+
+export async function deleteSuggestion(id: string): Promise<void> {
+  const d = db();
+  if (!d) return;
+  await deleteDoc(doc(d, COL.suggestions, id));
 }
 
 // ---------------------------------------------------------------------------

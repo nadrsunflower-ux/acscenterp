@@ -152,6 +152,18 @@ export function formatPrice(amount: number): string {
   return `${amount.toLocaleString("ko-KR")}원`;
 }
 
+// 밀리초 타임스탬프 -> "2026년 6월 6일 오후 3:24" (서울 기준)
+export function formatTimestamp(ms: number): string {
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(ms));
+}
+
 // 시간 문자열을 분 단위 숫자로 ("12:30" -> 750). 비교/정렬용.
 export function timeToMinutes(hhmm: string): number {
   const [h, m] = hhmm.split(":").map((v) => parseInt(v, 10));

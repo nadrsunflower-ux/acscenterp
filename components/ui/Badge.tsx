@@ -6,7 +6,8 @@ export type BadgeColor =
   | "green"
   | "orange"
   | "red"
-  | "blue";
+  | "blue"
+  | "amber";
 
 export interface BadgeProps {
   children: ReactNode;
@@ -21,6 +22,7 @@ const COLOR_MAP: Record<BadgeColor, string> = {
   orange: "bg-orange-100 text-orange-700",
   red: "bg-red-100 text-red-700",
   blue: "bg-blue-100 text-blue-700",
+  amber: "bg-amber-100 text-amber-700",
 };
 
 export default function Badge({

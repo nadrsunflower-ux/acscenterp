@@ -19,6 +19,8 @@ interface CalendarProps {
   events: CalendarEvent[];
   // `${taskId}_${date}` -> checked (월범위 완료 여부)
   monthChecks: Record<string, boolean>;
+  // `${taskId}_${date}` -> 관리자 확인 여부 (미완료 집계에서 제외)
+  monthApprovals: Record<string, boolean>;
   onPrev: () => void;
   onNext: () => void;
   onToday: () => void;
@@ -36,6 +38,7 @@ export default function Calendar({
   tasks,
   events,
   monthChecks,
+  monthApprovals,
   onPrev,
   onNext,
   onToday,
@@ -119,11 +122,13 @@ export default function Calendar({
           const isToday = cell.ymd === seoulToday;
           const isPast = cell.ymd < seoulToday;
           const hasTask = cellTasks.length > 0;
-          // 과거 날짜에 완료되지 않은 업무가 하나라도 있으면 미완료 경고
+          // 완료(checked)도 관리자 확인(approved)도 아닌 업무가 하나라도 있으면 미완료
           const hasIncomplete =
             hasTask &&
             cellTasks.some(
-              (t) => monthChecks[`${t.id}_${cell.ymd}`] !== true
+              (t) =>
+                monthChecks[`${t.id}_${cell.ymd}`] !== true &&
+                monthApprovals[`${t.id}_${cell.ymd}`] !== true
             );
           const showWarn = isPast && hasIncomplete;
 

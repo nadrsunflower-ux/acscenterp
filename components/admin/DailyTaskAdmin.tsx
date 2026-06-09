@@ -45,6 +45,14 @@ export default function DailyTaskAdmin() {
   const [formDesc, setFormDesc] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
+  // 블록 없이 선택한 날짜에 바로 추가하는 1회성 업무 폼
+  const [directStore, setDirectStore] = useState<Store>("id");
+  const [directTitle, setDirectTitle] = useState("");
+  const [directDesc, setDirectDesc] = useState("");
+
+  // 추가 작업 진행 중 플래그 — 더블클릭/Enter 중복 제출로 인한 중복 업무 생성 방지(두 추가 버튼 공유)
+  const [submitting, setSubmitting] = useState(false);
+
   // 모든 일일(daily) 업무 — 캘린더 건수 + 선택 날짜 목록의 소스
   const [allDaily, setAllDaily] = useState<Task[]>([]);
 
@@ -188,6 +196,7 @@ export default function DailyTaskAdmin() {
 
   // ---- 선택한 블록을 선택한 여러 날짜에 추가 ----
   async function handleAddToDates() {
+    if (submitting) return;
     setStatus(null);
     if (!configured) {
       setStatus({ kind: "error", text: "Firebase 미설정으로 추가할 수 없습니다." });
@@ -202,9 +211,10 @@ export default function DailyTaskAdmin() {
       setStatus({ kind: "error", text: "추가할 블록을 선택하세요." });
       return;
     }
+    setSubmitting(true);
+    let added = 0;
+    let skipped = 0;
     try {
-      let added = 0;
-      let skipped = 0;
       for (const date of selectedDateList) {
         // 그 날짜에 이미 있는 업무 + 같은 배치에서 방금 추가한 것 둘 다로 중복 판정
         const existing = allDaily.filter((t) => t.date === date);
@@ -230,16 +240,92 @@ export default function DailyTaskAdmin() {
           added++;
         }
       }
-      await loadTasks();
       setSelected(new Set());
       setStatus({
-        kind: "success",
+        kind: added > 0 ? "success" : "info",
         text: `${selectedDateList.length}개 날짜에 ${added}건 추가${
           skipped ? `, ${skipped}건 중복 건너뜀` : ""
         }.`,
       });
     } catch {
-      setStatus({ kind: "error", text: "추가 중 오류가 발생했습니다." });
+      setStatus({
+        kind: "error",
+        text:
+          added > 0
+            ? `${added}건 추가 후 오류가 발생했습니다. 목록을 확인하세요.`
+            : "추가 중 오류가 발생했습니다.",
+      });
+    } finally {
+      // 부분 저장이 있어도 목록을 새로고침해 다음 시도의 중복 판정을 정확히 한다.
+      await loadTasks();
+      setSubmitting(false);
+    }
+  }
+
+  // ---- 블록 없이 직접 입력한 업무를 선택한 여러 날짜에 추가 ----
+  async function handleAddDirect(e: React.FormEvent) {
+    e.preventDefault();
+    if (submitting) return;
+    setStatus(null);
+    if (!configured) {
+      setStatus({ kind: "error", text: "Firebase 미설정으로 추가할 수 없습니다." });
+      return;
+    }
+    const title = directTitle.trim();
+    const description = directDesc.trim();
+    if (selectedDateList.length === 0) {
+      setStatus({ kind: "error", text: "캘린더에서 날짜를 선택하세요." });
+      return;
+    }
+    if (!title) {
+      setStatus({ kind: "error", text: "업무명을 입력하세요." });
+      return;
+    }
+    setSubmitting(true);
+    let added = 0;
+    let skipped = 0;
+    try {
+      for (const date of selectedDateList) {
+        // 같은 날짜·매장에 같은 업무명이 이미 있으면 건너뜀(블록 추가와 동일 규칙)
+        const dup = allDaily.some(
+          (t) => t.date === date && t.store === directStore && t.title === title
+        );
+        if (dup) {
+          skipped++;
+          continue;
+        }
+        await createTask({
+          store: directStore,
+          title,
+          type: "daily",
+          date,
+          ...(description ? { description } : {}),
+        });
+        added++;
+      }
+      // 실제로 추가된 게 있을 때만 입력 초기화(전부 중복이면 입력 유지)
+      if (added > 0) {
+        setDirectTitle("");
+        setDirectDesc("");
+      }
+      setStatus({
+        kind: added > 0 ? "success" : "info",
+        text: `${selectedDateList.length}개 날짜에 ${added}건 추가${
+          skipped ? `, ${skipped}건 중복 건너뜀` : ""
+        }.`,
+      });
+    } catch {
+      setStatus({
+        kind: "error",
+        text:
+          added > 0
+            ? `${added}건 추가 후 오류가 발생했습니다. 목록을 확인하세요.`
+            : "추가 중 오류가 발생했습니다.",
+      });
+    } finally {
+      // 부분 저장이 있어도 목록을 새로고침해 다음 시도의 중복 판정을 정확히 한다.
+      await loadTasks();
+      setSubmitting(false);
     }
   }
 
@@ -255,7 +341,7 @@ export default function DailyTaskAdmin() {
   return (
     <Section
       title="일일 업무"
-      subtitle="업무 블록을 만들어 두고, 캘린더에서 날짜를 여러 개 골라 그 날짜들의 대시보드 업무 체크리스트에 한 번에 추가합니다."
+      subtitle="업무 블록을 만들어 두고 날짜에 한 번에 추가하거나, 블록 없이 직접 입력해 선택한 날짜에 바로 추가할 수 있습니다."
     >
       {!configured ? <FirebaseNotice /> : null}
 
@@ -472,15 +558,73 @@ export default function DailyTaskAdmin() {
               type="button"
               className="btn-primary disabled:opacity-50"
               onClick={handleAddToDates}
-              disabled={!configured || selected.size === 0 || selectedDates.size === 0}
+              disabled={
+                !configured ||
+                submitting ||
+                selected.size === 0 ||
+                selectedDates.size === 0
+              }
             >
-              블록 {selected.size}개 → {selectedDates.size}개 날짜 추가
+              {submitting
+                ? "추가 중..."
+                : `블록 ${selected.size}개 → ${selectedDates.size}개 날짜 추가`}
             </button>
           </div>
           <p className="mt-2 text-xs text-gray-400">
             캘린더에서 날짜를 여러 개 눌러 선택(다시 누르면 해제)하고, 왼쪽에서 블록을 선택한 뒤
             추가하면 선택한 모든 날짜의 대시보드 업무 체크리스트에 표시됩니다.
           </p>
+
+          {/* 블록 없이 직접 추가 — 1회성 업무를 선택한 날짜에 바로 등록 */}
+          <div className="mt-4 rounded-xl border border-dashed border-gray-300 p-3">
+            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-400">
+              또는 블록 없이 직접 추가
+            </p>
+            <form onSubmit={handleAddDirect} className="space-y-2.5">
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[120px_1fr]">
+                <Field label="매장">
+                  <StoreSelect
+                    value={directStore}
+                    onChange={(v) => setDirectStore(v as Store)}
+                  />
+                </Field>
+                <Field label="업무명">
+                  <input
+                    className="input"
+                    value={directTitle}
+                    onChange={(e) => setDirectTitle(e.target.value)}
+                    placeholder="예: 임시 점검, 행사 준비"
+                  />
+                </Field>
+              </div>
+              <Field label="세부 설명 (선택)">
+                <textarea
+                  className="input min-h-[48px] resize-y"
+                  value={directDesc}
+                  onChange={(e) => setDirectDesc(e.target.value)}
+                  placeholder="업무 수행 방법·체크 포인트 등 자세한 설명"
+                  rows={2}
+                />
+              </Field>
+              <button
+                type="submit"
+                className="btn-primary disabled:opacity-50"
+                disabled={
+                  !configured ||
+                  submitting ||
+                  selectedDates.size === 0 ||
+                  !directTitle.trim()
+                }
+              >
+                {submitting
+                  ? "추가 중..."
+                  : `선택한 ${selectedDates.size}개 날짜에 추가`}
+              </button>
+            </form>
+            <p className="mt-1.5 text-xs text-gray-400">
+              블록 라이브러리에 저장하지 않고 선택한 날짜에만 1회성으로 추가합니다.
+            </p>
+          </div>
 
           {/* 선택한 날짜들의 업무 */}
           <div className="mt-4">

@@ -1,6 +1,6 @@
 // 정적 운영 콘텐츠 (Firestore 와 무관하게 코드에 고정되는 안내성 데이터).
 // 매장 운영시간, 환불 규정/방법, 와이파이, 재고 위치 이미지.
-import type { Store } from "./types";
+import type { Store, SuggestionStatus } from "./types";
 
 export interface StoreHour {
   store: Store;
@@ -71,3 +71,25 @@ export const storeLabel: Record<Store, string> = {
 export function hoursForStore(store: Store): StoreHour[] {
   return storeHours.filter((h) => h.store === store);
 }
+
+// ---------------------------------------------------------------------------
+// 건의함 — 근무자 목록 / 처리 상태 라벨
+// ---------------------------------------------------------------------------
+// 건의함에서 선택 가능한 근무자 (사용자 지정)
+export const suggestionAuthors: string[] = [
+  "김정연",
+  "김제연",
+  "김주희",
+  "김명연",
+  "장하영",
+  "유혜윤",
+  "이우빈",
+];
+
+// 관리자 처리 상태 표시명
+export const suggestionStatusLabel: Record<SuggestionStatus, string> = {
+  planned: "업데이트 예정",
+  hold: "업데이트 보류",
+  rejected: "업데이트 불가",
+  completed: "업데이트 완료",
+};

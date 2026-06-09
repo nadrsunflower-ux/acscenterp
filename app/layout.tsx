@@ -21,7 +21,7 @@ export default function RootLayout({
     <html lang="ko">
       <body className="min-h-screen font-sans antialiased">
         <Nav />
-        <main className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6">
+        <main className="mx-auto w-full px-2 py-4 sm:px-4">
           {children}
         </main>
       </body>

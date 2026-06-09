@@ -26,7 +26,7 @@ export default function SchedulerApp() {
     <div className="min-h-fit bg-slate-50 text-slate-800 font-sans selection:bg-indigo-100 selection:text-indigo-900 rounded-2xl overflow-hidden border border-slate-200">
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-md z-20 border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="w-full px-3 sm:px-4">
           <div className="flex flex-col md:flex-row justify-between items-center py-4 gap-4">
             <div>
               <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-indigo-600">
@@ -64,7 +64,7 @@ export default function SchedulerApp() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="w-full px-3 sm:px-4 py-6">
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
           {activeTab === 'weekly' && <WeeklySchedule />}
           {activeTab === 'schedule' && <ScheduleManager />}
@@ -75,7 +75,7 @@ export default function SchedulerApp() {
 
       {/* Footer */}
       <footer className="bg-white border-t border-slate-200 mt-auto">
-        <div className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+        <div className="w-full px-3 py-6 sm:px-4">
           <div className="flex flex-col items-center justify-center text-center">
             <p className="text-sm text-slate-400 font-medium">
               © {new Date().getFullYear()} 악센트 근무 일지 관리 시스템. All rights reserved.
