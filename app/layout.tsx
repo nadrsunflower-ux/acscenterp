@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import Nav from "@/components/Nav";
+import AppChrome from "@/components/AppChrome";
 
 export const metadata: Metadata = {
   title: "악센트 운영 관리",
@@ -20,10 +20,7 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <body className="min-h-screen font-sans antialiased">
-        <Nav />
-        <main className="mx-auto w-full px-2 py-4 sm:px-4">
-          {children}
-        </main>
+        <AppChrome>{children}</AppChrome>
       </body>
     </html>
   );
