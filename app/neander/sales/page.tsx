@@ -70,7 +70,7 @@ export default function SalesPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
-        <SaleForm members={members} defaultMemberId={currentMember?.id} />
+        <SaleForm me={currentMember} />
 
         <div className="flex flex-col gap-4">
           {/* 필터 */}
@@ -176,39 +176,27 @@ function SummaryCard({
   );
 }
 
-function SaleForm({
-  members,
-  defaultMemberId,
-}: {
-  members: { id: string; name: string }[];
-  defaultMemberId?: string;
-}) {
+function SaleForm({ me }: { me: { id: string; name: string } | null }) {
   const [channel, setChannel] = useState<SalesChannel>("accent");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(todayStr());
-  const [memberId, setMemberId] = useState(defaultMemberId ?? "");
   const [client, setClient] = useState("");
   const [memo, setMemo] = useState("");
   const [saving, setSaving] = useState(false);
-
-  // currentMember가 늦게 로드될 때 기본값 반영
-  const effectiveMemberId = memberId || defaultMemberId || "";
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const amt = Number(amount.replace(/,/g, ""));
     if (!amt || amt <= 0) return alert("금액을 올바르게 입력하세요.");
-    if (!effectiveMemberId) return alert("담당자를 선택하세요.");
-    const member = members.find((m) => m.id === effectiveMemberId);
-    if (!member) return alert("담당자를 선택하세요.");
     setSaving(true);
     try {
       await addSale({
         channel,
         amount: amt,
         date,
-        memberId: member.id,
-        memberName: member.name,
+        // 담당자는 로그인한 사람으로 자동 기록 (입력 폼 제거)
+        memberId: me?.id ?? "",
+        memberName: me?.name ?? "",
         client: emptyToUndef(client),
         memo: emptyToUndef(memo),
       });
@@ -241,23 +229,9 @@ function SaleForm({
             placeholder="예: 1500000"
           />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="날짜" required>
-            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          </Field>
-          <Field label="담당자" required>
-            <Select value={effectiveMemberId} onChange={(e) => setMemberId(e.target.value)}>
-              <option value="" disabled>
-                선택
-              </option>
-              {members.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
+        <Field label="날짜" required>
+          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </Field>
         <Field label="거래처" hint="선택 입력">
           <Input value={client} onChange={(e) => setClient(e.target.value)} placeholder="예: ㅇㅇ상사" />
         </Field>

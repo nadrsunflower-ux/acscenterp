@@ -10,31 +10,38 @@ import {
   setRequestReply,
   acknowledgeRequest,
   nudgeRequest,
+  setRequestTask,
   deleteRequest,
 } from "@/lib/neander/db/requests";
+import { addTask } from "@/lib/neander/db/tasks";
 import { emptyToUndef } from "@/lib/neander/db/helpers";
 import {
   Button,
   Card,
   Field,
   Input,
-  Select,
   Textarea,
   PageHeader,
   Badge,
   EmptyState,
+  MemberAvatar,
+  CategoryPicker,
   cn,
 } from "@/components/neander/ui";
 import {
   RECEIVED_STATUS_ACTIONS,
   requestStatusLabel,
+  taskCategoryLabel,
+  taskCategoryColor,
   type RequestStatus,
+  type TaskCategory,
   type WorkRequest,
 } from "@/lib/neander/types";
 import {
   formatDateKo,
   formatTimestamp,
   isOverdue,
+  todayStr,
   weekKey,
   weekRangeLabel,
 } from "@/lib/neander/format";
@@ -172,9 +179,31 @@ function RequestCard({ req, mode }: { req: WorkRequest; mode: "received" | "sent
   const [reply, setReply] = useState(req.replyMessage ?? "");
   const [savingReply, setSavingReply] = useState(false);
   const [nudging, setNudging] = useState(false);
+  const [addingTask, setAddingTask] = useState(false);
 
   const replyDirty = reply.trim() !== (req.replyMessage ?? "").trim();
   const nudgeCount = req.nudgeCount ?? 0;
+
+  // 받은 요청 → 마감일(없으면 오늘) 일일업무로 등록
+  async function addToDailyTasks() {
+    setAddingTask(true);
+    try {
+      const taskId = await addTask({
+        memberId: req.toId,
+        memberName: req.toName,
+        date: req.dueDate || todayStr(),
+        category: req.category ?? "etc",
+        title: req.title,
+        detail: req.detail
+          ? `[업무요청·${req.fromName}] ${req.detail}`
+          : `${req.fromName}님의 업무요청`,
+        status: "todo",
+      });
+      await setRequestTask(req.id, taskId);
+    } finally {
+      setAddingTask(false);
+    }
+  }
 
   async function saveReply() {
     setSavingReply(true);
@@ -210,6 +239,9 @@ function RequestCard({ req, mode }: { req: WorkRequest; mode: "received" | "sent
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <Badge color={STATUS_COLOR[req.status]}>{requestStatusLabel(req.status)}</Badge>
+            {req.category && (
+              <Badge color={taskCategoryColor(req.category)}>{taskCategoryLabel(req.category)}</Badge>
+            )}
             {overdue && <Badge color="#dc2626">마감 지남</Badge>}
           </div>
           <div className={cn("mt-2 text-sm font-semibold", done ? "text-green-700" : "text-zinc-900")}>
@@ -273,6 +305,27 @@ function RequestCard({ req, mode }: { req: WorkRequest; mode: "received" | "sent
               </Button>
             ))}
           </div>
+
+          {/* 일일업무 추가 */}
+          <div className="flex flex-wrap items-center gap-2">
+            {req.taskId ? (
+              <span className="text-xs font-medium text-emerald-600">
+                ✓ 일일업무 추가됨{req.dueDate ? ` · ${formatDateKo(req.dueDate)}` : " · 오늘"}
+              </span>
+            ) : (
+              <Button
+                variant="secondary"
+                className="!px-2.5 !py-1 !text-xs"
+                onClick={addToDailyTasks}
+                disabled={addingTask}
+              >
+                {addingTask
+                  ? "추가 중…"
+                  : `📅 ${req.dueDate ? `${formatDateKo(req.dueDate)} ` : "오늘 "}일일업무에 추가`}
+              </Button>
+            )}
+          </div>
+
           <div className="flex flex-col gap-2">
             <span className="text-xs text-zinc-400">요청자에게 남길 메시지</span>
             <div className="flex items-start gap-2">
@@ -324,11 +377,12 @@ function RequestForm({
   members,
   me,
 }: {
-  members: { id: string; name: string }[];
+  members: { id: string; name: string; color?: string; avatar?: string }[];
   me: { id: string; name: string };
 }) {
   const others = members.filter((m) => m.id !== me.id);
   const [toId, setToId] = useState("");
+  const [category, setCategory] = useState<TaskCategory>("id");
   const [title, setTitle] = useState("");
   const [detail, setDetail] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -346,6 +400,7 @@ function RequestForm({
         fromName: me.name,
         toId: to.id,
         toName: to.name,
+        category,
         title: title.trim(),
         detail: emptyToUndef(detail),
         dueDate: emptyToUndef(dueDate),
@@ -365,16 +420,32 @@ function RequestForm({
       <p className="mb-4 text-xs text-zinc-400">보내는 사람: {me.name}</p>
       <form onSubmit={submit} className="flex flex-col gap-4">
         <Field label="받는 사람" required>
-          <Select value={toId} onChange={(e) => setToId(e.target.value)}>
-            <option value="" disabled>
-              선택
-            </option>
-            {others.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </Select>
+          {others.length === 0 ? (
+            <p className="text-xs text-zinc-400">등록된 다른 팀원이 없습니다.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {others.map((m) => {
+                const selected = toId === m.id;
+                return (
+                  <button
+                    type="button"
+                    key={m.id}
+                    onClick={() => setToId(m.id)}
+                    className={cn(
+                      "flex w-16 flex-col items-center gap-1 rounded-xl border p-2 transition",
+                      selected ? "border-indigo-500 bg-indigo-50" : "border-zinc-200 hover:bg-zinc-50",
+                    )}
+                  >
+                    <MemberAvatar name={m.name} color={m.color} avatar={m.avatar} className="h-9 w-9 text-base" />
+                    <span className="w-full truncate text-center text-xs text-zinc-700">{m.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </Field>
+        <Field label="분류" required>
+          <CategoryPicker value={category} onChange={setCategory} />
         </Field>
         <Field label="요청 제목" required>
           <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="예: 매출 자료 정리 부탁" />

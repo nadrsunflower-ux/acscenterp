@@ -3,10 +3,9 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useAppData } from "@/components/neander/app-data";
-import { Card, Badge, EmptyState, cn } from "@/components/neander/ui";
+import { Card, Badge, cn } from "@/components/neander/ui";
 import {
   SALES_CHANNELS,
-  taskStatusLabel,
   type SalesChannel,
   type DailyTask,
   type Member,
@@ -44,10 +43,6 @@ export default function DashboardPage() {
   const myReceived = currentMember
     ? requests.filter((r) => r.toId === currentMember.id && r.status !== "done")
     : [];
-
-  const recentTasks = [...tasks]
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, 5);
 
   return (
     <div>
@@ -99,7 +94,7 @@ export default function DashboardPage() {
         {/* 내 받은 요청 */}
         <Card>
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-zinc-800">내 받은 요청 (미완료)</h2>
+            <h2 className="text-sm font-semibold text-zinc-800">받은 요청 (미완료)</h2>
             <Link href="/neander/requests" className="text-xs text-indigo-600 hover:underline">
               전체 →
             </Link>
@@ -119,29 +114,6 @@ export default function DashboardPage() {
                   {r.dueDate && (
                     <span className="text-xs text-zinc-400">{formatDateKo(r.dueDate)}</span>
                   )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-
-        {/* 최근 업무 */}
-        <Card>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-zinc-800">최근 등록 업무</h2>
-            <Link href="/neander/tasks" className="text-xs text-indigo-600 hover:underline">
-              전체 →
-            </Link>
-          </div>
-          {recentTasks.length === 0 ? (
-            <EmptyState icon="✅" title="등록된 업무가 없습니다" />
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {recentTasks.map((t) => (
-                <li key={t.id} className="flex items-center gap-2 text-sm">
-                  <span className="text-xs text-zinc-400">{t.memberName}</span>
-                  <span className="flex-1 truncate text-zinc-700">{t.title}</span>
-                  <Badge>{taskStatusLabel(t.status)}</Badge>
                 </li>
               ))}
             </ul>

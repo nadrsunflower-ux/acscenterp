@@ -69,7 +69,7 @@ export default function MeetingsPage() {
     <div>
       <PageHeader
         title="회의록"
-        description="회의 내용을 정리하고, 우선순위 액션플랜을 담당자·마감기한과 함께 기록합니다. 담당자가 지정된 액션플랜은 해당 담당자의 일일업무에 자동 등록됩니다."
+        description="회의 내용을 정리하고, 액션플랜을 담당자·마감기한과 함께 기록합니다. 담당자가 지정된 액션플랜은 해당 담당자의 일일업무에 자동 등록됩니다."
       />
 
       <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
@@ -99,6 +99,7 @@ function MeetingCard({
   memberColor: (id: string) => string;
 }) {
   const [editing, setEditing] = useState(false);
+  const [expanded, setExpanded] = useState(false); // 기본 접힘
 
   async function remove() {
     if (!confirm("이 회의록을 삭제할까요? (이미 등록된 일일업무는 그대로 유지됩니다)")) return;
@@ -112,14 +113,19 @@ function MeetingCard({
   return (
     <Card className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge color="#6366f1">{formatDateKo(meeting.date)}</Badge>
-            {meeting.title && (
-              <span className="text-sm font-semibold text-zinc-900">{meeting.title}</span>
-            )}
-          </div>
-        </div>
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        >
+          <span className="text-zinc-400">{expanded ? "▾" : "▸"}</span>
+          <Badge color="#6366f1">{formatDateKo(meeting.date)}</Badge>
+          {meeting.title && (
+            <span className="truncate text-sm font-semibold text-zinc-900">{meeting.title}</span>
+          )}
+          {!expanded && meeting.actionItems.length > 0 && (
+            <span className="shrink-0 text-xs text-zinc-400">· 액션 {meeting.actionItems.length}</span>
+          )}
+        </button>
         <div className="flex shrink-0 gap-1">
           <button
             onClick={() => setEditing(true)}
@@ -137,35 +143,37 @@ function MeetingCard({
         </div>
       </div>
 
-      {meeting.content && (
-        <p className="whitespace-pre-wrap text-sm text-zinc-700">{meeting.content}</p>
-      )}
+      {expanded && (
+        <>
+          {meeting.content && (
+            <p className="whitespace-pre-wrap text-sm text-zinc-700">{meeting.content}</p>
+          )}
 
-      {meeting.actionItems.length > 0 && (
-        <div className="flex flex-col gap-2 border-t border-zinc-100 pt-3">
-          <span className="text-xs font-semibold text-zinc-500">우선순위 액션플랜</span>
-          <ol className="flex flex-col gap-2">
-            {meeting.actionItems.map((a, i) => (
-              <li key={a.id} className="flex items-start gap-2 text-sm">
-                <span className="mt-0.5 w-4 shrink-0 text-center text-xs font-bold text-zinc-400">
-                  {i + 1}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <span className="text-zinc-800">{a.text}</span>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
-                    {a.assigneeName ? (
-                      <Badge color={memberColor(a.assigneeId)}>{a.assigneeName}</Badge>
-                    ) : (
-                      <span className="text-zinc-400">담당자 미지정</span>
-                    )}
-                    {a.dueDate && <span>· 마감 {formatDateKo(a.dueDate)}</span>}
-                    {a.taskId && <span className="text-emerald-500">· ✅ 일일업무 등록됨</span>}
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ol>
-        </div>
+          {meeting.actionItems.length > 0 && (
+            <div className="flex flex-col gap-2 border-t border-zinc-100 pt-3">
+              <span className="text-xs font-semibold text-zinc-500">액션플랜</span>
+              <ul className="flex flex-col gap-2">
+                {meeting.actionItems.map((a) => (
+                  <li key={a.id} className="flex items-start gap-2 text-sm">
+                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-300" />
+                    <div className="min-w-0 flex-1">
+                      <span className="text-zinc-800">{a.text}</span>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+                        {a.assigneeName ? (
+                          <Badge color={memberColor(a.assigneeId)}>{a.assigneeName}</Badge>
+                        ) : (
+                          <span className="text-zinc-400">담당자 미지정</span>
+                        )}
+                        {a.dueDate && <span>· 마감 {formatDateKo(a.dueDate)}</span>}
+                        {a.taskId && <span className="text-emerald-500">· ✅ 일일업무 등록됨</span>}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
       )}
     </Card>
   );
@@ -299,17 +307,15 @@ function MeetingEditor({
 
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-zinc-700">우선순위 액션플랜</span>
-            <span className="text-xs text-zinc-400">위에서부터 높은 우선순위</span>
+            <span className="text-sm font-medium text-zinc-700">액션플랜</span>
           </div>
 
           <div className="flex flex-col gap-3">
-            {drafts.map((d, i) => (
+            {drafts.map((d) => (
               <div key={d.key} className="rounded-lg border border-zinc-200 p-3">
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-zinc-400">
-                    #{i + 1}
-                    {d.taskId && <span className="ml-1 text-emerald-500">· 일일업무 연결됨</span>}
+                  <span className="text-xs font-medium text-emerald-500">
+                    {d.taskId ? "✅ 일일업무 연결됨" : ""}
                   </span>
                   {drafts.length > 1 && (
                     <button

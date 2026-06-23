@@ -17,14 +17,13 @@ import {
   Input,
   Select,
   Textarea,
-  PageHeader,
   EmptyState,
   Badge,
+  CategoryPicker,
   cn,
 } from "@/components/neander/ui";
 import {
   TASK_STATUSES,
-  TASK_CATEGORIES,
   taskCategoryLabel,
   taskCategoryColor,
   type TaskStatus,
@@ -38,28 +37,44 @@ import {
   monthGrid,
   shiftMonth,
   monthLabel,
+  weekDatesOf,
+  weekLabelOf,
+  addDays,
 } from "@/lib/neander/format";
 
 const STATUS_COLOR: Record<TaskStatus, string> = {
   todo: "#a1a1aa",
   done: "#16a34a",
   extended: "#ca8a04",
+  on_hold: "#64748b",
 };
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
-// 연장(노란 형광펜) 여부
 const isExtended = (t: DailyTask) => t.status === "extended";
+const isStruck = (t: DailyTask) => t.status === "done" || t.status === "on_hold";
+
+// 상태 필터 세그먼트 (전체 + 4개 상태)
+const STATUS_TABS: { value: TaskStatus | "all"; label: string }[] = [
+  { value: "all", label: "전체" },
+  { value: "todo", label: "예정" },
+  { value: "done", label: "완료" },
+  { value: "extended", label: "연장" },
+  { value: "on_hold", label: "보류" },
+];
 
 export default function TasksPage() {
   const { tasks, members, currentMember } = useAppData();
 
   const today = todayStr();
+  const [viewMode, setViewMode] = useState<"week" | "month">("week");
+  const [weekAnchor, setWeekAnchor] = useState(today); // 주간 스트립에 표시할 주(그 주의 한 날짜)
   const [viewMonth, setViewMonth] = useState(thisMonthStr());
   const [selectedDate, setSelectedDate] = useState(today);
-  // 기본값: 본인 업무만 보이는 캘린더 (팀원 연결이 없으면 전체)
   const [memberFilter, setMemberFilter] = useState(currentMember?.id ?? "all");
+  const [statusFilter, setStatusFilter] = useState<TaskStatus | "all">("all");
 
+  // 담당자 필터 적용
   const scoped = useMemo(
     () => tasks.filter((t) => memberFilter === "all" || t.memberId === memberFilter),
     [tasks, memberFilter],
@@ -75,168 +90,259 @@ export default function TasksPage() {
     return map;
   }, [scoped]);
 
-  const dayTasks = useMemo(
-    () => [...(byDate.get(selectedDate) ?? [])].sort((a, b) => b.createdAt - a.createdAt),
-    [byDate, selectedDate],
-  );
+  // 선택일 업무 (상태 필터 적용)
+  const dayTasks = useMemo(() => {
+    const list = [...(byDate.get(selectedDate) ?? [])].sort((a, b) => b.createdAt - a.createdAt);
+    return statusFilter === "all" ? list : list.filter((t) => t.status === statusFilter);
+  }, [byDate, selectedDate, statusFilter]);
 
+  const weekDays = useMemo(() => weekDatesOf(weekAnchor), [weekAnchor]);
   const grid = useMemo(() => monthGrid(viewMonth), [viewMonth]);
 
   function selectDate(date: string) {
     setSelectedDate(date);
+    setWeekAnchor(date);
     const m = date.slice(0, 7);
     if (m !== viewMonth) setViewMonth(m);
   }
 
+  function toggleMode() {
+    if (viewMode === "week") {
+      setViewMonth(selectedDate.slice(0, 7));
+      setViewMode("month");
+    } else {
+      setWeekAnchor(selectedDate);
+      setViewMode("week");
+    }
+  }
+
   return (
     <div>
-      <PageHeader title="일일업무" description="좌측에서 업무를 등록하고, 우측 캘린더에서 날짜별 업무를 확인·관리합니다." />
+      {/* 인사 헤더 */}
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold tracking-tight text-zinc-900">
+          {currentMember ? `안녕하세요, ${currentMember.name}님 ` : "일일업무 "}
+          <span className="align-middle">👋</span>
+        </h1>
+        <p className="mt-1 text-sm text-zinc-500">오늘도 좋은 하루 되세요!</p>
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
         {/* 좌측: 업무 등록 */}
-        <TaskForm
-          members={members}
-          defaultMemberId={currentMember?.id}
-          date={selectedDate}
-          onDateChange={selectDate}
-        />
+        <TaskForm me={currentMember} date={selectedDate} onDateChange={selectDate} />
 
-        {/* 우측: 캘린더 + 선택일 업무 */}
+        {/* 우측: 날짜 선택 + 상태 탭 + 목록 */}
         <div className="flex flex-col gap-4">
-          <Card className="flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-3">
+          {/* 날짜 카드 (주간 스트립 / 월 달력 토글) */}
+          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5">
+            <div className="mb-3 flex items-center justify-between gap-2">
               <div className="flex items-center gap-1">
                 <button
-                  onClick={() => setViewMonth(shiftMonth(viewMonth, -1))}
+                  onClick={() =>
+                    viewMode === "week"
+                      ? setWeekAnchor(addDays(weekAnchor, -7))
+                      : setViewMonth(shiftMonth(viewMonth, -1))
+                  }
                   className="rounded-lg px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100"
-                  aria-label="이전 달"
+                  aria-label="이전"
                 >
                   ‹
                 </button>
-                <span className="min-w-[110px] text-center text-sm font-semibold text-zinc-800">
-                  {monthLabel(viewMonth)}
+                <span className="min-w-[140px] text-center text-sm font-semibold text-zinc-800">
+                  {viewMode === "week" ? weekLabelOf(weekAnchor) : monthLabel(viewMonth)}
                 </span>
                 <button
-                  onClick={() => setViewMonth(shiftMonth(viewMonth, 1))}
+                  onClick={() =>
+                    viewMode === "week"
+                      ? setWeekAnchor(addDays(weekAnchor, 7))
+                      : setViewMonth(shiftMonth(viewMonth, 1))
+                  }
                   className="rounded-lg px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100"
-                  aria-label="다음 달"
+                  aria-label="다음"
                 >
                   ›
                 </button>
               </div>
-              <Select
-                value={memberFilter}
-                onChange={(e) => setMemberFilter(e.target.value)}
-                className="w-32"
-              >
-                <option value="all">전체 담당자</option>
-                {members.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-
-            <div className="grid grid-cols-7 gap-1">
-              {WEEKDAYS.map((w, i) => (
-                <div
-                  key={w}
-                  className={cn(
-                    "py-1 text-center text-xs font-medium",
-                    i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-zinc-400",
-                  )}
+              <div className="flex items-center gap-2">
+                <Select
+                  value={memberFilter}
+                  onChange={(e) => setMemberFilter(e.target.value)}
+                  className="!w-28 !py-1.5 !text-xs"
                 >
-                  {w}
-                </div>
-              ))}
+                  <option value="all">전체 담당자</option>
+                  {members.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </Select>
+                <button
+                  onClick={toggleMode}
+                  className="rounded-lg bg-zinc-100 px-2.5 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-200"
+                >
+                  {viewMode === "week" ? "월 보기" : "주 보기"}
+                </button>
+              </div>
             </div>
 
-            <div className="grid grid-cols-7 gap-1">
-              {grid.map((date, idx) => {
-                if (!date) return <div key={`e${idx}`} className="min-h-[64px] rounded-lg" />;
-                const dayNum = Number(date.slice(8, 10));
-                const dow = idx % 7;
-                const cellTasks = byDate.get(date) ?? [];
-                const isSelected = date === selectedDate;
-                const isToday = date === today;
-                return (
-                  <button
-                    key={date}
-                    onClick={() => selectDate(date)}
-                    className={cn(
-                      "flex min-h-[64px] flex-col gap-0.5 rounded-lg border p-1 text-left transition",
-                      isSelected
-                        ? "border-indigo-500 bg-indigo-50"
-                        : "border-zinc-100 hover:border-indigo-200 hover:bg-zinc-50",
-                    )}
-                  >
-                    <span
+            {viewMode === "week" ? (
+              /* 주간 스트립 */
+              <div className="grid grid-cols-7 gap-1 rounded-2xl bg-zinc-50 p-1.5">
+                {weekDays.map((d, i) => {
+                  const dayNum = Number(d.slice(8, 10));
+                  const count = (byDate.get(d) ?? []).length;
+                  const selected = d === selectedDate;
+                  const isToday = d === today;
+                  return (
+                    <button
+                      key={d}
+                      onClick={() => selectDate(d)}
                       className={cn(
-                        "text-xs font-medium",
-                        isToday
-                          ? "flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-white"
-                          : dow === 0
-                            ? "text-red-400"
-                            : dow === 6
-                              ? "text-blue-400"
-                              : "text-zinc-600",
+                        "flex flex-col items-center gap-1 rounded-xl py-2.5 transition",
+                        selected ? "bg-white shadow-sm ring-1 ring-zinc-200" : "hover:bg-white/60",
                       )}
                     >
-                      {dayNum}
-                    </span>
-                    <div className="flex flex-col gap-0.5 overflow-hidden">
-                      {cellTasks.slice(0, 3).map((t) => (
+                      <span
+                        className={cn(
+                          "text-[11px] font-medium",
+                          i === 0 ? "text-red-300" : i === 6 ? "text-blue-300" : "text-zinc-400",
+                        )}
+                      >
+                        {WEEKDAYS[i]}
+                      </span>
+                      <span
+                        className={cn(
+                          "text-base font-bold",
+                          selected ? "text-zinc-900" : isToday ? "text-indigo-500" : "text-zinc-400",
+                        )}
+                      >
+                        {dayNum}
+                      </span>
+                      <span
+                        className={cn(
+                          "h-1 w-1 rounded-full",
+                          count > 0 ? (selected ? "bg-indigo-500" : "bg-zinc-300") : "bg-transparent",
+                        )}
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              /* 월 달력 */
+              <div>
+                <div className="grid grid-cols-7 gap-1">
+                  {WEEKDAYS.map((w, i) => (
+                    <div
+                      key={w}
+                      className={cn(
+                        "py-1 text-center text-xs font-medium",
+                        i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-zinc-400",
+                      )}
+                    >
+                      {w}
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-7 gap-1">
+                  {grid.map((date, idx) => {
+                    if (!date) return <div key={`e${idx}`} className="min-h-[60px] rounded-lg" />;
+                    const dayNum = Number(date.slice(8, 10));
+                    const dow = idx % 7;
+                    const cellTasks = byDate.get(date) ?? [];
+                    const selected = date === selectedDate;
+                    const isToday = date === today;
+                    return (
+                      <button
+                        key={date}
+                        onClick={() => selectDate(date)}
+                        className={cn(
+                          "flex min-h-[60px] flex-col gap-0.5 rounded-lg border p-1 text-left transition",
+                          selected ? "border-indigo-500 bg-indigo-50" : "border-zinc-100 hover:bg-zinc-50",
+                        )}
+                      >
                         <span
-                          key={t.id}
                           className={cn(
-                            "flex items-center gap-1 truncate rounded px-1 text-[10px] leading-tight",
-                            isExtended(t)
-                              ? "bg-yellow-200 text-yellow-800"
-                              : t.status === "done"
-                                ? "text-zinc-400 line-through"
-                                : "text-zinc-700",
+                            "text-xs font-medium",
+                            isToday
+                              ? "flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-white"
+                              : dow === 0
+                                ? "text-red-400"
+                                : dow === 6
+                                  ? "text-blue-400"
+                                  : "text-zinc-600",
                           )}
                         >
-                          <span
-                            className="h-1.5 w-1.5 shrink-0 rounded-full"
-                            style={{ backgroundColor: taskCategoryColor(t.category) }}
-                          />
-                          <span className="truncate">{t.title}</span>
+                          {dayNum}
                         </span>
-                      ))}
-                      {cellTasks.length > 3 && (
-                        <span className="text-[10px] text-zinc-400">+{cellTasks.length - 3}</span>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </Card>
+                        <div className="flex flex-col gap-0.5 overflow-hidden">
+                          {cellTasks.slice(0, 2).map((t) => (
+                            <span
+                              key={t.id}
+                              className={cn(
+                                "flex items-center gap-1 truncate rounded px-1 text-[10px] leading-tight",
+                                isExtended(t)
+                                  ? "bg-yellow-200 text-yellow-800"
+                                  : isStruck(t)
+                                    ? "text-zinc-400 line-through"
+                                    : "text-zinc-700",
+                              )}
+                            >
+                              <span
+                                className="h-1.5 w-1.5 shrink-0 rounded-full"
+                                style={{ backgroundColor: taskCategoryColor(t.category) }}
+                              />
+                              <span className="truncate">{t.title}</span>
+                            </span>
+                          ))}
+                          {cellTasks.length > 2 && (
+                            <span className="text-[10px] text-zinc-400">+{cellTasks.length - 2}</span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 상태 세그먼트 탭 */}
+          <div className="flex gap-1 overflow-x-auto rounded-full bg-zinc-100 p-1">
+            {STATUS_TABS.map((s) => (
+              <button
+                key={s.value}
+                onClick={() => setStatusFilter(s.value)}
+                className={cn(
+                  "whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium transition",
+                  statusFilter === s.value
+                    ? "bg-zinc-900 text-white shadow-sm"
+                    : "text-zinc-500 hover:text-zinc-800",
+                )}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
 
           {/* 선택일 업무 목록 */}
-          <Card className="!p-0">
-            <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3">
-              <h2 className="text-sm font-semibold text-zinc-800">{formatDateKo(selectedDate)} 업무</h2>
-              <span className="text-xs text-zinc-400">
-                {dayTasks.length}건
-                {dayTasks.filter((t) => t.status === "done").length > 0 &&
-                  ` · 완료 ${dayTasks.filter((t) => t.status === "done").length}건`}
-              </span>
+          <div className="rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
+            <div className="flex items-center justify-between px-4 py-3">
+              <h2 className="text-sm font-semibold text-zinc-800">{formatDateKo(selectedDate)}</h2>
+              <span className="text-xs text-zinc-400">{dayTasks.length}건</span>
             </div>
             {dayTasks.length === 0 ? (
-              <div className="px-4 py-10">
-                <EmptyState icon="✅" title="이 날짜에 등록된 업무가 없습니다" description="왼쪽에서 등록하세요." />
+              <div className="px-4 pb-10 pt-2">
+                <EmptyState icon="✅" title="표시할 업무가 없습니다" description="왼쪽에서 등록하거나 필터를 바꿔보세요." />
               </div>
             ) : (
               <ul className="divide-y divide-zinc-100">
                 {dayTasks.map((t) => (
-                  <TaskRow key={t.id} task={t} members={members} />
+                  <TaskRow key={t.id} task={t} members={members} onMoved={selectDate} />
                 ))}
               </ul>
             )}
-          </Card>
+          </div>
         </div>
       </div>
     </div>
@@ -246,24 +352,26 @@ export default function TasksPage() {
 function TaskRow({
   task,
   members,
+  onMoved,
 }: {
   task: DailyTask;
   members: { id: string; name: string }[];
+  onMoved?: (date: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [picking, setPicking] = useState(false); // 연장 날짜 선택 중
-  const [extDate, setExtDate] = useState(task.extendedDate ?? "");
+  const [picking, setPicking] = useState(false);
+  const [extDate, setExtDate] = useState("");
 
-  // 편집용 상태
   const [title, setTitle] = useState(task.title);
   const [detail, setDetail] = useState(task.detail ?? "");
   const [memberId, setMemberId] = useState(task.memberId);
   const [date, setDate] = useState(task.date);
   const [category, setCategory] = useState<TaskCategory>(task.category);
-  const [status, setStatus] = useState<TaskStatus>(task.status);
   const [busy, setBusy] = useState(false);
 
   const extended = isExtended(task);
+  const struck = isStruck(task);
+  const done = task.status === "done";
 
   function startEdit() {
     setTitle(task.title);
@@ -271,7 +379,6 @@ function TaskRow({
     setMemberId(task.memberId);
     setDate(task.date);
     setCategory(task.category);
-    setStatus(task.status);
     setEditing(true);
   }
 
@@ -288,9 +395,6 @@ function TaskRow({
         category,
         title: title.trim(),
         detail: emptyToUndef(detail),
-        status,
-        // 연장이 아니면 연장일 제거
-        extendedDate: status === "extended" ? emptyToUndef(task.extendedDate) : undefined,
       });
       setEditing(false);
     } finally {
@@ -298,10 +402,9 @@ function TaskRow({
     }
   }
 
-  // 상태 셀렉트 변경
   function onStatusChange(next: TaskStatus) {
     if (next === "extended") {
-      setExtDate(task.extendedDate ?? "");
+      setExtDate(task.date);
       setPicking(true);
     } else {
       setPicking(false);
@@ -311,11 +414,12 @@ function TaskRow({
 
   function confirmExtend() {
     if (!extDate) return alert("연장할 날짜를 선택하세요.");
-    setTaskExtended(task.id, extDate);
+    const original = task.originalDate ?? task.date;
+    setTaskExtended(task.id, extDate, original);
     setPicking(false);
+    onMoved?.(extDate);
   }
 
-  // ---- 편집 모드 ----
   if (editing) {
     return (
       <li className="flex flex-col gap-2 bg-zinc-50/60 px-4 py-3">
@@ -334,22 +438,8 @@ function TaskRow({
           </Select>
           <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <Select value={category} onChange={(e) => setCategory(e.target.value as TaskCategory)}>
-            {TASK_CATEGORIES.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </Select>
-          <Select value={status} onChange={(e) => setStatus(e.target.value as TaskStatus)}>
-            {TASK_STATUSES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </Select>
-        </div>
+        <CategoryPicker value={category} onChange={setCategory} />
+        <p className="text-[11px] text-zinc-400">상태(예정/완료/연장/보류)는 저장 후 목록의 상태 선택으로 변경하세요.</p>
         <div className="flex gap-2">
           <Button className="!px-3 !py-1.5 !text-xs" onClick={saveEdit} disabled={busy || !title.trim()}>
             {busy ? "저장 중…" : "저장"}
@@ -367,26 +457,36 @@ function TaskRow({
     );
   }
 
-  // ---- 표시 모드 ----
   return (
     <li className={cn("flex flex-col gap-1.5 px-4 py-3", extended && "bg-yellow-100")}>
-      <div className="flex items-center gap-2">
-        <span
-          className="h-2.5 w-2.5 shrink-0 rounded-full"
-          style={{ backgroundColor: STATUS_COLOR[task.status] }}
-        />
+      <div className="flex items-center gap-2.5">
+        {/* 완료 체크박스 */}
+        <button
+          onClick={() => setTaskStatus(task.id, done ? "todo" : "done")}
+          className={cn(
+            "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-[11px] transition",
+            done ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:border-zinc-500",
+          )}
+          aria-label="완료 토글"
+        >
+          {done && "✓"}
+        </button>
         <Badge color={taskCategoryColor(task.category)}>{taskCategoryLabel(task.category)}</Badge>
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-sm",
-            task.status === "done" ? "text-zinc-400 line-through" : "font-medium text-zinc-800",
+            struck ? "text-zinc-400 line-through" : "font-medium text-zinc-800",
             extended && "bg-yellow-200 px-1",
           )}
         >
           {task.title}
         </span>
-        <div className="w-24 shrink-0">
-          <Select value={task.status} onChange={(e) => onStatusChange(e.target.value as TaskStatus)}>
+        <div className="w-[88px] shrink-0">
+          <Select
+            value={task.status}
+            onChange={(e) => onStatusChange(e.target.value as TaskStatus)}
+            className="!py-1.5 !text-xs"
+          >
             {TASK_STATUSES.map((s) => (
               <option key={s.value} value={s.value}>
                 {s.label}
@@ -411,33 +511,24 @@ function TaskRow({
         </button>
       </div>
 
-      {/* 상세 + 담당자 (가로 정렬) */}
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pl-[18px] text-xs text-zinc-400">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pl-[30px] text-xs text-zinc-400">
         <span>{task.memberName}</span>
         {task.detail && <span className="text-zinc-500">· {task.detail}</span>}
-        {extended && task.extendedDate && (
-          <span className="font-medium text-yellow-700">· 🟡 {formatDateKo(task.extendedDate)}로 연장</span>
+        {extended && task.originalDate && (
+          <span className="rounded bg-yellow-200 px-1 font-medium text-yellow-800">
+            🟡 {formatDateKo(task.originalDate)} → {formatDateKo(task.date)}로 연장
+          </span>
         )}
       </div>
 
-      {/* 연장 날짜 선택 */}
       {picking && (
-        <div className="flex items-center gap-2 pl-[18px]">
+        <div className="flex items-center gap-2 pl-[30px]">
           <span className="text-xs text-zinc-500">연장할 날짜</span>
-          <Input
-            type="date"
-            value={extDate}
-            onChange={(e) => setExtDate(e.target.value)}
-            className="w-40"
-          />
+          <Input type="date" value={extDate} onChange={(e) => setExtDate(e.target.value)} className="w-40" />
           <Button className="!px-3 !py-1 !text-xs" onClick={confirmExtend}>
             연장 확정
           </Button>
-          <Button
-            variant="secondary"
-            className="!px-3 !py-1 !text-xs"
-            onClick={() => setPicking(false)}
-          >
+          <Button variant="secondary" className="!px-3 !py-1 !text-xs" onClick={() => setPicking(false)}>
             취소
           </Button>
         </div>
@@ -447,34 +538,28 @@ function TaskRow({
 }
 
 function TaskForm({
-  members,
-  defaultMemberId,
+  me,
   date,
   onDateChange,
 }: {
-  members: { id: string; name: string }[];
-  defaultMemberId?: string;
+  me: { id: string; name: string } | null;
   date: string;
   onDateChange: (date: string) => void;
 }) {
-  const [memberId, setMemberId] = useState("");
   const [category, setCategory] = useState<TaskCategory>("id");
   const [title, setTitle] = useState("");
   const [detail, setDetail] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const effectiveMemberId = memberId || defaultMemberId || "";
-
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
-    const member = members.find((m) => m.id === effectiveMemberId);
-    if (!member) return alert("담당자를 선택하세요.");
+    if (!me) return alert("로그인 계정이 팀원과 연결되어야 등록할 수 있습니다.");
     setSaving(true);
     try {
       await addTask({
-        memberId: member.id,
-        memberName: member.name,
+        memberId: me.id,
+        memberName: me.name,
         date,
         category,
         title: title.trim(),
@@ -489,34 +574,19 @@ function TaskForm({
   }
 
   return (
-    <Card>
+    <Card className="!rounded-2xl">
       <h2 className="mb-4 text-sm font-semibold text-zinc-800">업무 등록</h2>
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="담당자" required>
-            <Select value={effectiveMemberId} onChange={(e) => setMemberId(e.target.value)}>
-              <option value="" disabled>
-                선택
-              </option>
-              {members.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="날짜" required hint="캘린더에서 선택 가능">
-            <Input type="date" value={date} onChange={(e) => onDateChange(e.target.value)} />
-          </Field>
-        </div>
+        <Field label="담당자">
+          <div className="flex h-[42px] items-center rounded-lg border border-zinc-200 bg-zinc-50 px-3 text-sm text-zinc-700">
+            {me ? `${me.name} (나)` : "로그인 필요"}
+          </div>
+        </Field>
+        <Field label="마감일" required hint="캘린더에서 선택 가능">
+          <Input type="date" value={date} onChange={(e) => onDateChange(e.target.value)} />
+        </Field>
         <Field label="분류" required>
-          <Select value={category} onChange={(e) => setCategory(e.target.value as TaskCategory)}>
-            {TASK_CATEGORIES.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </Select>
+          <CategoryPicker value={category} onChange={setCategory} />
         </Field>
         <Field label="업무 내용" required>
           <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="예: 거래처 미팅 자료 작성" />
@@ -524,7 +594,7 @@ function TaskForm({
         <Field label="상세" hint="선택 입력">
           <Textarea rows={3} value={detail} onChange={(e) => setDetail(e.target.value)} />
         </Field>
-        <Button type="submit" disabled={saving || !title.trim()}>
+        <Button type="submit" disabled={saving || !title.trim() || !me}>
           {saving ? "등록 중…" : "업무 등록"}
         </Button>
       </form>

@@ -16,11 +16,12 @@ export const salesChannelLabel = (c: SalesChannel) =>
   SALES_CHANNELS.find((x) => x.value === c)?.label ?? c;
 
 /** 일일업무 상태 */
-export type TaskStatus = "todo" | "done" | "extended";
+export type TaskStatus = "todo" | "done" | "extended" | "on_hold";
 export const TASK_STATUSES: { value: TaskStatus; label: string }[] = [
   { value: "todo", label: "예정" },
   { value: "done", label: "완료" },
   { value: "extended", label: "연장" },
+  { value: "on_hold", label: "보류" },
 ];
 export const taskStatusLabel = (s: TaskStatus) =>
   TASK_STATUSES.find((x) => x.value === s)?.label ?? s;
@@ -28,9 +29,9 @@ export const taskStatusLabel = (s: TaskStatus) =>
 /** 일일업무 분류 */
 export type TaskCategory = "id" | "wow" | "smoat" | "etc";
 export const TASK_CATEGORIES: { value: TaskCategory; label: string; color: string }[] = [
+  { value: "smoat", label: "스모트", color: "#0891b2" },
   { value: "id", label: "아이디", color: "#7c5cff" },
   { value: "wow", label: "와우", color: "#ff8a3d" },
-  { value: "smoat", label: "스모트", color: "#0891b2" },
   { value: "etc", label: "기타", color: "#71717a" },
 ];
 export const taskCategoryLabel = (c: TaskCategory) =>
@@ -66,6 +67,8 @@ export interface Member {
   email?: string;
   /** UI 아바타/뱃지 색상 (tailwind 색 hex) */
   color?: string;
+  /** 캐릭터 이모지 아바타 (없으면 이름 첫 글자 표시) */
+  avatar?: string;
   createdAt: number;
 }
 export type MemberInput = Omit<Member, "id" | "createdAt">;
@@ -80,8 +83,8 @@ export interface DailyTask {
   title: string;
   detail?: string;
   status: TaskStatus;
-  /** status === "extended" 일 때 연장된 날짜 (YYYY-MM-DD) */
-  extendedDate?: string;
+  /** status === "extended" 일 때, 연장 전 원래 날짜. date 는 연장된 날짜로 이동된다. */
+  originalDate?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -110,6 +113,8 @@ export interface WorkRequest {
   toName: string;
   title: string;
   detail?: string;
+  /** 분류 (스모트/아이디/와우/기타) */
+  category?: TaskCategory;
   dueDate?: string; // YYYY-MM-DD
   status: RequestStatus;
   /** 받은 사람이 요청자에게 남기는 간단한 답장 메시지 */
@@ -118,12 +123,21 @@ export interface WorkRequest {
   acknowledged?: boolean;
   /** 보낸 사람의 '압박 주기' 누른 횟수 */
   nudgeCount?: number;
+  /** 받은 사람이 '일일업무 추가'로 등록한 일일업무 id (중복 추가 방지) */
+  taskId?: string;
   createdAt: number;
   updatedAt: number;
 }
 export type WorkRequestInput = Omit<
   WorkRequest,
-  "id" | "createdAt" | "updatedAt" | "status" | "replyMessage" | "acknowledged" | "nudgeCount"
+  | "id"
+  | "createdAt"
+  | "updatedAt"
+  | "status"
+  | "replyMessage"
+  | "acknowledged"
+  | "nudgeCount"
+  | "taskId"
 >;
 
 // ---- 회의록 -----------------------------------------------
@@ -158,7 +172,8 @@ export type MeetingInput = Omit<Meeting, "id" | "createdAt" | "updatedAt">;
 /** 스케줄 (대상자에게 공유되는 일정) */
 export interface Schedule {
   id: string;
-  target: string; // 대상자 (자유 입력: "전 직원", "김주연" 등)
+  /** 대상자 팀원 id 목록 (복수 선택) */
+  targetIds: string[];
   date: string; // YYYY-MM-DD 일정 날짜
   title: string;
   content?: string;

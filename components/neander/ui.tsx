@@ -9,6 +9,7 @@ import type {
   TextareaHTMLAttributes,
   ReactNode,
 } from "react";
+import { TASK_CATEGORIES, type TaskCategory } from "@/lib/neander/types";
 
 export function cn(...classes: (string | false | null | undefined)[]): string {
   return classes.filter(Boolean).join(" ");
@@ -131,6 +132,66 @@ export function Badge({
     >
       {children}
     </span>
+  );
+}
+
+// ---- MemberAvatar ------------------------------------------
+// 캐릭터(이모지)가 있으면 이모지를, 없으면 이름 첫 글자를 색상 원 안에 표시.
+// className 으로 크기/글자크기 지정 (예: "h-10 w-10 text-lg").
+export function MemberAvatar({
+  name,
+  color = "#71717a",
+  avatar,
+  className,
+}: {
+  name: string;
+  color?: string;
+  avatar?: string;
+  className?: string;
+}) {
+  const initial = name.trim().charAt(0) || "?";
+  return (
+    <span
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-full font-bold leading-none text-white",
+        className ?? "h-10 w-10 text-lg",
+      )}
+      style={{ backgroundColor: color }}
+    >
+      {avatar || initial}
+    </span>
+  );
+}
+
+// ---- CategoryPicker ----------------------------------------
+// 분류(스모트/아이디/와우/기타)를 칸(박스)으로 선택. 선택 시 분류 색상으로 채워짐.
+export function CategoryPicker({
+  value,
+  onChange,
+}: {
+  value: TaskCategory;
+  onChange: (c: TaskCategory) => void;
+}) {
+  return (
+    <div className="grid grid-cols-4 gap-1.5">
+      {TASK_CATEGORIES.map((c) => {
+        const active = value === c.value;
+        return (
+          <button
+            type="button"
+            key={c.value}
+            onClick={() => onChange(c.value)}
+            className={cn(
+              "rounded-lg border py-2 text-xs font-medium transition",
+              active ? "text-white" : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50",
+            )}
+            style={active ? { backgroundColor: c.color, borderColor: c.color } : undefined}
+          >
+            {c.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

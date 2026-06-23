@@ -126,3 +126,23 @@ export function monthLabel(month: string): string {
   if (!y || !m) return month;
   return `${y}년 ${m}월`;
 }
+
+/** "YYYY-MM-DD"에 n일 더한 날짜 문자열 */
+export function addDays(dateStr: string, n: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + n);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+}
+
+/** "YYYY-MM-DD"가 속한 주의 7일(일~토) */
+export function weekDatesOf(dateStr: string): string[] {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return weekDates(new Date(y, m - 1, d).getTime());
+}
+
+/** "YYYY-MM-DD" 기준 그 주의 라벨 (이번 주/지난 주 + 범위) */
+export function weekLabelOf(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return weekRangeLabel(new Date(y, m - 1, d).getTime());
+}

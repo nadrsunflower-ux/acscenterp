@@ -32,17 +32,22 @@ export async function updateTask(id: string, patch: Partial<DailyTaskInput>) {
   await updateDoc(ref(id), cleanForUpdate({ ...patch, updatedAt: Date.now() }));
 }
 
-/** 예정/완료 등으로 전환 (연장일 필드는 제거) */
+/** 예정/완료/보류 등으로 전환 (연장 표시는 제거) */
 export async function setTaskStatus(id: string, status: TaskStatus) {
   await updateDoc(
     ref(id),
-    cleanForUpdate({ status, extendedDate: undefined, updatedAt: Date.now() }),
+    cleanForUpdate({ status, originalDate: undefined, updatedAt: Date.now() }),
   );
 }
 
-/** 연장 상태로 전환하며 연장 날짜 지정 */
-export async function setTaskExtended(id: string, extendedDate: string) {
-  await updateDoc(ref(id), { status: "extended", extendedDate, updatedAt: Date.now() });
+/** 연장: 업무를 새 날짜로 이동하고 원래 날짜를 보존 */
+export async function setTaskExtended(id: string, newDate: string, originalDate: string) {
+  await updateDoc(ref(id), {
+    status: "extended",
+    date: newDate,
+    originalDate,
+    updatedAt: Date.now(),
+  });
 }
 
 export async function deleteTask(id: string) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useAppData } from "@/components/neander/app-data";
 import {
   subscribeSchedules,
   addSchedule,
@@ -17,9 +18,59 @@ import {
   PageHeader,
   Badge,
   EmptyState,
+  MemberAvatar,
   cn,
 } from "@/components/neander/ui";
-import type { Schedule } from "@/lib/neander/types";
+import type { Schedule, Member } from "@/lib/neander/types";
+
+// 대상자(팀원) 복수 선택기
+function TargetPicker({
+  members,
+  value,
+  onChange,
+}: {
+  members: Member[];
+  value: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const allOn = members.length > 0 && value.length === members.length;
+  function toggle(id: string) {
+    onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        onClick={() => onChange(allOn ? [] : members.map((m) => m.id))}
+        className={cn(
+          "self-start rounded-full px-3 py-1 text-xs font-medium transition",
+          allOn ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200",
+        )}
+      >
+        {allOn ? "전체 해제" : "전체 선택"}
+      </button>
+      <div className="flex flex-wrap gap-2">
+        {members.map((m) => {
+          const sel = value.includes(m.id);
+          return (
+            <button
+              type="button"
+              key={m.id}
+              onClick={() => toggle(m.id)}
+              className={cn(
+                "flex items-center gap-1.5 rounded-full border py-1 pl-1 pr-2.5 transition",
+                sel ? "border-indigo-500 bg-indigo-50" : "border-zinc-200 hover:bg-zinc-50",
+              )}
+            >
+              <MemberAvatar name={m.name} color={m.color} avatar={m.avatar} className="h-6 w-6 text-xs" />
+              <span className="text-xs font-medium text-zinc-700">{m.name}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 import {
   todayStr,
   thisMonthStr,
@@ -158,7 +209,7 @@ export default function SchedulePage() {
                         <span
                           key={s.id}
                           className="flex items-center gap-1 truncate rounded bg-cyan-50 px-1 text-[10px] leading-tight text-cyan-700"
-                          title={`${s.title} (${s.target})`}
+                          title={s.title}
                         >
                           <span className="truncate">{s.title}</span>
                         </span>
@@ -192,8 +243,15 @@ export default function SchedulePage() {
 }
 
 function ScheduleCard({ schedule }: { schedule: Schedule }) {
+  const { members } = useAppData();
   const [editing, setEditing] = useState(false);
   const past = isOverdue(schedule.date);
+
+  const ids = schedule.targetIds ?? [];
+  const targetMembers = ids
+    .map((id) => members.find((m) => m.id === id))
+    .filter((m): m is Member => Boolean(m));
+  const allMembers = members.length > 0 && ids.length === members.length;
 
   if (editing) {
     return <ScheduleEditForm schedule={schedule} onDone={() => setEditing(false)} />;
@@ -203,8 +261,22 @@ function ScheduleCard({ schedule }: { schedule: Schedule }) {
     <Card className="flex flex-col gap-2">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge color="#0891b2">🎯 {schedule.target}</Badge>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {allMembers ? (
+              <Badge color="#0891b2">🎯 전 직원</Badge>
+            ) : targetMembers.length === 0 ? (
+              <span className="text-xs text-zinc-400">대상자 미지정</span>
+            ) : (
+              targetMembers.map((m) => (
+                <span
+                  key={m.id}
+                  className="inline-flex items-center gap-1 rounded-full bg-zinc-100 py-0.5 pl-0.5 pr-2"
+                >
+                  <MemberAvatar name={m.name} color={m.color} avatar={m.avatar} className="h-5 w-5 text-[10px]" />
+                  <span className="text-[11px] text-zinc-600">{m.name}</span>
+                </span>
+              ))
+            )}
             {past && <Badge color="#a1a1aa">지난 일정</Badge>}
           </div>
           <div className="mt-2 text-sm font-semibold text-zinc-900">{schedule.title}</div>
@@ -241,7 +313,8 @@ function ScheduleCreateForm({
   dateValue: string;
   onDateChange: (d: string) => void;
 }) {
-  const [target, setTarget] = useState("");
+  const { members } = useAppData();
+  const [targetIds, setTargetIds] = useState<string[]>([]);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [saving, setSaving] = useState(false);
@@ -249,16 +322,16 @@ function ScheduleCreateForm({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return alert("제목을 입력하세요.");
-    if (!target.trim()) return alert("대상자를 입력하세요.");
+    if (targetIds.length === 0) return alert("대상자를 한 명 이상 선택하세요.");
     setSaving(true);
     try {
       await addSchedule({
-        target: target.trim(),
+        targetIds,
         date: dateValue,
         title: title.trim(),
         content: emptyToUndef(content),
       });
-      setTarget("");
+      setTargetIds([]);
       setTitle("");
       setContent("");
     } finally {
@@ -270,8 +343,8 @@ function ScheduleCreateForm({
     <Card>
       <h2 className="mb-4 text-sm font-semibold text-zinc-800">새 일정</h2>
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <Field label="대상자" required hint="자유 입력 (예: 전 직원, 김주연)">
-          <Input value={target} onChange={(e) => setTarget(e.target.value)} placeholder="예: 전 직원" />
+        <Field label="대상자" required hint="팀원을 복수 선택할 수 있습니다">
+          <TargetPicker members={members} value={targetIds} onChange={setTargetIds} />
         </Field>
         <Field label="일정 날짜" required hint="캘린더에서 선택 가능">
           <Input type="date" value={dateValue} onChange={(e) => onDateChange(e.target.value)} />
@@ -298,7 +371,8 @@ function ScheduleEditForm({
   schedule: Schedule;
   onDone: () => void;
 }) {
-  const [target, setTarget] = useState(schedule.target);
+  const { members } = useAppData();
+  const [targetIds, setTargetIds] = useState<string[]>(schedule.targetIds ?? []);
   const [date, setDate] = useState(schedule.date);
   const [title, setTitle] = useState(schedule.title);
   const [content, setContent] = useState(schedule.content ?? "");
@@ -307,11 +381,11 @@ function ScheduleEditForm({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return alert("제목을 입력하세요.");
-    if (!target.trim()) return alert("대상자를 입력하세요.");
+    if (targetIds.length === 0) return alert("대상자를 한 명 이상 선택하세요.");
     setSaving(true);
     try {
       await updateSchedule(schedule.id, {
-        target: target.trim(),
+        targetIds,
         date,
         title: title.trim(),
         content: emptyToUndef(content),
@@ -327,7 +401,7 @@ function ScheduleEditForm({
       <h2 className="mb-4 text-sm font-semibold text-zinc-800">일정 수정</h2>
       <form onSubmit={submit} className="flex flex-col gap-4">
         <Field label="대상자" required>
-          <Input value={target} onChange={(e) => setTarget(e.target.value)} placeholder="예: 전 직원" />
+          <TargetPicker members={members} value={targetIds} onChange={setTargetIds} />
         </Field>
         <Field label="일정 날짜" required>
           <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />

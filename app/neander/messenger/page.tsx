@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppData } from "@/components/neander/app-data";
 import { useChat } from "@/components/neander/chat";
 import { TEAM_CONVERSATION, dmConversationId } from "@/lib/neander/db/chat";
-import { Button, Card, Input, PageHeader, EmptyState, cn } from "@/components/neander/ui";
+import { Button, Card, Input, PageHeader, EmptyState, MemberAvatar, cn } from "@/components/neander/ui";
 import { formatTimestamp } from "@/lib/neander/format";
 import type { ChatMessage } from "@/lib/neander/types";
 
@@ -12,6 +12,7 @@ interface ConvMeta {
   id: string;
   label: string;
   color?: string;
+  avatar?: string;
   isTeam: boolean;
 }
 
@@ -43,6 +44,7 @@ export default function MessengerPage() {
         id: dmConversationId(myId, m.id),
         label: m.name,
         color: m.color ?? "#71717a",
+        avatar: m.avatar,
         isTeam: false,
       });
     }
@@ -131,12 +133,18 @@ export default function MessengerPage() {
                     active ? "bg-indigo-50" : "hover:bg-zinc-100",
                   )}
                 >
-                  <span
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
-                    style={{ backgroundColor: c.isTeam ? "#6366f1" : c.color }}
-                  >
-                    {c.isTeam ? "팀" : c.label.charAt(0)}
-                  </span>
+                  {c.isTeam ? (
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-500 text-sm font-bold text-white">
+                      팀
+                    </span>
+                  ) : (
+                    <MemberAvatar
+                      name={c.label}
+                      color={c.color}
+                      avatar={c.avatar}
+                      className="h-8 w-8 text-sm"
+                    />
+                  )}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-1">
                       <span className={cn("truncate text-sm", active ? "font-semibold text-indigo-700" : "font-medium text-zinc-800")}>
