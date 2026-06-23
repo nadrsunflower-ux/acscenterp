@@ -6,6 +6,9 @@ import { useAppData } from "@/components/neander/app-data";
 import { Card, Badge, cn } from "@/components/neander/ui";
 import {
   SALES_CHANNELS,
+  taskStatusLabel,
+  taskCategoryLabel,
+  taskCategoryColor,
   type SalesChannel,
   type DailyTask,
   type Member,
@@ -57,9 +60,17 @@ export default function DashboardPage() {
   const myId = currentMember?.id ?? null;
   const todayKST = todayStrKST();
 
+  // 미완료 업무 토글(목록 펼치기)
+  const [showOpen, setShowOpen] = useState(false);
+
   // 로그인 담당자 기준 지표
   const myOpenTasks = myId ? tasks.filter((t) => t.memberId === myId && t.status !== "done") : [];
   const myTodayTasks = myId ? tasks.filter((t) => t.memberId === myId && t.date === todayKST) : [];
+  // 미완료 업무 목록: 마감기한(date) 빠른 순 (지난 것 먼저)
+  const myOpenSorted = useMemo(
+    () => [...myOpenTasks].sort((a, b) => a.date.localeCompare(b.date)),
+    [myOpenTasks],
+  );
 
   // 받은 요청: (지표) 오늘(KST) 받은 개수 + 미확인 존재 여부 N
   const myReceivedAll = myId ? requests.filter((r) => r.toId === myId) : [];
@@ -79,10 +90,15 @@ export default function DashboardPage() {
       </div>
 
       {/* 상단 지표 */}
-      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="이번 달 매출" value={formatKRW(totalSales)} href="/neander/sales" accent />
         <StatCard label="오늘의 업무" value={`${myTodayTasks.length}건`} href="/neander/tasks" />
-        <StatCard label="미완료 업무" value={`${myOpenTasks.length}건`} href="/neander/tasks" />
+        <StatCard
+          label="미완료 업무"
+          value={`${myOpenTasks.length}건`}
+          onToggle={() => setShowOpen((v) => !v)}
+          open={showOpen}
+        />
         <StatCard
           label="받은 요청"
           value={`${myReceivedToday.length}건`}
@@ -90,6 +106,49 @@ export default function DashboardPage() {
           badge={hasUnacked ? "N" : undefined}
         />
       </div>
+
+      {/* 미완료 업무 펼침 목록 (마감기한 포함) */}
+      {showOpen && (
+        <Card className="mb-6">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-zinc-800">
+              미완료 업무 <span className="font-normal text-zinc-400">({myOpenTasks.length})</span>
+            </h2>
+            <Link href="/neander/tasks" className="text-xs text-indigo-600 hover:underline">
+              일일업무 →
+            </Link>
+          </div>
+          {myOpenSorted.length === 0 ? (
+            <p className="py-4 text-center text-sm text-zinc-400">미완료 업무가 없습니다. 👍</p>
+          ) : (
+            <ul className="flex flex-col divide-y divide-zinc-100">
+              {myOpenSorted.map((t) => {
+                const overdue = t.date < todayKST;
+                return (
+                  <li key={t.id} className="flex items-center gap-2 py-2 text-sm">
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: taskCategoryColor(t.category) }}
+                      title={taskCategoryLabel(t.category)}
+                    />
+                    <span className="min-w-0 flex-1 truncate text-zinc-800">{t.title}</span>
+                    <span className="shrink-0 text-[11px] text-zinc-400">{taskStatusLabel(t.status)}</span>
+                    <span
+                      className={cn(
+                        "shrink-0 text-xs",
+                        overdue ? "font-semibold text-red-500" : "text-zinc-500",
+                      )}
+                    >
+                      {formatDateKo(t.date)}
+                      {overdue && " · 지남"}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Card>
+      )}
 
       {/* 주간 업무 (모두의 이번 주 일일업무) */}
       <WeeklyTasks tasks={tasks} members={members} today={today} />
@@ -378,24 +437,32 @@ function StatCard({
   href,
   accent,
   badge,
+  onToggle,
+  open,
 }: {
   label: string;
   value: string;
-  href: string;
+  href?: string;
   accent?: boolean;
   /** 값 옆 작은 표시 (예: 미확인 'N') */
   badge?: string;
+  /** 지정 시 Link 대신 펼침 토글 버튼으로 렌더 (▸/▾) */
+  onToggle?: () => void;
+  open?: boolean;
 }) {
-  return (
-    <Link
-      href={href}
-      className={
-        accent
-          ? "rounded-xl bg-indigo-600 p-4 text-white shadow-sm transition hover:bg-indigo-700"
-          : "rounded-xl border border-zinc-200 bg-white p-4 shadow-sm transition hover:border-indigo-300"
-      }
-    >
-      <div className={accent ? "text-xs text-indigo-100" : "text-xs text-zinc-400"}>{label}</div>
+  const cardCls = accent
+    ? "rounded-xl bg-indigo-600 p-4 text-white shadow-sm transition hover:bg-indigo-700"
+    : "rounded-xl border border-zinc-200 bg-white p-4 shadow-sm transition hover:border-indigo-300";
+  const inner = (
+    <>
+      <div className="flex items-center justify-between gap-1">
+        <span className={accent ? "text-xs text-indigo-100" : "text-xs text-zinc-400"}>{label}</span>
+        {onToggle && (
+          <span className="text-[11px] font-semibold leading-none text-zinc-400">
+            {open ? "▾" : "▸"}
+          </span>
+        )}
+      </div>
       <div className="mt-1 flex items-center gap-1.5">
         <span className={accent ? "text-xl font-bold" : "text-xl font-bold text-zinc-900"}>{value}</span>
         {badge && (
@@ -404,6 +471,24 @@ function StatCard({
           </span>
         )}
       </div>
+    </>
+  );
+
+  if (onToggle) {
+    return (
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className={cn(cardCls, "text-left", open && "border-indigo-300 bg-indigo-50/40")}
+      >
+        {inner}
+      </button>
+    );
+  }
+  return (
+    <Link href={href ?? "#"} className={cardCls}>
+      {inner}
     </Link>
   );
 }
