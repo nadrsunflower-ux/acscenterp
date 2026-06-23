@@ -276,34 +276,7 @@ function WeeklyTasks({
                 </div>
                 <div className="flex flex-col gap-1.5 overflow-y-auto">
                   {groupByMember(dayTasks, memberIndex).map((g) => {
-                    // 단건: 헤더 없이 이름을 업무 카드에 인라인 표기 (세로 공간 절약)
-                    if (g.items.length === 1) {
-                      const t = g.items[0];
-                      return (
-                        <div
-                          key={g.memberId}
-                          className={cn(
-                            "flex items-start gap-1 rounded-md px-1.5 py-1 text-[11px] leading-tight",
-                            t.status === "extended"
-                              ? "bg-yellow-200 text-yellow-800"
-                              : t.status === "done"
-                                ? "bg-zinc-50 text-zinc-400 line-through"
-                                : "bg-zinc-50 text-zinc-700",
-                          )}
-                          title={`${t.memberName}: ${t.title}`}
-                        >
-                          <span
-                            className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full"
-                            style={{ backgroundColor: memberColor(g.memberId) }}
-                          />
-                          <span className="line-clamp-2 break-words">
-                            <span className="mr-1 font-semibold text-zinc-500">{g.memberName}</span>
-                            {t.title}
-                          </span>
-                        </div>
-                      );
-                    }
-                    // 다건: 팀원 헤더(토글) + 그 아래 여러 업무
+                    // 팀원별 묶음: 이름 토글 1회 + 그 아래 그 팀원의 (여러) 업무 (단건 포함 항상)
                     const open = !collapsed.has(`${d}|${g.memberId}`);
                     const ext = g.items.filter((t) => t.status === "extended").length;
                     const hold = g.items.filter((t) => t.status === "on_hold").length;
