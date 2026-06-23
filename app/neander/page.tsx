@@ -248,7 +248,8 @@ function WeeklyTasks({
           {allOff ? "표시할 팀원을 선택하세요." : "이번 주 등록된 업무가 없습니다."}
         </p>
       ) : (
-        <div className="grid grid-cols-7 gap-2">
+        <div className="-mx-1 overflow-x-auto px-1">
+          <div className="grid grid-cols-7 gap-2 min-w-[680px] md:min-w-0">
           {days.map((d, i) => {
             const dayTasks = [...(byDate.get(d) ?? [])].sort((a, b) => a.createdAt - b.createdAt);
             const isToday = d === today;
@@ -275,14 +276,44 @@ function WeeklyTasks({
                 </div>
                 <div className="flex flex-col gap-1.5 overflow-y-auto">
                   {groupByMember(dayTasks, memberIndex).map((g) => {
+                    // 단건: 헤더 없이 이름을 업무 카드에 인라인 표기 (세로 공간 절약)
+                    if (g.items.length === 1) {
+                      const t = g.items[0];
+                      return (
+                        <div
+                          key={g.memberId}
+                          className={cn(
+                            "flex items-start gap-1 rounded-md px-1.5 py-1 text-[11px] leading-tight",
+                            t.status === "extended"
+                              ? "bg-yellow-200 text-yellow-800"
+                              : t.status === "done"
+                                ? "bg-zinc-50 text-zinc-400 line-through"
+                                : "bg-zinc-50 text-zinc-700",
+                          )}
+                          title={`${t.memberName}: ${t.title}`}
+                        >
+                          <span
+                            className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: memberColor(g.memberId) }}
+                          />
+                          <span className="line-clamp-2 break-words">
+                            <span className="mr-1 font-semibold text-zinc-500">{g.memberName}</span>
+                            {t.title}
+                          </span>
+                        </div>
+                      );
+                    }
+                    // 다건: 팀원 헤더(토글) + 그 아래 여러 업무
                     const open = !collapsed.has(`${d}|${g.memberId}`);
+                    const ext = g.items.filter((t) => t.status === "extended").length;
+                    const hold = g.items.filter((t) => t.status === "on_hold").length;
                     return (
                       <div key={g.memberId} className="rounded-md border border-zinc-100 bg-zinc-50/60">
-                        {/* 팀원 토글 (이름 1회 + 업무 수) */}
                         <button
                           type="button"
                           onClick={() => toggleCollapse(d, g.memberId)}
-                          className="flex w-full items-center gap-1 px-1.5 py-1 text-left"
+                          aria-expanded={open}
+                          className="flex min-h-[32px] w-full items-center gap-1 rounded-md px-1.5 py-1 text-left active:bg-zinc-100"
                           title={`${g.memberName} · ${g.items.length}건`}
                         >
                           <span
@@ -292,12 +323,21 @@ function WeeklyTasks({
                           <span className="truncate text-[11px] font-semibold text-zinc-600">
                             {g.memberName}
                           </span>
-                          <span className="text-[10px] text-zinc-400">{g.items.length}</span>
-                          <span className="ml-auto text-[9px] leading-none text-zinc-300">
+                          <span className="shrink-0 text-[10px] text-zinc-400">{g.items.length}</span>
+                          {ext > 0 && (
+                            <span className="shrink-0 rounded-sm bg-yellow-200 px-1 text-[9px] font-semibold leading-tight text-yellow-800">
+                              연장 {ext}
+                            </span>
+                          )}
+                          {hold > 0 && (
+                            <span className="shrink-0 rounded-sm bg-orange-100 px-1 text-[9px] font-semibold leading-tight text-orange-700">
+                              보류 {hold}
+                            </span>
+                          )}
+                          <span className="ml-auto shrink-0 px-0.5 text-[11px] font-semibold leading-none text-zinc-500">
                             {open ? "▾" : "▸"}
                           </span>
                         </button>
-                        {/* 그 팀원의 여러 업무 */}
                         {open && (
                           <div className="flex flex-col gap-0.5 px-1 pb-1">
                             {g.items.map((t) => (
@@ -325,6 +365,7 @@ function WeeklyTasks({
               </div>
             );
           })}
+          </div>
         </div>
       )}
     </Card>
