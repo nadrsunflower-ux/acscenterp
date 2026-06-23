@@ -149,6 +149,8 @@ export interface ActionItem {
   text: string;
   /** 분류 (스모트/아이디/와우/기타) — 일일업무 분류와 동일 */
   category?: TaskCategory;
+  /** 세부사항 (선택) */
+  detail?: string;
   assigneeId: string;
   assigneeName: string;
   dueDate?: string; // YYYY-MM-DD

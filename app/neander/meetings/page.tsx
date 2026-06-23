@@ -39,6 +39,7 @@ interface ActionDraft {
   taskId?: string; // 연결된 일일업무 id (수정 시)
   text: string;
   category: TaskCategory;
+  detail: string;
   assigneeId: string;
   dueDate: string;
 }
@@ -46,7 +47,7 @@ interface ActionDraft {
 let _seq = 0;
 function newDraft(): ActionDraft {
   _seq += 1;
-  return { key: `d${_seq}`, text: "", category: DEFAULT_CATEGORY, assigneeId: "", dueDate: "" };
+  return { key: `d${_seq}`, text: "", category: DEFAULT_CATEGORY, detail: "", assigneeId: "", dueDate: "" };
 }
 function draftsFromMeeting(m: Meeting): ActionDraft[] {
   const ds = m.actionItems.map((a) => {
@@ -57,6 +58,7 @@ function draftsFromMeeting(m: Meeting): ActionDraft[] {
       taskId: a.taskId,
       text: a.text,
       category: a.category ?? DEFAULT_CATEGORY,
+      detail: a.detail ?? "",
       assigneeId: a.assigneeId,
       dueDate: a.dueDate ?? "",
     };
@@ -169,6 +171,9 @@ function MeetingCard({
                     <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-300" />
                     <div className="min-w-0 flex-1">
                       <span className="text-zinc-800">{a.text}</span>
+                      {a.detail && (
+                        <p className="mt-0.5 whitespace-pre-wrap text-xs text-zinc-500">{a.detail}</p>
+                      )}
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
                         {a.category && (
                           <Badge color={taskCategoryColor(a.category)}>
@@ -244,8 +249,14 @@ function MeetingEditor({
         const assignee = members.find((m) => m.id === d.assigneeId);
         const dueDate = emptyToUndef(d.dueDate);
         const text = d.text.trim();
+        const detail = emptyToUndef(d.detail);
 
-        // 담당자가 지정된 액션플랜 → 일일업무 동기화 (분류 포함)
+        // 일일업무에 들어갈 상세: 사용자 세부사항 + 회의록 출처 표기
+        const taskDetail = detail
+          ? `${detail}\n(회의록 ${date} 액션플랜)`
+          : `회의록(${date}) 액션플랜`;
+
+        // 담당자가 지정된 액션플랜 → 일일업무 동기화 (분류·세부사항 포함)
         let taskId = d.taskId;
         if (assignee) {
           if (taskId) {
@@ -255,6 +266,7 @@ function MeetingEditor({
               date: dueDate || date,
               category: d.category,
               title: text,
+              detail: taskDetail,
             });
           } else {
             taskId = await addTask({
@@ -263,7 +275,7 @@ function MeetingEditor({
               date: dueDate || date,
               category: d.category,
               title: text,
-              detail: `회의록(${date}) 액션플랜`,
+              detail: taskDetail,
               status: "todo",
             });
           }
@@ -277,6 +289,7 @@ function MeetingEditor({
           assigneeId: assignee?.id ?? "",
           assigneeName: assignee?.name ?? "",
         };
+        if (detail) item.detail = detail;
         if (dueDate) item.dueDate = dueDate;
         if (taskId) item.taskId = taskId;
         items.push(item);
@@ -359,6 +372,13 @@ function MeetingEditor({
                     onChange={(c) => updateDraft(d.key, { category: c })}
                   />
                 </div>
+                <Textarea
+                  rows={2}
+                  value={d.detail}
+                  onChange={(e) => updateDraft(d.key, { detail: e.target.value })}
+                  placeholder="세부사항 (선택)"
+                  className="mb-2"
+                />
                 <div className="grid grid-cols-2 gap-2">
                   <Select
                     value={d.assigneeId}
