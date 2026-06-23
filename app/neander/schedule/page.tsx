@@ -22,6 +22,13 @@ import {
   cn,
 } from "@/components/neander/ui";
 import type { Schedule, Member } from "@/lib/neander/types";
+import { listScheduleShifts, listEvents } from "@/lib/db";
+import type { WorkShift, CalendarEvent, Store } from "@/lib/types";
+
+// AC'SCENT 매장 라벨/색상 (아이디=보라, 와우=주황)
+const STORE_LABEL: Record<Store, string> = { id: "악센트 아이디", wow: "악센트 와우" };
+const storeCellCls = (store: Store) =>
+  store === "id" ? "bg-brand-light text-brand-dark" : "bg-wow-light text-wow";
 
 // 대상자(팀원) 복수 선택기
 function TargetPicker({
@@ -85,15 +92,50 @@ const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
 export default function SchedulePage() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [shifts, setShifts] = useState<WorkShift[]>([]);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [viewMonth, setViewMonth] = useState(thisMonthStr());
   const [selectedDate, setSelectedDate] = useState(todayStr());
 
+  // NEANDER 팀 일정 (실시간)
   useEffect(() => subscribeSchedules(setSchedules), []);
+
+  // 보는 달의 AC'SCENT 근무자(schedules→shifts) + 생일·이벤트 로드
+  useEffect(() => {
+    const from = `${viewMonth}-01`;
+    const [y, m] = viewMonth.split("-").map(Number);
+    const to = `${viewMonth}-${String(new Date(y, m, 0).getDate()).padStart(2, "0")}`;
+    let alive = true;
+    Promise.all([listScheduleShifts({ from, to }), listEvents({ from, to })])
+      .then(([s, e]) => {
+        if (!alive) return;
+        setShifts(s);
+        setEvents(e);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [viewMonth]);
 
   const today = todayStr();
   const grid = useMemo(() => monthGrid(viewMonth), [viewMonth]);
 
-  const byDate = useMemo(() => {
+  // 날짜별 근무자 (아이디 먼저, 와우 다음)
+  const shiftsByDate = useMemo(() => {
+    const map = new Map<string, WorkShift[]>();
+    for (const s of shifts) {
+      const arr = map.get(s.date);
+      if (arr) arr.push(s);
+      else map.set(s.date, [s]);
+    }
+    for (const arr of map.values())
+      arr.sort((a, b) => (a.store === "id" ? 0 : 1) - (b.store === "id" ? 0 : 1));
+    return map;
+  }, [shifts]);
+
+  // 날짜별 NEANDER 팀 일정
+  const schedulesByDate = useMemo(() => {
     const map = new Map<string, Schedule[]>();
     for (const s of schedules) {
       const arr = map.get(s.date);
@@ -103,9 +145,20 @@ export default function SchedulePage() {
     return map;
   }, [schedules]);
 
+  const eventsForDate = (date: string) =>
+    events.filter((e) => e.startDate <= date && date <= e.endDate);
+
+  const dayShifts = useMemo(
+    () => [...(shiftsByDate.get(selectedDate) ?? [])],
+    [shiftsByDate, selectedDate],
+  );
+  const dayEvents = useMemo(
+    () => eventsForDate(selectedDate),
+    [events, selectedDate], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const daySchedules = useMemo(
-    () => [...(byDate.get(selectedDate) ?? [])].sort((a, b) => a.createdAt - b.createdAt),
-    [byDate, selectedDate],
+    () => [...(schedulesByDate.get(selectedDate) ?? [])].sort((a, b) => a.createdAt - b.createdAt),
+    [schedulesByDate, selectedDate],
   );
 
   function selectDate(date: string) {
@@ -118,14 +171,14 @@ export default function SchedulePage() {
     <div>
       <PageHeader
         title="스케줄"
-        description="대상자에게 공유할 일정을 등록합니다. 우측 캘린더에서 날짜별 일정을 확인·관리하세요."
+        description="AC'SCENT 매장 근무자와 생일·이벤트 일정을 한눈에 봅니다. 팀 일정도 등록·공유할 수 있어요."
       />
 
       <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
-        {/* 좌측: 일정 등록 */}
+        {/* 좌측: 팀 일정 등록 */}
         <ScheduleCreateForm dateValue={selectedDate} onDateChange={selectDate} />
 
-        {/* 우측: 캘린더 + 선택일 일정 */}
+        {/* 우측: 캘린더 + 선택일 상세 */}
         <div className="flex flex-col gap-4">
           <Card className="flex flex-col gap-3">
             <div className="flex items-center gap-1">
@@ -173,10 +226,12 @@ export default function SchedulePage() {
 
             <div className="grid grid-cols-7 gap-1">
               {grid.map((date, idx) => {
-                if (!date) return <div key={`e${idx}`} className="min-h-[64px] rounded-lg" />;
+                if (!date) return <div key={`e${idx}`} className="min-h-[92px] rounded-lg" />;
                 const dayNum = Number(date.slice(8, 10));
                 const dow = idx % 7;
-                const cellItems = byDate.get(date) ?? [];
+                const cellShifts = shiftsByDate.get(date) ?? [];
+                const cellEvents = eventsForDate(date);
+                const hasSchedule = (schedulesByDate.get(date)?.length ?? 0) > 0;
                 const isSelected = date === selectedDate;
                 const isToday = date === today;
                 return (
@@ -184,7 +239,7 @@ export default function SchedulePage() {
                     key={date}
                     onClick={() => selectDate(date)}
                     className={cn(
-                      "flex min-h-[64px] flex-col gap-0.5 rounded-lg border p-1 text-left transition",
+                      "flex min-h-[92px] flex-col gap-0.5 rounded-lg border p-1 text-left transition",
                       isSelected
                         ? "border-indigo-500 bg-indigo-50"
                         : "border-zinc-100 hover:border-indigo-200 hover:bg-zinc-50",
@@ -204,37 +259,135 @@ export default function SchedulePage() {
                     >
                       {dayNum}
                     </span>
-                    <div className="flex flex-col gap-0.5 overflow-hidden">
-                      {cellItems.slice(0, 3).map((s) => (
+                    {/* 근무자 (매장 색) */}
+                    <div className="flex flex-1 flex-col gap-0.5 overflow-hidden">
+                      {cellShifts.slice(0, 4).map((s) => (
                         <span
                           key={s.id}
-                          className="flex items-center gap-1 truncate rounded bg-cyan-50 px-1 text-[10px] leading-tight text-cyan-700"
-                          title={s.title}
+                          className={cn(
+                            "truncate rounded px-1 text-[10px] font-medium leading-tight",
+                            storeCellCls(s.store),
+                          )}
+                          title={`${STORE_LABEL[s.store]} · ${s.staffName}${s.start ? ` (${s.start}~${s.end})` : ""}`}
                         >
-                          <span className="truncate">{s.title}</span>
+                          {s.staffName}
                         </span>
                       ))}
-                      {cellItems.length > 3 && (
-                        <span className="text-[10px] text-zinc-400">+{cellItems.length - 3}</span>
+                      {cellShifts.length > 4 && (
+                        <span className="text-[10px] text-zinc-400">+{cellShifts.length - 4}</span>
                       )}
                     </div>
+                    {/* 하단 점: 생일·이벤트 + 팀 일정 */}
+                    {(cellEvents.length > 0 || hasSchedule) && (
+                      <div className="mt-0.5 flex flex-wrap items-center gap-0.5">
+                        {cellEvents.slice(0, 4).map((e) => (
+                          <span
+                            key={e.id}
+                            className="inline-block h-1.5 w-1.5 rounded-full"
+                            style={{ backgroundColor: e.color || "#ff8a3d" }}
+                            title={e.title}
+                          />
+                        ))}
+                        {hasSchedule && (
+                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-500" title="팀 일정" />
+                        )}
+                      </div>
+                    )}
                   </button>
                 );
               })}
             </div>
+
+            {/* 범례 */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-500">
+              <span className="flex items-center gap-1">
+                <span className="inline-block h-2.5 w-2.5 rounded bg-brand-light ring-1 ring-brand/30" />
+                악센트 아이디
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block h-2.5 w-2.5 rounded bg-wow-light ring-1 ring-wow/30" />
+                악센트 와우
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-wow" />
+                생일·이벤트
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-500" />
+                팀 일정
+              </span>
+            </div>
           </Card>
 
-          {/* 선택일 일정 */}
+          {/* 선택일 상세 */}
           <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-zinc-800">{formatDateKo(selectedDate)} 일정</h2>
-              <span className="text-xs text-zinc-400">{daySchedules.length}건</span>
-            </div>
-            {daySchedules.length === 0 ? (
-              <EmptyState icon="🗓️" title="이 날짜에 등록된 일정이 없습니다" description="왼쪽에서 등록하세요." />
-            ) : (
-              daySchedules.map((s) => <ScheduleCard key={s.id} schedule={s} />)
+            <h2 className="text-sm font-semibold text-zinc-800">{formatDateKo(selectedDate)}</h2>
+
+            {/* 근무자 */}
+            <Card className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-zinc-800">근무자</h3>
+                <span className="text-xs text-zinc-400">{dayShifts.length}명</span>
+              </div>
+              {dayShifts.length === 0 ? (
+                <p className="text-sm text-zinc-400">근무자 일정이 없습니다.</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {(["id", "wow"] as Store[]).map((store) => {
+                    const list = dayShifts.filter((s) => s.store === store);
+                    if (list.length === 0) return null;
+                    return (
+                      <div key={store} className="flex flex-col gap-1">
+                        <span className="text-[11px] font-medium text-zinc-400">{STORE_LABEL[store]}</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {list.map((s) => (
+                            <span
+                              key={s.id}
+                              className={cn("rounded-md px-2 py-1 text-xs font-medium", storeCellCls(store))}
+                            >
+                              {s.staffName}
+                              {s.start && <span className="ml-1 opacity-70">{s.start}~{s.end}</span>}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+
+            {/* 생일·이벤트 */}
+            {dayEvents.length > 0 && (
+              <Card className="flex flex-col gap-2">
+                <h3 className="text-sm font-semibold text-zinc-800">생일·이벤트</h3>
+                <ul className="flex flex-col gap-1.5">
+                  {dayEvents.map((e) => (
+                    <li key={e.id} className="flex items-center gap-2 text-sm">
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: e.color || "#ff8a3d" }}
+                      />
+                      <span className="text-zinc-800">{e.title}</span>
+                      {e.memo && <span className="text-xs text-zinc-400">· {e.memo}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </Card>
             )}
+
+            {/* 팀 일정 (NEANDER) */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-zinc-800">팀 일정</h3>
+                <span className="text-xs text-zinc-400">{daySchedules.length}건</span>
+              </div>
+              {daySchedules.length === 0 ? (
+                <EmptyState icon="🗓️" title="등록된 팀 일정이 없습니다" description="왼쪽에서 등록하세요." />
+              ) : (
+                daySchedules.map((s) => <ScheduleCard key={s.id} schedule={s} />)
+              )}
+            </div>
           </div>
         </div>
       </div>
