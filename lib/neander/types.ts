@@ -151,10 +151,17 @@ export interface ActionItem {
   category?: TaskCategory;
   /** 세부사항 (선택) */
   detail?: string;
-  assigneeId: string;
-  assigneeName: string;
+  /** 담당자(복수). 비정규화 이름 함께 보관 */
+  assigneeIds?: string[];
+  assigneeNames?: string[];
+  /** @deprecated 단수 담당자 — 구버전 문서 호환용(읽기 전용) */
+  assigneeId?: string;
+  /** @deprecated 단수 담당자 이름 — 구버전 문서 호환용 */
+  assigneeName?: string;
   dueDate?: string; // YYYY-MM-DD
-  /** 일일업무로 등록된 경우 그 task 문서 id (중복 등록 방지) */
+  /** 담당자별 연결된 일일업무 id 맵 (assigneeId → task 문서 id) */
+  taskIds?: Record<string, string>;
+  /** @deprecated 단수 일일업무 id — 구버전 문서 호환용 */
   taskId?: string;
 }
 

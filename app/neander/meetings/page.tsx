@@ -8,19 +8,20 @@ import {
   updateMeeting,
   deleteMeeting,
 } from "@/lib/neander/db/meetings";
-import { addTask, updateTask } from "@/lib/neander/db/tasks";
+import { addTask, updateTask, deleteTask } from "@/lib/neander/db/tasks";
 import { emptyToUndef } from "@/lib/neander/db/helpers";
 import {
   Button,
   Card,
   Field,
   Input,
-  Select,
   Textarea,
   PageHeader,
   Badge,
   EmptyState,
   CategoryPicker,
+  MemberAvatar,
+  cn,
 } from "@/components/neander/ui";
 import {
   type Meeting,
@@ -36,30 +37,42 @@ const DEFAULT_CATEGORY: TaskCategory = "etc";
 interface ActionDraft {
   key: string;
   id?: string; // 기존 액션플랜 id (수정 시)
-  taskId?: string; // 연결된 일일업무 id (수정 시)
+  taskIds: Record<string, string>; // assigneeId → 연결된 일일업무 id
   text: string;
   category: TaskCategory;
   detail: string;
-  assigneeId: string;
+  assigneeIds: string[]; // 복수 담당자
   dueDate: string;
 }
 
 let _seq = 0;
 function newDraft(): ActionDraft {
   _seq += 1;
-  return { key: `d${_seq}`, text: "", category: DEFAULT_CATEGORY, detail: "", assigneeId: "", dueDate: "" };
+  return {
+    key: `d${_seq}`,
+    text: "",
+    category: DEFAULT_CATEGORY,
+    detail: "",
+    assigneeIds: [],
+    taskIds: {},
+    dueDate: "",
+  };
 }
 function draftsFromMeeting(m: Meeting): ActionDraft[] {
   const ds = m.actionItems.map((a) => {
     _seq += 1;
+    // 복수(신규) 우선, 없으면 단수(레거시)에서 정규화
+    const assigneeIds = a.assigneeIds ?? (a.assigneeId ? [a.assigneeId] : []);
+    const taskIds =
+      a.taskIds ?? (a.taskId && a.assigneeId ? { [a.assigneeId]: a.taskId } : {});
     return {
       key: `e${_seq}`,
       id: a.id,
-      taskId: a.taskId,
+      taskIds,
       text: a.text,
       category: a.category ?? DEFAULT_CATEGORY,
       detail: a.detail ?? "",
-      assigneeId: a.assigneeId,
+      assigneeIds,
       dueDate: a.dueDate ?? "",
     };
   });
@@ -108,7 +121,7 @@ function MeetingCard({
   memberColor,
 }: {
   meeting: Meeting;
-  members: { id: string; name: string }[];
+  members: { id: string; name: string; color?: string; avatar?: string }[];
   memberColor: (id: string) => string;
 }) {
   const [editing, setEditing] = useState(false);
@@ -180,13 +193,23 @@ function MeetingCard({
                             {taskCategoryLabel(a.category)}
                           </Badge>
                         )}
-                        {a.assigneeName ? (
-                          <Badge color={memberColor(a.assigneeId)}>{a.assigneeName}</Badge>
-                        ) : (
-                          <span className="text-zinc-400">담당자 미지정</span>
-                        )}
+                        {(() => {
+                          const ids = a.assigneeIds ?? (a.assigneeId ? [a.assigneeId] : []);
+                          const names = a.assigneeNames ?? (a.assigneeName ? [a.assigneeName] : []);
+                          return ids.length > 0 ? (
+                            ids.map((id, i) => (
+                              <Badge key={id} color={memberColor(id)}>
+                                {names[i] ?? ""}
+                              </Badge>
+                            ))
+                          ) : (
+                            <span className="text-zinc-400">담당자 미지정</span>
+                          );
+                        })()}
                         {a.dueDate && <span>· 마감 {formatDateKo(a.dueDate)}</span>}
-                        {a.taskId && <span className="text-emerald-500">· ✅ 일일업무 등록됨</span>}
+                        {((a.taskIds && Object.keys(a.taskIds).length > 0) || a.taskId) && (
+                          <span className="text-emerald-500">· ✅ 일일업무 등록됨</span>
+                        )}
                       </div>
                     </div>
                   </li>
@@ -205,7 +228,7 @@ function MeetingEditor({
   initial,
   onDone,
 }: {
-  members: { id: string; name: string }[];
+  members: { id: string; name: string; color?: string; avatar?: string }[];
   initial?: Meeting;
   onDone?: () => void;
 }) {
@@ -220,6 +243,20 @@ function MeetingEditor({
 
   function updateDraft(key: string, patch: Partial<ActionDraft>) {
     setDrafts((ds) => ds.map((d) => (d.key === key ? { ...d, ...patch } : d)));
+  }
+  function toggleAssignee(key: string, id: string) {
+    setDrafts((ds) =>
+      ds.map((d) =>
+        d.key === key
+          ? {
+              ...d,
+              assigneeIds: d.assigneeIds.includes(id)
+                ? d.assigneeIds.filter((x) => x !== id)
+                : [...d.assigneeIds, id],
+            }
+          : d,
+      ),
+    );
   }
   function addRow() {
     setDrafts((ds) => [...ds, newDraft()]);
@@ -246,7 +283,6 @@ function MeetingEditor({
       for (const d of drafts) {
         if (!d.text.trim()) continue;
         idx += 1;
-        const assignee = members.find((m) => m.id === d.assigneeId);
         const dueDate = emptyToUndef(d.dueDate);
         const text = d.text.trim();
         const detail = emptyToUndef(d.detail);
@@ -256,22 +292,30 @@ function MeetingEditor({
           ? `${detail}\n(회의록 ${date} 액션플랜)`
           : `회의록(${date}) 액션플랜`;
 
-        // 담당자가 지정된 액션플랜 → 일일업무 동기화 (분류·세부사항 포함)
-        let taskId = d.taskId;
-        if (assignee) {
-          if (taskId) {
-            await updateTask(taskId, {
-              memberId: assignee.id,
-              memberName: assignee.name,
+        // 선택된 담당자(현존 팀원만)
+        const assignees = d.assigneeIds
+          .map((id) => members.find((m) => m.id === id))
+          .filter((m): m is { id: string; name: string } => Boolean(m));
+
+        // 담당자별 일일업무 동기화: 기존 연결은 갱신, 신규는 추가, 빠진 담당자는 삭제
+        const prevTaskIds = d.taskIds ?? {};
+        const nextTaskIds: Record<string, string> = {};
+        for (const a of assignees) {
+          const existing = prevTaskIds[a.id];
+          if (existing) {
+            await updateTask(existing, {
+              memberId: a.id,
+              memberName: a.name,
               date: dueDate || date,
               category: d.category,
               title: text,
               detail: taskDetail,
             });
+            nextTaskIds[a.id] = existing;
           } else {
-            taskId = await addTask({
-              memberId: assignee.id,
-              memberName: assignee.name,
+            nextTaskIds[a.id] = await addTask({
+              memberId: a.id,
+              memberName: a.name,
               date: dueDate || date,
               category: d.category,
               title: text,
@@ -280,18 +324,22 @@ function MeetingEditor({
             });
           }
         }
+        // 담당자에서 빠진 사람의 일일업무는 제거
+        for (const [aid, tid] of Object.entries(prevTaskIds)) {
+          if (!nextTaskIds[aid]) await deleteTask(tid).catch(() => {});
+        }
 
         // undefined 필드는 넣지 않는다 (Firestore는 배열 내부 undefined 거부)
         const item: ActionItem = {
           id: d.id ?? `${Date.now().toString(36)}-${idx}`,
           text,
           category: d.category,
-          assigneeId: assignee?.id ?? "",
-          assigneeName: assignee?.name ?? "",
+          assigneeIds: assignees.map((a) => a.id),
+          assigneeNames: assignees.map((a) => a.name),
         };
         if (detail) item.detail = detail;
         if (dueDate) item.dueDate = dueDate;
-        if (taskId) item.taskId = taskId;
+        if (Object.keys(nextTaskIds).length) item.taskIds = nextTaskIds;
         items.push(item);
       }
 
@@ -346,7 +394,13 @@ function MeetingEditor({
               <div key={d.key} className="rounded-lg border border-zinc-200 p-3">
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-xs font-medium text-emerald-500">
-                    {d.taskId ? "✅ 일일업무 연결됨" : ""}
+                    {Object.keys(d.taskIds).length > 0
+                      ? `✅ 일일업무 연결됨${
+                          Object.keys(d.taskIds).length > 1
+                            ? ` (${Object.keys(d.taskIds).length})`
+                            : ""
+                        }`
+                      : ""}
                   </span>
                   {drafts.length > 1 && (
                     <button
@@ -379,18 +433,43 @@ function MeetingEditor({
                   placeholder="세부사항 (선택)"
                   className="mb-2"
                 />
-                <div className="grid grid-cols-2 gap-2">
-                  <Select
-                    value={d.assigneeId}
-                    onChange={(e) => updateDraft(d.key, { assigneeId: e.target.value })}
-                  >
-                    <option value="">담당자 (선택)</option>
-                    {members.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </Select>
+                <div className="mb-2">
+                  <span className="mb-1 block text-xs font-medium text-zinc-500">
+                    담당자 <span className="text-zinc-400">(복수 선택 가능)</span>
+                  </span>
+                  {members.length === 0 ? (
+                    <p className="text-xs text-zinc-400">등록된 팀원이 없습니다.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {members.map((m) => {
+                        const on = d.assigneeIds.includes(m.id);
+                        return (
+                          <button
+                            type="button"
+                            key={m.id}
+                            onClick={() => toggleAssignee(d.key, m.id)}
+                            className={cn(
+                              "flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition",
+                              on
+                                ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                                : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50",
+                            )}
+                          >
+                            <MemberAvatar
+                              name={m.name}
+                              color={m.color}
+                              avatar={m.avatar}
+                              className="h-5 w-5 text-[10px]"
+                            />
+                            {m.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <span className="mb-1 block text-xs font-medium text-zinc-500">마감일</span>
                   <Input
                     type="date"
                     value={d.dueDate}
