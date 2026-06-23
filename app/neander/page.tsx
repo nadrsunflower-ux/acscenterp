@@ -22,6 +22,20 @@ import {
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
+/** 하루치 업무를 팀원별로 묶는다 (members 배열 순서로 정렬). 업무는 입력 순서 유지(=createdAt). */
+function groupByMember(
+  dayTasks: DailyTask[],
+  memberIndex: (id: string) => number,
+): { memberId: string; memberName: string; items: DailyTask[] }[] {
+  const map = new Map<string, { memberId: string; memberName: string; items: DailyTask[] }>();
+  for (const t of dayTasks) {
+    const g = map.get(t.memberId);
+    if (g) g.items.push(t);
+    else map.set(t.memberId, { memberId: t.memberId, memberName: t.memberName, items: [t] });
+  }
+  return [...map.values()].sort((a, b) => memberIndex(a.memberId) - memberIndex(b.memberId));
+}
+
 export default function DashboardPage() {
   const { sales, tasks, requests, members, currentMember } = useAppData();
   const month = thisMonthStr();
@@ -152,6 +166,24 @@ function WeeklyTasks({
     return (id: string) => map.get(id) ?? "#71717a";
   }, [members]);
 
+  // 팀원 표시 순서 (members 배열 순) — 날짜 칸 안 그룹 정렬용
+  const memberIndex = useMemo(() => {
+    const map = new Map<string, number>();
+    members.forEach((m, i) => map.set(m.id, i));
+    return (id: string) => map.get(id) ?? 999;
+  }, [members]);
+
+  // 날짜 칸 안에서 팀원별 묶음 접기: collapsed 에 담긴 `${date}|${memberId}` 는 접힘 (기본=펼침)
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const toggleCollapse = (date: string, memberId: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      const k = `${date}|${memberId}`;
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+
   // 이번 주 + 담당자 토글 적용
   const byDate = useMemo(() => {
     const map = new Map<string, DailyTask[]>();
@@ -226,29 +258,53 @@ function WeeklyTasks({
                   </span>
                 </div>
                 <div className="flex flex-col gap-1.5 overflow-y-auto">
-                  {dayTasks.map((t) => (
-                    <div
-                      key={t.id}
-                      className={cn(
-                        "rounded-md px-1.5 py-1 text-[11px] leading-tight",
-                        t.status === "extended"
-                          ? "bg-yellow-200 text-yellow-800"
-                          : t.status === "done"
-                            ? "bg-zinc-50 text-zinc-400 line-through"
-                            : "bg-zinc-50 text-zinc-700",
-                      )}
-                      title={`${t.memberName}: ${t.title}`}
-                    >
-                      <div className="flex items-center gap-1">
-                        <span
-                          className="h-1.5 w-1.5 shrink-0 rounded-full"
-                          style={{ backgroundColor: memberColor(t.memberId) }}
-                        />
-                        <span className="truncate font-medium text-zinc-500">{t.memberName}</span>
+                  {groupByMember(dayTasks, memberIndex).map((g) => {
+                    const open = !collapsed.has(`${d}|${g.memberId}`);
+                    return (
+                      <div key={g.memberId} className="rounded-md border border-zinc-100 bg-zinc-50/60">
+                        {/* 팀원 토글 (이름 1회 + 업무 수) */}
+                        <button
+                          type="button"
+                          onClick={() => toggleCollapse(d, g.memberId)}
+                          className="flex w-full items-center gap-1 px-1.5 py-1 text-left"
+                          title={`${g.memberName} · ${g.items.length}건`}
+                        >
+                          <span
+                            className="h-1.5 w-1.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: memberColor(g.memberId) }}
+                          />
+                          <span className="truncate text-[11px] font-semibold text-zinc-600">
+                            {g.memberName}
+                          </span>
+                          <span className="text-[10px] text-zinc-400">{g.items.length}</span>
+                          <span className="ml-auto text-[9px] leading-none text-zinc-300">
+                            {open ? "▾" : "▸"}
+                          </span>
+                        </button>
+                        {/* 그 팀원의 여러 업무 */}
+                        {open && (
+                          <div className="flex flex-col gap-0.5 px-1 pb-1">
+                            {g.items.map((t) => (
+                              <div
+                                key={t.id}
+                                className={cn(
+                                  "rounded px-1.5 py-0.5 text-[11px] leading-tight",
+                                  t.status === "extended"
+                                    ? "bg-yellow-200 text-yellow-800"
+                                    : t.status === "done"
+                                      ? "bg-white text-zinc-400 line-through"
+                                      : "bg-white text-zinc-700",
+                                )}
+                                title={`${t.memberName}: ${t.title}`}
+                              >
+                                <span className="line-clamp-2 break-words">{t.title}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      <div className="mt-0.5 line-clamp-2 break-words">{t.title}</div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );
