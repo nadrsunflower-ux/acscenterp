@@ -573,7 +573,7 @@ function TaskForm({
   const [startDate, setStartDate] = useState(date);
   const [endDate, setEndDate] = useState(date);
   const [specificDates, setSpecificDates] = useState<string[]>([]);
-  const [pickDate, setPickDate] = useState(date);
+  const [pickMonth, setPickMonth] = useState(date.slice(0, 7)); // 날짜 직접 선택용 미니 달력 월
 
   function toggleWeekday(i: number) {
     setWeekdaysSel((prev) => {
@@ -583,9 +583,11 @@ function TaskForm({
       return next;
     });
   }
-  function addSpecific() {
-    if (!pickDate) return;
-    setSpecificDates((prev) => (prev.includes(pickDate) ? prev : [...prev, pickDate].sort()));
+  // 미니 달력에서 날짜 복수 토글(선택/해제)
+  function toggleSpecific(d: string) {
+    setSpecificDates((prev) =>
+      prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort(),
+    );
   }
   function removeSpecific(d: string) {
     setSpecificDates((prev) => prev.filter((x) => x !== d));
@@ -720,20 +722,66 @@ function TaskForm({
               </>
             ) : (
               <div className="flex flex-col gap-2">
-                <span className="text-xs font-medium text-zinc-500">등록할 날짜 추가</span>
-                <div className="flex gap-2">
-                  <Input
-                    type="date"
-                    value={pickDate}
-                    onChange={(e) => setPickDate(e.target.value)}
-                    className="flex-1"
-                  />
-                  <Button type="button" variant="secondary" className="!px-3 !py-2 !text-xs" onClick={addSpecific}>
-                    추가
-                  </Button>
+                <span className="text-xs font-medium text-zinc-500">
+                  등록할 날짜 선택 <span className="text-zinc-400">(여러 날 클릭)</span>
+                </span>
+                {/* 미니 달력 — 여러 날짜를 토글로 복수 선택 */}
+                <div className="rounded-lg border border-zinc-200 bg-white p-2">
+                  <div className="mb-1 flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setPickMonth(shiftMonth(pickMonth, -1))}
+                      className="rounded px-1.5 py-0.5 text-zinc-500 hover:bg-zinc-100"
+                      aria-label="이전 달"
+                    >
+                      ‹
+                    </button>
+                    <span className="text-xs font-semibold text-zinc-700">{monthLabel(pickMonth)}</span>
+                    <button
+                      type="button"
+                      onClick={() => setPickMonth(shiftMonth(pickMonth, 1))}
+                      className="rounded px-1.5 py-0.5 text-zinc-500 hover:bg-zinc-100"
+                      aria-label="다음 달"
+                    >
+                      ›
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-7 gap-0.5">
+                    {WEEKDAYS.map((w, i) => (
+                      <div
+                        key={w}
+                        className={cn(
+                          "py-0.5 text-center text-[10px] font-medium",
+                          i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-zinc-400",
+                        )}
+                      >
+                        {w}
+                      </div>
+                    ))}
+                    {monthGrid(pickMonth).map((d, idx) =>
+                      d ? (
+                        <button
+                          type="button"
+                          key={d}
+                          onClick={() => toggleSpecific(d)}
+                          className={cn(
+                            "flex h-8 items-center justify-center rounded-md text-xs transition",
+                            specificDates.includes(d)
+                              ? "bg-indigo-600 font-semibold text-white"
+                              : "text-zinc-600 hover:bg-zinc-100",
+                          )}
+                        >
+                          {Number(d.slice(8, 10))}
+                        </button>
+                      ) : (
+                        <div key={`e${idx}`} className="h-8" />
+                      ),
+                    )}
+                  </div>
                 </div>
+                {/* 선택된 날짜 칩 */}
                 {specificDates.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     {specificDates.map((d) => (
                       <span
                         key={d}
@@ -750,6 +798,13 @@ function TaskForm({
                         </button>
                       </span>
                     ))}
+                    <button
+                      type="button"
+                      onClick={() => setSpecificDates([])}
+                      className="rounded-full px-2 py-1 text-[11px] text-zinc-400 hover:text-red-500"
+                    >
+                      전체 해제
+                    </button>
                   </div>
                 )}
               </div>
