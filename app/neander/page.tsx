@@ -14,6 +14,8 @@ import {
   formatKRW,
   thisMonthStr,
   todayStr,
+  todayStrKST,
+  dateStrKST,
   formatDateKo,
   isInMonth,
   weekDates,
@@ -52,11 +54,20 @@ export default function DashboardPage() {
   }));
   const maxChannel = Math.max(1, ...byChannel.map((c) => c.amount));
 
-  const openTasks = tasks.filter((t) => t.status !== "done");
-  const todayTasks = tasks.filter((t) => t.date === today);
-  const myReceived = currentMember
-    ? requests.filter((r) => r.toId === currentMember.id && r.status !== "done")
-    : [];
+  const myId = currentMember?.id ?? null;
+  const todayKST = todayStrKST();
+
+  // 로그인 담당자 기준 지표
+  const myOpenTasks = myId ? tasks.filter((t) => t.memberId === myId && t.status !== "done") : [];
+  const myTodayTasks = myId ? tasks.filter((t) => t.memberId === myId && t.date === todayKST) : [];
+
+  // 받은 요청: (지표) 오늘(KST) 받은 개수 + 미확인 존재 여부 N
+  const myReceivedAll = myId ? requests.filter((r) => r.toId === myId) : [];
+  const myReceivedToday = myReceivedAll.filter((r) => dateStrKST(r.createdAt) === todayKST);
+  const hasUnacked = myReceivedAll.some((r) => !r.acknowledged);
+
+  // 하단 '받은 요청 (미완료)' 리스트 카드용 (기존 유지)
+  const myReceived = myReceivedAll.filter((r) => r.status !== "done");
 
   return (
     <div>
@@ -70,9 +81,14 @@ export default function DashboardPage() {
       {/* 상단 지표 */}
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="이번 달 매출" value={formatKRW(totalSales)} href="/neander/sales" accent />
-        <StatCard label="미완료 업무" value={`${openTasks.length}건`} href="/neander/tasks" />
-        <StatCard label="오늘 등록 업무" value={`${todayTasks.length}건`} href="/neander/tasks" />
-        <StatCard label="내 받은 요청" value={`${myReceived.length}건`} href="/neander/requests" />
+        <StatCard label="오늘의 업무" value={`${myTodayTasks.length}건`} href="/neander/tasks" />
+        <StatCard label="미완료 업무" value={`${myOpenTasks.length}건`} href="/neander/tasks" />
+        <StatCard
+          label="받은 요청"
+          value={`${myReceivedToday.length}건`}
+          href="/neander/requests"
+          badge={hasUnacked ? "N" : undefined}
+        />
       </div>
 
       {/* 주간 업무 (모두의 이번 주 일일업무) */}
@@ -347,11 +363,14 @@ function StatCard({
   value,
   href,
   accent,
+  badge,
 }: {
   label: string;
   value: string;
   href: string;
   accent?: boolean;
+  /** 값 옆 작은 표시 (예: 미확인 'N') */
+  badge?: string;
 }) {
   return (
     <Link
@@ -363,8 +382,13 @@ function StatCard({
       }
     >
       <div className={accent ? "text-xs text-indigo-100" : "text-xs text-zinc-400"}>{label}</div>
-      <div className={accent ? "mt-1 text-xl font-bold" : "mt-1 text-xl font-bold text-zinc-900"}>
-        {value}
+      <div className="mt-1 flex items-center gap-1.5">
+        <span className={accent ? "text-xl font-bold" : "text-xl font-bold text-zinc-900"}>{value}</span>
+        {badge && (
+          <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+            {badge}
+          </span>
+        )}
       </div>
     </Link>
   );

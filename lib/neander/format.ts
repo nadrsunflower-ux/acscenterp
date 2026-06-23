@@ -20,6 +20,21 @@ export function todayStr(): string {
   return `${d.getFullYear()}-${m}-${day}`;
 }
 
+/** epoch(ms) -> 한국(Asia/Seoul) 기준 "YYYY-MM-DD" (en-CA 로케일이 ISO 형식 반환) */
+export function dateStrKST(ms: number): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(ms));
+}
+
+/** 한국(Asia/Seoul) 기준 오늘 날짜 "YYYY-MM-DD" — 기기 시간대와 무관 */
+export function todayStrKST(): string {
+  return dateStrKST(Date.now());
+}
+
 /** 이번 달 'YYYY-MM' */
 export function thisMonthStr(): string {
   const d = new Date();
