@@ -21,8 +21,10 @@ import {
   dateStrKST,
   formatDateKo,
   isInMonth,
-  weekDates,
-  weekRangeLabel,
+  weekDatesOf,
+  weekLabelOf,
+  addDays,
+  shiftMonth,
   monthGrid,
   monthLabel,
 } from "@/lib/neander/format";
@@ -224,8 +226,9 @@ function WeeklyTasks({
   members: Member[];
   today: string;
 }) {
-  // 주간/월간 보기 전환
-  const [mode, setMode] = useState<"week" | "month">("week");
+  // 월간 기본, 주간은 선택해서 보기
+  const [mode, setMode] = useState<"week" | "month">("month");
+  const [anchor, setAnchor] = useState(today);
 
   // 팀원별 토글: excluded 에 담긴 담당자는 숨김 (기본=전원 표시)
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
@@ -263,9 +266,15 @@ function WeeklyTasks({
       return next;
     });
 
-  const month = thisMonthStr();
-  const weekDays = useMemo(() => weekDates(Date.now()), []);
+  const month = anchor.slice(0, 7);
+  const weekDays = useMemo(() => weekDatesOf(anchor), [anchor]);
   const monthCells = useMemo(() => monthGrid(month), [month]); // (string|null)[] 6주
+  const goPrev = () =>
+    setAnchor((a) => (mode === "week" ? addDays(a, -7) : `${shiftMonth(a.slice(0, 7), -1)}-01`));
+  const goNext = () =>
+    setAnchor((a) => (mode === "week" ? addDays(a, 7) : `${shiftMonth(a.slice(0, 7), 1)}-01`));
+  const goToday = () => setAnchor(today);
+
   // byDate 필터용 유효 날짜
   const validDays = useMemo(
     () => (mode === "week" ? weekDays : monthCells.filter((c): c is string => !!c)),
@@ -291,7 +300,7 @@ function WeeklyTasks({
   const renderGroups = (d: string) => {
     const dayTasks = [...(byDate.get(d) ?? [])].sort((a, b) => a.createdAt - b.createdAt);
     return (
-      <div className="flex flex-col gap-1.5 overflow-y-auto">
+      <div className="flex flex-col gap-1.5">
         {groupByMember(dayTasks, memberIndex).map((g) => {
           const open = !collapsed.has(`${d}|${g.memberId}`);
           const ext = g.items.filter((t) => t.status === "extended").length;
@@ -396,14 +405,41 @@ function WeeklyTasks({
 
   return (
     <Card className="mb-6">
-      {/* 헤더 + 주간/월간 전환 */}
+      {/* 헤더 + 이동 네비 + 주간/월간 전환 */}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-zinc-800">
-          {mode === "week" ? "주간 업무" : "월간 업무"}
-          <span className="ml-1 text-xs font-normal text-zinc-400">
-            {mode === "week" ? weekRangeLabel(Date.now()) : monthLabel(month)}
-          </span>
-        </h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-sm font-semibold text-zinc-800">
+            {mode === "week" ? "주간 업무" : "월간 업무"}
+          </h2>
+          <div className="flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={goPrev}
+              aria-label="이전"
+              className="rounded-md px-1.5 py-0.5 text-zinc-500 hover:bg-zinc-100"
+            >
+              ‹
+            </button>
+            <span className="whitespace-nowrap px-1 text-xs font-medium text-zinc-500">
+              {mode === "week" ? weekLabelOf(anchor) : monthLabel(month)}
+            </span>
+            <button
+              type="button"
+              onClick={goNext}
+              aria-label="다음"
+              className="rounded-md px-1.5 py-0.5 text-zinc-500 hover:bg-zinc-100"
+            >
+              ›
+            </button>
+            <button
+              type="button"
+              onClick={goToday}
+              className="ml-0.5 rounded-md px-2 py-0.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50"
+            >
+              오늘
+            </button>
+          </div>
+        </div>
         <div className="flex items-center gap-2">
           <div className="flex rounded-lg border border-zinc-200 p-0.5">
             <button
@@ -481,13 +517,13 @@ function WeeklyTasks({
                 </div>
               ))}
             </div>
-            {/* 월 그리드 (6주, 세로로 길게) */}
+            {/* 월 그리드 (6주) — 칸은 내용만큼만 차지(업무 없으면 최소화) */}
             <div className="grid grid-cols-7 gap-2">
               {monthCells.map((c, idx) =>
                 c ? (
-                  renderCell(c, idx % 7, false, "min-h-[150px]")
+                  renderCell(c, idx % 7, false, "min-h-[44px]")
                 ) : (
-                  <div key={`e${idx}`} className="min-h-[150px] rounded-lg" />
+                  <div key={`e${idx}`} className="min-h-[44px] rounded-lg" />
                 ),
               )}
             </div>

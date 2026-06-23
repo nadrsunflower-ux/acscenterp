@@ -51,6 +51,21 @@ const STATUS_COLOR: Record<TaskStatus, string> = {
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
+// 시작~종료 기간에서 선택한 요일(0=일~6=토)에 해당하는 날짜들
+function datesByWeekday(start: string, end: string, weekdays: Set<number>): string[] {
+  const out: string[] = [];
+  if (!start || !end || end < start || weekdays.size === 0) return out;
+  let cur = start;
+  let guard = 0;
+  while (cur <= end && guard < 400) {
+    const [y, m, d] = cur.split("-").map(Number);
+    if (weekdays.has(new Date(y, m - 1, d).getDay())) out.push(cur);
+    cur = addDays(cur, 1);
+    guard += 1;
+  }
+  return out;
+}
+
 const isExtended = (t: DailyTask) => t.status === "extended";
 const isStruck = (t: DailyTask) => t.status === "done" || t.status === "on_hold";
 
@@ -551,23 +566,67 @@ function TaskForm({
   const [detail, setDetail] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // 반복 등록
+  const [recurring, setRecurring] = useState(false);
+  const [recurMode, setRecurMode] = useState<"weekday" | "dates">("weekday");
+  const [weekdaysSel, setWeekdaysSel] = useState<Set<number>>(new Set());
+  const [startDate, setStartDate] = useState(date);
+  const [endDate, setEndDate] = useState(date);
+  const [specificDates, setSpecificDates] = useState<string[]>([]);
+  const [pickDate, setPickDate] = useState(date);
+
+  function toggleWeekday(i: number) {
+    setWeekdaysSel((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  }
+  function addSpecific() {
+    if (!pickDate) return;
+    setSpecificDates((prev) => (prev.includes(pickDate) ? prev : [...prev, pickDate].sort()));
+  }
+  function removeSpecific(d: string) {
+    setSpecificDates((prev) => prev.filter((x) => x !== d));
+  }
+
+  // 실제로 등록될 날짜들
+  const targetDates = useMemo(() => {
+    if (!recurring) return [date];
+    if (recurMode === "weekday") return datesByWeekday(startDate, endDate, weekdaysSel);
+    return specificDates;
+  }, [recurring, recurMode, date, startDate, endDate, weekdaysSel, specificDates]);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
     if (!me) return alert("로그인 계정이 팀원과 연결되어야 등록할 수 있습니다.");
+    if (recurring && targetDates.length === 0)
+      return alert(
+        recurMode === "weekday"
+          ? "반복 요일과 기간을 확인하세요."
+          : "등록할 날짜를 하나 이상 추가하세요.",
+      );
+    if (targetDates.length > 100 && !confirm(`${targetDates.length}건을 등록합니다. 계속할까요?`)) return;
     setSaving(true);
     try {
-      await addTask({
-        memberId: me.id,
-        memberName: me.name,
-        date,
-        category,
-        title: title.trim(),
-        detail: emptyToUndef(detail),
-        status: "todo",
-      });
+      await Promise.all(
+        targetDates.map((d) =>
+          addTask({
+            memberId: me.id,
+            memberName: me.name,
+            date: d,
+            category,
+            title: title.trim(),
+            detail: emptyToUndef(detail),
+            status: "todo",
+          }),
+        ),
+      );
       setTitle("");
       setDetail("");
+      setSpecificDates([]);
     } finally {
       setSaving(false);
     }
@@ -582,9 +641,128 @@ function TaskForm({
             {me ? `${me.name} (나)` : "로그인 필요"}
           </div>
         </Field>
-        <Field label="마감일" required hint="캘린더에서 선택 가능">
-          <Input type="date" value={date} onChange={(e) => onDateChange(e.target.value)} />
-        </Field>
+
+        {/* 반복 등록 토글 */}
+        <label className="flex cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            checked={recurring}
+            onChange={(e) => setRecurring(e.target.checked)}
+            className="h-4 w-4 accent-indigo-600"
+          />
+          <span className="text-sm font-medium text-zinc-700">반복 등록</span>
+          <span className="text-xs text-zinc-400">요일 주기 또는 지정한 날짜에 한 번에</span>
+        </label>
+
+        {!recurring ? (
+          <Field label="마감일" required hint="캘린더에서 선택 가능">
+            <Input type="date" value={date} onChange={(e) => onDateChange(e.target.value)} />
+          </Field>
+        ) : (
+          <div className="flex flex-col gap-3 rounded-lg bg-zinc-50 p-3">
+            {/* 반복 방식 */}
+            <div className="flex rounded-lg border border-zinc-200 bg-white p-0.5">
+              <button
+                type="button"
+                onClick={() => setRecurMode("weekday")}
+                className={cn(
+                  "flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition",
+                  recurMode === "weekday" ? "bg-indigo-600 text-white" : "text-zinc-500 hover:bg-zinc-100",
+                )}
+              >
+                요일 반복
+              </button>
+              <button
+                type="button"
+                onClick={() => setRecurMode("dates")}
+                className={cn(
+                  "flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition",
+                  recurMode === "dates" ? "bg-indigo-600 text-white" : "text-zinc-500 hover:bg-zinc-100",
+                )}
+              >
+                날짜 직접 선택
+              </button>
+            </div>
+
+            {recurMode === "weekday" ? (
+              <>
+                <div>
+                  <span className="mb-1 block text-xs font-medium text-zinc-500">반복 요일</span>
+                  <div className="flex gap-1">
+                    {WEEKDAYS.map((w, i) => (
+                      <button
+                        type="button"
+                        key={i}
+                        onClick={() => toggleWeekday(i)}
+                        className={cn(
+                          "h-8 w-8 rounded-full text-xs font-semibold transition",
+                          weekdaysSel.has(i)
+                            ? "bg-indigo-600 text-white"
+                            : "bg-white ring-1 ring-zinc-200 hover:bg-zinc-100",
+                          !weekdaysSel.has(i) && (i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-zinc-500"),
+                        )}
+                      >
+                        {w}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <span className="mb-1 block text-xs font-medium text-zinc-500">시작일</span>
+                    <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                  </div>
+                  <div>
+                    <span className="mb-1 block text-xs font-medium text-zinc-500">종료일</span>
+                    <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <span className="text-xs font-medium text-zinc-500">등록할 날짜 추가</span>
+                <div className="flex gap-2">
+                  <Input
+                    type="date"
+                    value={pickDate}
+                    onChange={(e) => setPickDate(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button type="button" variant="secondary" className="!px-3 !py-2 !text-xs" onClick={addSpecific}>
+                    추가
+                  </Button>
+                </div>
+                {specificDates.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {specificDates.map((d) => (
+                      <span
+                        key={d}
+                        className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-[11px] text-zinc-600 ring-1 ring-zinc-200"
+                      >
+                        {formatDateKo(d)}
+                        <button
+                          type="button"
+                          onClick={() => removeSpecific(d)}
+                          className="text-zinc-400 hover:text-red-500"
+                          aria-label="날짜 제거"
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <p className="text-[11px] text-zinc-400">
+              {targetDates.length > 0
+                ? `총 ${targetDates.length}일에 등록됩니다.`
+                : "조건에 맞는 날짜가 없습니다."}
+            </p>
+          </div>
+        )}
+
         <Field label="분류" required>
           <CategoryPicker value={category} onChange={setCategory} />
         </Field>
@@ -595,7 +773,7 @@ function TaskForm({
           <Textarea rows={3} value={detail} onChange={(e) => setDetail(e.target.value)} />
         </Field>
         <Button type="submit" disabled={saving || !title.trim() || !me}>
-          {saving ? "등록 중…" : "업무 등록"}
+          {saving ? "등록 중…" : recurring ? `반복 등록 (${targetDates.length}건)` : "업무 등록"}
         </Button>
       </form>
     </Card>
