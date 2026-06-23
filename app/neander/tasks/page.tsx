@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAppData } from "@/components/neander/app-data";
 import {
   addTask,
@@ -383,6 +383,9 @@ function TaskRow({
   const [date, setDate] = useState(task.date);
   const [category, setCategory] = useState<TaskCategory>(task.category);
   const [busy, setBusy] = useState(false);
+  // 이미 등록된 업무를 다른 날짜에도 반복 등록
+  const [editRecurring, setEditRecurring] = useState(false);
+  const [editRecurDates, setEditRecurDates] = useState<string[]>([]);
 
   const extended = isExtended(task);
   const struck = isStruck(task);
@@ -411,6 +414,37 @@ function TaskRow({
         title: title.trim(),
         detail: emptyToUndef(detail),
       });
+      setEditing(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 수정 중인 업무를 선택한 (반복) 날짜들에 새로 등록
+  async function addRecurring() {
+    if (!title.trim()) return alert("업무 내용을 입력하세요.");
+    const member = members.find((m) => m.id === memberId);
+    if (!member) return alert("담당자를 선택하세요.");
+    if (editRecurDates.length === 0) return alert("반복 등록할 날짜를 선택하세요.");
+    if (editRecurDates.length > 100 && !confirm(`${editRecurDates.length}건을 등록합니다. 계속할까요?`))
+      return;
+    setBusy(true);
+    try {
+      await Promise.all(
+        editRecurDates.map((d) =>
+          addTask({
+            memberId: member.id,
+            memberName: member.name,
+            date: d,
+            category,
+            title: title.trim(),
+            detail: emptyToUndef(detail),
+            status: "todo",
+          }),
+        ),
+      );
+      setEditRecurring(false);
+      setEditRecurDates([]);
       setEditing(false);
     } finally {
       setBusy(false);
@@ -455,6 +489,33 @@ function TaskRow({
         </div>
         <CategoryPicker value={category} onChange={setCategory} />
         <p className="text-[11px] text-zinc-400">상태(예정/완료/연장/보류)는 저장 후 목록의 상태 선택으로 변경하세요.</p>
+
+        {/* 이미 등록된 업무 → 다른 날짜에도 반복 등록 */}
+        <label className="flex cursor-pointer items-center gap-2 border-t border-zinc-200 pt-3">
+          <input
+            type="checkbox"
+            checked={editRecurring}
+            onChange={(e) => setEditRecurring(e.target.checked)}
+            className="h-4 w-4 accent-indigo-600"
+          />
+          <span className="text-xs font-medium text-zinc-700">반복 등록</span>
+          <span className="text-[11px] text-zinc-400">이 업무를 다른 날짜에도 추가</span>
+        </label>
+        {editRecurring && (
+          <>
+            <RecurrenceControls baseDate={task.date} onDatesChange={setEditRecurDates} />
+            <Button
+              type="button"
+              variant="secondary"
+              className="!px-3 !py-1.5 !text-xs"
+              onClick={addRecurring}
+              disabled={busy || editRecurDates.length === 0 || !title.trim()}
+            >
+              {busy ? "등록 중…" : `반복으로 추가 등록 (${editRecurDates.length}건)`}
+            </Button>
+          </>
+        )}
+
         <div className="flex gap-2">
           <Button className="!px-3 !py-1.5 !text-xs" onClick={saveEdit} disabled={busy || !title.trim()}>
             {busy ? "저장 중…" : "저장"}
@@ -552,6 +613,203 @@ function TaskRow({
   );
 }
 
+// 반복 등록 컨트롤 (요일 반복 / 날짜 직접 선택) — 등록 폼·수정 폼 공용.
+// 선택된 날짜 목록을 onDatesChange 로 보고한다.
+function RecurrenceControls({
+  baseDate,
+  onDatesChange,
+}: {
+  baseDate: string;
+  onDatesChange: (dates: string[]) => void;
+}) {
+  const [recurMode, setRecurMode] = useState<"weekday" | "dates">("weekday");
+  const [weekdaysSel, setWeekdaysSel] = useState<Set<number>>(new Set());
+  const [startDate, setStartDate] = useState(baseDate);
+  const [endDate, setEndDate] = useState(baseDate);
+  const [specificDates, setSpecificDates] = useState<string[]>([]);
+  const [pickMonth, setPickMonth] = useState(baseDate.slice(0, 7));
+
+  const dates = useMemo(
+    () =>
+      recurMode === "weekday" ? datesByWeekday(startDate, endDate, weekdaysSel) : specificDates,
+    [recurMode, startDate, endDate, weekdaysSel, specificDates],
+  );
+  useEffect(() => {
+    onDatesChange(dates);
+  }, [dates, onDatesChange]);
+
+  function toggleWeekday(i: number) {
+    setWeekdaysSel((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  }
+  function toggleSpecific(d: string) {
+    setSpecificDates((prev) =>
+      prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort(),
+    );
+  }
+  function removeSpecific(d: string) {
+    setSpecificDates((prev) => prev.filter((x) => x !== d));
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg bg-zinc-50 p-3">
+      {/* 반복 방식 */}
+      <div className="flex rounded-lg border border-zinc-200 bg-white p-0.5">
+        <button
+          type="button"
+          onClick={() => setRecurMode("weekday")}
+          className={cn(
+            "flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition",
+            recurMode === "weekday" ? "bg-indigo-600 text-white" : "text-zinc-500 hover:bg-zinc-100",
+          )}
+        >
+          요일 반복
+        </button>
+        <button
+          type="button"
+          onClick={() => setRecurMode("dates")}
+          className={cn(
+            "flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition",
+            recurMode === "dates" ? "bg-indigo-600 text-white" : "text-zinc-500 hover:bg-zinc-100",
+          )}
+        >
+          날짜 직접 선택
+        </button>
+      </div>
+
+      {recurMode === "weekday" ? (
+        <>
+          <div>
+            <span className="mb-1 block text-xs font-medium text-zinc-500">반복 요일</span>
+            <div className="flex gap-1">
+              {WEEKDAYS.map((w, i) => (
+                <button
+                  type="button"
+                  key={i}
+                  onClick={() => toggleWeekday(i)}
+                  className={cn(
+                    "h-8 w-8 rounded-full text-xs font-semibold transition",
+                    weekdaysSel.has(i)
+                      ? "bg-indigo-600 text-white"
+                      : "bg-white ring-1 ring-zinc-200 hover:bg-zinc-100",
+                    !weekdaysSel.has(i) && (i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-zinc-500"),
+                  )}
+                >
+                  {w}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <span className="mb-1 block text-xs font-medium text-zinc-500">시작일</span>
+              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            </div>
+            <div>
+              <span className="mb-1 block text-xs font-medium text-zinc-500">종료일</span>
+              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-medium text-zinc-500">
+            등록할 날짜 선택 <span className="text-zinc-400">(여러 날 클릭)</span>
+          </span>
+          <div className="rounded-lg border border-zinc-200 bg-white p-2">
+            <div className="mb-1 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setPickMonth(shiftMonth(pickMonth, -1))}
+                className="rounded px-1.5 py-0.5 text-zinc-500 hover:bg-zinc-100"
+                aria-label="이전 달"
+              >
+                ‹
+              </button>
+              <span className="text-xs font-semibold text-zinc-700">{monthLabel(pickMonth)}</span>
+              <button
+                type="button"
+                onClick={() => setPickMonth(shiftMonth(pickMonth, 1))}
+                className="rounded px-1.5 py-0.5 text-zinc-500 hover:bg-zinc-100"
+                aria-label="다음 달"
+              >
+                ›
+              </button>
+            </div>
+            <div className="grid grid-cols-7 gap-0.5">
+              {WEEKDAYS.map((w, i) => (
+                <div
+                  key={w}
+                  className={cn(
+                    "py-0.5 text-center text-[10px] font-medium",
+                    i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-zinc-400",
+                  )}
+                >
+                  {w}
+                </div>
+              ))}
+              {monthGrid(pickMonth).map((d, idx) =>
+                d ? (
+                  <button
+                    type="button"
+                    key={d}
+                    onClick={() => toggleSpecific(d)}
+                    className={cn(
+                      "flex h-8 items-center justify-center rounded-md text-xs transition",
+                      specificDates.includes(d)
+                        ? "bg-indigo-600 font-semibold text-white"
+                        : "text-zinc-600 hover:bg-zinc-100",
+                    )}
+                  >
+                    {Number(d.slice(8, 10))}
+                  </button>
+                ) : (
+                  <div key={`e${idx}`} className="h-8" />
+                ),
+              )}
+            </div>
+          </div>
+          {specificDates.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {specificDates.map((d) => (
+                <span
+                  key={d}
+                  className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-[11px] text-zinc-600 ring-1 ring-zinc-200"
+                >
+                  {formatDateKo(d)}
+                  <button
+                    type="button"
+                    onClick={() => removeSpecific(d)}
+                    className="text-zinc-400 hover:text-red-500"
+                    aria-label="날짜 제거"
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+              <button
+                type="button"
+                onClick={() => setSpecificDates([])}
+                className="rounded-full px-2 py-1 text-[11px] text-zinc-400 hover:text-red-500"
+              >
+                전체 해제
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <p className="text-[11px] text-zinc-400">
+        {dates.length > 0 ? `총 ${dates.length}일에 등록됩니다.` : "조건에 맞는 날짜가 없습니다."}
+      </p>
+    </div>
+  );
+}
+
 function TaskForm({
   me,
   date,
@@ -568,48 +826,17 @@ function TaskForm({
 
   // 반복 등록
   const [recurring, setRecurring] = useState(false);
-  const [recurMode, setRecurMode] = useState<"weekday" | "dates">("weekday");
-  const [weekdaysSel, setWeekdaysSel] = useState<Set<number>>(new Set());
-  const [startDate, setStartDate] = useState(date);
-  const [endDate, setEndDate] = useState(date);
-  const [specificDates, setSpecificDates] = useState<string[]>([]);
-  const [pickMonth, setPickMonth] = useState(date.slice(0, 7)); // 날짜 직접 선택용 미니 달력 월
+  const [recurDates, setRecurDates] = useState<string[]>([]);
+  const [recurKey, setRecurKey] = useState(0); // 등록 후 반복 컨트롤 초기화용
 
-  function toggleWeekday(i: number) {
-    setWeekdaysSel((prev) => {
-      const next = new Set(prev);
-      if (next.has(i)) next.delete(i);
-      else next.add(i);
-      return next;
-    });
-  }
-  // 미니 달력에서 날짜 복수 토글(선택/해제)
-  function toggleSpecific(d: string) {
-    setSpecificDates((prev) =>
-      prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort(),
-    );
-  }
-  function removeSpecific(d: string) {
-    setSpecificDates((prev) => prev.filter((x) => x !== d));
-  }
-
-  // 실제로 등록될 날짜들
-  const targetDates = useMemo(() => {
-    if (!recurring) return [date];
-    if (recurMode === "weekday") return datesByWeekday(startDate, endDate, weekdaysSel);
-    return specificDates;
-  }, [recurring, recurMode, date, startDate, endDate, weekdaysSel, specificDates]);
+  const targetDates = recurring ? recurDates : [date];
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
     if (!me) return alert("로그인 계정이 팀원과 연결되어야 등록할 수 있습니다.");
     if (recurring && targetDates.length === 0)
-      return alert(
-        recurMode === "weekday"
-          ? "반복 요일과 기간을 확인하세요."
-          : "등록할 날짜를 하나 이상 추가하세요.",
-      );
+      return alert("반복 등록할 요일·기간 또는 날짜를 선택하세요.");
     if (targetDates.length > 100 && !confirm(`${targetDates.length}건을 등록합니다. 계속할까요?`)) return;
     setSaving(true);
     try {
@@ -628,7 +855,8 @@ function TaskForm({
       );
       setTitle("");
       setDetail("");
-      setSpecificDates([]);
+      setRecurDates([]);
+      setRecurKey((k) => k + 1);
     } finally {
       setSaving(false);
     }
@@ -661,161 +889,7 @@ function TaskForm({
             <Input type="date" value={date} onChange={(e) => onDateChange(e.target.value)} />
           </Field>
         ) : (
-          <div className="flex flex-col gap-3 rounded-lg bg-zinc-50 p-3">
-            {/* 반복 방식 */}
-            <div className="flex rounded-lg border border-zinc-200 bg-white p-0.5">
-              <button
-                type="button"
-                onClick={() => setRecurMode("weekday")}
-                className={cn(
-                  "flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition",
-                  recurMode === "weekday" ? "bg-indigo-600 text-white" : "text-zinc-500 hover:bg-zinc-100",
-                )}
-              >
-                요일 반복
-              </button>
-              <button
-                type="button"
-                onClick={() => setRecurMode("dates")}
-                className={cn(
-                  "flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition",
-                  recurMode === "dates" ? "bg-indigo-600 text-white" : "text-zinc-500 hover:bg-zinc-100",
-                )}
-              >
-                날짜 직접 선택
-              </button>
-            </div>
-
-            {recurMode === "weekday" ? (
-              <>
-                <div>
-                  <span className="mb-1 block text-xs font-medium text-zinc-500">반복 요일</span>
-                  <div className="flex gap-1">
-                    {WEEKDAYS.map((w, i) => (
-                      <button
-                        type="button"
-                        key={i}
-                        onClick={() => toggleWeekday(i)}
-                        className={cn(
-                          "h-8 w-8 rounded-full text-xs font-semibold transition",
-                          weekdaysSel.has(i)
-                            ? "bg-indigo-600 text-white"
-                            : "bg-white ring-1 ring-zinc-200 hover:bg-zinc-100",
-                          !weekdaysSel.has(i) && (i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-zinc-500"),
-                        )}
-                      >
-                        {w}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <span className="mb-1 block text-xs font-medium text-zinc-500">시작일</span>
-                    <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-                  </div>
-                  <div>
-                    <span className="mb-1 block text-xs font-medium text-zinc-500">종료일</span>
-                    <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="flex flex-col gap-2">
-                <span className="text-xs font-medium text-zinc-500">
-                  등록할 날짜 선택 <span className="text-zinc-400">(여러 날 클릭)</span>
-                </span>
-                {/* 미니 달력 — 여러 날짜를 토글로 복수 선택 */}
-                <div className="rounded-lg border border-zinc-200 bg-white p-2">
-                  <div className="mb-1 flex items-center justify-between">
-                    <button
-                      type="button"
-                      onClick={() => setPickMonth(shiftMonth(pickMonth, -1))}
-                      className="rounded px-1.5 py-0.5 text-zinc-500 hover:bg-zinc-100"
-                      aria-label="이전 달"
-                    >
-                      ‹
-                    </button>
-                    <span className="text-xs font-semibold text-zinc-700">{monthLabel(pickMonth)}</span>
-                    <button
-                      type="button"
-                      onClick={() => setPickMonth(shiftMonth(pickMonth, 1))}
-                      className="rounded px-1.5 py-0.5 text-zinc-500 hover:bg-zinc-100"
-                      aria-label="다음 달"
-                    >
-                      ›
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-7 gap-0.5">
-                    {WEEKDAYS.map((w, i) => (
-                      <div
-                        key={w}
-                        className={cn(
-                          "py-0.5 text-center text-[10px] font-medium",
-                          i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-zinc-400",
-                        )}
-                      >
-                        {w}
-                      </div>
-                    ))}
-                    {monthGrid(pickMonth).map((d, idx) =>
-                      d ? (
-                        <button
-                          type="button"
-                          key={d}
-                          onClick={() => toggleSpecific(d)}
-                          className={cn(
-                            "flex h-8 items-center justify-center rounded-md text-xs transition",
-                            specificDates.includes(d)
-                              ? "bg-indigo-600 font-semibold text-white"
-                              : "text-zinc-600 hover:bg-zinc-100",
-                          )}
-                        >
-                          {Number(d.slice(8, 10))}
-                        </button>
-                      ) : (
-                        <div key={`e${idx}`} className="h-8" />
-                      ),
-                    )}
-                  </div>
-                </div>
-                {/* 선택된 날짜 칩 */}
-                {specificDates.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {specificDates.map((d) => (
-                      <span
-                        key={d}
-                        className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-[11px] text-zinc-600 ring-1 ring-zinc-200"
-                      >
-                        {formatDateKo(d)}
-                        <button
-                          type="button"
-                          onClick={() => removeSpecific(d)}
-                          className="text-zinc-400 hover:text-red-500"
-                          aria-label="날짜 제거"
-                        >
-                          ✕
-                        </button>
-                      </span>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => setSpecificDates([])}
-                      className="rounded-full px-2 py-1 text-[11px] text-zinc-400 hover:text-red-500"
-                    >
-                      전체 해제
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <p className="text-[11px] text-zinc-400">
-              {targetDates.length > 0
-                ? `총 ${targetDates.length}일에 등록됩니다.`
-                : "조건에 맞는 날짜가 없습니다."}
-            </p>
-          </div>
+          <RecurrenceControls key={recurKey} baseDate={date} onDatesChange={setRecurDates} />
         )}
 
         <Field label="분류" required>

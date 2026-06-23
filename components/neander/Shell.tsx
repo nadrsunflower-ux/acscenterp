@@ -75,10 +75,10 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen bg-zinc-50">
       {/* 사이드바 */}
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-zinc-200 bg-white p-4 md:flex">
-        <div className="mb-6 px-2">
-          <div className="text-lg font-bold tracking-tight text-zinc-900">NEANDER</div>
-          <div className="text-xs font-medium text-indigo-500">ERP</div>
+      <aside className="hidden w-44 shrink-0 flex-col border-r border-zinc-200 bg-white p-2.5 sm:flex">
+        <div className="mb-4 px-1.5">
+          <div className="text-base font-bold tracking-tight text-zinc-900">NEANDER</div>
+          <div className="text-[11px] font-medium text-indigo-500">ERP</div>
         </div>
         <nav className="flex flex-col gap-1">
           {NAV.map((item) => {
@@ -91,14 +91,14 @@ export function Shell({ children }: { children: ReactNode }) {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  "flex items-center justify-between rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors",
                   active
                     ? "bg-indigo-50 text-indigo-700"
                     : "text-zinc-600 hover:bg-zinc-100",
                 )}
               >
-                <span className="flex items-center gap-2.5">
-                  <span>{item.icon}</span>
+                <span className="flex items-center gap-2">
+                  <span className="text-[15px]">{item.icon}</span>
                   {item.label}
                 </span>
                 {badgeFor(item.href) > 0 && (
@@ -115,10 +115,10 @@ export function Shell({ children }: { children: ReactNode }) {
         <div className="mt-auto border-t border-zinc-100 pt-3">
           <Link
             href="/"
-            className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700"
+            className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700"
           >
             <span>🏬</span>
-            AC&apos;SCENT 매장 관리
+            AC&apos;SCENT 매장
           </Link>
         </div>
       </aside>
@@ -128,7 +128,7 @@ export function Shell({ children }: { children: ReactNode }) {
         {/* 상단바 */}
         <header className="flex items-center justify-between gap-3 border-b border-zinc-200 bg-white px-5 py-3">
           {/* 모바일용 간단 네비 */}
-          <nav className="-mx-1 flex items-center gap-1 overflow-x-auto px-1 md:hidden">
+          <nav className="-mx-1 flex items-center gap-1 overflow-x-auto px-1 sm:hidden">
             {NAV.map((item) => {
               const active =
                 item.href === "/neander"
@@ -154,14 +154,14 @@ export function Shell({ children }: { children: ReactNode }) {
               );
             })}
           </nav>
-          <div className="hidden md:block" />
+          <div className="hidden sm:block" />
 
           {/* 로그인 사용자 + 로그아웃 */}
           <div className="flex items-center gap-3">
             {/* 모바일: AC'SCENT 복귀 */}
             <Link
               href="/"
-              className="rounded-lg px-2 py-1.5 text-xs font-medium text-zinc-500 hover:bg-zinc-100 md:hidden"
+              className="rounded-lg px-2 py-1.5 text-xs font-medium text-zinc-500 hover:bg-zinc-100 sm:hidden"
             >
               🏬 매장
             </Link>

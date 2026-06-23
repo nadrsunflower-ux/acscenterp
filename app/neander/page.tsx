@@ -337,7 +337,7 @@ function WeeklyTasks({
                     <div
                       key={t.id}
                       className={cn(
-                        "rounded px-1.5 py-0.5 text-[11px] leading-tight",
+                        "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] leading-tight",
                         t.status === "extended"
                           ? "bg-yellow-200 text-yellow-800"
                           : t.status === "done"
@@ -346,7 +346,11 @@ function WeeklyTasks({
                       )}
                       title={`${t.memberName}: ${t.title}`}
                     >
-                      <span className="line-clamp-2 break-words">{t.title}</span>
+                      {/* 업무가 여러 건이면 앞에 작은 체크로 구분 */}
+                      {g.items.length > 1 && (
+                        <span className="shrink-0 text-[8px] leading-none text-zinc-400">✓</span>
+                      )}
+                      <span className="truncate">{t.title}</span>
                     </div>
                   ))}
                 </div>
