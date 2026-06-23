@@ -82,7 +82,7 @@ export default function TasksPage() {
   const { tasks, members, currentMember } = useAppData();
 
   const today = todayStr();
-  const [viewMode, setViewMode] = useState<"week" | "month">("week");
+  const [viewMode, setViewMode] = useState<"week" | "month">("month"); // 월간 기본, 주간은 선택
   const [weekAnchor, setWeekAnchor] = useState(today); // 주간 스트립에 표시할 주(그 주의 한 날짜)
   const [viewMonth, setViewMonth] = useState(thisMonthStr());
   const [selectedDate, setSelectedDate] = useState(today);
