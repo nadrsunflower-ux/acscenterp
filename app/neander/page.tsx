@@ -23,6 +23,8 @@ import {
   isInMonth,
   weekDates,
   weekRangeLabel,
+  monthGrid,
+  monthLabel,
 } from "@/lib/neander/format";
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
@@ -222,6 +224,9 @@ function WeeklyTasks({
   members: Member[];
   today: string;
 }) {
+  // 주간/월간 보기 전환
+  const [mode, setMode] = useState<"week" | "month">("week");
+
   // 팀원별 토글: excluded 에 담긴 담당자는 숨김 (기본=전원 표시)
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const toggleMember = (id: string) =>
@@ -234,7 +239,6 @@ function WeeklyTasks({
   const allOn = excluded.size === 0;
   const allOff = members.length > 0 && excluded.size >= members.length;
 
-  const days = useMemo(() => weekDates(Date.now()), []);
   const memberColor = useMemo(() => {
     const map = new Map<string, string>();
     members.forEach((m) => map.set(m.id, m.color ?? "#71717a"));
@@ -259,30 +263,174 @@ function WeeklyTasks({
       return next;
     });
 
-  // 이번 주 + 담당자 토글 적용
+  const month = thisMonthStr();
+  const weekDays = useMemo(() => weekDates(Date.now()), []);
+  const monthCells = useMemo(() => monthGrid(month), [month]); // (string|null)[] 6주
+  // byDate 필터용 유효 날짜
+  const validDays = useMemo(
+    () => (mode === "week" ? weekDays : monthCells.filter((c): c is string => !!c)),
+    [mode, weekDays, monthCells],
+  );
+
   const byDate = useMemo(() => {
+    const valid = new Set(validDays);
     const map = new Map<string, DailyTask[]>();
     for (const t of tasks) {
-      if (!days.includes(t.date)) continue;
+      if (!valid.has(t.date)) continue;
       if (excluded.has(t.memberId)) continue;
       const arr = map.get(t.date);
       if (arr) arr.push(t);
       else map.set(t.date, [t]);
     }
     return map;
-  }, [tasks, days, excluded]);
+  }, [tasks, validDays, excluded]);
 
-  const weekTotal = days.reduce((sum, d) => sum + (byDate.get(d)?.length ?? 0), 0);
+  const total = validDays.reduce((sum, d) => sum + (byDate.get(d)?.length ?? 0), 0);
+
+  // 날짜 칸 내부: 팀원별 묶음(이름 토글 + 그 아래 업무)
+  const renderGroups = (d: string) => {
+    const dayTasks = [...(byDate.get(d) ?? [])].sort((a, b) => a.createdAt - b.createdAt);
+    return (
+      <div className="flex flex-col gap-1.5 overflow-y-auto">
+        {groupByMember(dayTasks, memberIndex).map((g) => {
+          const open = !collapsed.has(`${d}|${g.memberId}`);
+          const ext = g.items.filter((t) => t.status === "extended").length;
+          const hold = g.items.filter((t) => t.status === "on_hold").length;
+          return (
+            <div key={g.memberId} className="rounded-md border border-zinc-100 bg-zinc-50/60">
+              <button
+                type="button"
+                onClick={() => toggleCollapse(d, g.memberId)}
+                aria-expanded={open}
+                className="flex min-h-[32px] w-full items-center gap-1 rounded-md px-1.5 py-1 text-left active:bg-zinc-100"
+                title={`${g.memberName} · ${g.items.length}건`}
+              >
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: memberColor(g.memberId) }} />
+                <span className="truncate text-[11px] font-semibold text-zinc-600">{g.memberName}</span>
+                <span className="shrink-0 text-[10px] text-zinc-400">{g.items.length}</span>
+                {ext > 0 && (
+                  <span className="shrink-0 rounded-sm bg-yellow-200 px-1 text-[9px] font-semibold leading-tight text-yellow-800">
+                    연장 {ext}
+                  </span>
+                )}
+                {hold > 0 && (
+                  <span className="shrink-0 rounded-sm bg-orange-100 px-1 text-[9px] font-semibold leading-tight text-orange-700">
+                    보류 {hold}
+                  </span>
+                )}
+                <span className="ml-auto shrink-0 px-0.5 text-[11px] font-semibold leading-none text-zinc-500">
+                  {open ? "▾" : "▸"}
+                </span>
+              </button>
+              {open && (
+                <div className="flex flex-col gap-0.5 px-1 pb-1">
+                  {g.items.map((t) => (
+                    <div
+                      key={t.id}
+                      className={cn(
+                        "rounded px-1.5 py-0.5 text-[11px] leading-tight",
+                        t.status === "extended"
+                          ? "bg-yellow-200 text-yellow-800"
+                          : t.status === "done"
+                            ? "bg-white text-zinc-400 line-through"
+                            : "bg-white text-zinc-700",
+                      )}
+                      title={`${t.memberName}: ${t.title}`}
+                    >
+                      <span className="line-clamp-2 break-words">{t.title}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // 날짜 칸 (week: 요일 라벨 표시, month: 숫자만)
+  const renderCell = (d: string, colIdx: number, weekdayLabel: boolean, minH: string) => {
+    const isToday = d === today;
+    return (
+      <div
+        key={d}
+        className={cn(
+          "flex flex-col gap-1 rounded-lg border p-2",
+          minH,
+          isToday ? "border-indigo-300 bg-indigo-50/50" : "border-zinc-100",
+        )}
+      >
+        <div className="flex items-baseline justify-between border-b border-zinc-100 pb-1">
+          {weekdayLabel ? (
+            <span
+              className={cn(
+                "text-xs font-semibold",
+                colIdx === 0 ? "text-red-400" : colIdx === 6 ? "text-blue-400" : "text-zinc-500",
+              )}
+            >
+              {WEEKDAYS[colIdx]}
+            </span>
+          ) : (
+            <span />
+          )}
+          <span
+            className={cn(
+              "text-xs",
+              isToday
+                ? "font-bold text-indigo-600"
+                : colIdx === 0
+                  ? "text-red-400"
+                  : colIdx === 6
+                    ? "text-blue-400"
+                    : "text-zinc-400",
+            )}
+          >
+            {Number(d.slice(8, 10))}
+          </span>
+        </div>
+        {renderGroups(d)}
+      </div>
+    );
+  };
 
   return (
     <Card className="mb-6">
-      <div className="mb-3 flex items-center justify-between">
+      {/* 헤더 + 주간/월간 전환 */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-zinc-800">
-          주간 업무 <span className="ml-1 text-xs font-normal text-zinc-400">{weekRangeLabel(Date.now())}</span>
+          {mode === "week" ? "주간 업무" : "월간 업무"}
+          <span className="ml-1 text-xs font-normal text-zinc-400">
+            {mode === "week" ? weekRangeLabel(Date.now()) : monthLabel(month)}
+          </span>
         </h2>
-        <Link href="/neander/tasks" className="text-xs text-indigo-600 hover:underline">
-          일일업무 →
-        </Link>
+        <div className="flex items-center gap-2">
+          <div className="flex rounded-lg border border-zinc-200 p-0.5">
+            <button
+              type="button"
+              onClick={() => setMode("week")}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-xs font-medium transition",
+                mode === "week" ? "bg-indigo-600 text-white" : "text-zinc-500 hover:bg-zinc-100",
+              )}
+            >
+              주간
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("month")}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-xs font-medium transition",
+                mode === "month" ? "bg-indigo-600 text-white" : "text-zinc-500 hover:bg-zinc-100",
+              )}
+            >
+              월간
+            </button>
+          </div>
+          <Link href="/neander/tasks" className="text-xs text-indigo-600 hover:underline">
+            일일업무 →
+          </Link>
+        </div>
       </div>
 
       {/* 담당자별 토글 (각자 켜고 끌 수 있음) */}
@@ -302,101 +450,47 @@ function WeeklyTasks({
         ))}
       </div>
 
-      {weekTotal === 0 ? (
+      {total === 0 ? (
         <p className="py-10 text-center text-sm text-zinc-400">
-          {allOff ? "표시할 팀원을 선택하세요." : "이번 주 등록된 업무가 없습니다."}
+          {allOff
+            ? "표시할 팀원을 선택하세요."
+            : mode === "week"
+              ? "이번 주 등록된 업무가 없습니다."
+              : "이번 달 등록된 업무가 없습니다."}
         </p>
+      ) : mode === "week" ? (
+        <div className="-mx-1 overflow-x-auto px-1">
+          <div className="grid min-w-[680px] grid-cols-7 gap-2 md:min-w-0">
+            {weekDays.map((d, i) => renderCell(d, i, true, "min-h-[200px]"))}
+          </div>
+        </div>
       ) : (
         <div className="-mx-1 overflow-x-auto px-1">
-          <div className="grid grid-cols-7 gap-2 min-w-[680px] md:min-w-0">
-          {days.map((d, i) => {
-            const dayTasks = [...(byDate.get(d) ?? [])].sort((a, b) => a.createdAt - b.createdAt);
-            const isToday = d === today;
-            return (
-              <div
-                key={d}
-                className={cn(
-                  "flex min-h-[200px] flex-col gap-1 rounded-lg border p-2",
-                  isToday ? "border-indigo-300 bg-indigo-50/50" : "border-zinc-100",
-                )}
-              >
-                <div className="flex items-baseline justify-between border-b border-zinc-100 pb-1">
-                  <span
-                    className={cn(
-                      "text-xs font-semibold",
-                      i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-zinc-500",
-                    )}
-                  >
-                    {WEEKDAYS[i]}
-                  </span>
-                  <span className={cn("text-xs", isToday ? "font-bold text-indigo-600" : "text-zinc-400")}>
-                    {Number(d.slice(8, 10))}
-                  </span>
+          <div className="min-w-[680px] md:min-w-0">
+            {/* 요일 헤더 */}
+            <div className="mb-1 grid grid-cols-7 gap-2">
+              {WEEKDAYS.map((w, i) => (
+                <div
+                  key={w}
+                  className={cn(
+                    "text-center text-xs font-semibold",
+                    i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-zinc-400",
+                  )}
+                >
+                  {w}
                 </div>
-                <div className="flex flex-col gap-1.5 overflow-y-auto">
-                  {groupByMember(dayTasks, memberIndex).map((g) => {
-                    // 팀원별 묶음: 이름 토글 1회 + 그 아래 그 팀원의 (여러) 업무 (단건 포함 항상)
-                    const open = !collapsed.has(`${d}|${g.memberId}`);
-                    const ext = g.items.filter((t) => t.status === "extended").length;
-                    const hold = g.items.filter((t) => t.status === "on_hold").length;
-                    return (
-                      <div key={g.memberId} className="rounded-md border border-zinc-100 bg-zinc-50/60">
-                        <button
-                          type="button"
-                          onClick={() => toggleCollapse(d, g.memberId)}
-                          aria-expanded={open}
-                          className="flex min-h-[32px] w-full items-center gap-1 rounded-md px-1.5 py-1 text-left active:bg-zinc-100"
-                          title={`${g.memberName} · ${g.items.length}건`}
-                        >
-                          <span
-                            className="h-1.5 w-1.5 shrink-0 rounded-full"
-                            style={{ backgroundColor: memberColor(g.memberId) }}
-                          />
-                          <span className="truncate text-[11px] font-semibold text-zinc-600">
-                            {g.memberName}
-                          </span>
-                          <span className="shrink-0 text-[10px] text-zinc-400">{g.items.length}</span>
-                          {ext > 0 && (
-                            <span className="shrink-0 rounded-sm bg-yellow-200 px-1 text-[9px] font-semibold leading-tight text-yellow-800">
-                              연장 {ext}
-                            </span>
-                          )}
-                          {hold > 0 && (
-                            <span className="shrink-0 rounded-sm bg-orange-100 px-1 text-[9px] font-semibold leading-tight text-orange-700">
-                              보류 {hold}
-                            </span>
-                          )}
-                          <span className="ml-auto shrink-0 px-0.5 text-[11px] font-semibold leading-none text-zinc-500">
-                            {open ? "▾" : "▸"}
-                          </span>
-                        </button>
-                        {open && (
-                          <div className="flex flex-col gap-0.5 px-1 pb-1">
-                            {g.items.map((t) => (
-                              <div
-                                key={t.id}
-                                className={cn(
-                                  "rounded px-1.5 py-0.5 text-[11px] leading-tight",
-                                  t.status === "extended"
-                                    ? "bg-yellow-200 text-yellow-800"
-                                    : t.status === "done"
-                                      ? "bg-white text-zinc-400 line-through"
-                                      : "bg-white text-zinc-700",
-                                )}
-                                title={`${t.memberName}: ${t.title}`}
-                              >
-                                <span className="line-clamp-2 break-words">{t.title}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
+              ))}
+            </div>
+            {/* 월 그리드 (6주, 세로로 길게) */}
+            <div className="grid grid-cols-7 gap-2">
+              {monthCells.map((c, idx) =>
+                c ? (
+                  renderCell(c, idx % 7, false, "min-h-[150px]")
+                ) : (
+                  <div key={`e${idx}`} className="min-h-[150px] rounded-lg" />
+                ),
+              )}
+            </div>
           </div>
         </div>
       )}
