@@ -147,6 +147,8 @@ export interface ActionItem {
   /** 로컬 식별용 id (목록 key / 일일업무 연결 추적) */
   id: string;
   text: string;
+  /** 분류 (스모트/아이디/와우/기타) — 일일업무 분류와 동일 */
+  category?: TaskCategory;
   assigneeId: string;
   assigneeName: string;
   dueDate?: string; // YYYY-MM-DD

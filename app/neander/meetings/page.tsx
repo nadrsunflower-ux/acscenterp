@@ -20,15 +20,25 @@ import {
   PageHeader,
   Badge,
   EmptyState,
+  CategoryPicker,
 } from "@/components/neander/ui";
-import type { Meeting, ActionItem } from "@/lib/neander/types";
+import {
+  type Meeting,
+  type ActionItem,
+  type TaskCategory,
+  taskCategoryLabel,
+  taskCategoryColor,
+} from "@/lib/neander/types";
 import { todayStr, formatDateKo } from "@/lib/neander/format";
+
+const DEFAULT_CATEGORY: TaskCategory = "etc";
 
 interface ActionDraft {
   key: string;
   id?: string; // 기존 액션플랜 id (수정 시)
   taskId?: string; // 연결된 일일업무 id (수정 시)
   text: string;
+  category: TaskCategory;
   assigneeId: string;
   dueDate: string;
 }
@@ -36,7 +46,7 @@ interface ActionDraft {
 let _seq = 0;
 function newDraft(): ActionDraft {
   _seq += 1;
-  return { key: `d${_seq}`, text: "", assigneeId: "", dueDate: "" };
+  return { key: `d${_seq}`, text: "", category: DEFAULT_CATEGORY, assigneeId: "", dueDate: "" };
 }
 function draftsFromMeeting(m: Meeting): ActionDraft[] {
   const ds = m.actionItems.map((a) => {
@@ -46,6 +56,7 @@ function draftsFromMeeting(m: Meeting): ActionDraft[] {
       id: a.id,
       taskId: a.taskId,
       text: a.text,
+      category: a.category ?? DEFAULT_CATEGORY,
       assigneeId: a.assigneeId,
       dueDate: a.dueDate ?? "",
     };
@@ -159,6 +170,11 @@ function MeetingCard({
                     <div className="min-w-0 flex-1">
                       <span className="text-zinc-800">{a.text}</span>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+                        {a.category && (
+                          <Badge color={taskCategoryColor(a.category)}>
+                            {taskCategoryLabel(a.category)}
+                          </Badge>
+                        )}
                         {a.assigneeName ? (
                           <Badge color={memberColor(a.assigneeId)}>{a.assigneeName}</Badge>
                         ) : (
@@ -229,7 +245,7 @@ function MeetingEditor({
         const dueDate = emptyToUndef(d.dueDate);
         const text = d.text.trim();
 
-        // 담당자가 지정된 액션플랜 → 일일업무 동기화
+        // 담당자가 지정된 액션플랜 → 일일업무 동기화 (분류 포함)
         let taskId = d.taskId;
         if (assignee) {
           if (taskId) {
@@ -237,6 +253,7 @@ function MeetingEditor({
               memberId: assignee.id,
               memberName: assignee.name,
               date: dueDate || date,
+              category: d.category,
               title: text,
             });
           } else {
@@ -244,7 +261,7 @@ function MeetingEditor({
               memberId: assignee.id,
               memberName: assignee.name,
               date: dueDate || date,
-              category: "etc",
+              category: d.category,
               title: text,
               detail: `회의록(${date}) 액션플랜`,
               status: "todo",
@@ -256,6 +273,7 @@ function MeetingEditor({
         const item: ActionItem = {
           id: d.id ?? `${Date.now().toString(36)}-${idx}`,
           text,
+          category: d.category,
           assigneeId: assignee?.id ?? "",
           assigneeName: assignee?.name ?? "",
         };
@@ -334,6 +352,13 @@ function MeetingEditor({
                   placeholder="액션 내용 (예: 신상품 입고 일정 확정)"
                   className="mb-2"
                 />
+                <div className="mb-2">
+                  <span className="mb-1 block text-xs font-medium text-zinc-500">분류</span>
+                  <CategoryPicker
+                    value={d.category}
+                    onChange={(c) => updateDraft(d.key, { category: c })}
+                  />
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <Select
                     value={d.assigneeId}
