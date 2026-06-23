@@ -184,16 +184,51 @@ export type ScheduleInput = Omit<Schedule, "id" | "createdAt" | "updatedAt">;
 
 // ---- 메신저 -----------------------------------------------
 
+/** 채팅 메시지에 첨부된 이미지/파일 (Firebase Storage 업로드 결과) */
+export interface ChatAttachment {
+  /** 이미지면 인라인 미리보기, 그 외는 다운로드 칩으로 표시 */
+  kind: "image" | "file";
+  url: string;
+  name: string;
+  contentType: string;
+  /** 바이트 단위 파일 크기 */
+  size: number;
+}
+
 /** 채팅 메시지 */
 export interface ChatMessage {
   id: string;
-  /** 대화 식별자: "team" 또는 "dm_<idA>__<idB>"(정렬됨) */
+  /**
+   * 대화 식별자:
+   *  - "team"               전체 팀 채팅
+   *  - "dm_<idA>__<idB>"    팀원 간 기본 1:1 (정렬됨)
+   *  - 그 외(랜덤 doc id)    사용자가 직접 만든 채팅방(neander_conversations)
+   */
   conversationId: string;
   senderId: string;
   senderName: string;
+  /** 첨부만 있을 때는 빈 문자열 */
   text: string;
+  /** 이미지·파일 첨부 (있을 때만) */
+  attachment?: ChatAttachment;
   createdAt: number;
 }
 
 /** 사용자별 대화 읽음 시각 맵 ({ conversationId: lastReadMs }) */
 export type ChatReads = Record<string, number>;
+
+/** 사용자가 직접 만든 채팅방 (1:1 또는 단체, 이름 지정 가능) */
+export interface Conversation {
+  id: string;
+  /** 채팅방 이름 */
+  name: string;
+  /** 참여자 팀원 id 목록 (만든 사람 포함) */
+  memberIds: string[];
+  /** true=단체방, false=1:1 방 */
+  isGroup: boolean;
+  /** 만든 사람 팀원 id */
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
+export type ConversationInput = Omit<Conversation, "id" | "createdAt" | "updatedAt">;

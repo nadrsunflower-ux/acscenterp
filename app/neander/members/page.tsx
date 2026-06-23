@@ -127,33 +127,30 @@ export default function MembersPage() {
       <Card className="mb-6">
         <h2 className="mb-4 text-sm font-semibold text-zinc-800">팀원 추가</h2>
         <form onSubmit={handleAdd} className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-end gap-4">
-            <Field label="이름" required>
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-nowrap sm:items-end sm:gap-3">
+            <Field label="이름" required className="min-w-0 sm:flex-[2]">
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="예: 김주연"
-                className="w-36"
               />
             </Field>
-            <Field label="Google 이메일" hint="로그인 연결용 (선택)">
+            <Field label="Google 이메일 · 선택" className="min-w-0 sm:flex-[3]">
               <Input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="예: name@gmail.com"
-                className="w-56"
               />
             </Field>
-            <Field label="역할" hint="선택 입력">
+            <Field label="역할 · 선택" className="min-w-0 sm:flex-[2]">
               <Input
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
                 placeholder="예: 영업, 디자인"
-                className="w-36"
               />
             </Field>
-            <Button type="submit" disabled={saving || !name.trim()}>
+            <Button type="submit" disabled={saving || !name.trim()} className="w-full sm:w-auto">
               {saving ? "추가 중…" : "추가하기"}
             </Button>
           </div>

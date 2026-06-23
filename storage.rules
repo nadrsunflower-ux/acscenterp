@@ -1,0 +1,28 @@
+rules_version = '2';
+
+// ============================================================
+//  Firebase Storage 보안 규칙 — 악센트 운영 관리 / NEANDER ERP
+// ------------------------------------------------------------
+//   - neander_chat/** : 로그인 사용자만 읽기/쓰기 + 업로드 25MB 제한.
+//     (익명 업로드/열람 차단. 팀원 간 첨부는 신뢰 모델상 공유 허용)
+//   - 그 외(products/**, promotions/** 등 매장 이미지): 기존 공개 보존.
+//     ⚠️ 첫 세그먼트가 neander_chat 이면 아래 catch-all 에서 제외한다.
+// ============================================================
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // NEANDER 채팅 첨부
+    match /neander_chat/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.size < 25 * 1024 * 1024;
+    }
+
+    // 그 외 경로(매장 상품/프로모션 이미지 등): 기존 공개 동작 보존.
+    // 단 neander_chat 폴더는 위 규칙에서만 처리(여기서 재허용하지 않음).
+    match /{folder}/{allPaths=**} {
+      allow read, write: if folder != 'neander_chat';
+    }
+  }
+}

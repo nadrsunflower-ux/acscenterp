@@ -10,7 +10,7 @@ import {
   increment,
 } from "firebase/firestore";
 import { getNeanderDb, NEANDER_COL } from "@/lib/neander/firebase";
-import { clean } from "./helpers";
+import { clean, cleanForUpdate } from "./helpers";
 import type { WorkRequest, WorkRequestInput, RequestStatus } from "@/lib/neander/types";
 
 const col = () => collection(getNeanderDb(), NEANDER_COL.workRequests);
@@ -35,6 +35,17 @@ export async function addRequest(input: WorkRequestInput) {
 
 export async function setRequestStatus(id: string, status: RequestStatus) {
   await updateDoc(ref(id), { status, updatedAt: Date.now() });
+}
+
+/**
+ * 보낸 사람이 요청 내용을 수정 (받는 사람·분류·제목·상세·마감일).
+ * 빈 상세/마감일은 deleteField 로 실제 제거된다(cleanForUpdate).
+ */
+export async function updateRequest(
+  id: string,
+  patch: Partial<Pick<WorkRequest, "toId" | "toName" | "category" | "title" | "detail" | "dueDate">>,
+) {
+  await updateDoc(ref(id), cleanForUpdate({ ...patch, updatedAt: Date.now() }));
 }
 
 /** 받은 사람이 요청자에게 남기는 답장 메시지 저장 */

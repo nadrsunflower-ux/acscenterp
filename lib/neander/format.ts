@@ -42,6 +42,47 @@ export function formatTimestamp(ms: number): string {
   return `${d.getMonth() + 1}.${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+// ---- 채팅(메신저) 전용 날짜/시간 포맷 (카카오톡 스타일) ----
+
+/** 두 epoch(ms)가 같은 날짜인지 */
+export function sameDay(a: number, b: number): boolean {
+  const da = new Date(a);
+  const db = new Date(b);
+  return (
+    da.getFullYear() === db.getFullYear() &&
+    da.getMonth() === db.getMonth() &&
+    da.getDate() === db.getDate()
+  );
+}
+
+/** 두 epoch(ms)가 같은 분(minute)인지 (시각 표시 묶음용) */
+export function sameMinute(a: number, b: number): boolean {
+  return sameDay(a, b) && new Date(a).getHours() === new Date(b).getHours() && new Date(a).getMinutes() === new Date(b).getMinutes();
+}
+
+/** epoch(ms) -> "오전/오후 h:mm" */
+export function formatChatTime(ms: number): string {
+  const d = new Date(ms);
+  const h24 = d.getHours();
+  const ampm = h24 < 12 ? "오전" : "오후";
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${ampm} ${h12}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/** epoch(ms) -> "YYYY년 M월 D일 (요일)" (날짜 구분선용) */
+export function formatChatDate(ms: number): string {
+  const d = new Date(ms);
+  const weekday = ["일", "월", "화", "수", "목", "금", "토"][d.getDay()];
+  return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 (${weekday})`;
+}
+
+/** 바이트 -> "1.2MB" / "820KB" / "512B" */
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
 /** dateStr("YYYY-MM-DD")가 month("YYYY-MM")에 속하는지 */
 export function isInMonth(dateStr: string, month: string): boolean {
   return dateStr.startsWith(month);

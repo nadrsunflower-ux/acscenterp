@@ -128,22 +128,28 @@ export function Shell({ children }: { children: ReactNode }) {
         {/* 상단바 */}
         <header className="flex items-center justify-between gap-3 border-b border-zinc-200 bg-white px-5 py-3">
           {/* 모바일용 간단 네비 */}
-          <nav className="flex items-center gap-1 overflow-x-auto md:hidden">
+          <nav className="-mx-1 flex items-center gap-1 overflow-x-auto px-1 md:hidden">
             {NAV.map((item) => {
               const active =
                 item.href === "/neander"
                   ? pathname === "/neander"
                   : pathname.startsWith(item.href);
+              const badge = badgeFor(item.href);
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-medium",
+                    "relative whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-medium",
                     active ? "bg-indigo-50 text-indigo-700" : "text-zinc-500",
                   )}
                 >
                   {item.label}
+                  {badge > 0 && (
+                    <span className="absolute -right-0.5 -top-0.5 flex min-w-[15px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">
+                      {badge}
+                    </span>
+                  )}
                 </Link>
               );
             })}

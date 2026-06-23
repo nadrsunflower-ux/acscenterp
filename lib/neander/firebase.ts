@@ -15,10 +15,12 @@
 // ============================================================
 import { getFirestore, type Firestore } from "firebase/firestore";
 import { getAuth, type Auth } from "firebase/auth";
+import { getStorage, type FirebaseStorage } from "firebase/storage";
 import { getFirebaseApp } from "@/lib/firebase";
 
 let _db: Firestore | null = null;
 let _auth: Auth | null = null;
+let _storage: FirebaseStorage | null = null;
 
 /** Firestore 인스턴스 (지연 초기화). env 미설정 시 throw. */
 export function getNeanderDb(): Firestore {
@@ -46,6 +48,19 @@ export function getNeanderAuth(): Auth {
   return _auth;
 }
 
+/** Firebase Storage 인스턴스 (지연 초기화). env 미설정 시 throw. */
+export function getNeanderStorage(): FirebaseStorage {
+  if (_storage) return _storage;
+  const app = getFirebaseApp();
+  if (!app) {
+    throw new Error(
+      "[neander/firebase] Firebase 환경변수가 설정되지 않았습니다. .env.local 의 NEXT_PUBLIC_FIREBASE_* 값을 확인하세요.",
+    );
+  }
+  _storage = getStorage(app);
+  return _storage;
+}
+
 /** NEANDER 컬렉션 이름 (neander_ 접두사로 AC'SCENT 데이터와 분리) */
 export const NEANDER_COL = {
   members: "neander_members",
@@ -56,4 +71,7 @@ export const NEANDER_COL = {
   schedules: "neander_schedules",
   messages: "neander_messages",
   chatReads: "neander_chat_reads",
+  conversations: "neander_conversations",
+  /** 이메일 → 팀원 매핑 (보안 규칙의 '허용 팀원' 판정 근거) */
+  memberEmails: "neander_member_emails",
 } as const;

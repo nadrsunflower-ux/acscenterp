@@ -10,7 +10,9 @@
     "scheduler:clear-schedules": "tsx scripts/scheduler/clear-schedules.ts",
     "scheduler:clear-all": "tsx scripts/scheduler/clear-all-data.ts",
     "scheduler:check": "tsx scripts/scheduler/check-schedules.ts",
-    "scheduler:import-shifts": "tsx scripts/scheduler/import-from-shifts.ts"
+    "scheduler:import-shifts": "tsx scripts/scheduler/import-from-shifts.ts",
+    "neander:backfill-emails": "tsx scripts/neander/backfill-member-emails.ts",
+    "firebase:deploy:rules": "npx -y firebase-tools deploy --only firestore:rules,storage --project acscentmanager"
   },
   "dependencies": {
     "firebase": "10.14.1",

@@ -11,6 +11,7 @@ import {
   acknowledgeRequest,
   nudgeRequest,
   setRequestTask,
+  updateRequest,
   deleteRequest,
 } from "@/lib/neander/db/requests";
 import { addTask } from "@/lib/neander/db/tasks";
@@ -138,7 +139,7 @@ export default function RequestsPage() {
                     <div className="h-px flex-1 bg-zinc-100" />
                   </div>
                   {week.items.map((r) => (
-                    <RequestCard key={r.id} req={r} mode={tab} />
+                    <RequestCard key={r.id} req={r} mode={tab} members={members} />
                   ))}
                 </div>
               ))}
@@ -172,7 +173,15 @@ function TabBtn({
   );
 }
 
-function RequestCard({ req, mode }: { req: WorkRequest; mode: "received" | "sent" }) {
+function RequestCard({
+  req,
+  mode,
+  members,
+}: {
+  req: WorkRequest;
+  mode: "received" | "sent";
+  members: { id: string; name: string; color?: string; avatar?: string }[];
+}) {
   const { send } = useChat();
   const done = req.status === "done";
   const overdue = !done && isOverdue(req.dueDate);
@@ -180,6 +189,7 @@ function RequestCard({ req, mode }: { req: WorkRequest; mode: "received" | "sent
   const [savingReply, setSavingReply] = useState(false);
   const [nudging, setNudging] = useState(false);
   const [addingTask, setAddingTask] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const replyDirty = reply.trim() !== (req.replyMessage ?? "").trim();
   const nudgeCount = req.nudgeCount ?? 0;
@@ -231,6 +241,17 @@ function RequestCard({ req, mode }: { req: WorkRequest; mode: "received" | "sent
     } finally {
       setNudging(false);
     }
+  }
+
+  // 보낸 요청 수정 모드
+  if (editing && mode === "sent") {
+    return (
+      <RequestEditForm
+        req={req}
+        members={members}
+        onClose={() => setEditing(false)}
+      />
+    );
   }
 
   return (
@@ -356,7 +377,14 @@ function RequestCard({ req, mode }: { req: WorkRequest; mode: "received" | "sent
               <p className="mt-0.5 whitespace-pre-wrap text-sm text-zinc-700">{req.replyMessage}</p>
             </div>
           )}
-          <div>
+          <div className="flex gap-1.5">
+            <Button
+              variant="secondary"
+              className="!px-2.5 !py-1 !text-xs"
+              onClick={() => setEditing(true)}
+            >
+              ✏️ 수정
+            </Button>
             <Button
               variant="danger"
               className="!px-2.5 !py-1 !text-xs"
@@ -369,6 +397,98 @@ function RequestCard({ req, mode }: { req: WorkRequest; mode: "received" | "sent
           </div>
         </div>
       )}
+    </Card>
+  );
+}
+
+function RequestEditForm({
+  req,
+  members,
+  onClose,
+}: {
+  req: WorkRequest;
+  members: { id: string; name: string; color?: string; avatar?: string }[];
+  onClose: () => void;
+}) {
+  const others = members.filter((m) => m.id !== req.fromId);
+  const [toId, setToId] = useState(req.toId);
+  // 원래 분류가 없던(레거시) 요청은 빈 상태를 유지 — 임의로 '아이디'를 강제하지 않음
+  const [category, setCategory] = useState<TaskCategory | undefined>(req.category);
+  const [title, setTitle] = useState(req.title);
+  const [detail, setDetail] = useState(req.detail ?? "");
+  const [dueDate, setDueDate] = useState(req.dueDate ?? "");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!title.trim()) return alert("제목을 입력하세요.");
+    const to = members.find((m) => m.id === toId);
+    if (!to) return alert("받는 사람을 선택하세요.");
+    setSaving(true);
+    try {
+      await updateRequest(req.id, {
+        toId: to.id,
+        toName: to.name,
+        category,
+        title: title.trim(),
+        detail: emptyToUndef(detail),
+        dueDate: emptyToUndef(dueDate),
+      });
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card className="!border-indigo-300">
+      <h3 className="mb-3 text-sm font-semibold text-zinc-800">요청 수정</h3>
+      <div className="flex flex-col gap-4">
+        <Field label="받는 사람" required>
+          {others.length === 0 ? (
+            <p className="text-xs text-zinc-400">등록된 다른 팀원이 없습니다.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {others.map((m) => {
+                const selected = toId === m.id;
+                return (
+                  <button
+                    type="button"
+                    key={m.id}
+                    onClick={() => setToId(m.id)}
+                    className={cn(
+                      "flex w-16 flex-col items-center gap-1 rounded-xl border p-2 transition",
+                      selected ? "border-indigo-500 bg-indigo-50" : "border-zinc-200 hover:bg-zinc-50",
+                    )}
+                  >
+                    <MemberAvatar name={m.name} color={m.color} avatar={m.avatar} className="h-9 w-9 text-base" />
+                    <span className="w-full truncate text-center text-xs text-zinc-700">{m.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </Field>
+        <Field label="분류" hint="비워두면 분류 없음">
+          <CategoryPicker value={category} onChange={setCategory} />
+        </Field>
+        <Field label="요청 제목" required>
+          <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+        </Field>
+        <Field label="상세 내용" hint="선택 입력">
+          <Textarea rows={3} value={detail} onChange={(e) => setDetail(e.target.value)} />
+        </Field>
+        <Field label="마감일" hint="선택">
+          <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+        </Field>
+        <div className="flex gap-2">
+          <Button onClick={save} disabled={saving || !title.trim()}>
+            {saving ? "저장 중…" : "저장"}
+          </Button>
+          <Button variant="secondary" onClick={onClose} disabled={saving}>
+            취소
+          </Button>
+        </div>
+      </div>
     </Card>
   );
 }

@@ -47,15 +47,17 @@ export function Field({
   label,
   hint,
   required,
+  className,
   children,
 }: {
   label: string;
   hint?: string;
   required?: boolean;
+  className?: string;
   children: ReactNode;
 }) {
   return (
-    <label className="flex flex-col gap-1.5">
+    <label className={cn("flex flex-col gap-1.5", className)}>
       <span className="text-sm font-medium text-zinc-700">
         {label}
         {required && <span className="ml-0.5 text-red-500">*</span>}
@@ -169,7 +171,8 @@ export function CategoryPicker({
   value,
   onChange,
 }: {
-  value: TaskCategory;
+  /** undefined 면 어떤 칸도 선택되지 않은 '미분류' 상태 */
+  value?: TaskCategory;
   onChange: (c: TaskCategory) => void;
 }) {
   return (
