@@ -195,7 +195,25 @@ export type ScheduleInput = Omit<Schedule, "id" | "createdAt" | "updatedAt">;
 
 // ---- 바로가기 ---------------------------------------------
 
-/** 바로가기 분류 (마케팅/영업/개발/B2B) */
+/** 바로가기 상위 그룹 (스모트/아이디/와우) */
+export type ShortcutGroup = "smoat" | "id" | "wow";
+export const SHORTCUT_GROUPS: {
+  value: ShortcutGroup;
+  label: string;
+  color: string;
+}[] = [
+  { value: "smoat", label: "스모트", color: "#0891b2" },
+  { value: "id", label: "아이디", color: "#7c5cff" },
+  { value: "wow", label: "와우", color: "#ff8a3d" },
+];
+export const shortcutGroupLabel = (g: ShortcutGroup) =>
+  SHORTCUT_GROUPS.find((x) => x.value === g)?.label ?? g;
+export const shortcutGroupColor = (g: ShortcutGroup) =>
+  SHORTCUT_GROUPS.find((x) => x.value === g)?.color ?? "#71717a";
+/** 해당 그룹이 하위 분류(마케팅/영업/개발/B2B)를 쓰는지. 와우는 분류 없음. */
+export const groupHasCategories = (g: ShortcutGroup) => g !== "wow";
+
+/** 바로가기 하위 분류 (마케팅/영업/개발/B2B) — 스모트·아이디 그룹에서만 사용 */
 export type ShortcutCategory = "marketing" | "sales" | "dev" | "b2b";
 export const SHORTCUT_CATEGORIES: {
   value: ShortcutCategory;
@@ -212,10 +230,13 @@ export const shortcutCategoryLabel = (c: ShortcutCategory) =>
 export const shortcutCategoryColor = (c: ShortcutCategory) =>
   SHORTCUT_CATEGORIES.find((x) => x.value === c)?.color ?? "#71717a";
 
-/** 바로가기 (팀 공용 링크 모음 — 분류별 탭으로 묶임) */
+/** 바로가기 (팀 공용 링크 모음 — 그룹 > 분류 2단 탭으로 묶임) */
 export interface Shortcut {
   id: string;
-  category: ShortcutCategory;
+  /** 상위 그룹 (스모트/아이디/와우). 레거시 문서엔 없을 수 있어 읽을 때 'smoat' 로 보정. */
+  group: ShortcutGroup;
+  /** 하위 분류 — 스모트/아이디에서만 사용. 와우는 분류 없음(undefined). */
+  category?: ShortcutCategory;
   title: string;
   /** 이동할 링크 (https:// 정규화된 절대 URL) */
   url: string;

@@ -11,9 +11,14 @@ import { emptyToUndef } from "@/lib/neander/db/helpers";
 import { Button, Field, Input, PageHeader, EmptyState, cn } from "@/components/neander/ui";
 import {
   type Shortcut,
+  type ShortcutGroup,
   type ShortcutCategory,
   type ShortcutInput,
+  SHORTCUT_GROUPS,
   SHORTCUT_CATEGORIES,
+  groupHasCategories,
+  shortcutGroupLabel,
+  shortcutCategoryLabel,
 } from "@/lib/neander/types";
 
 // ---- URL 유틸 ----------------------------------------------
@@ -33,33 +38,61 @@ function hostOf(url: string): string {
   }
 }
 
+// ---- 레거시 보정 -------------------------------------------
+const GROUP_VALUES = SHORTCUT_GROUPS.map((g) => g.value);
+const CAT_VALUES = SHORTCUT_CATEGORIES.map((c) => c.value);
+/** group 미설정·미지값은 '스모트'로 보정 (기존 데이터 호환) */
+function normGroup(s: Shortcut): ShortcutGroup {
+  return s.group && GROUP_VALUES.includes(s.group) ? s.group : "smoat";
+}
+/** 분류 그룹에서 category 미설정·미지값은 '마케팅'으로 보정 */
+function normCat(s: Shortcut): ShortcutCategory {
+  return s.category && CAT_VALUES.includes(s.category) ? s.category : "marketing";
+}
+
 export default function ShortcutsPage() {
   const [shortcuts, setShortcuts] = useState<Shortcut[]>([]);
+  const [activeGroup, setActiveGroup] = useState<ShortcutGroup>("smoat");
   const [activeCat, setActiveCat] = useState<ShortcutCategory>("marketing");
   // 모달: null=닫힘, "new"=추가, Shortcut=수정
   const [modal, setModal] = useState<null | "new" | Shortcut>(null);
 
   useEffect(() => subscribeShortcuts(setShortcuts), []);
 
-  // 분류별 그룹 (생성순 유지)
-  const grouped = useMemo(() => {
-    const map: Record<ShortcutCategory, Shortcut[]> = {
-      marketing: [],
-      sales: [],
-      dev: [],
-      b2b: [],
-    };
-    for (const s of shortcuts) (map[s.category] ?? map.marketing).push(s);
-    return map;
+  // 상위 그룹별 묶음 (생성순 유지)
+  const byGroup = useMemo(() => {
+    const g: Record<ShortcutGroup, Shortcut[]> = { smoat: [], id: [], wow: [] };
+    for (const s of shortcuts) g[normGroup(s)].push(s);
+    return g;
   }, [shortcuts]);
 
-  const list = grouped[activeCat];
+  // 현재 그룹의 하위 분류별 개수
+  const catCounts = useMemo(() => {
+    const c: Record<ShortcutCategory, number> = { marketing: 0, sales: 0, dev: 0, b2b: 0 };
+    if (groupHasCategories(activeGroup)) {
+      for (const s of byGroup[activeGroup]) c[normCat(s)] += 1;
+    }
+    return c;
+  }, [byGroup, activeGroup]);
+
+  // 화면에 보일 목록
+  const list = useMemo(() => {
+    const items = byGroup[activeGroup];
+    if (!groupHasCategories(activeGroup)) return items; // 와우: 분류 없이 전체
+    return items.filter((s) => normCat(s) === activeCat);
+  }, [byGroup, activeGroup, activeCat]);
+
+  const showSubTabs = groupHasCategories(activeGroup);
+  // 현재 보고 있는 탭 맥락 (빈 상태 문구용)
+  const tabCtxLabel = showSubTabs
+    ? `${shortcutGroupLabel(activeGroup)} · ${shortcutCategoryLabel(activeCat)}`
+    : shortcutGroupLabel(activeGroup);
 
   return (
     <div>
       <PageHeader
         title="바로가기"
-        description="자주 쓰는 링크를 분류별로 모아두고 한 번에 이동하세요. 비밀번호가 필요한 링크는 함께 저장해 팀원과 공유할 수 있습니다."
+        description="스모트·아이디·와우별로 자주 쓰는 링크를 모아두고 한 번에 이동하세요. 비밀번호가 필요한 링크는 함께 저장해 팀원과 공유할 수 있습니다."
         actions={
           <Button onClick={() => setModal("new")}>
             <span className="text-base leading-none">＋</span> 바로가기 추가
@@ -67,34 +100,29 @@ export default function ShortcutsPage() {
         }
       />
 
-      {/* 분류 탭 (마케팅 / 영업 / 개발 / B2B) */}
-      <div className="flex gap-1 rounded-2xl bg-zinc-100 p-1">
-        {SHORTCUT_CATEGORIES.map((c) => {
-          const active = c.value === activeCat;
-          const count = grouped[c.value].length;
+      {/* 상위 그룹 탭 (스모트 / 아이디 / 와우) */}
+      <div className="flex gap-1.5 rounded-2xl bg-zinc-100 p-1">
+        {SHORTCUT_GROUPS.map((g) => {
+          const active = g.value === activeGroup;
+          const count = byGroup[g.value].length;
           return (
             <button
-              key={c.value}
+              key={g.value}
               type="button"
-              onClick={() => setActiveCat(c.value)}
+              onClick={() => setActiveGroup(g.value)}
               className={cn(
-                "flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold transition",
-                active ? "bg-white shadow-sm" : "text-zinc-500 hover:text-zinc-700",
+                "flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition",
+                active ? "text-white shadow-sm" : "text-zinc-500 hover:text-zinc-700",
               )}
-              style={active ? { color: c.color } : undefined}
+              style={active ? { backgroundColor: g.color } : undefined}
             >
-              <span
-                className="h-1.5 w-1.5 shrink-0 rounded-full"
-                style={{ backgroundColor: active ? c.color : "#d4d4d8" }}
-              />
-              {c.label}
+              {g.label}
               {count > 0 && (
                 <span
                   className={cn(
-                    "min-w-[18px] rounded-full px-1.5 py-px text-[11px] font-bold leading-tight",
-                    !active && "bg-zinc-200 text-zinc-500",
+                    "min-w-[20px] rounded-full px-1.5 py-px text-[11px] font-bold leading-tight",
+                    active ? "bg-white/25 text-white" : "bg-zinc-200 text-zinc-500",
                   )}
-                  style={active ? { backgroundColor: `${c.color}1f`, color: c.color } : undefined}
                 >
                   {count}
                 </span>
@@ -104,13 +132,52 @@ export default function ShortcutsPage() {
         })}
       </div>
 
+      {/* 하위 분류 탭 (마케팅 / 영업 / 개발 / B2B) — 와우 제외 */}
+      {showSubTabs && (
+        <div className="mt-3 flex gap-1 rounded-2xl bg-zinc-100 p-1">
+          {SHORTCUT_CATEGORIES.map((c) => {
+            const active = c.value === activeCat;
+            const count = catCounts[c.value];
+            return (
+              <button
+                key={c.value}
+                type="button"
+                onClick={() => setActiveCat(c.value)}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold transition",
+                  active ? "bg-white shadow-sm" : "text-zinc-500 hover:text-zinc-700",
+                )}
+                style={active ? { color: c.color } : undefined}
+              >
+                <span
+                  className="h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: active ? c.color : "#d4d4d8" }}
+                />
+                {c.label}
+                {count > 0 && (
+                  <span
+                    className={cn(
+                      "min-w-[18px] rounded-full px-1.5 py-px text-[11px] font-bold leading-tight",
+                      !active && "bg-zinc-200 text-zinc-500",
+                    )}
+                    style={active ? { backgroundColor: `${c.color}1f`, color: c.color } : undefined}
+                  >
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* 목록 */}
       <div className="mt-5">
         {list.length === 0 ? (
           <EmptyState
             icon="🔗"
-            title="아직 등록된 바로가기가 없습니다"
-            description="오른쪽 위 ‘바로가기 추가’ 버튼으로 첫 링크를 등록해보세요."
+            title={`${tabCtxLabel}에 등록된 바로가기가 없습니다`}
+            description="‘바로가기 추가’ 버튼으로 이 칸에 첫 링크를 추가해보세요."
           />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -124,6 +191,7 @@ export default function ShortcutsPage() {
       {modal && (
         <ShortcutModal
           initial={modal === "new" ? undefined : modal}
+          defaultGroup={activeGroup}
           defaultCategory={activeCat}
           onClose={() => setModal(null)}
         />
@@ -134,7 +202,10 @@ export default function ShortcutsPage() {
 
 // ---- 바로가기 카드 -----------------------------------------
 function ShortcutCard({ shortcut, onEdit }: { shortcut: Shortcut; onEdit: () => void }) {
-  const color = SHORTCUT_CATEGORIES.find((c) => c.value === shortcut.category)?.color ?? "#71717a";
+  // 아이콘 색: 분류가 있으면 분류색, 없으면(와우) 그룹색
+  const catColor = SHORTCUT_CATEGORIES.find((c) => c.value === shortcut.category)?.color;
+  const grpColor = SHORTCUT_GROUPS.find((g) => g.value === normGroup(shortcut))?.color;
+  const color = catColor ?? grpColor ?? "#71717a";
   const host = hostOf(shortcut.url);
   const initial = shortcut.title.trim().charAt(0).toUpperCase() || "🔗";
 
@@ -242,20 +313,27 @@ function PasswordRow({ password }: { password: string }) {
 // ---- 추가/수정 모달 ----------------------------------------
 function ShortcutModal({
   initial,
+  defaultGroup,
   defaultCategory,
   onClose,
 }: {
   initial?: Shortcut;
+  defaultGroup: ShortcutGroup;
   defaultCategory: ShortcutCategory;
   onClose: () => void;
 }) {
   const isEdit = Boolean(initial);
-  const [category, setCategory] = useState<ShortcutCategory>(initial?.category ?? defaultCategory);
+  const [group, setGroup] = useState<ShortcutGroup>(initial ? normGroup(initial) : defaultGroup);
+  const [category, setCategory] = useState<ShortcutCategory>(
+    initial?.category ?? defaultCategory,
+  );
   const [title, setTitle] = useState(initial?.title ?? "");
   const [url, setUrl] = useState(initial?.url ?? "");
   const [hasPassword, setHasPassword] = useState(Boolean(initial?.password));
   const [password, setPassword] = useState(initial?.password ?? "");
   const [saving, setSaving] = useState(false);
+
+  const useCat = groupHasCategories(group);
 
   // ESC 로 닫기 + 열려있는 동안 배경 스크롤 잠금
   useEffect(() => {
@@ -279,7 +357,8 @@ function ShortcutModal({
     setSaving(true);
     try {
       const payload: ShortcutInput = {
-        category,
+        group,
+        category: useCat ? category : undefined,
         title: title.trim(),
         url: normalizeUrl(url),
         password: hasPassword ? emptyToUndef(password) : undefined,
@@ -307,35 +386,63 @@ function ShortcutModal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-md rounded-t-3xl bg-white p-6 shadow-xl sm:rounded-3xl">
+      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-6 shadow-xl sm:rounded-3xl">
         <h2 id="shortcut-modal-title" className="mb-5 text-lg font-bold text-zinc-900">
           {isEdit ? "바로가기 수정" : "바로가기 추가"}
         </h2>
 
         <form onSubmit={submit} className="flex flex-col gap-4">
-          {/* 분류 */}
+          {/* 상위 그룹 */}
           <div className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-zinc-700">분류</span>
-            <div className="grid grid-cols-4 gap-1.5">
-              {SHORTCUT_CATEGORIES.map((c) => {
-                const on = category === c.value;
+            <span className="text-sm font-medium text-zinc-700">그룹</span>
+            <div className="grid grid-cols-3 gap-1.5">
+              {SHORTCUT_GROUPS.map((g) => {
+                const on = group === g.value;
                 return (
                   <button
                     type="button"
-                    key={c.value}
-                    onClick={() => setCategory(c.value)}
+                    key={g.value}
+                    onClick={() => setGroup(g.value)}
                     className={cn(
-                      "rounded-lg border py-2 text-xs font-semibold transition",
+                      "rounded-lg border py-2 text-sm font-semibold transition",
                       on ? "text-white" : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50",
                     )}
-                    style={on ? { backgroundColor: c.color, borderColor: c.color } : undefined}
+                    style={on ? { backgroundColor: g.color, borderColor: g.color } : undefined}
                   >
-                    {c.label}
+                    {g.label}
                   </button>
                 );
               })}
             </div>
           </div>
+
+          {/* 하위 분류 (와우 제외) */}
+          {useCat && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-zinc-700">분류</span>
+              <div className="grid grid-cols-4 gap-1.5">
+                {SHORTCUT_CATEGORIES.map((c) => {
+                  const on = category === c.value;
+                  return (
+                    <button
+                      type="button"
+                      key={c.value}
+                      onClick={() => setCategory(c.value)}
+                      className={cn(
+                        "rounded-lg border py-2 text-xs font-semibold transition",
+                        on
+                          ? "text-white"
+                          : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50",
+                      )}
+                      style={on ? { backgroundColor: c.color, borderColor: c.color } : undefined}
+                    >
+                      {c.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <Field label="제목" required>
             <Input
