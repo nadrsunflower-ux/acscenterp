@@ -15,10 +15,13 @@ import {
   type ShortcutCategory,
   type ShortcutInput,
   SHORTCUT_GROUPS,
-  SHORTCUT_CATEGORIES,
+  GROUP_CATEGORIES,
   groupHasCategories,
+  firstCategoryOf,
+  coerceCategory,
   shortcutGroupLabel,
   shortcutCategoryLabel,
+  shortcutCategoryColor,
 } from "@/lib/neander/types";
 
 // ---- URL 유틸 ----------------------------------------------
@@ -40,24 +43,34 @@ function hostOf(url: string): string {
 
 // ---- 레거시 보정 -------------------------------------------
 const GROUP_VALUES = SHORTCUT_GROUPS.map((g) => g.value);
-const CAT_VALUES = SHORTCUT_CATEGORIES.map((c) => c.value);
 /** group 미설정·미지값은 '스모트'로 보정 (기존 데이터 호환) */
 function normGroup(s: Shortcut): ShortcutGroup {
   return s.group && GROUP_VALUES.includes(s.group) ? s.group : "smoat";
 }
-/** 분류 그룹에서 category 미설정·미지값은 '마케팅'으로 보정 */
+/** 그룹 기준으로 category 보정: 유효하면 그대로, 아니면 그룹의 첫 분류. 분류 없는 그룹은 첫 분류 없음. */
 function normCat(s: Shortcut): ShortcutCategory {
-  return s.category && CAT_VALUES.includes(s.category) ? s.category : "marketing";
+  const cats = GROUP_CATEGORIES[normGroup(s)];
+  if (!cats) return "marketing"; // 와우(분류 없음) — 필터링에 쓰이지 않음
+  return cats.find((c) => c.value === s.category)?.value ?? cats[0].value;
 }
 
 export default function ShortcutsPage() {
   const [shortcuts, setShortcuts] = useState<Shortcut[]>([]);
   const [activeGroup, setActiveGroup] = useState<ShortcutGroup>("smoat");
-  const [activeCat, setActiveCat] = useState<ShortcutCategory>("marketing");
+  const [activeCat, setActiveCat] = useState<ShortcutCategory>(
+    firstCategoryOf("smoat") ?? "smoat",
+  );
   // 모달: null=닫힘, "new"=추가, Shortcut=수정
   const [modal, setModal] = useState<null | "new" | Shortcut>(null);
 
   useEffect(() => subscribeShortcuts(setShortcuts), []);
+
+  // 그룹 전환 시 활성 분류를 새 그룹에 맞게 보정(공유 분류는 유지)
+  function selectGroup(g: ShortcutGroup) {
+    setActiveGroup(g);
+    const c = coerceCategory(g, activeCat);
+    if (c) setActiveCat(c);
+  }
 
   // 상위 그룹별 묶음 (생성순 유지)
   const byGroup = useMemo(() => {
@@ -68,11 +81,16 @@ export default function ShortcutsPage() {
 
   // 현재 그룹의 하위 분류별 개수
   const catCounts = useMemo(() => {
-    const c: Record<ShortcutCategory, number> = { marketing: 0, sales: 0, dev: 0, b2b: 0 };
-    if (groupHasCategories(activeGroup)) {
-      for (const s of byGroup[activeGroup]) c[normCat(s)] += 1;
+    const counts: Record<string, number> = {};
+    const cats = GROUP_CATEGORIES[activeGroup];
+    if (cats) {
+      for (const c of cats) counts[c.value] = 0;
+      for (const s of byGroup[activeGroup]) {
+        const k = normCat(s);
+        counts[k] = (counts[k] ?? 0) + 1;
+      }
     }
-    return c;
+    return counts;
   }, [byGroup, activeGroup]);
 
   // 화면에 보일 목록
@@ -83,6 +101,7 @@ export default function ShortcutsPage() {
   }, [byGroup, activeGroup, activeCat]);
 
   const showSubTabs = groupHasCategories(activeGroup);
+  const subCats = GROUP_CATEGORIES[activeGroup] ?? [];
   // 현재 보고 있는 탭 맥락 (빈 상태 문구용)
   const tabCtxLabel = showSubTabs
     ? `${shortcutGroupLabel(activeGroup)} · ${shortcutCategoryLabel(activeCat)}`
@@ -109,7 +128,7 @@ export default function ShortcutsPage() {
             <button
               key={g.value}
               type="button"
-              onClick={() => setActiveGroup(g.value)}
+              onClick={() => selectGroup(g.value)}
               className={cn(
                 "flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition",
                 active ? "text-white shadow-sm" : "text-zinc-500 hover:text-zinc-700",
@@ -132,12 +151,12 @@ export default function ShortcutsPage() {
         })}
       </div>
 
-      {/* 하위 분류 탭 (마케팅 / 영업 / 개발 / B2B) — 와우 제외 */}
+      {/* 하위 분류 탭 (그룹별) — 와우 제외 */}
       {showSubTabs && (
         <div className="mt-3 flex gap-1 rounded-2xl bg-zinc-100 p-1">
-          {SHORTCUT_CATEGORIES.map((c) => {
+          {subCats.map((c) => {
             const active = c.value === activeCat;
-            const count = catCounts[c.value];
+            const count = catCounts[c.value] ?? 0;
             return (
               <button
                 key={c.value}
@@ -202,10 +221,12 @@ export default function ShortcutsPage() {
 
 // ---- 바로가기 카드 -----------------------------------------
 function ShortcutCard({ shortcut, onEdit }: { shortcut: Shortcut; onEdit: () => void }) {
-  // 아이콘 색: 분류가 있으면 분류색, 없으면(와우) 그룹색
-  const catColor = SHORTCUT_CATEGORIES.find((c) => c.value === shortcut.category)?.color;
-  const grpColor = SHORTCUT_GROUPS.find((g) => g.value === normGroup(shortcut))?.color;
-  const color = catColor ?? grpColor ?? "#71717a";
+  const grp = normGroup(shortcut);
+  // 아이콘 색: 분류 그룹이면 (보정된) 분류색, 와우면 그룹색
+  const grpColor = SHORTCUT_GROUPS.find((g) => g.value === grp)?.color;
+  const color = groupHasCategories(grp)
+    ? shortcutCategoryColor(normCat(shortcut))
+    : grpColor ?? "#71717a";
   const host = hostOf(shortcut.url);
   const initial = shortcut.title.trim().charAt(0).toUpperCase() || "🔗";
 
@@ -323,9 +344,10 @@ function ShortcutModal({
   onClose: () => void;
 }) {
   const isEdit = Boolean(initial);
-  const [group, setGroup] = useState<ShortcutGroup>(initial ? normGroup(initial) : defaultGroup);
-  const [category, setCategory] = useState<ShortcutCategory>(
-    initial?.category ?? defaultCategory,
+  const initGroup = initial ? normGroup(initial) : defaultGroup;
+  const [group, setGroup] = useState<ShortcutGroup>(initGroup);
+  const [category, setCategory] = useState<ShortcutCategory | undefined>(
+    coerceCategory(initGroup, initial?.category ?? defaultCategory),
   );
   const [title, setTitle] = useState(initial?.title ?? "");
   const [url, setUrl] = useState(initial?.url ?? "");
@@ -334,6 +356,13 @@ function ShortcutModal({
   const [saving, setSaving] = useState(false);
 
   const useCat = groupHasCategories(group);
+  const catDefs = GROUP_CATEGORIES[group] ?? [];
+
+  // 그룹 변경 시 분류를 새 그룹에 맞게 보정(공유 분류는 유지)
+  function changeGroup(g: ShortcutGroup) {
+    setGroup(g);
+    setCategory(coerceCategory(g, category));
+  }
 
   // ESC 로 닫기 + 열려있는 동안 배경 스크롤 잠금
   useEffect(() => {
@@ -358,7 +387,7 @@ function ShortcutModal({
     try {
       const payload: ShortcutInput = {
         group,
-        category: useCat ? category : undefined,
+        category: useCat ? category ?? firstCategoryOf(group) : undefined,
         title: title.trim(),
         url: normalizeUrl(url),
         password: hasPassword ? emptyToUndef(password) : undefined,
@@ -402,7 +431,7 @@ function ShortcutModal({
                   <button
                     type="button"
                     key={g.value}
-                    onClick={() => setGroup(g.value)}
+                    onClick={() => changeGroup(g.value)}
                     className={cn(
                       "rounded-lg border py-2 text-sm font-semibold transition",
                       on ? "text-white" : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50",
@@ -416,12 +445,12 @@ function ShortcutModal({
             </div>
           </div>
 
-          {/* 하위 분류 (와우 제외) */}
+          {/* 하위 분류 (그룹별, 와우 제외) */}
           {useCat && (
             <div className="flex flex-col gap-1.5">
               <span className="text-sm font-medium text-zinc-700">분류</span>
               <div className="grid grid-cols-4 gap-1.5">
-                {SHORTCUT_CATEGORIES.map((c) => {
+                {catDefs.map((c) => {
                   const on = category === c.value;
                   return (
                     <button

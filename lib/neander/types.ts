@@ -213,22 +213,60 @@ export const shortcutGroupColor = (g: ShortcutGroup) =>
 /** 해당 그룹이 하위 분류(마케팅/영업/개발/B2B)를 쓰는지. 와우는 분류 없음. */
 export const groupHasCategories = (g: ShortcutGroup) => g !== "wow";
 
-/** 바로가기 하위 분류 (마케팅/영업/개발/B2B) — 스모트·아이디 그룹에서만 사용 */
-export type ShortcutCategory = "marketing" | "sales" | "dev" | "b2b";
-export const SHORTCUT_CATEGORIES: {
+/** 바로가기 하위 분류 값 — 그룹별 노출 집합이 다름(영업/개발은 그룹 간 공유) */
+export type ShortcutCategory = "smoat" | "pr" | "marketing" | "sales" | "dev" | "b2b";
+export interface ShortcutCategoryDef {
   value: ShortcutCategory;
   label: string;
   color: string;
-}[] = [
-  { value: "marketing", label: "마케팅", color: "#f43f5e" },
-  { value: "sales", label: "영업", color: "#3182f6" },
-  { value: "dev", label: "개발", color: "#8b5cf6" },
-  { value: "b2b", label: "B2B", color: "#f59e0b" },
-];
+}
+/**
+ * 그룹별 하위 분류 탭.
+ *  - 스모트: SMOAT / 홍보 / 영업 / 개발
+ *  - 아이디: 마케팅 / 영업 / 개발 / B2B
+ *  - 와우: 분류 없음(null)
+ */
+export const GROUP_CATEGORIES: Record<ShortcutGroup, ShortcutCategoryDef[] | null> = {
+  smoat: [
+    { value: "smoat", label: "SMOAT", color: "#0891b2" },
+    { value: "pr", label: "홍보", color: "#ec4899" },
+    { value: "sales", label: "영업", color: "#3182f6" },
+    { value: "dev", label: "개발", color: "#8b5cf6" },
+  ],
+  id: [
+    { value: "marketing", label: "마케팅", color: "#f43f5e" },
+    { value: "sales", label: "영업", color: "#3182f6" },
+    { value: "dev", label: "개발", color: "#8b5cf6" },
+    { value: "b2b", label: "B2B", color: "#f59e0b" },
+  ],
+  wow: null,
+};
+
+/** 그룹의 첫 분류 값 (기본 선택용) */
+export const firstCategoryOf = (g: ShortcutGroup): ShortcutCategory | undefined =>
+  GROUP_CATEGORIES[g]?.[0]?.value;
+
+/** 분류 값이 그룹에 유효하면 그대로, 아니면 그룹의 첫 분류로 보정. 분류 없는 그룹은 undefined. */
+export const coerceCategory = (
+  g: ShortcutGroup,
+  c: ShortcutCategory | undefined,
+): ShortcutCategory | undefined => {
+  const cats = GROUP_CATEGORIES[g];
+  if (!cats) return undefined;
+  return cats.some((x) => x.value === c) ? c : cats[0].value;
+};
+
+// 값 → 정의 평면 조회 (영업/개발은 그룹 공유 — 라벨·색 동일, 첫 항목 사용)
+const CATEGORY_DEF_BY_VALUE: Record<string, ShortcutCategoryDef> = {};
+for (const _defs of [GROUP_CATEGORIES.smoat, GROUP_CATEGORIES.id]) {
+  for (const _d of _defs ?? []) {
+    if (!CATEGORY_DEF_BY_VALUE[_d.value]) CATEGORY_DEF_BY_VALUE[_d.value] = _d;
+  }
+}
 export const shortcutCategoryLabel = (c: ShortcutCategory) =>
-  SHORTCUT_CATEGORIES.find((x) => x.value === c)?.label ?? c;
+  CATEGORY_DEF_BY_VALUE[c]?.label ?? c;
 export const shortcutCategoryColor = (c: ShortcutCategory) =>
-  SHORTCUT_CATEGORIES.find((x) => x.value === c)?.color ?? "#71717a";
+  CATEGORY_DEF_BY_VALUE[c]?.color ?? "#71717a";
 
 /** 바로가기 (팀 공용 링크 모음 — 그룹 > 분류 2단 탭으로 묶임) */
 export interface Shortcut {
