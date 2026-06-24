@@ -153,7 +153,7 @@ export default function ShortcutsPage() {
 
       {/* 하위 분류 탭 (그룹별) — 와우 제외 */}
       {showSubTabs && (
-        <div className="mt-3 flex gap-1 rounded-2xl bg-zinc-100 p-1">
+        <div className="mt-3 flex gap-1 overflow-x-auto rounded-2xl bg-zinc-100 p-1">
           {subCats.map((c) => {
             const active = c.value === activeCat;
             const count = catCounts[c.value] ?? 0;
@@ -163,7 +163,7 @@ export default function ShortcutsPage() {
                 type="button"
                 onClick={() => setActiveCat(c.value)}
                 className={cn(
-                  "flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold transition",
+                  "flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold transition",
                   active ? "bg-white shadow-sm" : "text-zinc-500 hover:text-zinc-700",
                 )}
                 style={active ? { color: c.color } : undefined}
@@ -449,7 +449,10 @@ function ShortcutModal({
           {useCat && (
             <div className="flex flex-col gap-1.5">
               <span className="text-sm font-medium text-zinc-700">분류</span>
-              <div className="grid grid-cols-4 gap-1.5">
+              <div
+                className="grid gap-1.5"
+                style={{ gridTemplateColumns: `repeat(${catDefs.length}, minmax(0, 1fr))` }}
+              >
                 {catDefs.map((c) => {
                   const on = category === c.value;
                   return (

@@ -214,7 +214,7 @@ export const shortcutGroupColor = (g: ShortcutGroup) =>
 export const groupHasCategories = (g: ShortcutGroup) => g !== "wow";
 
 /** 바로가기 하위 분류 값 — 그룹별 노출 집합이 다름(영업/개발은 그룹 간 공유) */
-export type ShortcutCategory = "smoat" | "pr" | "marketing" | "sales" | "dev" | "b2b";
+export type ShortcutCategory = "smoat" | "pr" | "id" | "marketing" | "sales" | "dev" | "b2b";
 export interface ShortcutCategoryDef {
   value: ShortcutCategory;
   label: string;
@@ -234,6 +234,7 @@ export const GROUP_CATEGORIES: Record<ShortcutGroup, ShortcutCategoryDef[] | nul
     { value: "dev", label: "개발", color: "#8b5cf6" },
   ],
   id: [
+    { value: "id", label: "ID", color: "#7c5cff" },
     { value: "marketing", label: "마케팅", color: "#f43f5e" },
     { value: "sales", label: "영업", color: "#3182f6" },
     { value: "dev", label: "개발", color: "#8b5cf6" },
