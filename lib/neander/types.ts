@@ -193,6 +193,39 @@ export interface Schedule {
 }
 export type ScheduleInput = Omit<Schedule, "id" | "createdAt" | "updatedAt">;
 
+// ---- 바로가기 ---------------------------------------------
+
+/** 바로가기 분류 (마케팅/영업/개발/B2B) */
+export type ShortcutCategory = "marketing" | "sales" | "dev" | "b2b";
+export const SHORTCUT_CATEGORIES: {
+  value: ShortcutCategory;
+  label: string;
+  color: string;
+}[] = [
+  { value: "marketing", label: "마케팅", color: "#f43f5e" },
+  { value: "sales", label: "영업", color: "#3182f6" },
+  { value: "dev", label: "개발", color: "#8b5cf6" },
+  { value: "b2b", label: "B2B", color: "#f59e0b" },
+];
+export const shortcutCategoryLabel = (c: ShortcutCategory) =>
+  SHORTCUT_CATEGORIES.find((x) => x.value === c)?.label ?? c;
+export const shortcutCategoryColor = (c: ShortcutCategory) =>
+  SHORTCUT_CATEGORIES.find((x) => x.value === c)?.color ?? "#71717a";
+
+/** 바로가기 (팀 공용 링크 모음 — 분류별 탭으로 묶임) */
+export interface Shortcut {
+  id: string;
+  category: ShortcutCategory;
+  title: string;
+  /** 이동할 링크 (https:// 정규화된 절대 URL) */
+  url: string;
+  /** 링크 사용에 필요한 비밀번호 (있을 때만 저장). 허용 팀원만 접근 가능. */
+  password?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+export type ShortcutInput = Omit<Shortcut, "id" | "createdAt" | "updatedAt">;
+
 // ---- 메신저 -----------------------------------------------
 
 /** 채팅 메시지에 첨부된 이미지/파일 (Firebase Storage 업로드 결과) */

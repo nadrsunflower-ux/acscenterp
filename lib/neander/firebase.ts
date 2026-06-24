@@ -68,6 +68,7 @@ export const NEANDER_COL = {
   dailyTasks: "neander_daily_tasks",
   workRequests: "neander_work_requests",
   meetings: "neander_meetings",
+  shortcuts: "neander_shortcuts",
   schedules: "neander_schedules",
   messages: "neander_messages",
   chatReads: "neander_chat_reads",

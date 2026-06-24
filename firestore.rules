@@ -84,5 +84,6 @@ service cloud.firestore {
     match /neander_work_requests/{id}  { allow read, write: if isAllowedMember(); }
     match /neander_schedules/{id}      { allow read, write: if isAllowedMember(); }
     match /neander_meetings/{id}       { allow read, write: if isAllowedMember(); }
+    match /neander_shortcuts/{id}      { allow read, write: if isAllowedMember(); }
   }
 }
