@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useAppData } from "@/components/neander/app-data";
 import {
   addTask,
@@ -24,6 +24,7 @@ import {
 } from "@/components/neander/ui";
 import {
   TASK_STATUSES,
+  TASK_CATEGORIES,
   taskCategoryLabel,
   taskCategoryColor,
   type TaskStatus,
@@ -134,7 +135,7 @@ export default function TasksPage() {
   return (
     <div>
       {/* 인사 헤더 */}
-      <div className="mb-6">
+      <div className="mb-4">
         <h1 className="text-2xl font-bold tracking-tight text-zinc-900">
           {currentMember ? `안녕하세요, ${currentMember.name}님 ` : "일일업무 "}
           <span className="align-middle">👋</span>
@@ -142,14 +143,17 @@ export default function TasksPage() {
         <p className="mt-1 text-sm text-zinc-500">오늘도 좋은 하루 되세요!</p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[360px_1fr] lg:gap-6">
         {/* 좌측: 업무 등록 */}
         <TaskForm me={currentMember} date={selectedDate} onDateChange={selectDate} />
 
         {/* 우측: 날짜 선택 + 상태 탭 + 목록 */}
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3 sm:gap-4">
           {/* 날짜 카드 (주간 스트립 / 월 달력 토글) */}
-          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5">
+          <div
+            className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5"
+            style={{ ["--cal-cell" as string]: "clamp(44px, 6.8vh, 66px)" } as CSSProperties}
+          >
             <div className="mb-3 flex items-center justify-between gap-2">
               <div className="flex items-center gap-1">
                 <button
@@ -244,7 +248,7 @@ export default function TasksPage() {
                 })}
               </div>
             ) : (
-              /* 월 달력 */
+              /* 월 달력 — 분류별(스모트/아이디/와우/기타) 업무 갯수 표시 */
               <div>
                 <div className="grid grid-cols-7 gap-1">
                   {WEEKDAYS.map((w, i) => (
@@ -261,24 +265,31 @@ export default function TasksPage() {
                 </div>
                 <div className="grid grid-cols-7 gap-1">
                   {grid.map((date, idx) => {
-                    if (!date) return <div key={`e${idx}`} className="min-h-[60px] rounded-lg" />;
+                    if (!date)
+                      return (
+                        <div key={`e${idx}`} className="min-h-[var(--cal-cell)] rounded-lg" />
+                      );
                     const dayNum = Number(date.slice(8, 10));
                     const dow = idx % 7;
                     const cellTasks = byDate.get(date) ?? [];
                     const selected = date === selectedDate;
                     const isToday = date === today;
+                    // 분류별 업무 갯수 집계
+                    const counts: Record<TaskCategory, number> = { smoat: 0, id: 0, wow: 0, etc: 0 };
+                    for (const t of cellTasks) counts[t.category] = (counts[t.category] ?? 0) + 1;
+                    const activeCats = TASK_CATEGORIES.filter((c) => counts[c.value] > 0);
                     return (
                       <button
                         key={date}
                         onClick={() => selectDate(date)}
                         className={cn(
-                          "flex min-h-[60px] flex-col gap-0.5 rounded-lg border p-1 text-left transition",
+                          "flex min-h-[var(--cal-cell)] flex-col gap-1 rounded-lg border p-1 text-left transition",
                           selected ? "border-indigo-500 bg-indigo-50" : "border-zinc-100 hover:bg-zinc-50",
                         )}
                       >
                         <span
                           className={cn(
-                            "text-xs font-medium",
+                            "text-xs font-medium leading-none",
                             isToday
                               ? "flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-white"
                               : dow === 0
@@ -290,33 +301,37 @@ export default function TasksPage() {
                         >
                           {dayNum}
                         </span>
-                        <div className="flex flex-col gap-0.5 overflow-hidden">
-                          {cellTasks.slice(0, 2).map((t) => (
-                            <span
-                              key={t.id}
-                              className={cn(
-                                "flex items-center gap-1 truncate rounded px-1 text-[10px] leading-tight",
-                                isExtended(t)
-                                  ? "bg-yellow-200 text-yellow-800"
-                                  : isStruck(t)
-                                    ? "text-zinc-400 line-through"
-                                    : "text-zinc-700",
-                              )}
-                            >
+                        {activeCats.length > 0 && (
+                          <div className="mt-auto flex flex-wrap gap-0.5 overflow-hidden">
+                            {activeCats.map((c) => (
                               <span
-                                className="h-1.5 w-1.5 shrink-0 rounded-full"
-                                style={{ backgroundColor: taskCategoryColor(t.category) }}
-                              />
-                              <span className="truncate">{t.title}</span>
-                            </span>
-                          ))}
-                          {cellTasks.length > 2 && (
-                            <span className="text-[10px] text-zinc-400">+{cellTasks.length - 2}</span>
-                          )}
-                        </div>
+                                key={c.value}
+                                className="flex items-center gap-0.5 rounded px-1 py-px text-[9px] font-semibold leading-none sm:text-[10px]"
+                                style={{ backgroundColor: `${c.color}1f`, color: c.color }}
+                                title={`${c.label} ${counts[c.value]}건`}
+                              >
+                                <span
+                                  className="h-1 w-1 shrink-0 rounded-full"
+                                  style={{ backgroundColor: c.color }}
+                                />
+                                {c.label.slice(0, 1)}
+                                {counts[c.value]}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </button>
                     );
                   })}
+                </div>
+                {/* 분류 색상 범례 */}
+                <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-t border-zinc-100 pt-2">
+                  {TASK_CATEGORIES.map((c) => (
+                    <span key={c.value} className="flex items-center gap-1 text-[10px] text-zinc-500">
+                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: c.color }} />
+                      {c.label}
+                    </span>
+                  ))}
                 </div>
               </div>
             )}
