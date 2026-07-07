@@ -75,4 +75,13 @@ export const NEANDER_COL = {
   conversations: "neander_conversations",
   /** 이메일 → 팀원 매핑 (보안 규칙의 '허용 팀원' 판정 근거) */
   memberEmails: "neander_member_emails",
+  // ---- 개발 협업 허브 (/neander/dev) ----
+  /** 기능(에픽) — 비개발자가 보는 상위 묶음 */
+  devFeatures: "neander_dev_features",
+  /** 개발 작업(칸반 배정 단위) */
+  devTasks: "neander_dev_tasks",
+  /** 개발 타임라인 활동(수동 업데이트 + 향후 git/claude 자동연동) */
+  devActivity: "neander_dev_activity",
+  /** 작업/활동에 대한 댓글 */
+  devComments: "neander_dev_comments",
 } as const;

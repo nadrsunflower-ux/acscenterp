@@ -35,3 +35,8 @@ next-env.d.ts
 
 # 로컬 폰트 패키지(앱은 CDN 사용) — 커밋 제외
 Pretendard-1.3.9/
+
+# Firebase service account keys — NEVER commit
+*adminsdk*.json
+*service-account*.json
+.claude/
