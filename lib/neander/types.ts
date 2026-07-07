@@ -27,11 +27,12 @@ export const taskStatusLabel = (s: TaskStatus) =>
   TASK_STATUSES.find((x) => x.value === s)?.label ?? s;
 
 /** 일일업무 분류 */
-export type TaskCategory = "id" | "wow" | "smoat" | "etc";
+export type TaskCategory = "id" | "wow" | "smoat" | "etc" | "dev";
 export const TASK_CATEGORIES: { value: TaskCategory; label: string; color: string }[] = [
   { value: "smoat", label: "스모트", color: "#0891b2" },
   { value: "id", label: "아이디", color: "#7c5cff" },
   { value: "wow", label: "와우", color: "#ff8a3d" },
+  { value: "dev", label: "개발", color: "#10b981" },
   { value: "etc", label: "기타", color: "#71717a" },
 ];
 export const taskCategoryLabel = (c: TaskCategory) =>
@@ -85,6 +86,10 @@ export interface DailyTask {
   status: TaskStatus;
   /** status === "extended" 일 때, 연장 전 원래 날짜. date 는 연장된 날짜로 이동된다. */
   originalDate?: string;
+  /** 이 일일업무를 자동 생성한 소스 모듈 (개발허브 미러 등). 수동 등록이면 없음 */
+  sourceType?: "dev" | "request" | "meeting";
+  /** 소스 문서 id — sourceType==="dev" 면 DevTask id (딥링크: /neander/dev/board?task=) */
+  sourceId?: string;
   createdAt: number;
   updatedAt: number;
 }

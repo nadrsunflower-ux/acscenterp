@@ -85,5 +85,11 @@ service cloud.firestore {
     match /neander_schedules/{id}      { allow read, write: if isAllowedMember(); }
     match /neander_meetings/{id}       { allow read, write: if isAllowedMember(); }
     match /neander_shortcuts/{id}      { allow read, write: if isAllowedMember(); }
+
+    // 개발 협업 허브(/neander/dev): 기능·작업·타임라인·댓글 — 허용 팀원만
+    match /neander_dev_features/{id}   { allow read, write: if isAllowedMember(); }
+    match /neander_dev_tasks/{id}      { allow read, write: if isAllowedMember(); }
+    match /neander_dev_activity/{id}   { allow read, write: if isAllowedMember(); }
+    match /neander_dev_comments/{id}   { allow read, write: if isAllowedMember(); }
   }
 }

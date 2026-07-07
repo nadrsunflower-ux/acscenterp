@@ -11,6 +11,7 @@ import { Button, cn } from "@/components/neander/ui";
 
 const NAV = [
   { href: "/neander", label: "대시보드", icon: "📊" },
+  { href: "/neander/dev", label: "개발", icon: "🚀" },
   { href: "/neander/tasks", label: "일일업무", icon: "✅" },
   { href: "/neander/requests", label: "업무요청", icon: "✉️" },
   { href: "/neander/messenger", label: "메신저", icon: "💬" },

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import Link from "next/link";
 import { useAppData } from "@/components/neander/app-data";
 import {
   addTask,
@@ -275,7 +276,7 @@ export default function TasksPage() {
                     const selected = date === selectedDate;
                     const isToday = date === today;
                     // 분류별 업무 갯수 집계
-                    const counts: Record<TaskCategory, number> = { smoat: 0, id: 0, wow: 0, etc: 0 };
+                    const counts: Record<TaskCategory, number> = { smoat: 0, id: 0, wow: 0, dev: 0, etc: 0 };
                     for (const t of cellTasks) counts[t.category] = (counts[t.category] ?? 0) + 1;
                     const activeCats = TASK_CATEGORIES.filter((c) => counts[c.value] > 0);
                     return (
@@ -487,6 +488,9 @@ function TaskRow({
   if (editing) {
     return (
       <li className="flex flex-col gap-2 bg-zinc-50/60 px-4 py-3">
+        {task.sourceType === "dev" && (
+          <p className="text-[11px] text-emerald-600/80">🧩 개발 보드와 연동된 업무입니다</p>
+        )}
         <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="업무 내용" />
         <Textarea rows={2} value={detail} onChange={(e) => setDetail(e.target.value)} placeholder="상세 (선택)" />
         <div className="grid grid-cols-2 gap-2">
@@ -562,7 +566,19 @@ function TaskRow({
         >
           {done && "✓"}
         </button>
-        <Badge color={taskCategoryColor(task.category)}>{taskCategoryLabel(task.category)}</Badge>
+        {task.sourceType === "dev" && task.sourceId ? (
+          /* 개발 보드 미러 업무 — 칩 클릭 시 보드 상세로 딥링크 */
+          <Link
+            href={`/neander/dev/board?task=${task.sourceId}`}
+            onClick={(e) => e.stopPropagation()}
+            className="shrink-0 transition hover:opacity-80"
+            title="개발 보드에서 열기"
+          >
+            <Badge color="#10b981">개발 ↗</Badge>
+          </Link>
+        ) : (
+          <Badge color={taskCategoryColor(task.category)}>{taskCategoryLabel(task.category)}</Badge>
+        )}
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-sm",
