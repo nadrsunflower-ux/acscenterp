@@ -25,12 +25,15 @@ import {
 } from "@/components/neander/ui";
 import {
   type Meeting,
+  type MeetingLink,
   type ActionItem,
   type TaskCategory,
   taskCategoryLabel,
   taskCategoryColor,
 } from "@/lib/neander/types";
 import { todayStr, formatDateKo } from "@/lib/neander/format";
+import { PrepDocsSection } from "@/components/neander/PrepDocsSection";
+import Link from "next/link";
 
 const DEFAULT_CATEGORY: TaskCategory = "etc";
 
@@ -43,6 +46,20 @@ interface ActionDraft {
   detail: string;
   assigneeIds: string[]; // 복수 담당자
   dueDate: string;
+}
+
+/** 자료 링크 입력 행 */
+interface LinkDraft {
+  key: string;
+  label: string;
+  url: string;
+}
+
+/** "/neander/…" 내부 경로와 프로토콜 있는 URL 은 그대로, 그 외에는 https:// 를 붙인다 */
+function normalizeLinkUrl(u: string): string {
+  const t = u.trim();
+  if (t.startsWith("/") || /^https?:\/\//i.test(t)) return t;
+  return `https://${t}`;
 }
 
 let _seq = 0;
@@ -97,6 +114,8 @@ export default function MeetingsPage() {
         title="회의록"
         description="회의 내용을 정리하고, 액션플랜을 담당자·마감기한과 함께 기록합니다. 담당자가 지정된 액션플랜은 해당 담당자의 일일업무에 자동 등록됩니다."
       />
+
+      <PrepDocsSection members={members} />
 
       <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
         <MeetingEditor members={members} />
@@ -169,6 +188,14 @@ function MeetingCard({
         </div>
       </div>
 
+      {(meeting.links?.length ?? 0) > 0 && (
+        <div className="flex flex-wrap gap-1.5 pl-6">
+          {meeting.links!.map((l, i) => (
+            <MeetingLinkChip key={`${l.url}-${i}`} link={l} />
+          ))}
+        </div>
+      )}
+
       {expanded && (
         <>
           {meeting.content && (
@@ -223,6 +250,27 @@ function MeetingCard({
   );
 }
 
+/** 회의록 자료 링크 칩 — 내부 경로("/…")는 같은 탭, 외부 URL은 새 탭 */
+function MeetingLinkChip({ link }: { link: MeetingLink }) {
+  const className =
+    "inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100";
+  const label = (
+    <>
+      <span aria-hidden>🔗</span>
+      <span className="max-w-[180px] truncate">{link.label}</span>
+    </>
+  );
+  return link.url.startsWith("/") ? (
+    <Link href={link.url} className={className}>
+      {label}
+    </Link>
+  ) : (
+    <a href={link.url} target="_blank" rel="noreferrer" className={className}>
+      {label}
+    </a>
+  );
+}
+
 function MeetingEditor({
   members,
   initial,
@@ -239,7 +287,24 @@ function MeetingEditor({
   const [drafts, setDrafts] = useState<ActionDraft[]>(
     initial ? draftsFromMeeting(initial) : [newDraft()],
   );
+  const [linkDrafts, setLinkDrafts] = useState<LinkDraft[]>(
+    initial?.links?.map((l) => {
+      _seq += 1;
+      return { key: `l${_seq}`, label: l.label, url: l.url };
+    }) ?? [],
+  );
   const [saving, setSaving] = useState(false);
+
+  function updateLink(key: string, patch: Partial<LinkDraft>) {
+    setLinkDrafts((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  }
+  function addLinkRow() {
+    _seq += 1;
+    setLinkDrafts((ls) => [...ls, { key: `l${_seq}`, label: "", url: "" }]);
+  }
+  function removeLinkRow(key: string) {
+    setLinkDrafts((ls) => ls.filter((l) => l.key !== key));
+  }
 
   function updateDraft(key: string, patch: Partial<ActionDraft>) {
     setDrafts((ds) => ds.map((d) => (d.key === key ? { ...d, ...patch } : d)));
@@ -269,6 +334,7 @@ function MeetingEditor({
     setTitle("");
     setContent("");
     setDrafts([newDraft()]);
+    setLinkDrafts([]);
   }
 
   async function submit(e: React.FormEvent) {
@@ -343,11 +409,20 @@ function MeetingEditor({
         items.push(item);
       }
 
+      // 자료 링크: URL 이 있는 행만 저장, 라벨 비면 URL 로 대체
+      const links: MeetingLink[] = linkDrafts
+        .filter((l) => l.url.trim())
+        .map((l) => ({
+          label: l.label.trim() || l.url.trim(),
+          url: normalizeLinkUrl(l.url),
+        }));
+
       const payload = {
         date,
         title: emptyToUndef(title),
         content: content.trim(),
         actionItems: items,
+        links: links.length ? links : undefined,
       };
 
       if (isEdit && initial) {
@@ -383,6 +458,47 @@ function MeetingEditor({
             placeholder="논의 사항, 결정 사항 등을 정리하세요."
           />
         </Field>
+
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-medium text-zinc-700">
+            자료 링크{" "}
+            <span className="text-xs font-normal text-zinc-400">
+              (선택 — 발표자료·문서를 회의록에 직접 연결)
+            </span>
+          </span>
+          {linkDrafts.map((l) => (
+            <div key={l.key} className="flex items-center gap-2">
+              <Input
+                value={l.label}
+                onChange={(e) => updateLink(l.key, { label: e.target.value })}
+                placeholder="라벨 (예: 발표자료)"
+                className="w-36"
+              />
+              <Input
+                value={l.url}
+                onChange={(e) => updateLink(l.key, { url: e.target.value })}
+                placeholder="https://… 또는 /neander/…"
+                className="flex-1"
+              />
+              <button
+                type="button"
+                onClick={() => removeLinkRow(l.key)}
+                className="text-xs text-zinc-300 hover:text-red-500"
+                aria-label="링크 삭제"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          <Button
+            type="button"
+            variant="ghost"
+            className="self-start !px-2 !py-1 !text-xs"
+            onClick={addLinkRow}
+          >
+            + 링크 추가
+          </Button>
+        </div>
 
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
