@@ -170,6 +170,13 @@ export interface ActionItem {
   taskId?: string;
 }
 
+/** 회의록에 직접 첨부하는 자료 링크 (발표자료·문서·외부 링크 등) */
+export interface MeetingLink {
+  label: string;
+  /** 내부 경로("/neander/…")면 같은 탭, 절대 URL 이면 새 탭으로 연다 */
+  url: string;
+}
+
 /** 회의록 */
 export interface Meeting {
   id: string;
@@ -178,6 +185,8 @@ export interface Meeting {
   content: string; // 회의 내용 정리
   /** 우선순위 액션플랜 (위에서부터 높은 우선순위) */
   actionItems: ActionItem[];
+  /** 자료 링크 — 회의록을 웹 발표자료 등으로 직접 연결 (선택) */
+  links?: MeetingLink[];
   createdAt: number;
   updatedAt: number;
 }
