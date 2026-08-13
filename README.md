@@ -1,11 +1,46 @@
-# 악센트 운영 관리 사이트
+# 악센트 운영 관리 사이트 / NEANDER ERP
 
-악센트 아이디 / 악센트 와우 매장의 근무 스케줄, 업무 체크리스트, 운영 상품·이벤트, 운영 안내를 관리하는 내부용 웹사이트입니다.
+이 레포는 **성격이 다른 두 시스템**을 담고 있으며, **서로 다른 도메인으로 각각 배포**됩니다.
+
+| 시스템 | 빌드 타깃 | 대상 | 내용 |
+| --- | --- | --- | --- |
+| **ACSCENT ERP** | `APP_TARGET=acscent` (기본) | 매장 알바 직원 (공개) | 근무 스케줄·업무 체크리스트·상품/이벤트·운영 안내. `/admin` 은 관리자 비밀번호로 보호 |
+| **NEANDER ERP** | `APP_TARGET=neander` | 이사진·핵심 직원 (본사) | 매출·일일업무·업무요청·회의록·메신저·개발 협업 허브 |
 
 - Framework: Next.js 14 (App Router)
-- DB/Storage: Firebase (Firestore + Storage)
+- DB/Storage: Firebase (Firestore + Storage) — **두 시스템이 같은 Firebase 프로젝트를 공유**하고, 접근 분리는 `firestore.rules` 가 담당합니다
 - Styling: Tailwind CSS
 - UI 언어: 한국어
+
+## 0. 두 시스템의 분리 방식 ⚠️
+
+배포를 나눈 이유는 단순한 정리가 아니라 **보안**입니다.
+
+Next.js 의 정적 청크(`/_next/static/*`)는 **인증과 무관하게 공개 서빙**됩니다. 로그인 게이트는 클라이언트에서 화면을 가릴 뿐이라, 코드에 하드코딩된 콘텐츠는 이미 브라우저로 전송된 뒤입니다. 실제로 분리 전에는 `/neander/meetings/prep/*` 의 임원 회의 브리핑 전문이 **로그인 없이 읽혔습니다**. 확실한 차단은 번들에서 빼는 것뿐입니다.
+
+그래서 `next.config.mjs` 가 `pageExtensions` 로 상대 시스템의 라우트를 **빌드에서 물리적으로 제외**합니다.
+
+```
+NEANDER 라우트 파일명:  page.neander.tsx / layout.neander.tsx
+ACSCENT 빌드:           pageExtensions: ['tsx','ts']                    → NEANDER 라우트 인식 안 함
+NEANDER 빌드:           pageExtensions: ['neander.tsx','neander.ts',…]  → 전부 인식
+```
+
+> **🚨 NEANDER 라우트를 새로 만들 때는 반드시 `page.neander.tsx` 로 이름 지으세요.**
+> `page.tsx` 로 만들면 매장 도메인에도 배포되어 알바 직원에게 노출됩니다.
+
+`middleware.ts` 는 타깃별로 다르게 동작합니다 — ACSCENT 는 `/admin` 만 쿠키로 보호하고, NEANDER 는 `/neander` 외 모든 경로를 `/neander` 로 리다이렉트합니다.
+
+### 로컬 실행
+
+```bash
+npm run dev            # ACSCENT (매장)   http://localhost:3000
+npm run dev:neander    # NEANDER (본사)   http://localhost:3000/neander
+```
+
+### Vercel 설정
+
+같은 레포를 보는 **프로젝트 2개**를 만들고, 환경변수 `APP_TARGET` 만 다르게 둡니다 (`acscent` / `neander`). Root Directory 는 둘 다 레포 루트입니다.
 
 ## 1. Firebase 준비
 

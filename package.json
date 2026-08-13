@@ -4,8 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:neander": "APP_TARGET=neander next dev",
     "build": "next build",
+    "build:neander": "APP_TARGET=neander next build",
     "start": "next start",
+    "start:neander": "APP_TARGET=neander next start",
     "lint": "next lint",
     "scheduler:clear-schedules": "tsx scripts/scheduler/clear-schedules.ts",
     "scheduler:clear-all": "tsx scripts/scheduler/clear-all-data.ts",
