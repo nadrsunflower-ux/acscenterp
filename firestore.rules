@@ -91,5 +91,14 @@ service cloud.firestore {
     match /neander_dev_tasks/{id}      { allow read, write: if isAllowedMember(); }
     match /neander_dev_activity/{id}   { allow read, write: if isAllowedMember(); }
     match /neander_dev_comments/{id}   { allow read, write: if isAllowedMember(); }
+
+    // 재무(/neander/finance): 통합거래장·계정·계좌·규칙·임포트 이력.
+    // ⚠️ 회사 재무 원장이다. 다른 neander 컬렉션과 같은 '허용 팀원' 기준을
+    //    쓰지만, 향후 재무 전용 역할로 더 좁힐 자리다(ROADMAP Phase 3).
+    match /neander_fin_transactions/{id}    { allow read, write: if isAllowedMember(); }
+    match /neander_fin_accounts/{id}        { allow read, write: if isAllowedMember(); }
+    match /neander_fin_payment_methods/{id} { allow read, write: if isAllowedMember(); }
+    match /neander_fin_vendor_rules/{id}    { allow read, write: if isAllowedMember(); }
+    match /neander_fin_imports/{id}         { allow read, write: if isAllowedMember(); }
   }
 }

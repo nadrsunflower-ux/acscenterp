@@ -19,6 +19,7 @@ const NAV = [
   { href: "/neander/schedule", label: "스케줄", icon: "🗓️" },
   { href: "/neander/meetings", label: "회의록", icon: "📝" },
   { href: "/neander/sales", label: "매출", icon: "💰" },
+  { href: "/neander/finance", label: "재무", icon: "📒" },
   { href: "/neander/members", label: "팀원", icon: "👥" },
 ];
 

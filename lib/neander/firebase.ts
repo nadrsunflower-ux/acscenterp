@@ -84,4 +84,15 @@ export const NEANDER_COL = {
   devActivity: "neander_dev_activity",
   /** 작업/활동에 대한 댓글 */
   devComments: "neander_dev_comments",
+  // ---- 재무 (/neander/finance) ----
+  /** 통합거래장 — 거래 1건 = 문서 1개 */
+  finTransactions: "neander_fin_transactions",
+  /** 계정 마스터 (통합_MAP 317 잎 계정) */
+  finAccounts: "neander_fin_accounts",
+  /** 계좌·카드 마스터 */
+  finPaymentMethods: "neander_fin_payment_methods",
+  /** 거래처 키워드 → 구독 서비스 자동분류 규칙 */
+  finVendorRules: "neander_fin_vendor_rules",
+  /** 엑셀 임포트 배치 이력 */
+  finImports: "neander_fin_imports",
 } as const;

@@ -38,6 +38,10 @@ const pageExtensions =
 const nextConfig = {
   reactStrictMode: true,
   pageExtensions,
+  // 두 타깃을 로컬에서 동시에 띄울 때 빌드 출력이 충돌하지 않도록 분리한다.
+  // (dev:neander 스크립트가 NEXT_DIST_DIR 을 지정한다. 미지정 시 기본 .next
+  //  이므로 Vercel 배포 동작은 두 프로젝트 모두 변함없다.)
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   images: {
     // 로컬/정적 이미지를 그대로 사용 (외부 도메인 설정 불필요)
     unoptimized: true,
