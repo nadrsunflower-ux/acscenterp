@@ -16,7 +16,7 @@
     "scheduler:import-shifts": "tsx scripts/scheduler/import-from-shifts.ts",
     "neander:backfill-emails": "tsx scripts/neander/backfill-member-emails.ts",
     "finance:verify": "tsx scripts/neander/verify-finance-import.ts",
-    "firebase:deploy:rules": "npx -y firebase-tools deploy --only firestore:rules,storage --project acscentmanager"
+    "firebase:deploy:rules": "bash scripts/deploy-rules.sh"
   },
   "dependencies": {
     "firebase": "10.14.1",

@@ -26,6 +26,10 @@ import {
   deleteFinVendorRule,
 } from "@/lib/neander/finance/db";
 import { cn } from "@/components/neander/ui";
+import {
+  describeFirestoreError,
+  type FriendlyError,
+} from "@/lib/neander/finance/errors";
 
 type Tab = "accounts" | "methods" | "rules";
 
@@ -40,9 +44,11 @@ export default function MasterPage() {
   const [tab, setTab] = useState<Tab>("accounts");
   const [q, setQ] = useState("");
   const [seeding, setSeeding] = useState<string | null>(null);
+  const [seedError, setSeedError] = useState<FriendlyError | null>(null);
   const [newRule, setNewRule] = useState({ service: "", keyword: "" });
 
   const seed = async () => {
+    setSeedError(null);
     setSeeding("시작…");
     try {
       const r = await seedFinanceMaster((label, done, total) =>
@@ -52,7 +58,11 @@ export default function MasterPage() {
         `완료 — 계정 ${r.accounts} · 계좌/카드 ${r.paymentMethods} · 규칙 ${r.vendorRules}`,
       );
     } catch (e) {
-      setSeeding(`실패: ${e instanceof Error ? e.message : String(e)}`);
+      // 원문 메시지("Missing or insufficient permissions.")만으로는
+      // 무엇을 해야 하는지 알 수 없다 — 조치까지 알려준다.
+      const f = describeFirestoreError(e);
+      setSeedError(f);
+      setSeeding(null);
     }
   };
 
@@ -87,7 +97,19 @@ export default function MasterPage() {
         }
       />
 
-      {masterEmpty && (
+      {seedError && (
+        <Card className="mb-4 border-rose-200 bg-rose-50/60">
+          <p className="font-semibold text-rose-900">{seedError.title}</p>
+          <p className="mt-1 text-sm leading-relaxed text-rose-800">{seedError.detail}</p>
+          {seedError.command && (
+            <code className="mt-2 inline-block rounded bg-white px-2 py-1 font-mono text-sm text-rose-900 ring-1 ring-rose-200">
+              {seedError.command}
+            </code>
+          )}
+        </Card>
+      )}
+
+      {masterEmpty && !seedError && (
         <Card className="mb-4 border-amber-200 bg-amber-50/60">
           <p className="text-sm text-zinc-700">
             아직 마스터가 비어 있습니다. <b>마스터 적재하기</b>를 누르면 엑셀 장부에서 뽑아둔

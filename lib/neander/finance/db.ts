@@ -35,13 +35,21 @@ const refOf = (name: string, id: string) => doc(getNeanderDb(), name, id);
 // ---- 거래 --------------------------------------------------
 
 /** 거래 전체 구독. 필터·집계는 클라이언트에서 처리한다 (연 단위 수천 건 규모). */
-export function subscribeFinTransactions(cb: (rows: FinTransaction[]) => void) {
+export function subscribeFinTransactions(
+  cb: (rows: FinTransaction[]) => void,
+  onError?: (e: unknown) => void,
+) {
   const q = query(colOf(NEANDER_COL.finTransactions), orderBy("date", "desc"));
-  return onSnapshot(q, (snap) => {
-    cb(
-      snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<FinTransaction, "id">) })),
-    );
-  });
+  return onSnapshot(
+    q,
+    (snap) => {
+      cb(
+        snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<FinTransaction, "id">) })),
+      );
+    },
+    // 오류를 삼키면 "권한 없음"이 "데이터 없음"처럼 보인다 — 반드시 올려보낸다.
+    (e) => onError?.(e),
+  );
 }
 
 export async function addFinTransaction(input: FinTransactionInput) {
@@ -127,11 +135,18 @@ export async function deleteFinTransactionsByBatch(batchId: string) {
 
 // ---- 임포트 이력 --------------------------------------------
 
-export function subscribeFinImports(cb: (rows: FinImportBatch[]) => void) {
+export function subscribeFinImports(
+  cb: (rows: FinImportBatch[]) => void,
+  onError?: (e: unknown) => void,
+) {
   const q = query(colOf(NEANDER_COL.finImports), orderBy("createdAt", "desc"));
-  return onSnapshot(q, (snap) => {
-    cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<FinImportBatch, "id">) })));
-  });
+  return onSnapshot(
+    q,
+    (snap) => {
+      cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<FinImportBatch, "id">) })));
+    },
+    (e) => onError?.(e),
+  );
 }
 
 export async function addFinImport(input: Omit<FinImportBatch, "id" | "createdAt">) {
@@ -160,27 +175,48 @@ export interface FinVendorRuleDoc extends FinVendorRuleMaster {
   lookupKey?: string;
 }
 
-export function subscribeFinAccounts(cb: (rows: FinAccountDoc[]) => void) {
-  return onSnapshot(colOf(NEANDER_COL.finAccounts), (snap) => {
-    cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as FinAccountMaster) })));
-  });
+export function subscribeFinAccounts(
+  cb: (rows: FinAccountDoc[]) => void,
+  onError?: (e: unknown) => void,
+) {
+  return onSnapshot(
+    colOf(NEANDER_COL.finAccounts),
+    (snap) => {
+      cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as FinAccountMaster) })));
+    },
+    (e) => onError?.(e),
+  );
 }
 
-export function subscribeFinPaymentMethods(cb: (rows: FinPaymentMethodDoc[]) => void) {
-  return onSnapshot(colOf(NEANDER_COL.finPaymentMethods), (snap) => {
-    cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as FinPaymentMethodMaster) })));
-  });
+export function subscribeFinPaymentMethods(
+  cb: (rows: FinPaymentMethodDoc[]) => void,
+  onError?: (e: unknown) => void,
+) {
+  return onSnapshot(
+    colOf(NEANDER_COL.finPaymentMethods),
+    (snap) => {
+      cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as FinPaymentMethodMaster) })));
+    },
+    (e) => onError?.(e),
+  );
 }
 
-export function subscribeFinVendorRules(cb: (rows: FinVendorRuleDoc[]) => void) {
-  return onSnapshot(colOf(NEANDER_COL.finVendorRules), (snap) => {
-    cb(
-      snap.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as FinVendorRuleMaster & { lookupKey?: string }),
-      })),
-    );
-  });
+export function subscribeFinVendorRules(
+  cb: (rows: FinVendorRuleDoc[]) => void,
+  onError?: (e: unknown) => void,
+) {
+  return onSnapshot(
+    colOf(NEANDER_COL.finVendorRules),
+    (snap) => {
+      cb(
+        snap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as FinVendorRuleMaster & { lookupKey?: string }),
+        })),
+      );
+    },
+    (e) => onError?.(e),
+  );
 }
 
 /** 문서 id 로 쓸 수 있게 정리 (Firestore id 는 `/` 를 못 쓴다) */

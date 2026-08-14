@@ -40,6 +40,11 @@ interface FinanceValue {
   loading: boolean;
   /** 마스터가 아직 적재되지 않음 → 마스터 관리에서 seed 필요 */
   masterEmpty: boolean;
+  /**
+   * 구독이 실패했다. 대부분 보안 규칙 미게시다.
+   * 이걸 노출하지 않으면 화면이 "데이터 없음"처럼 보여서 원인을 못 찾는다.
+   */
+  error: unknown;
 }
 
 const Ctx = createContext<FinanceValue | null>(null);
@@ -52,20 +57,29 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   const [imports, setImports] = useState<FinImportBatch[]>([]);
   const [txLoaded, setTxLoaded] = useState(false);
   const [acctLoaded, setAcctLoaded] = useState(false);
+  const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
+    // 첫 오류만 붙잡는다. 규칙이 없으면 5개 구독이 동시에 실패하는데
+    // 원인은 하나라 같은 메시지를 다섯 번 보여줄 이유가 없다.
+    const fail = (e: unknown) => {
+      setError((prev: unknown) => prev ?? e);
+      // 로딩 상태에 갇히지 않게 — 오류도 "다 불러온" 것이다
+      setTxLoaded(true);
+      setAcctLoaded(true);
+    };
     const unsubs = [
       subscribeFinTransactions((r) => {
         setTransactions(r);
         setTxLoaded(true);
-      }),
+      }, fail),
       subscribeFinAccounts((r) => {
         setAccounts(r);
         setAcctLoaded(true);
-      }),
-      subscribeFinPaymentMethods(setPaymentMethods),
-      subscribeFinVendorRules(setVendorRules),
-      subscribeFinImports(setImports),
+      }, fail),
+      subscribeFinPaymentMethods(setPaymentMethods, fail),
+      subscribeFinVendorRules(setVendorRules, fail),
+      subscribeFinImports(setImports, fail),
     ];
     return () => unsubs.forEach((u) => u());
   }, []);
@@ -81,9 +95,11 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       imports,
       vendorIndex,
       loading: !txLoaded || !acctLoaded,
-      masterEmpty: acctLoaded && accounts.length === 0,
+      // 오류일 때는 "마스터가 비었다"고 하면 안 된다 — 원인이 다르다
+      masterEmpty: !error && acctLoaded && accounts.length === 0,
+      error,
     }),
-    [transactions, accounts, paymentMethods, vendorRules, imports, vendorIndex, txLoaded, acctLoaded],
+    [transactions, accounts, paymentMethods, vendorRules, imports, vendorIndex, txLoaded, acctLoaded, error],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
