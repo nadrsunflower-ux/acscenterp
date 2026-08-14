@@ -30,6 +30,7 @@ import {
   type FinTransactionInput,
 } from "@/lib/neander/finance/types";
 import { formatTimestamp } from "@/lib/neander/format";
+import { describeFinanceError, type FriendlyError } from "@/lib/neander/finance/errors";
 
 interface Prepared {
   row: ParsedRow;
@@ -49,6 +50,9 @@ export default function ImportPage() {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [done, setDone] = useState<{ inserted: number; skipped: number } | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  // 적재/되돌리기 실패를 반드시 화면에 띄운다. catch 없이 두면 버튼을 눌러도
+  // 아무 일도 안 일어난 것처럼 보여서, 사용자는 실패한 줄도 모른다.
+  const [failure, setFailure] = useState<FriendlyError | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // 이미 적재된 거래를 중복 키별로 **센다**.
@@ -96,11 +100,17 @@ export default function ImportPage() {
   const handleFile = async (f: File, sheetName?: string) => {
     setBusy(true);
     setDone(null);
+    setFailure(null);
     try {
       const res = await parseLedgerFile(f, sheetName);
       setFile(f);
       setParsed(res);
       setSheet(res.sheetName);
+    } catch (e) {
+      setFailure({
+        title: "파일을 읽지 못했습니다",
+        detail: e instanceof Error ? e.message : String(e),
+      });
     } finally {
       setBusy(false);
     }
@@ -109,6 +119,7 @@ export default function ImportPage() {
   const commit = async () => {
     if (fresh.length === 0) return;
     setBusy(true);
+    setFailure(null);
     setProgress({ done: 0, total: fresh.length });
     try {
       const { id: batchId } = await createFinImport({
@@ -151,6 +162,8 @@ export default function ImportPage() {
       setParsed(null);
       setFile(null);
       if (inputRef.current) inputRef.current.value = "";
+    } catch (e) {
+      setFailure(describeFinanceError(e));
     } finally {
       setBusy(false);
       setProgress(null);
@@ -159,9 +172,12 @@ export default function ImportPage() {
 
   const undo = async (batchId: string) => {
     setBusy(true);
+    setFailure(null);
     try {
       await undoFinImport(batchId);
       await refresh();
+    } catch (e) {
+      setFailure(describeFinanceError(e));
     } finally {
       setBusy(false);
     }
@@ -181,6 +197,18 @@ export default function ImportPage() {
             정확도와 계정 선택 드롭다운이 정상 동작합니다. 지금 임포트해도 적재는 되지만
             대부분 검토필요로 남습니다.
           </p>
+        </Card>
+      )}
+
+      {failure && (
+        <Card className="mb-4 border-rose-200 bg-rose-50/60">
+          <p className="font-semibold text-rose-900">{failure.title}</p>
+          <p className="mt-1 text-sm leading-relaxed text-rose-800">{failure.detail}</p>
+          {failure.command && (
+            <code className="mt-2 inline-block rounded bg-white px-2 py-1 font-mono text-sm text-rose-900 ring-1 ring-rose-200">
+              {failure.command}
+            </code>
+          )}
         </Card>
       )}
 

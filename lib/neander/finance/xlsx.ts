@@ -15,29 +15,68 @@ import * as XLSX from "xlsx";
 import type { TxType } from "./types";
 import { TX_TYPES, dedupHashOf } from "./types";
 
-/** 통합거래장에서 실제로 읽어들이는 열 */
-const COLUMNS = {
-  date: "거래일시",
-  last4: "계좌/카번",
-  txType: "거래유형",
-  bizMajor: "사업대분류",
-  bizMinor: "사업소분류",
-  acctMajor: "계정대분류",
-  acctMid: "계정중분류",
-  acctMinor: "계정소분류",
-  vendor: "거래처",
-  acctNote: "계정소분류비고",
-  personalUse: "개인사용",
-  projectCode: "프로젝트코드",
-  gross: "원금액",
-  adjust: "조정금액",
-  site: "사업장",
-  note: "비고",
-  refundMatchId: "환급매칭ID",
+/**
+ * 통합거래장에서 실제로 읽어들이는 열과 그 별칭.
+ *
+ * 장부 스키마가 한 번 개편돼서 월별로 열 이름이 다르다.
+ *   신버전(2607~) 29열  계정대분류 / 계정중분류 / 계정소분류 + 사업구분 축
+ *   구버전(~2606) 28열  상위카테고리 / 하위구분 / 세부항목, 사업구분 없음
+ * 둘 다 읽을 수 있어야 과거 장부를 이관할 수 있으므로 별칭으로 흡수한다.
+ */
+const COLUMN_ALIASES = {
+  date: ["거래일시", "거래일", "일자"],
+  last4: ["계좌/카번", "계좌/카드번호"],
+  txType: ["거래유형"],
+  bizMajor: ["사업대분류"],
+  bizMinor: ["사업소분류"],
+  acctMajor: ["계정대분류", "상위카테고리"],
+  acctMid: ["계정중분류", "하위구분"],
+  acctMinor: ["계정소분류", "세부항목"],
+  vendor: ["거래처"],
+  acctNote: ["계정소분류비고", "세부항목비고"],
+  personalUse: ["개인사용"],
+  projectCode: ["프로젝트코드"],
+  gross: ["원금액"],
+  adjust: ["조정금액"],
+  site: ["사업장"],
+  note: ["비고"],
+  refundMatchId: ["환급매칭ID"],
 } as const;
 
-/** 헤더 판별에 반드시 있어야 하는 열 */
-const REQUIRED = [COLUMNS.date, COLUMNS.txType, COLUMNS.gross];
+type ColumnKey = keyof typeof COLUMN_ALIASES;
+
+/**
+ * 거래유형 이름도 개편 때 바뀌었다.
+ *   구버전 내부이체  →  신버전 자금거래 (계좌 간 이동, 손익 비대상)
+ * 뜻이 같은 이름이므로 흡수한다. 뜻이 다르면 흡수하면 안 된다 —
+ * 재무에서 조용한 재해석은 금물이다.
+ */
+const TX_TYPE_ALIASES: Record<string, TxType> = {
+  내부이체: "자금거래",
+};
+
+function normalizeTxType(raw: string): TxType | null {
+  if ((TX_TYPES as readonly string[]).includes(raw)) return raw as TxType;
+  return TX_TYPE_ALIASES[raw] ?? null;
+}
+
+/**
+ * 헤더 판별 기준.
+ *
+ * 거래일시는 넣지 않는다 — 구버전 장부는 **날짜 열에 헤더 이름이 없다**
+ * (A열 헤더가 비어 있고 값만 날짜다). 이름이 확실한 두 열로 헤더 행을
+ * 찾고, 날짜 열은 아래에서 따로 해결한다.
+ */
+const REQUIRED: ColumnKey[] = ["txType", "gross"];
+
+/** 헤더 배열에서 별칭 중 처음 맞는 열의 위치 (없으면 -1) */
+function findColumn(header: string[], key: ColumnKey): number {
+  for (const alias of COLUMN_ALIASES[key]) {
+    const i = header.indexOf(alias);
+    if (i >= 0) return i;
+  }
+  return -1;
+}
 
 export interface ParsedRow {
   /** 원본 엑셀 행 번호 (1-base) — 오류 안내에 쓴다 */
@@ -132,7 +171,7 @@ function toLast4(v: unknown): string | undefined {
 function findHeaderRow(grid: unknown[][]): number {
   for (let i = 0; i < Math.min(grid.length, 20); i++) {
     const cells = (grid[i] ?? []).map((c) => str(c));
-    if (REQUIRED.every((r) => cells.includes(r))) return i;
+    if (REQUIRED.every((k) => findColumn(cells, k) >= 0)) return i;
   }
   return -1;
 }
@@ -188,7 +227,8 @@ export function parseWorkbook(
       errors: [
         {
           rowNo: 0,
-          reason: `헤더를 찾지 못했습니다. ${REQUIRED.join(" · ")} 열이 있어야 합니다.`,
+          reason:
+            "헤더를 찾지 못했습니다. 거래유형 · 원금액 열이 있어야 합니다.",
         },
       ],
       sheetNames: wb.SheetNames,
@@ -196,12 +236,24 @@ export function parseWorkbook(
   }
 
   const header = (grid[headerIdx] ?? []).map((c) => str(c));
-  const at = (name: string) => header.indexOf(name);
   const idx = Object.fromEntries(
-    Object.entries(COLUMNS).map(([k, v]) => [k, at(v)]),
-  ) as Record<keyof typeof COLUMNS, number>;
+    (Object.keys(COLUMN_ALIASES) as ColumnKey[]).map((k) => [k, findColumn(header, k)]),
+  ) as Record<ColumnKey, number>;
 
-  const get = (row: unknown[], key: keyof typeof COLUMNS): unknown =>
+  // 구버전 장부는 날짜 열에 헤더 이름이 없다. 이름으로 못 찾으면 헤더가
+  // 비어 있는 열 중 **첫 데이터 행이 날짜로 읽히는 열**을 날짜로 본다.
+  if (idx.date < 0) {
+    const firstData = grid[headerIdx + 1] ?? [];
+    for (let c = 0; c < header.length; c++) {
+      if (header[c]) continue;
+      if (toDateStr(firstData[c]).date) {
+        idx.date = c;
+        break;
+      }
+    }
+  }
+
+  const get = (row: unknown[], key: ColumnKey): unknown =>
     idx[key] >= 0 ? row[idx[key]] : undefined;
 
   const rows: ParsedRow[] = [];
@@ -235,7 +287,8 @@ export function parseWorkbook(
       errors.push({ rowNo, reason: "거래일시를 읽을 수 없음" });
       continue;
     }
-    if (!TX_TYPES.includes(txTypeRaw as TxType)) {
+    const txType = normalizeTxType(txTypeRaw);
+    if (!txType) {
       errors.push({
         rowNo,
         reason: txTypeRaw
@@ -244,8 +297,6 @@ export function parseWorkbook(
       });
       continue;
     }
-
-    const txType = txTypeRaw as TxType;
     const last4 = toLast4(get(row, "last4"));
     const vendor = str(get(row, "vendor")) || undefined;
     const adjust = num(get(row, "adjust"));

@@ -16,7 +16,8 @@
     "scheduler:import-shifts": "tsx scripts/scheduler/import-from-shifts.ts",
     "neander:backfill-emails": "tsx scripts/neander/backfill-member-emails.ts",
     "finance:verify": "tsx scripts/neander/verify-finance-import.ts",
-    "firebase:deploy:rules": "bash scripts/deploy-rules.sh"
+    "firebase:deploy:rules": "bash scripts/deploy-rules.sh",
+    "finance:import": "tsx scripts/neander/import-ledger.ts"
   },
   "dependencies": {
     "firebase": "10.14.1",
