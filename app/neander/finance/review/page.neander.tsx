@@ -15,15 +15,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Card, PageHeader, Badge, EmptyState, Select } from "@/components/neander/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
-import { useAppData } from "@/components/neander/app-data";
 import { TransactionEditor } from "@/components/neander/finance/TransactionEditor";
 import { AccountPicker } from "@/components/neander/finance/AccountPicker";
 import { Money, SectionTitle } from "@/components/neander/finance/ui";
 import {
   updateFinTransaction,
   deleteFinTransaction,
-  bulkUpdateFinTransactions,
-} from "@/lib/neander/finance/db";
+  bulkUpdateFinStatus,
+} from "@/lib/neander/finance/client";
 import {
   STATUS_COLOR,
   STATUS_LABEL,
@@ -35,8 +34,7 @@ import {
 const ALL = "__all__";
 
 export default function ReviewPage() {
-  const { transactions, accounts, paymentMethods, loading } = useFinance();
-  const { currentMember } = useAppData();
+  const { transactions, accounts, paymentMethods, loading, refresh } = useFinance();
 
   const [statusFilter, setStatusFilter] = useState<string>(ALL);
   const [cursor, setCursor] = useState(0);
@@ -69,12 +67,11 @@ export default function ReviewPage() {
   const approve = useCallback(
     async (t: FinTransaction) => {
       if (!t) return;
-      await updateFinTransaction(t.id, {
-        status: "confirmed",
-        updatedBy: currentMember?.id,
-      });
+      await updateFinTransaction(t.id, { status: "confirmed" });
+      // 실시간 구독이 아니므로 직접 다시 불러와야 목록에서 빠진다
+      await refresh();
     },
-    [currentMember?.id],
+    [refresh],
   );
 
   // 키보드 조작
@@ -114,10 +111,8 @@ export default function ReviewPage() {
     if (ids.length === 0) return;
     setBusy(true);
     try {
-      await bulkUpdateFinTransactions(ids, {
-        status: "confirmed",
-        updatedBy: currentMember?.id,
-      });
+      await bulkUpdateFinStatus(ids, "confirmed");
+      await refresh();
     } finally {
       setBusy(false);
     }
@@ -224,9 +219,10 @@ export default function ReviewPage() {
                           acctMid: t.acctMid,
                           acctMinor: t.acctMinor,
                         }}
-                        onChange={(v) =>
-                          updateFinTransaction(t.id, { ...v, updatedBy: currentMember?.id })
-                        }
+                        onChange={async (v) => {
+                          await updateFinTransaction(t.id, v);
+                          await refresh();
+                        }}
                       />
                     </div>
                   )}
@@ -243,10 +239,14 @@ export default function ReviewPage() {
           accounts={accounts}
           paymentMethods={paymentMethods}
           knownBizMinors={bizMinors}
-          onSave={async (patch) =>
-            updateFinTransaction(editing.id, { ...patch, updatedBy: currentMember?.id })
-          }
-          onDelete={async () => deleteFinTransaction(editing.id)}
+          onSave={async (patch) => {
+            await updateFinTransaction(editing.id, patch);
+            await refresh();
+          }}
+          onDelete={async () => {
+            await deleteFinTransaction(editing.id);
+            await refresh();
+          }}
           onClose={() => setEditing(null)}
         />
       )}

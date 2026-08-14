@@ -12,7 +12,7 @@
 
 import { useMemo } from "react";
 import { Field, Select } from "@/components/neander/ui";
-import type { FinAccountDoc } from "@/lib/neander/finance/db";
+import type { FinAccountDoc } from "@/lib/neander/finance/db-types";
 import type { TxType } from "@/lib/neander/finance/types";
 
 export interface AccountValue {

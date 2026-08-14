@@ -13,11 +13,10 @@ import { Button, Card, Input, PageHeader, Select, Badge, EmptyState } from "@/co
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { TransactionEditor } from "@/components/neander/finance/TransactionEditor";
 import { Money, SectionTitle } from "@/components/neander/finance/ui";
-import { useAppData } from "@/components/neander/app-data";
 import {
   deleteFinTransaction,
   updateFinTransaction,
-} from "@/lib/neander/finance/db";
+} from "@/lib/neander/finance/client";
 import { exportLedgerXlsx } from "@/lib/neander/finance/export";
 import {
   STATUS_COLOR,
@@ -33,8 +32,7 @@ const PAGE_SIZE = 50;
 const ALL = "__all__";
 
 export default function LedgerPage() {
-  const { transactions, accounts, paymentMethods, loading } = useFinance();
-  const { currentMember } = useAppData();
+  const { transactions, accounts, paymentMethods, loading, refresh } = useFinance();
 
   const [month, setMonth] = useState(ALL);
   const [txType, setTxType] = useState(ALL);
@@ -260,10 +258,14 @@ export default function LedgerPage() {
           accounts={accounts}
           paymentMethods={paymentMethods}
           knownBizMinors={opts.bizMinors}
-          onSave={async (patch) =>
-            updateFinTransaction(editing.id, { ...patch, updatedBy: currentMember?.id })
-          }
-          onDelete={async () => deleteFinTransaction(editing.id)}
+          onSave={async (patch) => {
+            await updateFinTransaction(editing.id, patch);
+            await refresh();
+          }}
+          onDelete={async () => {
+            await deleteFinTransaction(editing.id);
+            await refresh();
+          }}
           onClose={() => setEditing(null)}
         />
       )}

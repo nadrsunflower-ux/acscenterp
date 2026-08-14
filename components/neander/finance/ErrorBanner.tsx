@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { describeFirestoreError } from "@/lib/neander/finance/errors";
+import { describeFinanceError } from "@/lib/neander/finance/errors";
 import { useFinance } from "./FinanceProvider";
 
 /**
@@ -13,7 +13,7 @@ export function ErrorBanner() {
   const [copied, setCopied] = useState(false);
   if (!error) return null;
 
-  const { title, detail, command } = describeFirestoreError(error);
+  const { title, detail, command } = describeFinanceError(error);
 
   return (
     <div className="border-b border-rose-200 bg-rose-50">

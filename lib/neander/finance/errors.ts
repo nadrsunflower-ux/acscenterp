@@ -1,52 +1,56 @@
 // ============================================================
-//  Firestore 오류를 사람이 읽을 수 있는 안내로
+//  재무 오류를 사람이 읽을 수 있는 안내로
 // ------------------------------------------------------------
-//  "Missing or insufficient permissions." 만 띄우면 무엇을 해야 하는지
-//  알 수 없다. 특히 재무는 새 컬렉션(neander_fin_*)을 쓰기 때문에
-//  보안 규칙을 게시하기 전까지는 반드시 이 오류가 난다.
+//  재무는 서버 API 를 거치므로 오류가 서버에서 문자열로 온다.
+//  원문만 띄우면 무엇을 해야 하는지 알 수 없어 조치까지 붙인다.
 // ============================================================
 
 export interface FriendlyError {
   title: string;
   detail: string;
-  /** 사용자가 실행해야 할 명령 (있으면) */
+  /** 사용자가 실행하거나 설정해야 할 것 (있으면) */
   command?: string;
 }
 
-const codeOf = (e: unknown): string => {
-  if (typeof e === "object" && e !== null && "code" in e) {
-    return String((e as { code: unknown }).code);
-  }
-  return "";
-};
-
 const messageOf = (e: unknown): string =>
-  e instanceof Error ? e.message : String(e);
+  e instanceof Error ? e.message : typeof e === "string" ? e : String(e);
 
-export function describeFirestoreError(e: unknown): FriendlyError {
-  const code = codeOf(e);
+export function describeFinanceError(e: unknown): FriendlyError {
   const msg = messageOf(e);
 
-  if (code === "permission-denied" || /insufficient permissions/i.test(msg)) {
+  // 서버에 서비스 계정이 없음 — 배포 설정 누락
+  if (/FIREBASE_SERVICE_ACCOUNT_B64/.test(msg)) {
     return {
-      title: "보안 규칙이 아직 게시되지 않았습니다",
+      title: "서버에 Firebase 서비스 계정이 설정되지 않았습니다",
       detail:
-        "재무 모듈은 neander_fin_* 컬렉션을 사용합니다. firestore.rules 에 규칙은 추가돼 있지만 Firebase 에 게시하지 않으면 읽기·쓰기가 모두 거부됩니다. 아래를 실행한 뒤 새로고침하세요. (최초 1회 firebase login 이 필요합니다.)",
-      command: "npm run firebase:deploy:rules",
+        "재무 모듈은 서버(Admin SDK)를 거쳐 Firestore 에 접근합니다. 로컬은 .env.local, " +
+        "배포는 Vercel 환경변수에 서비스 계정 JSON 을 base64 로 넣어야 합니다.",
+      command: "FIREBASE_SERVICE_ACCOUNT_B64=<base64 로 인코딩한 서비스 계정 JSON>",
     };
   }
 
-  if (code === "unavailable" || /offline|network/i.test(msg)) {
+  // 재무 접근 대상이 아님
+  if (/재무 접근 권한/.test(msg)) {
     return {
-      title: "Firebase 에 연결하지 못했습니다",
+      title: "재무 접근 권한이 없습니다",
+      detail: msg,
+      command: "NEANDER_FINANCE_EMAILS=<허용할 이메일들, 쉼표 구분>",
+    };
+  }
+
+  // 팀원이 아님
+  if (/NEANDER 팀원이 아닙니다/.test(msg)) {
+    return { title: "등록된 팀원이 아닙니다", detail: msg };
+  }
+
+  if (/로그인이 필요합니다|로그인이 만료/.test(msg)) {
+    return { title: "로그인이 필요합니다", detail: msg };
+  }
+
+  if (/Failed to fetch|NetworkError|network/i.test(msg)) {
+    return {
+      title: "서버에 연결하지 못했습니다",
       detail: "네트워크 상태를 확인한 뒤 새로고침하세요.",
-    };
-  }
-
-  if (code === "unauthenticated") {
-    return {
-      title: "로그인이 만료되었습니다",
-      detail: "다시 로그인해 주세요.",
     };
   }
 

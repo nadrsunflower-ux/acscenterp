@@ -46,6 +46,12 @@ const nextConfig = {
     // 로컬/정적 이미지를 그대로 사용 (외부 도메인 설정 불필요)
     unoptimized: true,
   },
+  experimental: {
+    // firebase-admin 은 번들링하지 않고 런타임에 그대로 require 한다.
+    // 내부 의존성(jwks-rsa → jose)이 CJS/ESM 경계에 걸쳐 있어서 번들러가
+    // 끌어안으면 ERR_REQUIRE_ESM 으로 빌드가 깨진다.
+    serverComponentsExternalPackages: ["firebase-admin"],
+  },
   env: {
     // 클라이언트에서도 현재 빌드 타깃을 알 수 있게 노출 (크롬 분기 등에 사용)
     NEXT_PUBLIC_APP_TARGET: TARGET,

@@ -24,10 +24,10 @@ import {
   seedFinanceMaster,
   upsertFinVendorRule,
   deleteFinVendorRule,
-} from "@/lib/neander/finance/db";
+} from "@/lib/neander/finance/client";
 import { cn } from "@/components/neander/ui";
 import {
-  describeFirestoreError,
+  describeFinanceError,
   type FriendlyError,
 } from "@/lib/neander/finance/errors";
 
@@ -40,7 +40,7 @@ const TABS: { key: Tab; label: string }[] = [
 ];
 
 export default function MasterPage() {
-  const { accounts, paymentMethods, vendorRules, masterEmpty } = useFinance();
+  const { accounts, paymentMethods, vendorRules, masterEmpty, refresh } = useFinance();
   const [tab, setTab] = useState<Tab>("accounts");
   const [q, setQ] = useState("");
   const [seeding, setSeeding] = useState<string | null>(null);
@@ -49,18 +49,17 @@ export default function MasterPage() {
 
   const seed = async () => {
     setSeedError(null);
-    setSeeding("시작…");
+    setSeeding("적재 중…");
     try {
-      const r = await seedFinanceMaster((label, done, total) =>
-        setSeeding(`${label} ${done}/${total}`),
-      );
+      const r = await seedFinanceMaster();
+      await refresh();
       setSeeding(
         `완료 — 계정 ${r.accounts} · 계좌/카드 ${r.paymentMethods} · 규칙 ${r.vendorRules}`,
       );
     } catch (e) {
       // 원문 메시지("Missing or insufficient permissions.")만으로는
       // 무엇을 해야 하는지 알 수 없다 — 조치까지 알려준다.
-      const f = describeFirestoreError(e);
+      const f = describeFinanceError(e);
       setSeedError(f);
       setSeeding(null);
     }
@@ -249,10 +248,11 @@ export default function MasterPage() {
               <Button
                 disabled={!newRule.service.trim() || !newRule.keyword.trim()}
                 onClick={async () => {
-                  await upsertFinVendorRule(newRule.keyword.trim(), {
+                  await upsertFinVendorRule({
                     service: newRule.service.trim(),
                     keyword: newRule.keyword.trim(),
                   });
+                  await refresh();
                   setNewRule({ service: "", keyword: "" });
                 }}
               >
@@ -276,7 +276,13 @@ export default function MasterPage() {
                           {r.keyword}
                         </span>
                       </span>
-                      <Button variant="ghost" onClick={() => deleteFinVendorRule(r.id)}>
+                      <Button
+                        variant="ghost"
+                        onClick={async () => {
+                          await deleteFinVendorRule(r.id);
+                          await refresh();
+                        }}
+                      >
                         삭제
                       </Button>
                     </li>

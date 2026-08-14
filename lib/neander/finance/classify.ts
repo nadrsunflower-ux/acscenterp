@@ -18,7 +18,7 @@
 // ============================================================
 
 import type { FinTransaction, ClassificationStatus, TxType } from "./types";
-import type { FinPaymentMethodDoc, FinVendorRuleDoc } from "./db";
+import type { FinPaymentMethodDoc, FinVendorRuleDoc } from "./db-types";
 
 /** 과거 이력에서 계정을 확정으로 볼 최소 건수 */
 const MIN_HISTORY_COUNT = 2;

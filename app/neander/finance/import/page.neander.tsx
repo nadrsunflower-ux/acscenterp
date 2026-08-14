@@ -19,11 +19,10 @@ import { Money, SectionTitle } from "@/components/neander/finance/ui";
 import { parseLedgerFile, type ParseResult, type ParsedRow } from "@/lib/neander/finance/xlsx";
 import { classifyOne, summarize, type ClassifySuggestion } from "@/lib/neander/finance/classify";
 import {
-  addFinTransactionsBulk,
-  addFinImport,
-  deleteFinTransactionsByBatch,
-  deleteFinImport,
-} from "@/lib/neander/finance/db";
+  bulkAddFinTransactions,
+  createFinImport,
+  undoFinImport,
+} from "@/lib/neander/finance/client";
 import {
   STATUS_COLOR,
   STATUS_LABEL,
@@ -39,7 +38,7 @@ interface Prepared {
 }
 
 export default function ImportPage() {
-  const { transactions, paymentMethods, vendorRules, vendorIndex, imports, masterEmpty } =
+  const { transactions, paymentMethods, vendorRules, vendorIndex, imports, masterEmpty, refresh } =
     useFinance();
   const { currentMember } = useAppData();
 
@@ -112,7 +111,7 @@ export default function ImportPage() {
     setBusy(true);
     setProgress({ done: 0, total: fresh.length });
     try {
-      const batchId = await addFinImport({
+      const { id: batchId } = await createFinImport({
         fileName: file?.name ?? "(파일명 없음)",
         inserted: fresh.length,
         skipped: dupCount,
@@ -144,7 +143,10 @@ export default function ImportPage() {
         importBatchId: batchId,
       }));
 
-      await addFinTransactionsBulk(rows, (d, t) => setProgress({ done: d, total: t }));
+      await bulkAddFinTransactions(rows, (d: number, t: number) =>
+        setProgress({ done: d, total: t }),
+      );
+      await refresh();
       setDone({ inserted: fresh.length, skipped: dupCount });
       setParsed(null);
       setFile(null);
@@ -158,8 +160,8 @@ export default function ImportPage() {
   const undo = async (batchId: string) => {
     setBusy(true);
     try {
-      await deleteFinTransactionsByBatch(batchId);
-      await deleteFinImport(batchId);
+      await undoFinImport(batchId);
+      await refresh();
     } finally {
       setBusy(false);
     }

@@ -93,8 +93,16 @@ service cloud.firestore {
     match /neander_dev_comments/{id}   { allow read, write: if isAllowedMember(); }
 
     // 재무(/neander/finance): 통합거래장·계정·계좌·규칙·임포트 이력.
-    // ⚠️ 회사 재무 원장이다. 다른 neander 컬렉션과 같은 '허용 팀원' 기준을
-    //    쓰지만, 향후 재무 전용 역할로 더 좁힐 자리다(ROADMAP Phase 3).
+    //
+    // ⚠️ 이 블록은 현재 **게시되지 않았고, 게시하지 않아도 된다.**
+    //    재무 모듈은 클라이언트가 Firestore 에 직접 붙지 않고 서버
+    //    API(/api/neander/finance/*)의 Admin SDK 를 거친다. Admin SDK 는
+    //    보안 규칙을 우회하므로 이 규칙과 무관하게 동작한다.
+    //    (규칙 게시에는 Firebase 프로젝트 소유자 권한이 필요한데 없다.)
+    //
+    //    남겨두는 이유: 나중에 소유자 권한이 생겨 게시하게 되면 그때
+    //    클라이언트 직접 접근도 안전하게 열 수 있도록. 접근 통제의 실제
+    //    근거는 lib/neander/finance/server/auth.ts 다.
     match /neander_fin_transactions/{id}    { allow read, write: if isAllowedMember(); }
     match /neander_fin_accounts/{id}        { allow read, write: if isAllowedMember(); }
     match /neander_fin_payment_methods/{id} { allow read, write: if isAllowedMember(); }

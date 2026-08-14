@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 import { Button, Field, Input, Select, Textarea } from "@/components/neander/ui";
 import { AccountPicker } from "./AccountPicker";
 import { Money } from "./ui";
-import type { FinAccountDoc, FinPaymentMethodDoc } from "@/lib/neander/finance/db";
+import type { FinAccountDoc, FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
 import {
   TX_TYPES,
   dedupHashOf,

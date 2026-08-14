@@ -12,7 +12,7 @@
 import * as XLSX from "xlsx";
 import type { FinTransaction } from "./types";
 import { netAmount, incomeAmount, expenseAmount, lookupKeyOf } from "./types";
-import type { FinAccountDoc, FinPaymentMethodDoc } from "./db";
+import type { FinAccountDoc, FinPaymentMethodDoc } from "./db-types";
 
 /** 원본 통합거래장의 29열 (순서 그대로) */
 const HEADER = [
