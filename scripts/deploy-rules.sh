@@ -42,7 +42,14 @@ JSON
   echo "▸ 설치 완료: $("$FIREBASE" --version)"
 fi
 
-if ! "$FIREBASE" projects:list >/dev/null 2>&1; then
+# 여러 Google 계정을 쓰는 경우가 흔하다. 어느 계정으로 배포할지 지정한다:
+#     FIREBASE_ACCOUNT=someone@gmail.com npm run firebase:deploy:rules
+ACCOUNT_ARGS=()
+if [ -n "${FIREBASE_ACCOUNT:-}" ]; then
+  ACCOUNT_ARGS=(--account "$FIREBASE_ACCOUNT")
+fi
+
+if ! "$FIREBASE" projects:list "${ACCOUNT_ARGS[@]+"${ACCOUNT_ARGS[@]}"}" >/dev/null 2>&1; then
   cat <<MSG
 
 ✋ Firebase 로그인이 필요합니다.
@@ -60,5 +67,44 @@ MSG
   exit 1
 fi
 
-echo "▸ 규칙 게시 → $PROJECT"
-exec "$FIREBASE" deploy --only firestore:rules,storage --project "$PROJECT"
+# 기본은 Firestore 규칙만 게시한다.
+#
+# storage 를 함께 넣으면 CLI 가 Firebase Storage 서비스가 켜져 있는지
+# 확인하려고 serviceusage.googleapis.com 을 호출하는데, 여기엔
+# serviceusage.services.get 권한이 필요하다. 편집자 권한만 있는 계정은
+# 이 호출에서 403 이 나고 **Firestore 규칙까지 통째로 배포가 중단된다.**
+# Storage 규칙은 자주 바뀌지 않으므로 필요할 때만 켠다:
+#
+#     WITH_STORAGE=1 npm run firebase:deploy:rules
+TARGETS="firestore:rules"
+if [ "${WITH_STORAGE:-}" = "1" ]; then
+  TARGETS="firestore:rules,storage"
+fi
+
+# 배포 전에 그 계정이 이 프로젝트를 실제로 볼 수 있는지 먼저 확인한다.
+# 계정이 프로젝트 멤버가 아니면 CLI 는 한참 진행하다 firebaserules 403 을
+# 뱉는데, 그 메시지만 보면 "권한 등급이 부족한가" 로 오해하기 쉽다.
+# 실제로는 계정을 잘못 골랐을 때가 대부분이다.
+if ! "$FIREBASE" projects:list "${ACCOUNT_ARGS[@]+"${ACCOUNT_ARGS[@]}"}" 2>/dev/null | grep -q "[[:space:]]$PROJECT[[:space:]]"; then
+  WHO="$("$FIREBASE" login:list 2>/dev/null | head -3 | tail -1 | tr -d ' ')"
+  cat <<MSG
+
+✋ 로그인한 계정에서 '$PROJECT' 프로젝트가 보이지 않습니다.
+   ${FIREBASE_ACCOUNT:+(지정 계정: $FIREBASE_ACCOUNT)}
+
+   권한 등급의 문제가 아니라 그 계정이 프로젝트 멤버가 아닐 가능성이 큽니다.
+   아래에서 어느 계정이 열리는지 확인하세요:
+
+     https://console.firebase.google.com/project/$PROJECT/firestore/rules
+
+   맞는 계정을 추가한 뒤 그 계정으로 배포하세요:
+
+     $FIREBASE login:add
+     FIREBASE_ACCOUNT=<그 계정> npm run firebase:deploy:rules
+
+MSG
+  exit 1
+fi
+
+echo "▸ 규칙 게시 → $PROJECT ($TARGETS)"
+exec "$FIREBASE" deploy --only "$TARGETS" --project "$PROJECT" "${ACCOUNT_ARGS[@]+"${ACCOUNT_ARGS[@]}"}"
