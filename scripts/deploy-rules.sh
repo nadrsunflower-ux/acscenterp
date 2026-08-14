@@ -43,11 +43,20 @@ JSON
 fi
 
 if ! "$FIREBASE" projects:list >/dev/null 2>&1; then
-  echo ""
-  echo "✋ Firebase 로그인이 필요합니다. 먼저 아래를 실행하세요:"
-  echo ""
-  echo "   $FIREBASE login"
-  echo ""
+  cat <<MSG
+
+✋ Firebase 로그인이 필요합니다.
+
+   본인 터미널에서 직접 실행하세요. OAuth 는 브라우저를 띄우므로
+   에이전트 세션이나 CI 처럼 TTY 가 없는 곳에서는 실행되지 않습니다
+   ("Cannot run login in non-interactive mode").
+
+   $FIREBASE login
+
+   → acscentmanager 프로젝트에 편집자 이상 권한이 있는 Google 계정 선택
+   → 완료 후 이 명령을 다시 실행:  npm run firebase:deploy:rules
+
+MSG
   exit 1
 fi
 
