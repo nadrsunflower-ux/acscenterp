@@ -16,12 +16,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Card, PageHeader, Badge, EmptyState, Select } from "@/components/neander/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { TransactionEditor } from "@/components/neander/finance/TransactionEditor";
-import { AccountPicker } from "@/components/neander/finance/AccountPicker";
+import { AccountPicker, type AccountValue } from "@/components/neander/finance/AccountPicker";
 import { Money, SectionTitle } from "@/components/neander/finance/ui";
 import {
   updateFinTransaction,
   deleteFinTransaction,
   bulkUpdateFinStatus,
+  bulkPatchFinTransactions,
 } from "@/lib/neander/finance/client";
 import {
   STATUS_COLOR,
@@ -40,6 +41,10 @@ export default function ReviewPage() {
   const [cursor, setCursor] = useState(0);
   const [editing, setEditing] = useState<FinTransaction | null>(null);
   const [busy, setBusy] = useState(false);
+  // 여러 건을 골라 같은 계정으로 한 번에 고친다. 같은 문제를 가진 거래가
+  // 수십 건씩 몰려 있어서, 하나씩 누르게 하면 아무도 끝까지 안 한다.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkAcct, setBulkAcct] = useState<AccountValue>({});
   const rowRefs = useRef<(HTMLLIElement | null)[]>([]);
 
   const pending = useMemo(
@@ -106,6 +111,39 @@ export default function ReviewPage() {
     rowRefs.current[cursor]?.scrollIntoView({ block: "nearest" });
   }, [cursor]);
 
+  const toggle = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const selectedRows = pending.filter((t) => selected.has(t.id));
+  // 거래유형이 섞이면 계정 후보가 달라져 하나로 못 고른다
+  const selectedTypes = [...new Set(selectedRows.map((t) => t.txType))];
+  const bulkTxType = selectedTypes.length === 1 ? selectedTypes[0] : null;
+
+  const applyBulk = async () => {
+    if (!bulkAcct.acctMinor || selectedRows.length === 0) return;
+    setBusy(true);
+    try {
+      await bulkPatchFinTransactions(
+        selectedRows.map((t) => t.id),
+        {
+          ...bulkAcct,
+          status: "confirmed",
+          classReason: `검토 대기함에서 ${selectedRows.length}건 일괄 지정`,
+        },
+      );
+      setSelected(new Set());
+      setBulkAcct({});
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const approveAllSuggested = async () => {
     const ids = pending.filter((t) => t.status === "suggested").map((t) => t.id);
     if (ids.length === 0) return;
@@ -169,6 +207,66 @@ export default function ReviewPage() {
             </p>
           </Card>
 
+          {selected.size > 0 && (
+            <Card className="sticky top-14 z-10 mb-3 border-indigo-300 bg-indigo-50/80 backdrop-blur">
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-zinc-900">
+                    {selected.size}건 선택됨
+                  </p>
+                  <button
+                    onClick={() => setSelected(new Set())}
+                    className="mt-0.5 text-xs text-zinc-500 underline hover:text-zinc-800"
+                  >
+                    선택 해제
+                  </button>
+                </div>
+                {bulkTxType ? (
+                  <>
+                    <div className="min-w-0 flex-1">
+                      <AccountPicker
+                        accounts={accounts}
+                        txType={bulkTxType}
+                        compact
+                        value={bulkAcct}
+                        onChange={setBulkAcct}
+                      />
+                    </div>
+                    <Button
+                      onClick={applyBulk}
+                      disabled={busy || !bulkAcct.acctMinor}
+                    >
+                      {selected.size}건에 적용
+                    </Button>
+                  </>
+                ) : (
+                  <p className="text-sm text-rose-700">
+                    거래유형이 섞여 있어 계정을 한 번에 지정할 수 없습니다
+                    ({selectedTypes.join(" · ")}). 같은 유형끼리 골라주세요.
+                  </p>
+                )}
+              </div>
+            </Card>
+          )}
+
+          <div className="mb-2 flex items-center gap-3 text-sm">
+            <button
+              onClick={() =>
+                setSelected(
+                  selected.size === pending.length
+                    ? new Set()
+                    : new Set(pending.map((t) => t.id)),
+                )
+              }
+              className="text-indigo-700 underline hover:text-indigo-900"
+            >
+              {selected.size === pending.length ? "전체 해제" : `전체 선택 (${pending.length})`}
+            </button>
+            <span className="text-zinc-400">
+              여러 건을 골라 같은 계정으로 한 번에 지정할 수 있습니다
+            </span>
+          </div>
+
           <ul className="space-y-2">
             {pending.map((t, i) => {
               const active = i === cursor;
@@ -184,6 +282,14 @@ export default function ReviewPage() {
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(t.id)}
+                          onChange={() => toggle(t.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="h-4 w-4 cursor-pointer rounded border-zinc-300 accent-indigo-600"
+                          aria-label="선택"
+                        />
                         <Badge color={STATUS_COLOR[t.status]}>{STATUS_LABEL[t.status]}</Badge>
                         <span className="tabular-nums text-sm text-zinc-500">{t.date}</span>
                         <span className="text-sm text-zinc-500">{t.txType}</span>

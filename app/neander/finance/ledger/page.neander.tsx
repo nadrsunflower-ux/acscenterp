@@ -14,6 +14,7 @@ import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { TransactionEditor } from "@/components/neander/finance/TransactionEditor";
 import { Money, SectionTitle } from "@/components/neander/finance/ui";
 import {
+  addFinTransaction,
   deleteFinTransaction,
   updateFinTransaction,
 } from "@/lib/neander/finance/client";
@@ -23,9 +24,11 @@ import {
   STATUS_LABEL,
   TX_TYPES,
   netAmount,
+  dedupHashOf,
   type ClassificationStatus,
   type FinTransaction,
 } from "@/lib/neander/finance/types";
+import { todayStr } from "@/lib/neander/format";
 import { availableMonths, totals, plOnly } from "@/lib/neander/finance/aggregate";
 
 const PAGE_SIZE = 50;
@@ -44,6 +47,19 @@ export default function LedgerPage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [editing, setEditing] = useState<FinTransaction | null>(null);
+  // 신규 입력 — 엑셀을 거치지 않고 여기서 바로 거래를 만든다
+  const [creating, setCreating] = useState<FinTransaction | null>(null);
+
+  const blankTx = (): FinTransaction => ({
+    id: "",
+    date: todayStr(),
+    txType: "지출",
+    gross: 0,
+    adjust: 0,
+    status: "confirmed",
+    dedupHash: "",
+    createdAt: Date.now(),
+  });
 
   const months = useMemo(() => availableMonths(transactions), [transactions]);
   const opts = useMemo(() => {
@@ -105,6 +121,8 @@ export default function LedgerPage() {
         title="거래 원장"
         description={`전체 ${transactions.length.toLocaleString("ko-KR")}건`}
         actions={
+          <>
+          <Button onClick={() => setCreating(blankTx())}>거래 추가</Button>
           <Button
             variant="secondary"
             disabled={filtered.length === 0}
@@ -119,6 +137,7 @@ export default function LedgerPage() {
           >
             엑셀 내보내기
           </Button>
+          </>
         }
       />
 
@@ -250,6 +269,38 @@ export default function LedgerPage() {
             </div>
           )}
         </Card>
+      )}
+
+      {creating && (
+        <TransactionEditor
+          tx={creating}
+          isNew
+          accounts={accounts}
+          paymentMethods={paymentMethods}
+          knownBizMinors={opts.bizMinors}
+          onSave={async (patch) => {
+            await addFinTransaction({
+              ...patch,
+              date: patch.date ?? todayStr(),
+              txType: patch.txType ?? "지출",
+              gross: patch.gross ?? 0,
+              adjust: patch.adjust ?? 0,
+              status: patch.status ?? "confirmed",
+              classReason: "화면에서 직접 입력",
+              dedupHash:
+                patch.dedupHash ??
+                dedupHashOf({
+                  date: patch.date ?? todayStr(),
+                  last4: patch.last4,
+                  vendor: patch.vendor,
+                  gross: patch.gross ?? 0,
+                  txType: patch.txType ?? "지출",
+                }),
+            });
+            await refresh();
+          }}
+          onClose={() => setCreating(null)}
+        />
       )}
 
       {editing && (

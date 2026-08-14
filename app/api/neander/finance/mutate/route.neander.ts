@@ -114,6 +114,28 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: true, updated: ids.length });
       }
 
+      case "transaction.bulkPatch": {
+        // 여러 거래에 같은 값을 한 번에 적용한다 (계정 일괄 교정 등).
+        // 상태만 바꾸는 bulkStatus 와 달리 임의 필드를 받는다.
+        const { ids, patch } = payload as { ids: string[]; patch: Record<string, unknown> };
+        if (!Array.isArray(ids) || !patch) {
+          return NextResponse.json({ error: "ids 와 patch 가 필요합니다." }, { status: 400 });
+        }
+        const data: Record<string, unknown> = {
+          ...clean(patch),
+          updatedAt: now,
+          updatedBy: user.email,
+        };
+        for (let i = 0; i < ids.length; i += BATCH_LIMIT) {
+          const batch = db.batch();
+          ids.slice(i, i + BATCH_LIMIT).forEach((id) => {
+            batch.set(db.collection(NEANDER_COL.finTransactions).doc(id), data, { merge: true });
+          });
+          await batch.commit();
+        }
+        return NextResponse.json({ ok: true, updated: ids.length });
+      }
+
       // ---- 임포트 배치 ---------------------------------------
       case "import.create": {
         const ref = await db

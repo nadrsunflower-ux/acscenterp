@@ -30,11 +30,14 @@ export function TransactionEditor({
   accounts,
   paymentMethods,
   knownBizMinors,
+  isNew = false,
   onSave,
   onDelete,
   onClose,
 }: {
   tx: FinTransaction;
+  /** 새 거래 입력 모드 — 삭제를 숨기고 문구를 바꾼다 */
+  isNew?: boolean;
   accounts: FinAccountDoc[];
   paymentMethods: FinPaymentMethodDoc[];
   knownBizMinors: string[];
@@ -105,7 +108,9 @@ export function TransactionEditor({
       >
         <div className="mb-5 flex items-start justify-between">
           <div>
-            <h2 className="text-lg font-bold text-zinc-900">거래 수정</h2>
+            <h2 className="text-lg font-bold text-zinc-900">
+              {isNew ? "거래 추가" : "거래 수정"}
+            </h2>
             {form.classReason && (
               <p className="mt-1 text-sm text-zinc-500">근거: {form.classReason}</p>
             )}
@@ -272,7 +277,8 @@ export function TransactionEditor({
 
         <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
           <div>
-            {onDelete &&
+            {!isNew &&
+              onDelete &&
               (confirmDelete ? (
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-rose-600">정말 삭제할까요?</span>
@@ -305,8 +311,8 @@ export function TransactionEditor({
             <Button variant="secondary" onClick={onClose} disabled={saving}>
               취소
             </Button>
-            <Button onClick={() => save("confirmed")} disabled={saving}>
-              {saving ? "저장 중…" : "확정 저장"}
+            <Button onClick={() => save("confirmed")} disabled={saving || !form.date}>
+              {saving ? "저장 중…" : isNew ? "추가" : "확정 저장"}
             </Button>
           </div>
         </div>

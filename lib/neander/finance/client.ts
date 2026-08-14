@@ -73,6 +73,12 @@ export const deleteFinTransaction = (id: string) => mutate("transaction.delete",
 export const bulkUpdateFinStatus = (ids: string[], status: string) =>
   mutate("transaction.bulkStatus", { ids, status });
 
+/** 여러 거래에 같은 값을 한 번에 적용 (계정 일괄 교정 등) */
+export const bulkPatchFinTransactions = (
+  ids: string[],
+  patch: Partial<FinTransactionInput>,
+) => mutate<{ updated: number }>("transaction.bulkPatch", { ids, patch });
+
 /**
  * 임포트 대량 적재.
  * 한 요청에 수백 건을 통째로 보내면 본문이 커지고 실패 시 전부 날아가므로,
