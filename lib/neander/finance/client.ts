@@ -16,6 +16,7 @@ import { getNeanderAuth } from "@/lib/neander/firebase";
 import type { FinTransaction, FinImportBatch, FinTransactionInput } from "./types";
 import type { CloseSnapshot, MonthCloseDoc } from "./close";
 import type { FinCardMemoView, ReceiptRead } from "./card-memo";
+import type { FinChatDoc, FinChatSummary } from "./chat-log";
 import type {
   FinAccountDoc,
   FinAllocationDoc,
@@ -117,6 +118,35 @@ export async function bulkAddFinTransactions(
     await mutate("transaction.bulkAdd", { rows: rows.slice(i, i + CHUNK) });
     onProgress?.(Math.min(i + CHUNK, rows.length), rows.length);
   }
+}
+
+// ---- 재무 비서 대화 기록 ------------------------------------------
+
+const CHATS_URL = "/api/neander/finance/ai/chats";
+
+/** 내 대화 목록 (본문 없이 요약만) */
+export async function fetchChatList(): Promise<FinChatSummary[]> {
+  const res = await fetch(CHATS_URL, { headers: await authHeaders(), cache: "no-store" });
+  if (!res.ok) throw new Error(await readError(res));
+  return ((await res.json()) as { chats: FinChatSummary[] }).chats;
+}
+
+/** 대화 하나를 통째로 (이어가기용) */
+export async function fetchChat(id: string): Promise<FinChatDoc> {
+  const res = await fetch(`${CHATS_URL}?id=${encodeURIComponent(id)}`, {
+    headers: await authHeaders(),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return ((await res.json()) as { chat: FinChatDoc }).chat;
+}
+
+export async function deleteChat(id: string): Promise<void> {
+  const res = await fetch(`${CHATS_URL}?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await readError(res));
 }
 
 // ---- 법인카드 사용 메모 ------------------------------------------

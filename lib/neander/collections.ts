@@ -50,4 +50,6 @@ export const NEANDER_COL = {
   finCloses: "neander_fin_closes",
   /** 법인카드 사용 메모 — 현장에서 남기고, 나중에 카드 명세서와 대조한다 */
   finCardMemos: "neander_fin_card_memos",
+  /** 재무 비서와 나눈 대화 (문서 1개 = 대화 1개, 사용자별) */
+  finChats: "neander_fin_chats",
 } as const;
