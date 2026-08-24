@@ -12,7 +12,7 @@
 //  실제 DOM 요소라 한글 IME·접근성·모바일이 공짜로 해결된다.
 // ============================================================
 
-import React, { memo, useLayoutEffect, useRef } from "react";
+import React, { memo, useCallback, useLayoutEffect, useRef } from "react";
 import {
   createAddRowsComponent,
   createContextMenuComponent,
@@ -20,6 +20,7 @@ import {
   type CellProps,
   type Column,
   type ContextMenuComponentProps,
+  type SimpleColumn,
   type ContextMenuItem,
 } from "react-datasheet-grid";
 
@@ -188,12 +189,181 @@ export function createActionColumn<T>(data: ActionColumnData<T>) {
  * 그리드는 mousedown 을 **document 에서** 듣는다 (열 전체 선택용).
  * stopPropagation 으로 끊지 않으면 이 클릭이 열 선택으로 먹힌다.
  */
+// ---- 크기 조절 손잡이 -------------------------------------------
+
+/**
+ * 셀 경계를 끌어 크기를 바꾸는 손잡이.
+ *
+ * 시작 크기를 인자로 받지 않고 **DOM 에서 잰다.** 유동 폭 열(거래처·비고)은
+ * 남는 공간을 나눠 갖기 때문에 "지금 몇 px 인지"를 상태만 보고는 알 수
+ * 없다. 화면에 그려진 값을 재야 잡은 자리에서 그대로 이어진다.
+ *
+ * 포인터 캡처를 쓰므로 커서가 시트 밖으로 나가도 드래그가 끊기지 않는다.
+ * 갱신은 프레임당 한 번으로 묶는다 — 안 그러면 열 정의가 초당 수백 번
+ * 새로 만들어져 표 전체가 다시 그려진다.
+ */
+export function ResizeGrip({
+  axis,
+  onResize,
+  onReset,
+  title,
+  className,
+}: {
+  axis: "x" | "y";
+  onResize: (next: number) => void;
+  /** 더블클릭 시 기본값으로 (엑셀의 자동맞춤 자리) */
+  onReset?: () => void;
+  title: string;
+  className: string;
+}) {
+  const frame = useRef<number | null>(null);
+  const pending = useRef<number | null>(null);
+
+  const flush = useCallback(() => {
+    frame.current = null;
+    if (pending.current !== null) {
+      onResize(pending.current);
+      pending.current = null;
+    }
+  }, [onResize]);
+
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      // 시트가 셀 선택을 시작하지 않도록 여기서 끊는다
+      e.preventDefault();
+      e.stopPropagation();
+
+      const grip = e.currentTarget;
+      const cell = grip.closest(".dsg-cell") as HTMLElement | null;
+      if (!cell) return;
+      const box = cell.getBoundingClientRect();
+      const from = axis === "x" ? e.clientX : e.clientY;
+      const start = axis === "x" ? box.width : box.height;
+
+      grip.setPointerCapture(e.pointerId);
+      document.body.classList.add(axis === "x" ? "dsg-resizing-col" : "dsg-resizing-row");
+
+      const move = (ev: PointerEvent) => {
+        pending.current = start + ((axis === "x" ? ev.clientX : ev.clientY) - from);
+        if (frame.current === null) frame.current = requestAnimationFrame(flush);
+      };
+      const up = () => {
+        grip.removeEventListener("pointermove", move);
+        grip.removeEventListener("pointerup", up);
+        grip.removeEventListener("pointercancel", up);
+        if (grip.hasPointerCapture(e.pointerId)) grip.releasePointerCapture(e.pointerId);
+        document.body.classList.remove("dsg-resizing-col", "dsg-resizing-row");
+        if (frame.current !== null) {
+          cancelAnimationFrame(frame.current);
+          frame.current = null;
+        }
+        flush();
+      };
+      grip.addEventListener("pointermove", move);
+      grip.addEventListener("pointerup", up);
+      grip.addEventListener("pointercancel", up);
+    },
+    [axis, flush],
+  );
+
+  return (
+    <div
+      className={className}
+      role="separator"
+      aria-orientation={axis === "x" ? "vertical" : "horizontal"}
+      title={title}
+      onPointerDown={onPointerDown}
+      onDoubleClick={
+        onReset
+          ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onReset();
+            }
+          : undefined
+      }
+      // 머리글 정렬 버튼이나 행 선택이 같이 반응하지 않게
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    />
+  );
+}
+
+/**
+ * 행 번호 칸. 기본 거터는 번호만 그리는데, 아래 경계에 행 높이 손잡이를
+ * 얹는다. 행 선택은 셀 껍데기가 처리하므로 여기를 바꿔도 그대로 동작한다.
+ *
+ * ⚠️ 이 컴포넌트는 **모듈 수준에 있어야 한다.** 안에서 만들면 렌더마다
+ *    새 함수가 되고, React 는 타입이 달라진 것으로 보아 셀을 통째로
+ *    다시 마운트한다. 그러면 행 높이를 끄는 순간 — 초기화 버튼이 켜지며
+ *    거터가 새로 그려질 때 — 잡고 있던 손잡이가 사라져 드래그가 끊긴다.
+ *    바뀌는 값은 columnData 로 흘려보낸다 (프로퍼티는 다시 마운트하지
+ *    않는다).
+ */
+interface GutterData {
+  onResizeRow: (px: number) => void;
+  onResetRow: () => void;
+}
+
+const GutterCell = <T,>({ rowIndex, columnData }: CellProps<T, GutterData>) => (
+  <div className="dsg-gutter">
+    <span className="dsg-gutter-no">{rowIndex + 1}</span>
+    <ResizeGrip
+      axis="y"
+      className="dsg-row-grip"
+      title="끌어서 행 높이 조절 · 더블클릭 기본값"
+      onResize={columnData.onResizeRow}
+      onReset={columnData.onResetRow}
+    />
+  </div>
+);
+
+export function createGutterColumn<T>({
+  onResizeRow,
+  onResetRow,
+  onResetAll,
+  canReset,
+}: {
+  onResizeRow: (px: number) => void;
+  onResetRow: () => void;
+  onResetAll: () => void;
+  canReset: boolean;
+}): SimpleColumn<T, GutterData> {
+  return {
+    basis: 46,
+    grow: 0,
+    shrink: 0,
+    minWidth: 0,
+    columnData: { onResizeRow, onResetRow },
+    // title 은 머리글 한 칸에만 쓰이므로 매번 바뀌어도 셀을 건드리지 않는다
+    title: (
+      <button
+        type="button"
+        className="dsg-layout-reset"
+        title={canReset ? "열 너비·행 높이를 기본값으로" : "열 너비·행 높이가 기본값입니다"}
+        aria-label="열 너비·행 높이 초기화"
+        disabled={!canReset}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={onResetAll}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" className="h-3 w-3" aria-hidden>
+          <path d="M4 9h16M4 15h16M9 4v16M15 4v16" />
+        </svg>
+      </button>
+    ),
+    component: GutterCell,
+  };
+}
+
 export function ColumnHead({
   label,
   dir,
   filtered,
   onSort,
   onOpenMenu,
+  onResize,
+  onResetWidth,
 }: {
   label: string;
   /** 이 열이 현재 정렬 기준일 때의 방향. 아니면 null */
@@ -202,6 +372,9 @@ export function ColumnHead({
   filtered: boolean;
   onSort: () => void;
   onOpenMenu: (anchor: DOMRect) => void;
+  /** 오른쪽 경계를 끌었을 때의 새 폭 */
+  onResize: (px: number) => void;
+  onResetWidth: () => void;
 }) {
   const stop = (e: React.MouseEvent) => e.stopPropagation();
   return (
@@ -246,6 +419,13 @@ export function ColumnHead({
           </svg>
         )}
       </button>
+      <ResizeGrip
+        axis="x"
+        className="dsg-col-grip"
+        title={`끌어서 ${label} 너비 조절 · 더블클릭 기본값`}
+        onResize={onResize}
+        onReset={onResetWidth}
+      />
     </div>
   );
 }

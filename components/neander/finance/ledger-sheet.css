@@ -35,6 +35,7 @@
 
 /* ---- 머리글: 이름(정렬) + 메뉴 버튼(필터) ---- */
 .ledger-sheet .dsg-head {
+  position: relative; /* 크기 손잡이의 기준 */
   display: flex;
   align-items: center;
   width: 100%;
@@ -112,6 +113,102 @@
 .ledger-sheet .dsg-cell-gutter {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+}
+
+/* ---- 크기 조절 손잡이 --------------------------------------
+   경계 위에 얹되 평소엔 보이지 않는다. 커서를 가져가면 파란 선이
+   나타나 "여기를 끌 수 있다"를 알린다 — 엑셀·구글 시트와 같다.
+   머리글 칸은 overflow:hidden 이라 손잡이를 칸 안쪽에 붙인다. */
+.ledger-sheet .dsg-col-grip {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 40;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+.ledger-sheet .dsg-col-grip::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  right: 1px;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background-color 120ms;
+}
+.ledger-sheet .dsg-col-grip:hover::after {
+  background: #6366f1; /* indigo-500 */
+}
+
+/* 행 번호 칸: 번호 + 아래 경계의 높이 손잡이 */
+.ledger-sheet .dsg-gutter {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ledger-sheet .dsg-gutter-no {
+  pointer-events: none;
+}
+.ledger-sheet .dsg-row-grip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  height: 7px;
+  cursor: row-resize;
+  touch-action: none;
+}
+.ledger-sheet .dsg-row-grip::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 1px;
+  height: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background-color 120ms;
+}
+.ledger-sheet .dsg-row-grip:hover::after {
+  background: #6366f1;
+}
+
+/* 드래그하는 동안은 화면 전체가 같은 커서를 쓴다 — 손잡이를 벗어나도
+   커서가 깜빡이지 않게. 선택도 막는다. */
+body.dsg-resizing-col,
+body.dsg-resizing-col * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+body.dsg-resizing-row,
+body.dsg-resizing-row * {
+  cursor: row-resize !important;
+  user-select: none !important;
+}
+
+/* 왼쪽 위 모서리 = 크기 초기화 */
+.ledger-sheet .dsg-layout-reset {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: #a1a1aa; /* zinc-400 */
+  transition: color 120ms;
+}
+.ledger-sheet .dsg-layout-reset:hover:not(:disabled) {
+  color: #4f46e5; /* indigo-600 */
+}
+.ledger-sheet .dsg-layout-reset:disabled {
+  color: #e4e4e7; /* zinc-200 */
+  cursor: default;
 }
 
 .ledger-sheet .dsg-input {

@@ -48,10 +48,12 @@ import {
   KoContextMenu,
   createActionColumn,
   createDerivedColumn,
+  createGutterColumn,
   createSelectColumn,
   ColumnHead,
   type SelectOption,
 } from "./sheetCells";
+import { useSheetLayout, DEFAULT_ROW_HEIGHT } from "./useSheetLayout";
 import { ColumnMenu } from "./ColumnMenu";
 import {
   isActiveFilter,
@@ -62,6 +64,31 @@ import {
 } from "@/lib/neander/finance/sheetFilter";
 
 type Col = Column<FinTransaction, any, any>;
+
+/**
+ * 열 기본 폭. 사용자가 경계를 끌면 그 열만 이 값을 벗어나 고정된다
+ * (useSheetLayout 이 브라우저에 남긴다). 더블클릭하면 여기로 돌아온다.
+ */
+const DEFAULT_BASIS: Record<SortKey, number> = {
+  date: 112,
+  txType: 104,
+  last4: 150,
+  vendor: 180,
+  bizMajor: 104,
+  bizMinor: 110,
+  acctMajor: 130,
+  acctMid: 140,
+  acctMinor: 160,
+  gross: 110,
+  adjust: 100,
+  net: 110,
+  site: 110,
+  note: 200,
+  status: 96,
+};
+
+/** 남는 폭을 나눠 갖는 열 → 값은 그때 지켜야 할 최소 폭 */
+const FLEX_MIN: Partial<Record<SortKey, number>> = { vendor: 140, note: 120 };
 
 const uniq = (xs: (string | undefined)[]) =>
   [...new Set(xs.filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, "ko"));
@@ -155,7 +182,9 @@ export function LedgerSheet({
   const [menu, setMenu] = useState<{ key: FilterKey; label: string; anchor: DOMRect } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
 
-  const columns = useMemo<Col[]>(() => {
+  const { layout, setWidth, clearWidth, setRowHeight, reset, customized } = useSheetLayout();
+
+  const baseColumns = useMemo<Col[]>(() => {
     const header = (label: string, key: SortKey) => (
       <ColumnHead
         label={label}
@@ -163,8 +192,18 @@ export function LedgerSheet({
         filtered={isActiveFilter(filters[key])}
         onSort={() => onSort(key)}
         onOpenMenu={(anchor) => setMenu({ key, label, anchor })}
+        onResize={(px) => setWidth(key, px)}
+        onResetWidth={() => clearWidth(key)}
       />
     );
+
+    /** 기본 폭. 사용자가 정한 폭은 이 memo 밖에서 얹는다 (아래 주석 참고) */
+    const size = (key: SortKey) => {
+      const min = FLEX_MIN[key];
+      return min === undefined
+        ? { id: key, basis: DEFAULT_BASIS[key], grow: 0, shrink: 0, minWidth: 0 }
+        : { id: key, basis: DEFAULT_BASIS[key], grow: 1, shrink: 1, minWidth: min };
+    };
 
     const invalid = (field: RowIssue["field"]) => ({
       cellClassName: ({ rowData }: { rowData: FinTransaction }) =>
@@ -197,9 +236,7 @@ export function LedgerSheet({
         ...keyColumn<FinTransaction, "date">("date", dateText),
         ...invalid("date"),
         title: header("거래일", "date"),
-        basis: 112,
-        grow: 0,
-        shrink: 0,
+        ...size("date"),
       },
       {
         ...createSelectColumn<FinTransaction>({
@@ -212,9 +249,7 @@ export function LedgerSheet({
         }),
         ...invalid("txType"),
         title: header("유형", "txType"),
-        basis: 104,
-        grow: 0,
-        shrink: 0,
+        ...size("txType"),
       },
       {
         ...createSelectColumn<FinTransaction>({
@@ -225,16 +260,12 @@ export function LedgerSheet({
         }),
         ...invalid("last4"),
         title: header("계좌/카번", "last4"),
-        basis: 150,
-        grow: 0,
-        shrink: 0,
+        ...size("last4"),
       },
       {
         ...keyColumn<FinTransaction, "vendor">("vendor", optionalText),
         title: header("거래처", "vendor"),
-        basis: 180,
-        grow: 1,
-        minWidth: 140,
+        ...size("vendor"),
       },
       {
         ...createSelectColumn<FinTransaction>({
@@ -245,16 +276,12 @@ export function LedgerSheet({
         }),
         ...invalid("bizMajor"),
         title: header("사업대분류", "bizMajor"),
-        basis: 104,
-        grow: 0,
-        shrink: 0,
+        ...size("bizMajor"),
       },
       {
         ...keyColumn<FinTransaction, "bizMinor">("bizMinor", optionalText),
         title: header("사업소분류", "bizMinor"),
-        basis: 110,
-        grow: 0,
-        shrink: 0,
+        ...size("bizMinor"),
       },
       {
         ...createSelectColumn<FinTransaction>({
@@ -268,9 +295,7 @@ export function LedgerSheet({
         }),
         ...invalid("acctMajor"),
         title: header("계정대분류", "acctMajor"),
-        basis: 130,
-        grow: 0,
-        shrink: 0,
+        ...size("acctMajor"),
       },
       {
         ...createSelectColumn<FinTransaction>({
@@ -282,9 +307,7 @@ export function LedgerSheet({
         }),
         ...invalid("acctMid"),
         title: header("계정중분류", "acctMid"),
-        basis: 140,
-        grow: 0,
-        shrink: 0,
+        ...size("acctMid"),
       },
       {
         ...createSelectColumn<FinTransaction>({
@@ -295,25 +318,19 @@ export function LedgerSheet({
         }),
         ...invalid("acctMinor"),
         title: header("계정소분류", "acctMinor"),
-        basis: 160,
-        grow: 0,
-        shrink: 0,
+        ...size("acctMinor"),
       },
       {
         ...keyColumn<FinTransaction, "gross">("gross", amount),
         ...invalid("gross"),
         title: header("원금액", "gross"),
-        basis: 110,
-        grow: 0,
-        shrink: 0,
+        ...size("gross"),
       },
       {
         ...keyColumn<FinTransaction, "adjust">("adjust", amount),
         ...invalid("adjust"),
         title: header("조정금액", "adjust"),
-        basis: 100,
-        grow: 0,
-        shrink: 0,
+        ...size("adjust"),
       },
       {
         ...createDerivedColumn<FinTransaction>({
@@ -325,9 +342,7 @@ export function LedgerSheet({
           alignRight: true,
         }),
         title: header("순금액", "net"),
-        basis: 110,
-        grow: 0,
-        shrink: 0,
+        ...size("net"),
       },
       {
         ...createSelectColumn<FinTransaction>({
@@ -337,16 +352,12 @@ export function LedgerSheet({
           placeholder: "(기본)",
         }),
         title: header("사업장", "site"),
-        basis: 110,
-        grow: 0,
-        shrink: 0,
+        ...size("site"),
       },
       {
         ...keyColumn<FinTransaction, "note">("note", optionalText),
         title: header("비고", "note"),
-        basis: 200,
-        grow: 1,
-        minWidth: 120,
+        ...size("note"),
       },
       {
         ...createSelectColumn<FinTransaction>({
@@ -356,12 +367,41 @@ export function LedgerSheet({
         }),
         ...invalid("status"),
         title: header("상태", "status"),
-        basis: 96,
-        grow: 0,
-        shrink: 0,
+        ...size("status"),
       },
     ];
-  }, [accounts, paymentMethods, sites, issues, sort, onSort, filters]);
+  }, [accounts, paymentMethods, sites, issues, sort, onSort, filters, setWidth, clearWidth]);
+
+  /**
+   * 사용자가 정한 폭을 **얹기만** 한다. 폭을 위 memo 안에서 읽으면 드래그
+   * 한 프레임마다 열 정의가 통째로 새로 만들어지고, 그러면 셀 component
+   * 의 함수 신원이 바뀌어 React 가 화면의 셀 300개를 매 프레임 다시
+   * 마운트한다 (편집 중이던 셀도 날아간다). 여기서는 기존 객체를 펼쳐
+   * 복사하므로 component 참조가 그대로 유지된다.
+   *
+   * 폭을 정하면 grow 를 0 으로 고정한다 — 남겨두면 남는 공간을 받아
+   * 끈 자리보다 넓어져서, 끌었는데 다른 값이 되는 표가 된다.
+   */
+  const columns = useMemo<Col[]>(
+    () =>
+      baseColumns.map((c) => {
+        const w = layout.widths[String(c.id)];
+        return w === undefined ? c : { ...c, basis: w, grow: 0, shrink: 0, minWidth: w };
+      }),
+    [baseColumns, layout.widths],
+  );
+
+  // 행 번호 칸 — 아래 경계가 행 높이 손잡이, 왼쪽 위 모서리가 초기화 버튼
+  const gutterColumn = useMemo(
+    () =>
+      createGutterColumn<FinTransaction>({
+        onResizeRow: setRowHeight,
+        onResetRow: () => setRowHeight(DEFAULT_ROW_HEIGHT),
+        onResetAll: reset,
+        canReset: customized,
+      }),
+    [setRowHeight, reset, customized],
+  );
 
   const detailColumn = useMemo(
     () =>
@@ -380,10 +420,11 @@ export function LedgerSheet({
         value={rows}
         onChange={(next) => onChange(next)}
         columns={columns}
+        gutterColumn={gutterColumn}
         stickyRightColumn={detailColumn}
         rowKey="id"
         height={height}
-        rowHeight={34}
+        rowHeight={layout.rowHeight}
         headerRowHeight={36}
         createRow={createRow}
         // 복제한 행은 새 거래다 — 원본 id·적재 이력을 물려받으면 안 된다

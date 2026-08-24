@@ -616,7 +616,7 @@ export default function LedgerPage() {
             </span>
           ) : (
             <span className="text-zinc-400">
-              Enter 편집 · Esc 취소 · ⌘Z 실행취소 · 머리글 이름 클릭 정렬 · 머리글 ⌄ 필터 · ⌘C·V 엑셀 복사·붙여넣기 · 우클릭 행 메뉴 · 끝의 ⋯ 전체 항목
+              Enter 편집 · Esc 취소 · ⌘Z 실행취소 · 머리글 이름 클릭 정렬 · 머리글 ⌄ 필터 · 머리글·행번호 경계 끌어 크기 조절(더블클릭 기본값) · ⌘C·V 엑셀 복사·붙여넣기 · 우클릭 행 메뉴 · 끝의 ⋯ 전체 항목
             </span>
           )}
         </span>

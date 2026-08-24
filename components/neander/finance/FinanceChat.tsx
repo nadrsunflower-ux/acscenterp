@@ -22,6 +22,14 @@ import {
   type ChatMessage,
   type ChatResult,
 } from "@/lib/neander/finance/client";
+import {
+  DEFAULT_FIN_AI_MODEL,
+  FIN_AI_MODELS,
+  isFinAiModelId,
+} from "@/lib/neander/finance/ai-models";
+
+/** 고른 모델은 이 브라우저에만 기억된다 */
+const MODEL_STORAGE_KEY = "neander.finance.chatModel";
 
 interface Turn {
   role: "user" | "assistant";
@@ -47,8 +55,27 @@ export function FinanceChat() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [applied, setApplied] = useState<Set<string>>(new Set());
+  const [model, setModel] = useState(DEFAULT_FIN_AI_MODEL);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(MODEL_STORAGE_KEY);
+      if (isFinAiModelId(saved)) setModel(saved);
+    } catch {
+      // 저장이 막힌 브라우저면 기본 모델로 간다
+    }
+  }, []);
+
+  const pickModel = (id: string) => {
+    setModel(id);
+    try {
+      localStorage.setItem(MODEL_STORAGE_KEY, id);
+    } catch {
+      // 못 남겨도 이번 세션 동안은 선택이 유지된다
+    }
+  };
 
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -68,7 +95,7 @@ export function FinanceChat() {
     setBusy(true);
     try {
       const history: ChatMessage[] = next.map((t) => ({ role: t.role, content: t.content }));
-      const res = await sendFinanceChat(history);
+      const res = await sendFinanceChat(history, model);
       setTurns([
         ...next,
         {
@@ -247,6 +274,21 @@ export function FinanceChat() {
           </div>
 
           <div className="shrink-0 border-t border-zinc-200 p-3">
+            <label className="mb-2 flex items-center gap-1.5 text-xs text-zinc-500">
+              모델
+              <select
+                value={model}
+                onChange={(e) => pickModel(e.target.value)}
+                disabled={busy}
+                className="max-w-[280px] rounded-md border border-zinc-300 bg-white px-1.5 py-1 text-xs text-zinc-700 outline-none focus:border-indigo-500 disabled:opacity-50"
+              >
+                {FIN_AI_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label} — {m.note}
+                  </option>
+                ))}
+              </select>
+            </label>
             <div className="flex items-end gap-2">
               <textarea
                 ref={inputRef}
