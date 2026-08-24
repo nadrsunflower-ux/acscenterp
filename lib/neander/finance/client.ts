@@ -323,6 +323,8 @@ export interface ChangeProposal {
 }
 
 export interface ChatResult {
+  /** 이 답이 기록된 대화의 id. 다음 턴에 그대로 돌려보내면 이어진다 */
+  conversationId?: string;
   reply: string;
   toolCalls: { name: string; args: Record<string, unknown>; summary: string }[];
   proposals: ChangeProposal[];
@@ -348,20 +350,28 @@ export interface ChatResult {
  * 응답의 proposals 는 **아직 저장되지 않은** 변경 제안이다.
  * model 은 ai-models.ts 허용 목록의 ID — 안 보내면 서버 기본값을 쓴다.
  * files 를 주면 multipart 로 보내고, 서버가 텍스트를 추출해 마지막 메시지에 붙인다.
+ * conversationId 를 주면 그 대화에 이어 붙고, 비우면 새 대화가 만들어진다.
+ * 서버가 만든/이어붙인 대화 id 를 응답으로 돌려준다.
  */
 export async function sendFinanceChat(
   messages: ChatMessage[],
   model?: string,
   files?: File[],
+  conversationId?: string,
 ): Promise<ChatResult> {
   if (!files || files.length === 0) {
-    return mutateJson<ChatResult>("/api/neander/finance/ai/chat", { messages, model });
+    return mutateJson<ChatResult>("/api/neander/finance/ai/chat", {
+      messages,
+      model,
+      conversationId,
+    });
   }
   const user = getNeanderAuth().currentUser;
   if (!user) throw new Error("로그인이 필요합니다.");
   const form = new FormData();
   form.append("messages", JSON.stringify(messages));
   if (model) form.append("model", model);
+  if (conversationId) form.append("conversationId", conversationId);
   for (const f of files) form.append("files", f);
   const res = await fetch("/api/neander/finance/ai/chat", {
     method: "POST",

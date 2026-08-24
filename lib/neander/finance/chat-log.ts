@@ -22,8 +22,12 @@ export interface FinChatMessage {
   role: "user" | "assistant";
   content: string;
   at: number;
-  /** 비서가 무엇을 조회했는지 — 답의 근거 */
-  toolCalls?: { name: string; summary: string }[];
+  /**
+   * 비서가 무엇을 조회했는지 — 답의 근거.
+   * summary 는 사람이 읽을 한 줄, args 는 실제로 넘긴 조건이다. 요약만
+   * 남기면 "왜 그 숫자가 나왔는지" 를 다시 돌려볼 수 없다.
+   */
+  toolCalls?: { name: string; args: Record<string, unknown>; summary: string }[];
   /** 이 답에서 제안한 변경 */
   proposals?: ChangeProposal[];
 }

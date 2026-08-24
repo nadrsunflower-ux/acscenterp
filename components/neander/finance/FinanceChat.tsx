@@ -11,9 +11,11 @@
 //     그래서 이 패널의 화면 대부분은 "무엇이 바뀌는지" 를 보여주는 데 쓴다.
 // ============================================================
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/neander/ui";
 import { useFinance } from "./FinanceProvider";
+import { fetchChat, fetchChatList, deleteChat } from "@/lib/neander/finance/client";
+import type { FinChatSummary } from "@/lib/neander/finance/chat-log";
 import { Money } from "./ui";
 import {
   applyFinEdits,
@@ -80,6 +82,17 @@ export function FinanceChat() {
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
+
+  /**
+   * 대화 이어가기.
+   *
+   * id 는 서버가 만들어 응답에 실어 준다. 「새 대화」는 이 값을 비우는 것이
+   * 전부다 — 다음 질문에서 서버가 새 문서를 만든다.
+   */
+  const [conversationId, setConversationId] = useState<string | undefined>();
+  const [listOpen, setListOpen] = useState(false);
+  const [chats, setChats] = useState<FinChatSummary[] | null>(null);
+  const [loadingChat, setLoadingChat] = useState(false);
   // 배치: 도킹(본문을 밀어냄) ↔ 팝업(자유 이동·크기조절)
   const [panelMode, setPanelMode] = useState<"docked" | "floating">("docked");
   const [dockWidth, setDockWidth] = useState(448);
@@ -255,6 +268,72 @@ export function FinanceChat() {
     if (open) inputRef.current?.focus();
   }, [open]);
 
+  const startNew = useCallback(() => {
+    setTurns([]);
+    setConversationId(undefined);
+    setError(null);
+    setPendingFiles([]);
+    setListOpen(false);
+  }, []);
+
+  /** 목록은 열 때마다 새로 받는다 — 다른 기기에서 나눈 대화도 보여야 한다 */
+  const openList = useCallback(async () => {
+    setListOpen(true);
+    setChats(null);
+    try {
+      setChats(await fetchChatList());
+    } catch (e) {
+      setChats([]);
+      setError(e instanceof Error ? e.message : "대화 목록을 불러오지 못했습니다.");
+    }
+  }, []);
+
+  /**
+   * 지난 대화를 펼친다. 저장된 것은 질문·답변·조회 근거·제안이라, 화면의
+   * Turn 모양으로 되돌린다. 제안의 「적용」 상태는 남기지 않는다 — 이미
+   * 적용됐는지는 장부를 봐야 알 수 있고, 여기서 짐작하면 두 번 적용된다.
+   */
+  const openChat = useCallback(async (id: string) => {
+    setLoadingChat(true);
+    setError(null);
+    try {
+      const chat = await fetchChat(id);
+      // 저장 구조가 화면의 Turn 과 같은 발화 단위라 그대로 옮기면 된다.
+      // 비용·모델은 남기지 않는다 — 지난 대화에 그 숫자가 떠 있으면 방금
+      // 쓴 비용으로 오해한다.
+      setTurns(
+        chat.messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+          // args 가 없는 것은 이 필드를 저장하기 전의 옛 기록이다
+          toolCalls: m.toolCalls?.map((t) => ({ ...t, args: t.args ?? {} })),
+          proposals: m.proposals,
+        })),
+      );
+      setConversationId(chat.id);
+      setApplied(new Set());
+      setListOpen(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "대화를 불러오지 못했습니다.");
+    } finally {
+      setLoadingChat(false);
+    }
+  }, []);
+
+  const removeChat = useCallback(
+    async (id: string) => {
+      if (!confirm("이 대화를 지울까요? 되돌릴 수 없습니다.")) return;
+      try {
+        await deleteChat(id);
+        setChats((prev) => (prev ?? []).filter((c) => c.id !== id));
+        if (conversationId === id) startNew();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "삭제에 실패했습니다.");
+      }
+    },
+    [conversationId, startNew],
+  );
+
   const send = async (text: string) => {
     const q = text.trim();
     const files = pendingFiles;
@@ -279,7 +358,9 @@ export function FinanceChat() {
         role: t.role,
         content: t.wireContent ?? t.content,
       }));
-      const res = await sendFinanceChat(history, model, files);
+      const res = await sendFinanceChat(history, model, files, conversationId);
+      // 서버가 만든/이어붙인 대화 id — 다음 턴부터 이어진다
+      if (res.conversationId) setConversationId(res.conversationId);
       // 서버가 첨부를 붙여 보낸 실제 내용을 히스토리에 남긴다 — 다음 턴에도 맥락 유지
       const settled = res.sentUserContent
         ? next.map((t, k) => (k === next.length - 1 ? { ...t, wireContent: res.sentUserContent } : t))
@@ -415,10 +496,22 @@ export function FinanceChat() {
               </p>
             </div>
             <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => (listOpen ? setListOpen(false) : void openList())}
+                disabled={busy}
+                title="지난 대화"
+                aria-label="지난 대화"
+                className={`rounded-md px-2 py-1 text-sm leading-none hover:bg-zinc-100 disabled:opacity-50 ${
+                  listOpen ? "bg-zinc-100 text-zinc-800" : "text-zinc-400 hover:text-zinc-700"
+                }`}
+              >
+                ☰
+              </button>
               {turns.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => { setTurns([]); setError(null); setPendingFiles([]); }}
+                  onClick={startNew}
                   disabled={busy}
                   className="rounded-md px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 disabled:opacity-50"
                 >
@@ -444,6 +537,73 @@ export function FinanceChat() {
               </button>
             </div>
           </header>
+
+          {/* 지난 대화 — 패널 폭이 좁아 옆에 두지 않고 본문 위를 덮는다.
+              고르면 닫히므로 대화 화면을 오래 가리지 않는다. */}
+          {listOpen && (
+            <div className="flex min-h-0 flex-1 flex-col border-b border-zinc-200 bg-zinc-50/60">
+              <div className="flex items-center justify-between px-4 py-2">
+                <p className="text-xs font-semibold text-zinc-600">지난 대화</p>
+                <button
+                  type="button"
+                  onClick={startNew}
+                  className="rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-indigo-700"
+                >
+                  + 새 대화
+                </button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+                {chats === null ? (
+                  <p className="px-2 py-6 text-center text-xs text-zinc-400">불러오는 중…</p>
+                ) : chats.length === 0 ? (
+                  <p className="px-2 py-6 text-center text-xs text-zinc-400">
+                    아직 나눈 대화가 없습니다.
+                  </p>
+                ) : (
+                  chats.map((c) => (
+                    <div
+                      key={c.id}
+                      className={`group flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-white ${
+                        c.id === conversationId ? "bg-white ring-1 ring-indigo-200" : ""
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => void openChat(c.id)}
+                        disabled={loadingChat}
+                        className="min-w-0 flex-1 text-left disabled:opacity-50"
+                      >
+                        <p className="truncate text-xs font-medium text-zinc-800">{c.title}</p>
+                        <p className="mt-0.5 text-[11px] text-zinc-400">
+                          {new Date(c.updatedAt).toLocaleString("ko-KR", {
+                            month: "numeric",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                          {" · "}
+                          {c.messageCount}개
+                          {/* 제안이 오간 대화는 나중에 되짚을 일이 많다 */}
+                          {c.hasProposals && (
+                            <span className="ml-1 text-amber-600">· 변경 제안</span>
+                          )}
+                        </p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void removeChat(c.id)}
+                        title="이 대화 지우기"
+                        aria-label="이 대화 지우기"
+                        className="shrink-0 rounded px-1.5 py-1 text-xs text-zinc-300 opacity-0 transition hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
             {turns.length === 0 && (
