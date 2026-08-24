@@ -23,7 +23,8 @@
     "finance:import": "tsx scripts/neander/import-ledger.ts",
     "finance:normalize": "tsx scripts/neander/normalize-accounts.ts",
     "finance:verify-close": "tsx scripts/neander/verify-close.ts",
-    "finance:fix-accounts": "tsx scripts/neander/fix-legacy-accounts.ts"
+    "finance:fix-accounts": "tsx scripts/neander/fix-legacy-accounts.ts",
+    "finance:backfill-biz-learned": "tsx scripts/neander/backfill-biz-learned.ts"
   },
   "dependencies": {
     "firebase": "10.14.1",
