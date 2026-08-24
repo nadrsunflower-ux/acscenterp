@@ -17,6 +17,7 @@
     "neander:backfill-emails": "tsx scripts/neander/backfill-member-emails.ts",
     "finance:verify-report": "tsx scripts/neander/verify-report.ts",
     "finance:seed-master": "tsx scripts/neander/seed-finance-master.ts",
+    "finance:backfill-biz": "tsx scripts/neander/backfill-biz-unit.ts",
     "finance:verify": "tsx scripts/neander/verify-finance-import.ts",
     "firebase:deploy:rules": "bash scripts/deploy-rules.sh",
     "finance:import": "tsx scripts/neander/import-ledger.ts",
