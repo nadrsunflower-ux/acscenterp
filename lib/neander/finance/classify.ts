@@ -9,7 +9,9 @@
 //                   전체 거래의 약 50% 가 커버된다.
 //    2) 구독 규칙   거래처명에 등록된 키워드가 포함되면 그 규칙을 쓴다.
 //                   (ANTHROPIC → Anthropic (Claude) 등)
-//    3) 계좌 기본값 계좌·카드 마스터의 사업장을 채운다. 계정은 못 정한다.
+//    3) 어댑터 힌트 은행·카드 엑셀이 알려주는 것 (이자입금, 카드대금결제,
+//                   카드 업종 등). 확실한 것만 오므로 suggested 로 둔다.
+//    4) 계좌 기본값 계좌·카드 마스터의 사업장을 채운다. 계정은 못 정한다.
 //
 //  ⚠️ 자동분류는 절대 최종 확정을 남발하지 않는다. 확신이 충분할 때만
 //     confirmed 로 두고, 나머지는 suggested / needs_review 로 남겨
@@ -18,7 +20,7 @@
 // ============================================================
 
 import type { FinTransaction, ClassificationStatus, TxType } from "./types";
-import type { FinPaymentMethodDoc, FinVendorRuleDoc } from "./db-types";
+import type { FinAccountDoc, FinPaymentMethodDoc, FinVendorRuleDoc } from "./db-types";
 
 /** 과거 이력에서 계정을 확정으로 볼 최소 건수 */
 const MIN_HISTORY_COUNT = 2;
@@ -31,6 +33,13 @@ export const normVendor = (s?: string) =>
 /** 분류 결과 — 거래에 덮어쓸 필드들 */
 export interface ClassifySuggestion {
   status: ClassificationStatus;
+  /**
+   * 거래유형 교정. 은행 엑셀은 입출금 **방향**만 알고 성격은 모른다.
+   * 이력이 준 계정이 자금거래·카드대금결제 계열이면 유형도 그것이어야
+   * 한다 — 안 그러면 `지출 + 계좌간이동` 같은 모순이 생기고, 리포트에서
+   * 비손익 거래가 손익으로 잡힌다.
+   */
+  txType?: TxType;
   acctMajor?: string;
   acctMid?: string;
   acctMinor?: string;
@@ -104,7 +113,44 @@ export interface ClassifyContext {
   vendorIndex: Map<string, VendorStat>;
   vendorRules: FinVendorRuleDoc[];
   paymentMethods: FinPaymentMethodDoc[];
+  /**
+   * 계정 마스터. 제안한 계정의 거래유형이 실제 거래유형과 맞는지 검증한다.
+   * 없으면 검증을 건너뛴다(예전 호출부 호환).
+   */
+  accounts?: FinAccountDoc[];
 }
+
+/** 계정 3단으로 마스터를 찾아 그 계정의 거래유형을 돌려준다 */
+function accountTxType(
+  accounts: FinAccountDoc[] | undefined,
+  major?: string,
+  mid?: string,
+  minor?: string,
+): TxType | undefined {
+  if (!accounts?.length || !major || !minor) return undefined;
+  const hit = accounts.find(
+    (a) => a.major === major && (!mid || a.mid === mid) && a.minor === minor,
+  );
+  return hit ? (hit.txType as TxType) : undefined;
+}
+
+/** 손익에 잡히지 않는 유형 — 계정이 이쪽이면 유형도 이쪽이어야 한다 */
+const NON_PL: TxType[] = ["자금거래", "카드대금결제"];
+
+/**
+ * 계정의 거래유형과 실제 거래유형이 **의도적으로** 다른 조합.
+ *
+ * 카드대금결제 계정은 `지출 > 재무비용 > 금융비용 > 카드대금결제` 로
+ * 등록돼 있다 — 재무비용 밑에 있으니 계정 자체는 지출이다. 하지만 거래유형은
+ * 별도의 `카드대금결제` 다(손익에서 빼기 위해). 기존 장부의 확립된 관행이라
+ * 불일치로 보면 안 된다.
+ *
+ * 키는 `거래유형|계정소분류`.
+ */
+const ALLOWED_MISMATCH = new Set(["카드대금결제|카드대금결제"]);
+
+export const isAllowedTxAccountMismatch = (txType: string, acctMinor?: string) =>
+  ALLOWED_MISMATCH.has(`${txType}|${acctMinor ?? ""}`);
 
 /** 분류 대상 — 임포트 직후의 최소 정보 */
 export interface ClassifyInput {
@@ -118,6 +164,19 @@ export interface ClassifyInput {
   bizMajor?: string;
   bizMinor?: string;
   site?: string;
+  /**
+   * 임포트 어댑터의 추정 (확정 아님). 은행·카드 엑셀이 알려주는 것들 —
+   * 「이자입금」적요, 카드대금 판정, 카드 업종명 같은 것. 과거 이력·구독
+   * 규칙이 없을 때 마지막 후보로 쓰고 `suggested` 로 남긴다.
+   */
+  hint?: {
+    acctMajor?: string;
+    acctMid?: string;
+    acctMinor?: string;
+    bizMajor?: string;
+    bizMinor?: string;
+    reason: string;
+  };
 }
 
 export function classifyOne(input: ClassifyInput, ctx: ClassifyContext): ClassifySuggestion {
@@ -145,16 +204,20 @@ export function classifyOne(input: ClassifyInput, ctx: ClassifyContext): Classif
   }
 
   // 자금거래·카드대금결제는 손익에 안 잡히므로 계정 분류가 필요 없다.
+  // 다만 어댑터가 판정한 경우(은행 적요로 추정)는 사람이 한 번 봐야 한다 —
+  // 「카드결」 같은 문구로 맞힌 것이라 틀릴 수 있고, 틀리면 지출이 사라진다.
   if (input.txType === "자금거래" || input.txType === "카드대금결제") {
     return {
-      status: "confirmed",
-      acctMajor: input.acctMajor,
-      acctMid: input.acctMid,
-      acctMinor: input.acctMinor,
+      status: input.hint ? "suggested" : "confirmed",
+      acctMajor: input.acctMajor || input.hint?.acctMajor,
+      acctMid: input.acctMid || input.hint?.acctMid,
+      acctMinor: input.acctMinor || input.hint?.acctMinor,
       bizMajor: input.bizMajor,
       bizMinor: input.bizMinor,
       site,
-      classReason: `${input.txType}는 손익 대상이 아니라 분류 불필요`,
+      classReason: input.hint
+        ? `${input.hint.reason} — 확인 필요`
+        : `${input.txType}는 손익 대상이 아니라 분류 불필요`,
     };
   }
 
@@ -165,15 +228,43 @@ export function classifyOne(input: ClassifyInput, ctx: ClassifyContext): Classif
   if (stat?.top && stat.total >= MIN_HISTORY_COUNT) {
     const pct = Math.round(stat.ratio * 100);
     const strong = stat.ratio >= MIN_HISTORY_RATIO;
-    return {
-      status: strong ? "confirmed" : "suggested",
+    const base = {
       acctMajor: stat.top.acctMajor || undefined,
       acctMid: stat.top.acctMid || undefined,
       acctMinor: stat.top.acctMinor || undefined,
       bizMajor: input.bizMajor || stat.top.bizMajor || undefined,
       bizMinor: input.bizMinor || stat.top.bizMinor || undefined,
       site,
-      classReason: `거래처 「${input.vendor}」 과거 ${stat.total}건 중 ${pct}% 가 같은 분류`,
+    };
+    const why = `거래처 「${input.vendor}」 과거 ${stat.total}건 중 ${pct}% 가 같은 분류`;
+
+    // 이력이 준 계정의 거래유형이 지금 유형과 다르면 그냥 넘기면 안 된다.
+    const acctTx = accountTxType(ctx.accounts, base.acctMajor, base.acctMid, base.acctMinor);
+    if (acctTx && acctTx !== input.txType && !isAllowedTxAccountMismatch(input.txType, base.acctMinor)) {
+      if (NON_PL.includes(acctTx)) {
+        // 은행은 입출금 방향만 안다. 이력이 이 거래처를 비손익으로 분류해
+        // 왔다면 그게 더 정확하다 — 유형을 고쳐 제안하고 사람이 확인한다.
+        return {
+          status: "suggested",
+          txType: acctTx,
+          ...base,
+          classReason: `${why} → 거래유형을 ${input.txType} 에서 ${acctTx} 로 고쳐 제안`,
+        };
+      }
+      // 수입 ↔ 지출이 어긋나는 건 계정을 그대로 쓸 수 없다 (부호가 뒤집힌다)
+      return {
+        status: "needs_review",
+        site,
+        bizMajor: input.bizMajor,
+        bizMinor: input.bizMinor,
+        classReason: `${why} 이지만 그 계정은 ${acctTx} 용이라 이번 ${input.txType} 에 맞지 않습니다 — 직접 골라주세요`,
+      };
+    }
+
+    return {
+      status: strong ? "confirmed" : "suggested",
+      ...base,
+      classReason: why,
     };
   }
 
@@ -195,7 +286,21 @@ export function classifyOne(input: ClassifyInput, ctx: ClassifyContext): Classif
     };
   }
 
-  // 3) 판단 불가 — 사람에게 넘긴다
+  // 3) 어댑터 힌트 — 은행·카드 엑셀이 알려준 것
+  if (input.hint?.acctMinor || input.hint?.acctMajor) {
+    return {
+      status: "suggested",
+      acctMajor: input.acctMajor || input.hint.acctMajor,
+      acctMid: input.acctMid || input.hint.acctMid,
+      acctMinor: input.acctMinor || input.hint.acctMinor,
+      bizMajor: input.bizMajor || input.hint.bizMajor,
+      bizMinor: input.bizMinor || input.hint.bizMinor,
+      site,
+      classReason: input.hint.reason,
+    };
+  }
+
+  // 4) 판단 불가 — 사람에게 넘긴다
   return {
     status: "needs_review",
     acctMajor: input.acctMajor,
