@@ -49,6 +49,33 @@ export interface FinCardMemo {
   createdBy: string;
 }
 
+/**
+ * 결제 캡처에서 읽어낸 값.
+ *
+ * 이 타입은 서버(비전 모델 호출)와 화면(입력칸 채우기)이 함께 쓴다. 그래서
+ * server-only 인 ai-receipt.ts 가 아니라 여기 둔다 — 저쪽에 두면 화면 코드가
+ * 타입 하나 때문에 서버 전용 모듈을 물고 들어간다.
+ */
+export interface ReceiptRead {
+  /** 가맹점 이름. 화면에 보이는 그대로 */
+  vendor?: string;
+  /** 실제로 결제된 금액(원). 상품금액·배송비가 아니라 최종 결제액 */
+  amount?: number;
+  /** `YYYY-MM-DD`. 화면에 연도가 없으면 비운다 — 추측하지 않는다 */
+  date?: string;
+  /** 무엇을 샀는지 한 줄로 */
+  items?: string;
+  /** 카드 뒷 4자리 (보이면) */
+  last4?: string;
+  /** 얼마나 확신하는지. high 가 아니면 화면이 눈에 띄게 알린다 */
+  confidence: "high" | "medium" | "low";
+  /** 못 읽었거나 애매한 것. 화면에 그대로 보여준다 */
+  uncertain?: string;
+  /** 어느 모델이 읽었는지 */
+  model?: string;
+  costUsd?: number;
+}
+
 /** 화면으로 나갈 때의 모습 — 사진은 짧게 사는 서명 URL 로 바뀐다 */
 export interface FinCardMemoView extends Omit<FinCardMemo, "photoPaths"> {
   photos?: { path: string; url: string }[];

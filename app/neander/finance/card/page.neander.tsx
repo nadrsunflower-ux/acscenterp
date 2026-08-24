@@ -10,6 +10,15 @@
 //  이 화면은 그 기록을 ERP 안으로 옮긴다. 나중에 카드 명세서를 올리면
 //  뒷4자리·금액·날짜로 메모가 **자동으로 붙어서**, 옮겨 적는 일이 사라진다.
 //
+//  ── 캡처만 올리면 칸이 채워진다 ──
+//  네 줄을 손으로 치는 건 카톡보다 오히려 불편했다. 그런데 그 네 줄은
+//  이미 캡처 안에 있다. 값싼 비전 모델(장당 0.36원)에게 읽히고 사람은
+//  **확인만** 한다.
+//
+//  ⚠️ 읽은 값을 바로 저장하지 않는다. 모델이 채운 칸에는 표시를 달고,
+//     확신이 낮으면 눈에 띄게 알린다. 금액을 잘못 읽은 채 저장되는 게
+//     아무것도 안 채워 주는 것보다 나쁘다.
+//
 //  ⚠️ 현장에서 계산대 앞에 서서 쓰는 화면이다. 한 손으로, 30초 안에
 //     끝나야 한다. 그래서 —
 //       · 한 줄에 한 칸. 두 칸을 나란히 놓지 않는다.
@@ -30,12 +39,17 @@ import {
   deleteCardMemo,
   fetchCardMemos,
   matchCardMemos,
+  readCardReceipt,
 } from "@/lib/neander/finance/client";
-import type { FinCardMemoView } from "@/lib/neander/finance/card-memo";
+import type { FinCardMemoView, ReceiptRead } from "@/lib/neander/finance/card-memo";
 import { todayStr } from "@/lib/neander/format";
 
 /** 마지막에 고른 카드를 기억한다 — 보통 같은 카드를 계속 쓴다 */
 const LAST_CARD_KEY = "neander.finance.cardMemo.last4";
+
+/** 모델이 채운 칸임을 알린다 — 사람이 어디를 확인해야 하는지 알아야 한다 */
+const filled = (v: unknown) =>
+  v ? <span className="ml-1 font-normal text-indigo-500">· 캡처에서 읽음</span> : null;
 
 const field =
   "h-12 w-full rounded-xl border border-zinc-300 bg-white px-3.5 text-base text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
@@ -54,10 +68,50 @@ export default function CardMemoPage() {
   const [note, setNote] = useState("");
   const [amount, setAmount] = useState("");
   const [photos, setPhotos] = useState<File[]>([]);
+  /** 캡처에서 읽는 중 */
+  const [reading, setReading] = useState(false);
+  /** 모델이 읽은 결과 — 어느 칸을 채웠는지 표시하는 데 쓴다 */
+  const [read, setRead] = useState<ReceiptRead | null>(null);
   const [saving, setSaving] = useState(false);
   const [matching, setMatching] = useState(false);
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * 사진을 고르는 즉시 읽는다. 「읽기」 버튼을 따로 두면 안 누른다 —
+   * 카톡에서는 사진 넣는 것이 곧 기록이었다.
+   *
+   * 이미 사람이 채워 넣은 칸은 덮지 않는다. 모델보다 사람이 맞다.
+   */
+  const onPickPhotos = useCallback(
+    async (files: File[]) => {
+      setPhotos(files);
+      setRead(null);
+      if (files.length === 0) return;
+      setReading(true);
+      setNotice(null);
+      try {
+        const r = await readCardReceipt(files);
+        setRead(r);
+        if (r.amount && !amount) setAmount(String(r.amount));
+        if (r.items && !note) setNote(r.items);
+        if (r.vendor && !vendor) setVendor(r.vendor);
+        if (r.date) setDate(r.date);
+        if (r.last4 && cards.some((c) => c.last4 === r.last4)) setLast4(r.last4);
+        if (!r.amount && !r.vendor) {
+          setNotice({ kind: "error", text: "캡처에서 읽어내지 못했습니다. 직접 입력해 주세요." });
+        }
+      } catch (e) {
+        setNotice({
+          kind: "error",
+          text: (e instanceof Error ? e.message : "사진을 읽지 못했습니다.") + " 직접 입력할 수 있습니다.",
+        });
+      } finally {
+        setReading(false);
+      }
+    },
+    [amount, note, vendor, cards],
+  );
 
   const reload = useCallback(async () => {
     try {
@@ -106,6 +160,7 @@ export default function CardMemoPage() {
       setNote("");
       setAmount("");
       setPhotos([]);
+      setRead(null);
       if (fileRef.current) fileRef.current.value = "";
       setNotice(
         r.warning ? { kind: "error", text: r.warning } : { kind: "ok", text: "기록했습니다." },
@@ -166,8 +221,8 @@ export default function CardMemoPage() {
     <div className="mx-auto w-full max-w-lg px-4 py-5">
       <h1 className="text-xl font-bold tracking-tight text-zinc-900">법인카드 사용 기록</h1>
       <p className="mt-1 text-sm leading-relaxed text-zinc-500">
-        결제하고 바로 남겨 두세요. 나중에 카드 명세서를 올리면 뒷 4자리·금액·날짜로
-        <b className="text-zinc-700"> 자동으로 붙습니다.</b>
+        결제 화면을 캡처해서 올리면 <b className="text-zinc-700">칸이 알아서 채워집니다.</b>{" "}
+        확인만 하고 저장하세요. 나중에 카드 명세서를 올리면 뒷 4자리·금액·날짜로 자동으로 붙습니다.
       </p>
 
       {notice && (
@@ -192,13 +247,58 @@ export default function CardMemoPage() {
         </div>
       ) : (
         <Card className="mt-4 space-y-3 rounded-2xl">
+          {/* 사진이 먼저다 — 이걸 올리면 아래 칸이 채워진다 */}
+          <div>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => void onPickPhotos([...(e.target.files ?? [])].slice(0, 3))}
+            />
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={reading}
+              className="flex h-24 w-full flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-indigo-300 bg-indigo-50/50 text-indigo-700 transition active:bg-indigo-100 disabled:opacity-60"
+            >
+              {reading ? (
+                <>
+                  <span className="text-sm font-semibold">캡처를 읽는 중…</span>
+                  <span className="text-xs text-indigo-500">2~3초 걸립니다</span>
+                </>
+              ) : photos.length > 0 ? (
+                <>
+                  <span className="text-sm font-semibold">사진 {photos.length}장 · 다시 고르기</span>
+                  <span className="text-xs text-indigo-500">아래 칸을 확인하세요</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-2xl leading-none">📷</span>
+                  <span className="text-sm font-semibold">결제 화면 캡처 올리기</span>
+                  <span className="text-xs text-indigo-500">칸이 알아서 채워집니다 · 없어도 직접 입력 가능</span>
+                </>
+              )}
+            </button>
+
+            {read && read.confidence !== "high" && (
+              <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+                <b>또렷하게 읽지 못했습니다.</b> 금액과 가맹점을 꼭 확인해 주세요.
+                {read.uncertain && <span className="mt-0.5 block text-amber-700">{read.uncertain}</span>}
+              </p>
+            )}
+          </div>
+
           <label className="block">
-            <span className="text-xs font-medium text-zinc-500">사용일</span>
+            <span className="text-xs font-medium text-zinc-500">
+              사용일{filled(read?.date)}
+            </span>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={`mt-1 ${field}`} />
           </label>
 
           <label className="block">
-            <span className="text-xs font-medium text-zinc-500">카드</span>
+            <span className="text-xs font-medium text-zinc-500">카드{filled(read?.last4)}</span>
             <Select value={last4} onChange={(e) => setLast4(e.target.value)} className={`mt-1 ${field}`}>
               <option value="">카드를 고르세요</option>
               {cards.map((c) => (
@@ -210,7 +310,7 @@ export default function CardMemoPage() {
           </label>
 
           <label className="block">
-            <span className="text-xs font-medium text-zinc-500">금액</span>
+            <span className="text-xs font-medium text-zinc-500">금액{filled(read?.amount)}</span>
             <input
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
@@ -222,7 +322,7 @@ export default function CardMemoPage() {
           </label>
 
           <label className="block">
-            <span className="text-xs font-medium text-zinc-500">무엇에 썼나요</span>
+            <span className="text-xs font-medium text-zinc-500">무엇에 썼나요{filled(read?.items)}</span>
             <input
               value={note}
               onChange={(e) => setNote(e.target.value)}
@@ -233,7 +333,7 @@ export default function CardMemoPage() {
 
           <label className="block">
             <span className="text-xs font-medium text-zinc-500">
-              가맹점 <span className="font-normal text-zinc-400">(선택)</span>
+              가맹점 <span className="font-normal text-zinc-400">(선택)</span>{filled(read?.vendor)}
             </span>
             <input
               value={vendor}
@@ -242,23 +342,6 @@ export default function CardMemoPage() {
               className={`mt-1 ${field}`}
             />
           </label>
-
-          <div>
-            <span className="text-xs font-medium text-zinc-500">
-              사진 <span className="font-normal text-zinc-400">(선택 · 최대 5장)</span>
-            </span>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={(e) => setPhotos([...(e.target.files ?? [])].slice(0, 5))}
-              className="mt-1 block w-full text-sm text-zinc-500 file:mr-3 file:h-10 file:rounded-lg file:border-0 file:bg-zinc-100 file:px-3 file:text-sm file:font-medium file:text-zinc-700"
-            />
-            {photos.length > 0 && (
-              <p className="mt-1 text-xs text-zinc-500">{photos.length}장 선택됨</p>
-            )}
-          </div>
 
           <Button onClick={save} disabled={!canSave || saving} className="h-12 w-full rounded-xl text-base">
             {saving ? "저장 중…" : "기록하기"}

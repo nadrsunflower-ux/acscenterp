@@ -15,7 +15,7 @@
 import { getNeanderAuth } from "@/lib/neander/firebase";
 import type { FinTransaction, FinImportBatch, FinTransactionInput } from "./types";
 import type { CloseSnapshot, MonthCloseDoc } from "./close";
-import type { FinCardMemoView } from "./card-memo";
+import type { FinCardMemoView, ReceiptRead } from "./card-memo";
 import type {
   FinAccountDoc,
   FinAllocationDoc,
@@ -145,6 +145,51 @@ export async function addCardMemo(form: FormData): Promise<{ id: string; warning
   return (await res.json()) as { id: string; warning?: string };
 }
 
+/**
+ * 결제 캡처를 읽어 값을 돌려받는다. **저장하지 않는다** — 화면을 채워 줄 뿐이다.
+ * 큰 사진을 그대로 보내면 느리고 비싸므로 브라우저에서 미리 줄여 보낸다.
+ */
+export async function readCardReceipt(files: File[]): Promise<ReceiptRead> {
+  const user = getNeanderAuth().currentUser;
+  if (!user) throw new Error("로그인이 필요합니다.");
+  const form = new FormData();
+  for (const f of files) form.append("photos", await shrinkImage(f));
+  const res = await fetch(`${CARD_MEMO_URL}/read`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${await user.getIdToken()}` },
+    body: form,
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return (await res.json()) as ReceiptRead;
+}
+
+/**
+ * 긴 변을 1400px 로 줄이고 JPEG 로 다시 굽는다.
+ * 휴대폰 스크린샷은 3~5MB 인데, 글자를 읽는 데는 이 정도면 충분하다.
+ * 업로드 시간과 모델 비용이 같이 줄어든다. 실패하면 원본을 그대로 쓴다.
+ */
+async function shrinkImage(file: File, maxEdge = 1400): Promise<File> {
+  if (!file.type.startsWith("image/")) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+    if (scale === 1 && file.size < 1_500_000) return file;
+    const w = Math.round(bitmap.width * scale);
+    const h = Math.round(bitmap.height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/jpeg", 0.82));
+    if (!blob) return file;
+    return new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch {
+    return file;
+  }
+}
+
 export async function deleteCardMemo(id: string): Promise<void> {
   const res = await fetch(`${CARD_MEMO_URL}?id=${encodeURIComponent(id)}`, {
     method: "DELETE",
@@ -259,15 +304,44 @@ export interface ChatResult {
   };
   model: string;
   truncated: boolean;
+  /** 첨부가 있을 때만: 파일별로 몇 글자를 읽었는지 (잘렸는지) */
+  attachments?: { name: string; chars: number; truncated: boolean }[];
+  /**
+   * 첨부가 있을 때만: 첨부 텍스트까지 붙여 실제로 모델에 간 마지막 사용자
+   * 메시지. 다음 턴 히스토리에 이걸 실어야 대화 맥락에 첨부가 남는다.
+   */
+  sentUserContent?: string;
 }
 
 /**
  * 재무 비서와 대화한다. 대화 기록을 매번 통째로 보낸다 (서버는 상태를 갖지 않는다).
  * 응답의 proposals 는 **아직 저장되지 않은** 변경 제안이다.
  * model 은 ai-models.ts 허용 목록의 ID — 안 보내면 서버 기본값을 쓴다.
+ * files 를 주면 multipart 로 보내고, 서버가 텍스트를 추출해 마지막 메시지에 붙인다.
  */
-export const sendFinanceChat = (messages: ChatMessage[], model?: string) =>
-  mutateJson<ChatResult>("/api/neander/finance/ai/chat", { messages, model });
+export async function sendFinanceChat(
+  messages: ChatMessage[],
+  model?: string,
+  files?: File[],
+): Promise<ChatResult> {
+  if (!files || files.length === 0) {
+    return mutateJson<ChatResult>("/api/neander/finance/ai/chat", { messages, model });
+  }
+  const user = getNeanderAuth().currentUser;
+  if (!user) throw new Error("로그인이 필요합니다.");
+  const form = new FormData();
+  form.append("messages", JSON.stringify(messages));
+  if (model) form.append("model", model);
+  for (const f of files) form.append("files", f);
+  const res = await fetch("/api/neander/finance/ai/chat", {
+    method: "POST",
+    // Content-Type 은 브라우저가 boundary 와 함께 넣는다
+    headers: { Authorization: `Bearer ${await user.getIdToken()}` },
+    body: form,
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return (await res.json()) as ChatResult;
+}
 
 // ---- 암호 걸린 엑셀 --------------------------------------------
 
