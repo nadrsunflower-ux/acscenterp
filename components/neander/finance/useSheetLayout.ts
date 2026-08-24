@@ -40,6 +40,14 @@ const EMPTY: SheetLayout = { widths: {}, rowHeight: DEFAULT_ROW_HEIGHT };
 const clamp = (v: number, lo: number, hi: number) =>
   Math.round(Math.min(hi, Math.max(lo, v)));
 
+/**
+ * 손잡이가 끌리는 동안 화면에 띄우는 수치도 이 함수를 통과한다.
+ * 저장할 때만 자르면 한계에 닿았을 때 "300px" 이라고 떠 있는데 실제로는
+ * 720px 로 잘리는, 화면과 장부가 다른 상태가 된다.
+ */
+export const clampColWidth = (px: number) => clamp(px, MIN_COL_WIDTH, MAX_COL_WIDTH);
+export const clampRowHeight = (px: number) => clamp(px, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT);
+
 function read(): SheetLayout {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);

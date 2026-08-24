@@ -12,7 +12,9 @@
 //  실제 DOM 요소라 한글 IME·접근성·모바일이 공짜로 해결된다.
 // ============================================================
 
-import React, { memo, useCallback, useLayoutEffect, useRef } from "react";
+import React, { memo, useCallback, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { clampColWidth, clampRowHeight } from "./useSheetLayout";
 import {
   createAddRowsComponent,
   createContextMenuComponent,
@@ -198,14 +200,31 @@ export function createActionColumn<T>(data: ActionColumnData<T>) {
  * 남는 공간을 나눠 갖기 때문에 "지금 몇 px 인지"를 상태만 보고는 알 수
  * 없다. 화면에 그려진 값을 재야 잡은 자리에서 그대로 이어진다.
  *
+ * 끄는 동안 **표가 실시간으로 바뀌고**, 그 위에 두 가지를 더 띄운다:
+ *   · 표 전체를 가로지르는 안내선 — 경계가 어디에 놓이는지
+ *   · 커서를 따라다니는 수치 — 지금 몇 px 인지
+ * 표만 움직이면 손잡이를 놓칠 때가 있고, 무엇보다 값을 맞출 수가 없다.
+ * 이것들은 시트 밖(포털)에 그린다 — 머리글 칸은 overflow:hidden 이라
+ * 안에 그리면 잘린다.
+ *
  * 포인터 캡처를 쓰므로 커서가 시트 밖으로 나가도 드래그가 끊기지 않는다.
  * 갱신은 프레임당 한 번으로 묶는다 — 안 그러면 열 정의가 초당 수백 번
  * 새로 만들어져 표 전체가 다시 그려진다.
  */
+interface LiveDrag {
+  px: number;
+  x: number;
+  y: number;
+  /** 안내선을 그릴 표의 화면 좌표 */
+  box: { top: number; left: number; width: number; height: number };
+}
+
 export function ResizeGrip({
   axis,
   onResize,
   onReset,
+  clamp,
+  label,
   title,
   className,
 }: {
@@ -213,18 +232,24 @@ export function ResizeGrip({
   onResize: (next: number) => void;
   /** 더블클릭 시 기본값으로 (엑셀의 자동맞춤 자리) */
   onReset?: () => void;
+  /** 화면 수치와 실제 저장값을 같게 만든다 */
+  clamp: (px: number) => number;
+  /** 수치 앞에 붙는 말 — "너비" / "높이" */
+  label: string;
   title: string;
   className: string;
 }) {
   const frame = useRef<number | null>(null);
-  const pending = useRef<number | null>(null);
+  const pending = useRef<LiveDrag | null>(null);
+  const [live, setLive] = useState<LiveDrag | null>(null);
 
   const flush = useCallback(() => {
     frame.current = null;
-    if (pending.current !== null) {
-      onResize(pending.current);
-      pending.current = null;
-    }
+    const next = pending.current;
+    if (!next) return;
+    pending.current = null;
+    onResize(next.px);
+    setLive(next);
   }, [onResize]);
 
   const onPointerDown = useCallback(
@@ -237,15 +262,31 @@ export function ResizeGrip({
       const grip = e.currentTarget;
       const cell = grip.closest(".dsg-cell") as HTMLElement | null;
       if (!cell) return;
-      const box = cell.getBoundingClientRect();
+      const cellBox = cell.getBoundingClientRect();
+      const container = (grip.closest(".dsg-container") ??
+        grip.closest(".ledger-sheet")) as HTMLElement | null;
+      const cb = container?.getBoundingClientRect();
+      const box = {
+        top: cb?.top ?? cellBox.top,
+        left: cb?.left ?? cellBox.left,
+        width: cb?.width ?? cellBox.width,
+        height: cb?.height ?? cellBox.height,
+      };
+
       const from = axis === "x" ? e.clientX : e.clientY;
-      const start = axis === "x" ? box.width : box.height;
+      const start = axis === "x" ? cellBox.width : cellBox.height;
 
       grip.setPointerCapture(e.pointerId);
       document.body.classList.add(axis === "x" ? "dsg-resizing-col" : "dsg-resizing-row");
+      setLive({ px: clamp(start), x: e.clientX, y: e.clientY, box });
 
       const move = (ev: PointerEvent) => {
-        pending.current = start + ((axis === "x" ? ev.clientX : ev.clientY) - from);
+        pending.current = {
+          px: clamp(start + ((axis === "x" ? ev.clientX : ev.clientY) - from)),
+          x: ev.clientX,
+          y: ev.clientY,
+          box,
+        };
         if (frame.current === null) frame.current = requestAnimationFrame(flush);
       };
       const up = () => {
@@ -259,34 +300,61 @@ export function ResizeGrip({
           frame.current = null;
         }
         flush();
+        setLive(null);
       };
       grip.addEventListener("pointermove", move);
       grip.addEventListener("pointerup", up);
       grip.addEventListener("pointercancel", up);
     },
-    [axis, flush],
+    [axis, clamp, flush],
   );
 
   return (
-    <div
-      className={className}
-      role="separator"
-      aria-orientation={axis === "x" ? "vertical" : "horizontal"}
-      title={title}
-      onPointerDown={onPointerDown}
-      onDoubleClick={
-        onReset
-          ? (e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onReset();
-            }
-          : undefined
-      }
-      // 머리글 정렬 버튼이나 행 선택이 같이 반응하지 않게
-      onMouseDown={(e) => e.stopPropagation()}
-      onClick={(e) => e.stopPropagation()}
-    />
+    <>
+      <div
+        className={live ? `${className} dsg-grip-on` : className}
+        role="separator"
+        aria-orientation={axis === "x" ? "vertical" : "horizontal"}
+        title={title}
+        onPointerDown={onPointerDown}
+        onDoubleClick={
+          onReset
+            ? (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onReset();
+              }
+            : undefined
+        }
+        // 머리글 정렬 버튼이나 행 선택이 같이 반응하지 않게
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+      />
+      {live &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <>
+            <div
+              className={axis === "x" ? "dsg-guide-v" : "dsg-guide-h"}
+              style={
+                axis === "x"
+                  ? { left: live.x, top: live.box.top, height: live.box.height }
+                  : { top: live.y, left: live.box.left, width: live.box.width }
+              }
+              aria-hidden
+            />
+            <div
+              className="dsg-size-badge"
+              style={{ left: live.x, top: live.y }}
+              role="status"
+              aria-live="polite"
+            >
+              {label} {live.px}px
+            </div>
+          </>,
+          document.body,
+        )}
+    </>
   );
 }
 
@@ -313,6 +381,8 @@ const GutterCell = <T,>({ rowIndex, columnData }: CellProps<T, GutterData>) => (
       axis="y"
       className="dsg-row-grip"
       title="끌어서 행 높이 조절 · 더블클릭 기본값"
+      clamp={clampRowHeight}
+      label="높이"
       onResize={columnData.onResizeRow}
       onReset={columnData.onResetRow}
     />
@@ -423,6 +493,8 @@ export function ColumnHead({
         axis="x"
         className="dsg-col-grip"
         title={`끌어서 ${label} 너비 조절 · 더블클릭 기본값`}
+        clamp={clampColWidth}
+        label="너비"
         onResize={onResize}
         onReset={onResetWidth}
       />

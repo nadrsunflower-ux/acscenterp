@@ -140,7 +140,8 @@
   background: transparent;
   transition: background-color 120ms;
 }
-.ledger-sheet .dsg-col-grip:hover::after {
+.ledger-sheet .dsg-col-grip:hover::after,
+.ledger-sheet .dsg-col-grip.dsg-grip-on::after {
   background: #6366f1; /* indigo-500 */
 }
 
@@ -176,7 +177,8 @@
   background: transparent;
   transition: background-color 120ms;
 }
-.ledger-sheet .dsg-row-grip:hover::after {
+.ledger-sheet .dsg-row-grip:hover::after,
+.ledger-sheet .dsg-row-grip.dsg-grip-on::after {
   background: #6366f1;
 }
 
@@ -191,6 +193,42 @@ body.dsg-resizing-row,
 body.dsg-resizing-row * {
   cursor: row-resize !important;
   user-select: none !important;
+}
+
+/* 끄는 동안 뜨는 안내선과 수치.
+   시트 밖(body)에 그린다 — 머리글 칸이 overflow:hidden 이라 안에 그리면
+   잘린다. pointer-events 는 꺼 둔다: 커서 밑에 깔려서 드래그를 가로채면
+   안 된다. */
+.dsg-guide-v,
+.dsg-guide-h {
+  position: fixed;
+  z-index: 60;
+  background: #6366f1; /* indigo-500 */
+  pointer-events: none;
+}
+.dsg-guide-v {
+  width: 2px;
+  margin-left: -1px;
+}
+.dsg-guide-h {
+  height: 2px;
+  margin-top: -1px;
+}
+
+.dsg-size-badge {
+  position: fixed;
+  z-index: 61;
+  transform: translate(12px, 12px);
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: #4f46e5; /* indigo-600 */
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.25);
+  pointer-events: none;
 }
 
 /* 왼쪽 위 모서리 = 크기 초기화 */
