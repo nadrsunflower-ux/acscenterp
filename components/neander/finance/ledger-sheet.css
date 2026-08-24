@@ -1,0 +1,209 @@
+/* ============================================================
+   원장 시트 — react-datasheet-grid 기본 스타일 위에 얹는 조정
+   ------------------------------------------------------------
+   기본 CSS 는 LedgerSheet.tsx 에서 함께 import 한다. 여기서는
+   글꼴·크기를 ERP 표 톤(text-sm, zinc)에 맞추고, 초안 상태
+   (수정됨·새 행·오류)를 셀 배경으로 드러낸다. 색만으로 구분하지
+   않도록 행 번호 옆에 점을 같이 찍는다.
+   ============================================================ */
+
+.ledger-sheet {
+  --dsg-border-color: #e4e4e7; /* zinc-200 */
+  --dsg-selection-border-color: #4f46e5; /* indigo-600 */
+  --dsg-selection-background-color: rgba(79, 70, 229, 0.06);
+  --dsg-header-text-color: #71717a; /* zinc-500 */
+  --dsg-header-active-text-color: #18181b;
+  --dsg-cell-disabled-background-color: #fafafa;
+  font-size: 13px;
+  color: #18181b;
+}
+
+.ledger-sheet .dsg-container {
+  border-radius: 0;
+}
+
+.ledger-sheet .dsg-cell-header-container {
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* 정렬 버튼이 머리글 칸을 꽉 채우도록 패딩은 버튼이 갖는다 */
+  padding: 0;
+  width: 100%;
+}
+
+/* ---- 머리글: 이름(정렬) + 메뉴 버튼(필터) ---- */
+.ledger-sheet .dsg-head {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.ledger-sheet .dsg-head-label {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 3px;
+  height: 100%;
+  padding: 0 2px 0 8px;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ledger-sheet .dsg-head-label:hover {
+  color: #4338ca;
+}
+.ledger-sheet .dsg-head-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ledger-sheet .dsg-head-arrow {
+  flex: none;
+  font-size: 8px;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.ledger-sheet .dsg-head-label:hover .dsg-head-arrow {
+  opacity: 0.45;
+}
+.ledger-sheet .dsg-head-arrow-on,
+.ledger-sheet .dsg-head-label:hover .dsg-head-arrow-on {
+  opacity: 1;
+  color: #4338ca;
+}
+.ledger-sheet .dsg-head-menu {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.1s;
+}
+/* 머리글 칸 어디에 마우스를 올려도 메뉴 버튼이 나타나게 */
+.ledger-sheet .dsg-cell-header:hover .dsg-head-menu {
+  opacity: 0.55;
+}
+.ledger-sheet .dsg-head-menu:hover {
+  opacity: 1;
+  background: #eef2ff;
+  color: #4338ca;
+}
+/* 필터가 걸린 열은 항상 보이게 + 강조 */
+.ledger-sheet .dsg-head-menu-on,
+.ledger-sheet .dsg-cell-header:hover .dsg-head-menu-on {
+  opacity: 1;
+  color: #4338ca;
+}
+
+.ledger-sheet .dsg-cell-gutter {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger-sheet .dsg-input {
+  font-size: 13px;
+  font-family: inherit;
+  color: inherit;
+  padding: 0 8px;
+}
+
+.ledger-sheet .dsg-select {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: inherit;
+  text-overflow: ellipsis;
+}
+
+.ledger-sheet .dsg-derived {
+  flex: 1;
+  padding: 0 8px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.ledger-sheet .dsg-derived-right {
+  text-align: right;
+}
+
+.ledger-sheet .dsg-action-btn {
+  margin: auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 0;
+  background: transparent;
+  color: #71717a;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.ledger-sheet .dsg-action-btn:hover {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+/* ---- 초안 상태 ---- */
+.ledger-sheet .ledger-row-dirty {
+  --dsg-cell-background-color: #fffbeb; /* amber-50 */
+}
+.ledger-sheet .ledger-row-new {
+  --dsg-cell-background-color: #f0fdf4; /* green-50 */
+}
+.ledger-sheet .ledger-row-dirty .dsg-cell-gutter::before,
+.ledger-sheet .ledger-row-new .dsg-cell-gutter::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: #f59e0b;
+}
+.ledger-sheet .ledger-row-new .dsg-cell-gutter::before {
+  background: #16a34a;
+}
+.ledger-sheet .ledger-cell-invalid {
+  --dsg-cell-background-color: #fff1f2; /* rose-50 */
+  box-shadow:
+    inset 0 0 0 1px #fda4af,
+    1px 1px var(--dsg-border-color);
+}
+
+/* ---- 하단 행 추가 바 / 컨텍스트 메뉴 ---- */
+.ledger-sheet .dsg-add-row {
+  background: #fafafa;
+  font-size: 13px;
+}
+.ledger-sheet .dsg-add-row-btn,
+.ledger-sheet .dsg-add-row-input {
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-family: inherit;
+  font-size: 13px;
+}
+.dsg-context-menu {
+  font-size: 13px;
+  border: 1px solid #e4e4e7;
+}
+.dsg-context-menu-item {
+  padding: 6px 16px;
+  cursor: pointer;
+}
+.dsg-context-menu-item:hover {
+  background: #eef2ff;
+}

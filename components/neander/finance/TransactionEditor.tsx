@@ -31,6 +31,7 @@ export function TransactionEditor({
   paymentMethods,
   knownBizMinors,
   isNew = false,
+  saveLabel,
   onSave,
   onDelete,
   onClose,
@@ -38,6 +39,8 @@ export function TransactionEditor({
   tx: FinTransaction;
   /** 새 거래 입력 모드 — 삭제를 숨기고 문구를 바꾼다 */
   isNew?: boolean;
+  /** 저장 버튼 문구 덮어쓰기 (시트 초안에 적용만 할 때 "적용" 등) */
+  saveLabel?: string;
   accounts: FinAccountDoc[];
   paymentMethods: FinPaymentMethodDoc[];
   knownBizMinors: string[];
@@ -312,7 +315,7 @@ export function TransactionEditor({
               취소
             </Button>
             <Button onClick={() => save("confirmed")} disabled={saving || !form.date}>
-              {saving ? "저장 중…" : isNew ? "추가" : "확정 저장"}
+              {saving ? "저장 중…" : saveLabel ?? (isNew ? "추가" : "확정 저장")}
             </Button>
           </div>
         </div>
