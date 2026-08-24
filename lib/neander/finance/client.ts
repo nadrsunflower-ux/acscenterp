@@ -15,6 +15,7 @@
 import { getNeanderAuth } from "@/lib/neander/firebase";
 import type { FinTransaction, FinImportBatch, FinTransactionInput } from "./types";
 import type { CloseSnapshot, MonthCloseDoc } from "./close";
+import type { FinCardMemoView } from "./card-memo";
 import type {
   FinAccountDoc,
   FinAllocationDoc,
@@ -117,6 +118,44 @@ export async function bulkAddFinTransactions(
     onProgress?.(Math.min(i + CHUNK, rows.length), rows.length);
   }
 }
+
+// ---- 법인카드 사용 메모 ------------------------------------------
+
+const CARD_MEMO_URL = "/api/neander/finance/card-memo";
+
+export async function fetchCardMemos(): Promise<FinCardMemoView[]> {
+  const res = await fetch(CARD_MEMO_URL, { headers: await authHeaders(), cache: "no-store" });
+  if (!res.ok) throw new Error(await readError(res));
+  return ((await res.json()) as { memos: FinCardMemoView[] }).memos;
+}
+
+/**
+ * 사진이 붙으므로 multipart 다.
+ * Content-Type 을 직접 넣지 않는다 — 브라우저가 boundary 를 붙여야 한다.
+ */
+export async function addCardMemo(form: FormData): Promise<{ id: string; warning?: string }> {
+  const user = getNeanderAuth().currentUser;
+  if (!user) throw new Error("로그인이 필요합니다.");
+  const res = await fetch(CARD_MEMO_URL, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${await user.getIdToken()}` },
+    body: form,
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return (await res.json()) as { id: string; warning?: string };
+}
+
+export async function deleteCardMemo(id: string): Promise<void> {
+  const res = await fetch(`${CARD_MEMO_URL}?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await readError(res));
+}
+
+/** 메모 ↔ 카드 명세서 대조. 확실한 짝만 붙는다. */
+export const matchCardMemos = () =>
+  mutate<{ matched: number; ambiguous: number; unmatched: number }>("cardMemo.match");
 
 // ---- 월 마감 --------------------------------------------------
 

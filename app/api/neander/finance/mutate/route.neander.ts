@@ -3,6 +3,8 @@ import { adminDb } from "@/lib/neander/finance/server/admin";
 import { requireFinanceUser, accessErrorResponse } from "@/lib/neander/finance/server/auth";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import { seedFinanceMasterData } from "@/lib/neander/finance/server/seed";
+import { matchMemos, patchFromMemo, type FinCardMemo } from "@/lib/neander/finance/card-memo";
+import type { FinTransaction } from "@/lib/neander/finance/types";
 
 // 재무 쓰기 전체. 액션 하나로 모아둔 이유는 인증 게이트를 한 곳에서만
 // 통과시키기 위해서다 — 라우트가 흩어지면 한 군데 빠뜨리기 쉽다.
@@ -275,6 +277,53 @@ export async function POST(req: Request) {
             { merge: false },
           );
         return NextResponse.json({ ok: true, saved: Object.keys(kept).length });
+      }
+
+      // ---- 법인카드 사용 메모 대조 ---------------------------------
+      case "cardMemo.match": {
+        // 서버에서 짝을 짓고 **확실한 것만** 거래에 싣는다. 클라이언트가
+        // 짝을 계산해 보내면, 그 사이 다른 사람이 올린 명세서 때문에
+        // 이미 남이 가져간 거래에 덮어쓸 수 있다.
+        const memoSnap = await db.collection(NEANDER_COL.finCardMemos).get();
+        const memos = memoSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as FinCardMemo[];
+        const txSnap = await db.collection(NEANDER_COL.finTransactions).get();
+        const txs = txSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as FinTransaction[];
+
+        const result = matchMemos(memos, txs);
+        const ops: ((b: FirebaseFirestore.WriteBatch) => void)[] = [];
+        result.matched.forEach(({ memo, tx }) => {
+          ops.push((b) =>
+            b.set(
+              db.collection(NEANDER_COL.finTransactions).doc(tx.id),
+              {
+                ...patchFromMemo(memo, tx),
+                cardMemoId: memo.id,
+                updatedAt: now,
+                updatedBy: user.email,
+                classReason: `법인카드 메모 대조 — ${memo.date} ${memo.note}`,
+              },
+              { merge: true },
+            ),
+          );
+          ops.push((b) =>
+            b.set(
+              db.collection(NEANDER_COL.finCardMemos).doc(memo.id),
+              { matchedTxId: tx.id, matchedAt: now },
+              { merge: true },
+            ),
+          );
+        });
+        for (let i = 0; i < ops.length; i += BATCH_LIMIT) {
+          const batch = db.batch();
+          ops.slice(i, i + BATCH_LIMIT).forEach((op) => op(batch));
+          await batch.commit();
+        }
+        return NextResponse.json({
+          ok: true,
+          matched: result.matched.length,
+          ambiguous: result.ambiguous.length,
+          unmatched: result.unmatched.length,
+        });
       }
 
       // ---- 월 마감 ----------------------------------------------

@@ -48,4 +48,6 @@ export const NEANDER_COL = {
   finImports: "neander_fin_imports",
   /** 월 마감 (문서 1개 = 한 달, 마감 시점 숫자 스냅샷) */
   finCloses: "neander_fin_closes",
+  /** 법인카드 사용 메모 — 현장에서 남기고, 나중에 카드 명세서와 대조한다 */
+  finCardMemos: "neander_fin_card_memos",
 } as const;

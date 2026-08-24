@@ -26,7 +26,8 @@
     "finance:fix-accounts": "tsx scripts/neander/fix-legacy-accounts.ts",
     "finance:backfill-biz-learned": "tsx scripts/neander/backfill-biz-learned.ts",
     "finance:backfill-biz-decisions": "tsx scripts/neander/backfill-biz-decisions.ts",
-    "finance:queue-ambiguous": "tsx scripts/neander/queue-ambiguous.ts"
+    "finance:queue-ambiguous": "tsx scripts/neander/queue-ambiguous.ts",
+    "finance:verify-card-memo": "tsx scripts/neander/verify-card-memo.ts"
   },
   "dependencies": {
     "firebase": "10.14.1",

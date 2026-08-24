@@ -61,7 +61,7 @@ function loadServiceAccount(): ServiceAccountJson {
  * 충돌할 수 있고, 개발 중 핫리로드로 initializeApp 이 두 번 불려
  * "app already exists" 로 죽는 일이 흔하다.
  */
-function adminApp(): App {
+export function adminApp(): App {
   const existing = getApps().find((a) => a.name === APP_NAME);
   if (existing) return getApp(APP_NAME);
   const sa = loadServiceAccount();

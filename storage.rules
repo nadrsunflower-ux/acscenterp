@@ -26,10 +26,21 @@ service firebase.storage {
         && request.resource.size < 25 * 1024 * 1024;
     }
 
+    // 재무 첨부(법인카드 영수증): **아무도 직접 접근하지 못한다.**
+    // 업로드도 열람도 서버(Admin SDK)만 한다 — 브라우저에는 만료되는
+    // 서명 URL 만 준다(lib/neander/finance/server/storage.ts). Admin SDK 는
+    // 규칙을 우회하므로 이 블록이 게시되지 않아도 앱은 그대로 동작하고,
+    // 게시되면 catch-all 의 공개 허용에서 빠져나와 완전히 닫힌다.
+    match /neander_fin/{allPaths=**} {
+      allow read, write: if false;
+    }
+
     // 그 외 경로(매장 상품/프로모션 이미지 등): 기존 공개 동작 보존.
-    // 단 neander_chat / neander_dev 폴더는 위 규칙에서만 처리(여기서 재허용하지 않음).
+    // 단 neander_chat / neander_dev / neander_fin 폴더는 위 규칙에서만 처리.
     match /{folder}/{allPaths=**} {
-      allow read, write: if folder != 'neander_chat' && folder != 'neander_dev';
+      allow read, write: if folder != 'neander_chat'
+        && folder != 'neander_dev'
+        && folder != 'neander_fin';
     }
   }
 }
