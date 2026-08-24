@@ -3,6 +3,14 @@ import { adminDb } from "@/lib/neander/finance/server/admin";
 import { requireFinanceUser, accessErrorResponse } from "@/lib/neander/finance/server/auth";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import { runFinanceChat, type ChatMessage } from "@/lib/neander/finance/server/ai-chat";
+import {
+  extractAttachmentText,
+  type ExtractedAttachment,
+} from "@/lib/neander/finance/server/attachments";
+import {
+  MAX_ATTACH_FILES,
+  MAX_ATTACH_TOTAL_BYTES,
+} from "@/lib/neander/finance/attachment-limits";
 import type { FinAccountDoc, FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
 import type { FinTransaction } from "@/lib/neander/finance/types";
 
@@ -15,6 +23,7 @@ import type { FinTransaction } from "@/lib/neander/finance/types";
 //  ⚠️ 이 라우트는 **장부를 쓰지 않는다.** 모델의 변경 요청은 제안으로만
 //     돌아가고, 저장은 사용자가 승인했을 때 기존 경로(transaction.applyEdits)
 //     로 나간다.
+
 // ============================================================
 
 export const dynamic = "force-dynamic";
@@ -34,8 +43,26 @@ export async function POST(req: Request) {
   }
 
   try {
-    const body = (await req.json()) as { messages?: ChatMessage[]; model?: string };
-    const messages = Array.isArray(body.messages) ? body.messages : [];
+    // 첨부가 있으면 multipart, 없으면 JSON — 둘 다 받는다
+    let rawMessages: unknown;
+    let model: string | undefined;
+    const files: File[] = [];
+    if ((req.headers.get("content-type") ?? "").includes("multipart/form-data")) {
+      const form = await req.formData();
+      try {
+        rawMessages = JSON.parse(String(form.get("messages") ?? "[]"));
+      } catch {
+        rawMessages = [];
+      }
+      const m = form.get("model");
+      if (typeof m === "string" && m) model = m;
+      for (const f of form.getAll("files")) if (f instanceof File) files.push(f);
+    } else {
+      const body = (await req.json()) as { messages?: ChatMessage[]; model?: string };
+      rawMessages = body.messages;
+      model = body.model;
+    }
+    const messages = Array.isArray(rawMessages) ? (rawMessages as ChatMessage[]) : [];
     if (messages.length === 0) {
       return NextResponse.json({ error: "messages 가 필요합니다." }, { status: 400 });
     }
@@ -44,6 +71,29 @@ export async function POST(req: Request) {
     );
     if (trimmed.length === 0 || trimmed[trimmed.length - 1].role !== "user") {
       return NextResponse.json({ error: "마지막 메시지는 사용자 발화여야 합니다." }, { status: 400 });
+    }
+
+    // 첨부 한도는 서버에서도 강제한다 — 클라이언트 검사는 우회할 수 있다
+    if (files.length > MAX_ATTACH_FILES) {
+      return NextResponse.json(
+        { error: `첨부는 한 번에 ${MAX_ATTACH_FILES}개까지입니다.` },
+        { status: 400 },
+      );
+    }
+    if (files.reduce((s, f) => s + f.size, 0) > MAX_ATTACH_TOTAL_BYTES) {
+      return NextResponse.json(
+        { error: "첨부 파일이 너무 큽니다 (합계 4MB 이하). 필요한 부분만 잘라 올려주세요." },
+        { status: 400 },
+      );
+    }
+    let attachments: ExtractedAttachment[] = [];
+    try {
+      attachments = await Promise.all(files.map(extractAttachmentText));
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : "첨부 파일을 읽지 못했습니다." },
+        { status: 400 },
+      );
     }
 
     const db = adminDb();
@@ -65,7 +115,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const result = await runFinanceChat({ messages: trimmed, ctx, model: body.model });
+    const result = await runFinanceChat({ messages: trimmed, ctx, model, attachments });
     return NextResponse.json(result);
   } catch (e) {
     console.error("[finance/ai/chat]", e);

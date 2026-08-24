@@ -27,13 +27,34 @@ import {
   FIN_AI_MODELS,
   isFinAiModelId,
 } from "@/lib/neander/finance/ai-models";
+import { openChatReportPdf } from "@/lib/neander/finance/chat-pdf";
+import {
+  ATTACH_ACCEPT,
+  ATTACH_EXTS,
+  MAX_ATTACH_FILES,
+  MAX_ATTACH_TOTAL_BYTES,
+  fileExt,
+} from "@/lib/neander/finance/attachment-limits";
 
 /** 고른 모델은 이 브라우저에만 기억된다 */
 const MODEL_STORAGE_KEY = "neander.finance.chatModel";
+/** 패널 배치(도킹/팝업 · 크기 · 위치)도 기기별 취향이라 localStorage */
+const LAYOUT_STORAGE_KEY = "neander.finance.chatLayout";
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** 도킹 패널 너비 한계 — 본문이 아예 안 보일 만큼은 못 넓힌다 */
+const dockWidthBounds = () => [320, Math.max(320, Math.min(800, window.innerWidth - 160))] as const;
 
 interface Turn {
   role: "user" | "assistant";
   content: string;
+  /** 첨부 텍스트까지 붙여 실제로 모델에 간 내용 — 다음 턴 히스토리는 이걸 쓴다 */
+  wireContent?: string;
+  /** 사용자 턴: 첨부한 파일 이름 (말풍선 위 칩) */
+  attachmentNames?: string[];
+  /** 비서 턴: 서버가 첨부에서 몇 글자를 읽었는지 */
+  readAttachments?: ChatResult["attachments"];
   toolCalls?: ChatResult["toolCalls"];
   proposals?: ChangeProposal[];
   usage?: ChatResult["usage"];
@@ -56,8 +77,47 @@ export function FinanceChat() {
   const [error, setError] = useState<string | null>(null);
   const [applied, setApplied] = useState<Set<string>>(new Set());
   const [model, setModel] = useState(DEFAULT_FIN_AI_MODEL);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  // 배치: 도킹(본문을 밀어냄) ↔ 팝업(자유 이동·크기조절)
+  const [panelMode, setPanelMode] = useState<"docked" | "floating">("docked");
+  const [dockWidth, setDockWidth] = useState(448);
+  const [floatBox, setFloatBox] = useState({ x: 80, y: 72, w: 420, h: 620 });
+  const layoutLoaded = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const modelMenuRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  /** dragenter/leave 는 자식 요소마다 발화한다 — 깊이를 세서 겹침을 무시 */
+  const dragDepth = useRef(0);
+
+  /** 형식·개수·용량을 미리 거른다 (서버도 다시 검사한다) */
+  const addFiles = (list: FileList | File[] | null) => {
+    if (!list || busy) return;
+    const incoming = Array.from(list);
+    const next = [...pendingFiles];
+    const problems: string[] = [];
+    for (const f of incoming) {
+      if (!ATTACH_EXTS.includes(fileExt(f.name))) {
+        problems.push(`${f.name}: 지원하지 않는 형식 (PDF·docx·엑셀·hwpx·txt 만)`);
+        continue;
+      }
+      if (next.some((p) => p.name === f.name && p.size === f.size)) continue; // 같은 파일 중복
+      next.push(f);
+    }
+    if (next.length > MAX_ATTACH_FILES) {
+      problems.push(`첨부는 한 번에 ${MAX_ATTACH_FILES}개까지입니다.`);
+      next.length = MAX_ATTACH_FILES;
+    }
+    if (next.reduce((s, f) => s + f.size, 0) > MAX_ATTACH_TOTAL_BYTES) {
+      problems.push("첨부 합계가 4MB 를 넘습니다. 필요한 부분만 잘라 올려주세요.");
+      setError(problems.join(" · "));
+      return;
+    }
+    setError(problems.length > 0 ? problems.join(" · ") : null);
+    setPendingFiles(next);
+  };
 
   useEffect(() => {
     try {
@@ -77,6 +137,116 @@ export function FinanceChat() {
     }
   };
 
+  // 저장된 배치 불러오기 — 뷰포트 밖으로 나간 값은 안으로 끌어온다
+  useEffect(() => {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let saved: Partial<{
+      mode: string;
+      dockWidth: number;
+      float: { x: number; y: number; w: number; h: number };
+    }> | null = null;
+    try {
+      saved = JSON.parse(localStorage.getItem(LAYOUT_STORAGE_KEY) ?? "null");
+    } catch {
+      /* 파싱 실패 — 기본 배치로 간다 */
+    }
+    if (saved?.mode === "floating" || saved?.mode === "docked") setPanelMode(saved.mode);
+    const [minW, maxW] = dockWidthBounds();
+    setDockWidth(clamp(typeof saved?.dockWidth === "number" ? saved.dockWidth : 448, minW, maxW));
+    const f = saved?.float;
+    setFloatBox({
+      w: clamp(typeof f?.w === "number" ? f.w : 420, 340, vw),
+      h: clamp(typeof f?.h === "number" ? f.h : 620, 380, vh),
+      x: clamp(typeof f?.x === "number" ? f.x : vw - 452, 0, Math.max(0, vw - 240)),
+      y: clamp(typeof f?.y === "number" ? f.y : 72, 0, Math.max(0, vh - 160)),
+    });
+    layoutLoaded.current = true;
+  }, []);
+
+  // 배치가 바뀌면 저장 (불러오기 전에는 기본값으로 덮어쓰지 않게 막는다)
+  useEffect(() => {
+    if (!layoutLoaded.current) return;
+    try {
+      localStorage.setItem(
+        LAYOUT_STORAGE_KEY,
+        JSON.stringify({ mode: panelMode, dockWidth, float: floatBox }),
+      );
+    } catch {
+      /* noop */
+    }
+  }, [panelMode, dockWidth, floatBox]);
+
+  /** 포인터 드래그 한 사이클 — 이동 중 본문 글자가 끌려 선택되지 않게 막는다 */
+  const trackPointer = (onMove: (ev: PointerEvent) => void) => {
+    document.body.style.userSelect = "none";
+    const onUp = () => {
+      document.body.style.userSelect = "";
+      window.removeEventListener("pointermove", onMove);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp, { once: true });
+  };
+
+  /** 도킹 모드: 왼쪽 경계 드래그로 너비 조절 */
+  const startDockResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    trackPointer((ev) => {
+      const [minW, maxW] = dockWidthBounds();
+      setDockWidth(clamp(window.innerWidth - ev.clientX, minW, maxW));
+    });
+  };
+
+  /** 팝업 모드: 헤더를 잡고 창 이동 */
+  const startFloatDrag = (e: React.PointerEvent) => {
+    // 헤더 안의 버튼 클릭은 드래그가 아니다
+    if ((e.target as HTMLElement).closest("button")) return;
+    e.preventDefault();
+    const sx = e.clientX;
+    const sy = e.clientY;
+    const { x, y } = floatBox;
+    trackPointer((ev) => {
+      setFloatBox((f) => ({
+        ...f,
+        // 헤더가 화면 밖으로 완전히 나가 못 잡게 되는 일은 막는다
+        x: clamp(x + ev.clientX - sx, 120 - f.w, window.innerWidth - 120),
+        y: clamp(y + ev.clientY - sy, 0, window.innerHeight - 56),
+      }));
+    });
+  };
+
+  /** 팝업 모드: 오른쪽 아래 모서리로 크기 조절 */
+  const startFloatResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const sx = e.clientX;
+    const sy = e.clientY;
+    const { w, h } = floatBox;
+    trackPointer((ev) => {
+      setFloatBox((f) => ({
+        ...f,
+        w: clamp(w + ev.clientX - sx, 340, window.innerWidth),
+        h: clamp(h + ev.clientY - sy, 380, window.innerHeight),
+      }));
+    });
+  };
+
+  // 메뉴 밖 클릭·Esc 로 닫기
+  useEffect(() => {
+    if (!modelMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!modelMenuRef.current?.contains(e.target as Node)) setModelMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setModelMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [modelMenuOpen]);
+
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [turns, open, busy]);
@@ -87,17 +257,35 @@ export function FinanceChat() {
 
   const send = async (text: string) => {
     const q = text.trim();
-    if (!q || busy) return;
+    const files = pendingFiles;
+    if ((!q && files.length === 0) || busy) return;
     setError(null);
     setInput("");
-    const next: Turn[] = [...turns, { role: "user", content: q }];
+    setPendingFiles([]);
+    const next: Turn[] = [
+      ...turns,
+      {
+        role: "user",
+        // 파일만 던지고 질문을 안 쓴 경우의 기본 요청
+        content: q || "첨부한 파일을 확인해줘.",
+        attachmentNames: files.length > 0 ? files.map((f) => f.name) : undefined,
+      },
+    ];
     setTurns(next);
     setBusy(true);
     try {
-      const history: ChatMessage[] = next.map((t) => ({ role: t.role, content: t.content }));
-      const res = await sendFinanceChat(history, model);
+      // 이전 턴에 첨부가 있었다면 wireContent(첨부 텍스트 포함)를 실어 보낸다
+      const history: ChatMessage[] = next.map((t) => ({
+        role: t.role,
+        content: t.wireContent ?? t.content,
+      }));
+      const res = await sendFinanceChat(history, model, files);
+      // 서버가 첨부를 붙여 보낸 실제 내용을 히스토리에 남긴다 — 다음 턴에도 맥락 유지
+      const settled = res.sentUserContent
+        ? next.map((t, k) => (k === next.length - 1 ? { ...t, wireContent: res.sentUserContent } : t))
+        : next;
       setTurns([
-        ...next,
+        ...settled,
         {
           role: "assistant",
           content: res.reply,
@@ -105,12 +293,14 @@ export function FinanceChat() {
           proposals: res.proposals,
           usage: res.usage,
           model: res.model,
+          readAttachments: res.attachments,
         },
       ]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "요청에 실패했습니다.");
-      // 실패한 질문은 입력창에 되돌려 준다 — 다시 타이핑하게 만들면 안 된다
+      // 실패한 질문·첨부는 입력창에 되돌려 준다 — 다시 만들게 하면 안 된다
       setInput(q);
+      setPendingFiles(files);
       setTurns(turns);
     } finally {
       setBusy(false);
@@ -153,10 +343,71 @@ export function FinanceChat() {
         </button>
       )}
 
+      {/* 도킹 모드: 본문을 밀어낼 자리 — 실제 패널은 fixed 로 화면 오른쪽 끝에
+          겹쳐 그린다 (메인 영역 패딩과 무관하게 가장자리에 붙이기 위해) */}
+      {open && panelMode === "docked" && (
+        <div aria-hidden className="shrink-0" style={{ width: dockWidth }} />
+      )}
+
       {/* 패널 */}
       {open && (
-        <div className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-zinc-200 bg-white shadow-2xl">
-          <header className="flex shrink-0 items-center justify-between border-b border-zinc-200 px-4 py-3">
+        <div
+          className={
+            panelMode === "docked"
+              ? "fixed inset-y-0 right-0 z-40 flex flex-col border-l border-zinc-200 bg-white shadow-xl"
+              : "fixed z-40 flex flex-col overflow-hidden rounded-xl border border-zinc-300 bg-white shadow-2xl"
+          }
+          style={
+            panelMode === "docked"
+              ? { width: dockWidth, maxWidth: "100vw" }
+              : { left: floatBox.x, top: floatBox.y, width: floatBox.w, height: floatBox.h }
+          }
+          onDragEnter={(e) => {
+            if (!e.dataTransfer.types.includes("Files")) return;
+            e.preventDefault();
+            dragDepth.current += 1;
+            setDragOver(true);
+          }}
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+          }}
+          onDragLeave={(e) => {
+            if (!e.dataTransfer.types.includes("Files")) return;
+            e.preventDefault();
+            dragDepth.current = Math.max(0, dragDepth.current - 1);
+            if (dragDepth.current === 0) setDragOver(false);
+          }}
+          onDrop={(e) => {
+            if (!e.dataTransfer.types.includes("Files")) return;
+            e.preventDefault();
+            dragDepth.current = 0;
+            setDragOver(false);
+            addFiles(e.dataTransfer.files);
+          }}
+        >
+          {/* 도킹: 왼쪽 경계를 드래그해 너비 조절 */}
+          {panelMode === "docked" && (
+            <div
+              onPointerDown={startDockResize}
+              title="드래그해서 너비 조절"
+              className="absolute inset-y-0 left-0 z-20 w-1.5 cursor-col-resize touch-none transition-colors hover:bg-indigo-300 active:bg-indigo-400"
+            />
+          )}
+
+          {/* 드래그 중 안내 오버레이 */}
+          {dragOver && (
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center border-2 border-dashed border-indigo-400 bg-indigo-50/85">
+              <p className="text-sm font-medium text-indigo-700">
+                파일을 놓아 첨부 — PDF · Word(docx) · 엑셀 · 한글(hwpx)
+              </p>
+            </div>
+          )}
+          <header
+            onPointerDown={panelMode === "floating" ? startFloatDrag : undefined}
+            className={`flex shrink-0 items-center justify-between border-b border-zinc-200 px-4 py-3 ${
+              panelMode === "floating" ? "cursor-move touch-none select-none" : ""
+            }`}
+          >
             <div className="min-w-0">
               <p className="font-semibold text-zinc-900">재무 비서</p>
               <p className="text-xs text-zinc-500">
@@ -167,13 +418,22 @@ export function FinanceChat() {
               {turns.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => { setTurns([]); setError(null); }}
+                  onClick={() => { setTurns([]); setError(null); setPendingFiles([]); }}
                   disabled={busy}
                   className="rounded-md px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 disabled:opacity-50"
                 >
                   새 대화
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => setPanelMode((m) => (m === "docked" ? "floating" : "docked"))}
+                title={panelMode === "docked" ? "팝업 창으로 띄우기" : "오른쪽에 고정"}
+                aria-label={panelMode === "docked" ? "팝업 창으로 띄우기" : "오른쪽에 고정"}
+                className="rounded-md px-2 py-1 text-sm leading-none text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+              >
+                {panelMode === "docked" ? "⧉" : "⇥"}
+              </button>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
@@ -209,13 +469,35 @@ export function FinanceChat() {
 
             {turns.map((t, i) =>
               t.role === "user" ? (
-                <div key={i} className="flex justify-end">
+                <div key={i} className="flex flex-col items-end gap-1">
+                  {t.attachmentNames && t.attachmentNames.length > 0 && (
+                    <div className="flex max-w-[85%] flex-wrap justify-end gap-1">
+                      {t.attachmentNames.map((n) => (
+                        <span
+                          key={n}
+                          className="max-w-full truncate rounded-md bg-indigo-100 px-2 py-0.5 text-[11px] text-indigo-800"
+                        >
+                          📎 {n}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-indigo-600 px-3.5 py-2 text-sm text-white">
                     {t.content}
                   </p>
                 </div>
               ) : (
                 <div key={i} className="space-y-2">
+                  {t.readAttachments && t.readAttachments.length > 0 && (
+                    <p className="text-[11px] text-zinc-400">
+                      {t.readAttachments
+                        .map(
+                          (a) =>
+                            `📎 ${a.name} — ${a.chars.toLocaleString("ko-KR")}자 읽음${a.truncated ? " (길어서 일부만)" : ""}`,
+                        )
+                        .join(" · ")}
+                    </p>
+                  )}
                   {t.toolCalls && t.toolCalls.length > 0 && (
                     <details className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5">
                       <summary className="cursor-pointer text-xs text-zinc-500">
@@ -246,16 +528,34 @@ export function FinanceChat() {
                     />
                   ))}
 
-                  {t.usage && (
-                    <p className="text-[11px] text-zinc-400">
-                      {t.model} · 입력 {t.usage.inputTokens.toLocaleString("ko-KR")}
-                      {t.usage.cacheReadTokens > 0 &&
-                        ` (캐시 ${t.usage.cacheReadTokens.toLocaleString("ko-KR")})`}
-                      {" · 출력 "}
-                      {t.usage.outputTokens.toLocaleString("ko-KR")}
-                      {t.usage.costUsd !== undefined && ` · $${t.usage.costUsd.toFixed(4)}`}
-                    </p>
-                  )}
+                  <div className="flex items-center justify-between gap-2">
+                    {t.usage && (
+                      <p className="text-[11px] text-zinc-400">
+                        {t.model} · 입력 {t.usage.inputTokens.toLocaleString("ko-KR")}
+                        {t.usage.cacheReadTokens > 0 &&
+                          ` (캐시 ${t.usage.cacheReadTokens.toLocaleString("ko-KR")})`}
+                        {" · 출력 "}
+                        {t.usage.outputTokens.toLocaleString("ko-KR")}
+                        {t.usage.costUsd !== undefined && ` · $${t.usage.costUsd.toFixed(4)}`}
+                      </p>
+                    )}
+                    {t.content && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // 이 답변을 만든 질문 = 앞쪽에서 가장 가까운 사용자 발화
+                          const q =
+                            turns.slice(0, i).reverse().find((x) => x.role === "user")?.content ?? "";
+                          if (!openChatReportPdf({ question: q, answer: t.content, model: t.model })) {
+                            setError("팝업이 차단되어 보고서 창을 열지 못했습니다. 이 사이트의 팝업을 허용해주세요.");
+                          }
+                        }}
+                        className="shrink-0 text-[11px] text-zinc-400 underline decoration-zinc-300 underline-offset-2 hover:text-indigo-600"
+                      >
+                        PDF 저장
+                      </button>
+                    )}
+                  </div>
                 </div>
               ),
             )}
@@ -274,22 +574,87 @@ export function FinanceChat() {
           </div>
 
           <div className="shrink-0 border-t border-zinc-200 p-3">
-            <label className="mb-2 flex items-center gap-1.5 text-xs text-zinc-500">
+            {/* 네이티브 select 는 열리는 방향을 못 정한다 — 위로 열리게 직접 그린다 */}
+            <div ref={modelMenuRef} className="relative mb-2 flex items-center gap-1.5 text-xs text-zinc-500">
               모델
-              <select
-                value={model}
-                onChange={(e) => pickModel(e.target.value)}
+              <button
+                type="button"
+                onClick={() => setModelMenuOpen((v) => !v)}
                 disabled={busy}
-                className="max-w-[280px] rounded-md border border-zinc-300 bg-white px-1.5 py-1 text-xs text-zinc-700 outline-none focus:border-indigo-500 disabled:opacity-50"
+                className="flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700 hover:border-indigo-400 disabled:opacity-50"
               >
-                {FIN_AI_MODELS.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label} — {m.note}
-                  </option>
+                {(FIN_AI_MODELS.find((m) => m.id === model) ?? FIN_AI_MODELS[0]).label}
+                <span className="text-[9px] text-zinc-400">▲</span>
+              </button>
+              {modelMenuOpen && (
+                <ul className="absolute bottom-full left-0 z-10 mb-1.5 w-72 overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
+                  {FIN_AI_MODELS.map((m) => (
+                    <li key={m.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          pickModel(m.id);
+                          setModelMenuOpen(false);
+                        }}
+                        className={`flex w-full items-baseline justify-between gap-2 px-3 py-1.5 text-left text-xs hover:bg-indigo-50 ${
+                          m.id === model ? "bg-indigo-50/60 font-medium text-indigo-700" : "text-zinc-700"
+                        }`}
+                      >
+                        {m.label}
+                        <span className="shrink-0 text-[11px] font-normal text-zinc-400">{m.note}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            {/* 보내기 전 첨부 목록 */}
+            {pendingFiles.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {pendingFiles.map((f, k) => (
+                  <span
+                    key={`${f.name}-${f.size}`}
+                    className="flex max-w-full items-center gap-1 rounded-md bg-zinc-100 px-2 py-1 text-[11px] text-zinc-700 ring-1 ring-zinc-200"
+                  >
+                    <span className="truncate">📎 {f.name}</span>
+                    <span className="shrink-0 text-zinc-400">
+                      {(f.size / 1024).toLocaleString("ko-KR", { maximumFractionDigits: 0 })}KB
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPendingFiles(pendingFiles.filter((_, j) => j !== k))}
+                      disabled={busy}
+                      className="shrink-0 text-zinc-400 hover:text-rose-600 disabled:opacity-50"
+                      aria-label={`${f.name} 첨부 취소`}
+                    >
+                      ✕
+                    </button>
+                  </span>
                 ))}
-              </select>
-            </label>
+              </div>
+            )}
             <div className="flex items-end gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={ATTACH_ACCEPT}
+                className="hidden"
+                onChange={(e) => {
+                  addFiles(e.target.files);
+                  e.target.value = ""; // 같은 파일을 다시 골라도 change 가 뜨게
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={busy}
+                aria-label="파일 첨부 (PDF·Word·엑셀·한글)"
+                title="파일 첨부 — 드래그해서 놓아도 됩니다"
+                className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-300 text-lg text-zinc-500 hover:border-indigo-400 hover:text-indigo-600 disabled:opacity-50"
+              >
+                +
+              </button>
               <textarea
                 ref={inputRef}
                 rows={2}
@@ -304,11 +669,29 @@ export function FinanceChat() {
                 placeholder="장부에 대해 물어보세요 (Enter 전송 · Shift+Enter 줄바꿈)"
                 className="min-h-[52px] flex-1 resize-none rounded-lg border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
               />
-              <Button onClick={() => void send(input)} disabled={busy || !input.trim()}>
+              <Button
+                onClick={() => void send(input)}
+                disabled={busy || (!input.trim() && pendingFiles.length === 0)}
+              >
                 보내기
               </Button>
             </div>
           </div>
+
+          {/* 팝업: 오른쪽 아래 모서리를 드래그해 크기 조절 */}
+          {panelMode === "floating" && (
+            <div
+              onPointerDown={startFloatResize}
+              title="드래그해서 크기 조절"
+              className="absolute bottom-0 right-0 z-20 flex h-5 w-5 cursor-nwse-resize touch-none items-end justify-end p-1 text-zinc-300 hover:text-indigo-500"
+            >
+              <svg viewBox="0 0 10 10" className="h-3 w-3" fill="currentColor" aria-hidden>
+                <circle cx="8.5" cy="8.5" r="1.1" />
+                <circle cx="8.5" cy="4.5" r="1.1" />
+                <circle cx="4.5" cy="8.5" r="1.1" />
+              </svg>
+            </div>
+          )}
         </div>
       )}
     </>

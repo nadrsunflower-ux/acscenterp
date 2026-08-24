@@ -19,6 +19,7 @@ import type { FinTransaction } from "../types";
 import { DEFAULT_FIN_AI_MODEL, isFinAiModelId } from "../ai-models";
 import { renderAccounts } from "./ai-classify";
 import { TOOL_DEFS, runTool, type ChangeProposal, type ToolContext } from "./ai-tools";
+import type { ExtractedAttachment } from "./attachments";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 /** 도구 왕복 상한 — 폭주하면 비용이 튄다 */
@@ -49,6 +50,14 @@ export interface ChatResult {
   model: string;
   /** 도구 상한에 걸려 중간에 멈췄는가 */
   truncated: boolean;
+  /** 첨부가 있을 때만: 파일별로 몇 글자를 읽었는지 (잘렸는지) */
+  attachments?: { name: string; chars: number; truncated: boolean }[];
+  /**
+   * 첨부가 있을 때만: 첨부 텍스트까지 붙여 실제로 모델에 보낸 마지막 사용자
+   * 메시지. 클라이언트가 다음 턴 히스토리에 이걸 실어야 대화가 이어진다
+   * (서버는 파일을 보관하지 않는다).
+   */
+  sentUserContent?: string;
 }
 
 /** OpenAI 호환 메시지 (도구 메시지 포함) */
@@ -85,13 +94,20 @@ const SYSTEM = `당신은 (주)네안데르의 재무 담당자와 함께 일하
 대화 태도
 - 한국어로, 짧고 구체적으로 답합니다. 숫자는 천 단위 쉼표를 씁니다.
 - 표가 도움이 되면 마크다운 표를 씁니다.
-- 근거가 된 조회 조건을 밝혀서 사용자가 직접 확인할 수 있게 합니다.`;
+- 근거가 된 조회 조건을 밝혀서 사용자가 직접 확인할 수 있게 합니다.
+
+첨부 파일
+- 사용자가 파일을 첨부하면 메시지 안에 "=== 첨부 파일: 이름 ===" 블록으로 추출된 텍스트가 들어옵니다.
+- 첨부의 수치를 장부와 비교할 때는 반드시 도구로 장부를 조회해서 대조하고, 첨부에만 있는 수치는 출처가 첨부임을 밝히세요.
+- "(길어서 뒷부분 잘림)" 표시가 있으면 일부만 읽었다는 뜻이니 그 한계를 답에 언급하세요.`;
 
 export async function runFinanceChat(args: {
   messages: ChatMessage[];
   ctx: ToolContext;
   /** 사용자가 고른 모델 — 허용 목록(ai-models.ts)에 없으면 무시하고 기본값 */
   model?: string;
+  /** 마지막 사용자 메시지에 붙일 첨부 (라우트가 추출을 끝낸 상태) */
+  attachments?: ExtractedAttachment[];
 }): Promise<ChatResult> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -102,6 +118,15 @@ export async function runFinanceChat(args: {
   const model = isFinAiModelId(args.model)
     ? args.model
     : process.env.OPENROUTER_MODEL || DEFAULT_FIN_AI_MODEL;
+
+  // 첨부는 마지막 사용자 메시지(항상 배열 끝 — 라우트가 검증)에 이어 붙인다
+  const attachBlock = (args.attachments ?? [])
+    .map(
+      (a) =>
+        `\n\n=== 첨부 파일: ${a.name}${a.truncated ? " (길어서 뒷부분 잘림)" : ""} ===\n${a.text}\n=== 첨부 끝 ===`,
+    )
+    .join("");
+  const last = args.messages.length - 1;
 
   // 계정 마스터는 매 요청 같으므로 캐시를 건다 (≈4천 토큰)
   const wire: WireMessage[] = [
@@ -115,9 +140,9 @@ export async function runFinanceChat(args: {
         },
       ],
     },
-    ...args.messages.map((m) =>
+    ...args.messages.map((m, idx) =>
       m.role === "user"
-        ? ({ role: "user", content: m.content } as WireMessage)
+        ? ({ role: "user", content: idx === last ? m.content + attachBlock : m.content } as WireMessage)
         : ({ role: "assistant", content: m.content } as WireMessage),
     ),
   ];
@@ -216,6 +241,16 @@ export async function runFinanceChat(args: {
     },
     model: usedModel,
     truncated,
+    ...(attachBlock
+      ? {
+          attachments: (args.attachments ?? []).map((a) => ({
+            name: a.name,
+            chars: a.text.length,
+            truncated: a.truncated,
+          })),
+          sentUserContent: args.messages[last].content + attachBlock,
+        }
+      : {}),
   };
 }
 

@@ -9,11 +9,16 @@ import { FinanceChat } from "@/components/neander/finance/FinanceChat";
 export default function FinanceLayout({ children }: { children: ReactNode }) {
   return (
     <FinanceProvider>
-      <FinanceTabs />
-      <ErrorBanner />
-      {children}
-      {/* 재무 화면 어디서나 열리는 비서 패널 (오른쪽 아래 버튼) */}
-      <FinanceChat />
+      {/* 비서를 도킹해 열면 FinanceChat 이 오른쪽에 자리(placeholder)를 차지해
+          본문이 밀린다. 팝업 모드에서는 자리 없이 본문 위에 뜬다. */}
+      <div className="flex items-start">
+        <div className="min-w-0 flex-1">
+          <FinanceTabs />
+          <ErrorBanner />
+          {children}
+        </div>
+        <FinanceChat />
+      </div>
     </FinanceProvider>
   );
 }
