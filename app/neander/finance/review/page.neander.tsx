@@ -10,6 +10,16 @@
 //
 //  각 행에는 "왜 이렇게 제안했는지"(classReason)를 함께 보여준다.
 //  근거 없이 승인 버튼만 있으면 사람은 그냥 다 눌러버린다.
+//
+//  ── AI 추천 ──
+//  규칙(classify.ts)은 거래처가 **정확히** 일치할 때만 맞힌다. 새 거래처가
+//  오면 손을 든다. 「AI 추천」은 그 남은 건들을 모델에게 물어본다 —
+//  `FACEBK *KEV69QZM62` 와 `FACEBK *FXEVTN5N62` 가 같은 메타 광고라는 걸
+//  알아보는 종류의 판단이다.
+//
+//  ⚠️ AI 결과는 **자동 저장되지 않는다.** 화면에 추천으로 얹히고, 사람이
+//     「적용」을 눌러야 저장된다. 확신도가 낮은 건은 눌러도 확정이 아니라
+//     제안됨으로 들어간다.
 // ============================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -23,6 +33,9 @@ import {
   deleteFinTransaction,
   bulkUpdateFinStatus,
   bulkPatchFinTransactions,
+  applyFinEdits,
+  requestAiSuggestions,
+  type AiSuggestResult,
 } from "@/lib/neander/finance/client";
 import {
   STATUS_COLOR,
@@ -47,6 +60,17 @@ export default function ReviewPage() {
   const [bulkAcct, setBulkAcct] = useState<AccountValue>({});
   const rowRefs = useRef<(HTMLLIElement | null)[]>([]);
 
+  // ---- AI 추천 ----
+  const [ai, setAi] = useState<AiSuggestResult | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  /** 추천을 이미 적용한 거래 (다시 적용하지 않게) */
+  const [aiApplied, setAiApplied] = useState<Set<string>>(new Set());
+  const aiById = useMemo(
+    () => new Map((ai?.suggestions ?? []).map((s) => [s.id, s])),
+    [ai],
+  );
+
   const pending = useMemo(
     () =>
       transactions
@@ -63,6 +87,67 @@ export default function ReviewPage() {
       ),
     [transactions],
   );
+
+  /**
+   * 물어볼 대상: 계정이 아직 없거나 「검토필요」인 건. 최대 40건.
+   * 「제안됨」이면서 계정이 있는 건은 규칙이 이미 근거를 댄 것이라 뺀다 —
+   * 모델을 부를 값이 없고 비용만 든다.
+   */
+  const aiTargets = useMemo(
+    () =>
+      pending
+        .filter((t) => (!t.acctMinor || t.status === "needs_review") && !aiApplied.has(t.id))
+        .slice(0, 40),
+    [pending, aiApplied],
+  );
+
+  const askAi = async () => {
+    if (aiTargets.length === 0) return;
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      const res = await requestAiSuggestions(aiTargets.map((t) => t.id));
+      setAi(res);
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : "AI 추천에 실패했습니다.");
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  /**
+   * 추천을 저장한다. 확신도 0.7 이상이면 제안됨, 그 아래는 검토필요로 둔다 —
+   * AI 가 확정을 만들지는 않는다.
+   */
+  const applyAi = async (ids: string[]) => {
+    const picks = ids
+      .map((id) => aiById.get(id))
+      .filter((s): s is NonNullable<typeof s> => Boolean(s));
+    if (picks.length === 0) return;
+    setBusy(true);
+    try {
+      await applyFinEdits({
+        updates: picks.map((s) => ({
+          id: s.id,
+          patch: {
+            acctMajor: s.acctMajor,
+            acctMid: s.acctMid,
+            acctMinor: s.acctMinor,
+            bizMajor: s.bizMajor,
+            bizMinor: s.bizMinor,
+            status: s.confidence >= 0.7 ? "suggested" : "needs_review",
+            classReason: `AI 추천(확신 ${Math.round(s.confidence * 100)}%) — ${s.reason}`,
+          },
+        })),
+        inserts: [],
+        deletes: [],
+      });
+      setAiApplied((prev) => new Set([...prev, ...picks.map((s) => s.id)]));
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // 목록이 줄어들면 커서가 범위를 벗어난다
   useEffect(() => {
@@ -179,6 +264,11 @@ export default function ReviewPage() {
                 <option key={s} value={s}>{STATUS_LABEL[s]}</option>
               ))}
             </Select>
+            {aiTargets.length > 0 && (
+              <Button variant="secondary" onClick={askAi} disabled={aiBusy || busy}>
+                {aiBusy ? "AI 가 보고 있습니다…" : `AI 추천 (${aiTargets.length}건)`}
+              </Button>
+            )}
             {suggestedCount > 0 && (
               <Button variant="secondary" onClick={approveAllSuggested} disabled={busy}>
                 제안됨 {suggestedCount}건 일괄 확정
@@ -187,6 +277,60 @@ export default function ReviewPage() {
           </div>
         }
       />
+
+      {aiError && (
+        <Card className="mb-4 border-rose-200 bg-rose-50/60">
+          <p className="font-semibold text-rose-900">AI 추천을 받지 못했습니다</p>
+          <p className="mt-1 text-sm leading-relaxed text-rose-800">{aiError}</p>
+        </Card>
+      )}
+
+      {ai && (
+        <Card className="mb-4 border-violet-200 bg-violet-50/50">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-semibold text-zinc-900">
+                AI 추천 {ai.suggestions.length}건
+                <span className="ml-2 text-xs font-normal text-zinc-500">{ai.model}</span>
+              </p>
+              <p className="mt-1 text-sm text-zinc-600">
+                아래 각 거래에 추천이 붙었습니다. <b>저장되지 않았습니다</b> — 확인 후 적용하세요.
+                확신도 70% 미만은 적용해도 「검토필요」로 남습니다.
+              </p>
+              <p className="mt-1 text-xs text-zinc-400">
+                토큰 입력 {ai.usage.inputTokens.toLocaleString("ko-KR")}
+                {ai.usage.cacheReadTokens > 0 &&
+                  ` (캐시 재사용 ${ai.usage.cacheReadTokens.toLocaleString("ko-KR")})`}
+                {" · 출력 "}
+                {ai.usage.outputTokens.toLocaleString("ko-KR")}
+                {ai.usage.costUsd !== undefined && ` · 비용 $${ai.usage.costUsd.toFixed(4)}`}
+              </p>
+              {ai.rejected.length > 0 && (
+                <p className="mt-1.5 text-xs text-amber-800">
+                  계정 마스터에 없는 계정을 제안한 {ai.rejected.length}건은 버렸습니다
+                  ({ai.rejected.slice(0, 2).map((r) => r.proposed).join(", ")}
+                  {ai.rejected.length > 2 && " …"}).
+                </p>
+              )}
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <Button variant="ghost" onClick={() => setAi(null)} disabled={busy}>
+                추천 지우기
+              </Button>
+              <Button
+                onClick={() =>
+                  applyAi(
+                    ai.suggestions.filter((x) => x.confidence >= 0.7 && !aiApplied.has(x.id)).map((x) => x.id),
+                  )
+                }
+                disabled={busy || ai.suggestions.every((x) => x.confidence < 0.7 || aiApplied.has(x.id))}
+              >
+                확신 70%↑ 일괄 적용
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {pending.length === 0 ? (
         <EmptyState
@@ -298,6 +442,39 @@ export default function ReviewPage() {
                         </span>
                       </div>
                       <p className="mt-1.5 text-sm text-zinc-500">{t.classReason}</p>
+                      {aiById.has(t.id) && !aiApplied.has(t.id) && (() => {
+                        const s = aiById.get(t.id)!;
+                        const strong = s.confidence >= 0.7;
+                        return (
+                          <div className="mt-2 rounded-lg border border-violet-300 bg-white px-3 py-2">
+                            <p className="flex flex-wrap items-center gap-2 text-sm">
+                              <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[11px] font-medium text-violet-800">
+                                AI 추천
+                              </span>
+                              <span className="font-medium text-zinc-900">
+                                {[s.acctMajor, s.acctMid, s.acctMinor].join(" › ")}
+                              </span>
+                              {s.bizMinor && (
+                                <span className="text-xs text-zinc-500">
+                                  {s.bizMajor} · {s.bizMinor}
+                                </span>
+                              )}
+                              <span className={`text-xs font-medium ${strong ? "text-emerald-700" : "text-amber-700"}`}>
+                                확신 {Math.round(s.confidence * 100)}%
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(ev) => { ev.stopPropagation(); void applyAi([t.id]); }}
+                                disabled={busy}
+                                className="rounded-md border border-violet-300 px-2 py-0.5 text-xs font-medium text-violet-800 hover:bg-violet-50 disabled:opacity-50"
+                              >
+                                적용
+                              </button>
+                            </p>
+                            <p className="mt-1 text-xs leading-relaxed text-zinc-500">{s.reason}</p>
+                          </div>
+                        );
+                      })()}
                     </div>
                     <div className="flex shrink-0 items-center gap-3">
                       <span className="text-lg font-bold">
