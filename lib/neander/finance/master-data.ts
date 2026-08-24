@@ -37,15 +37,23 @@ export interface FinPaymentMethodMaster {
   alias: string;
   /** 사업장 (네안데르 / 안다르 / 일해라컴퍼니 / 와작홈즈) */
   site: string;
-  /** (신법)/(국법) 접두 별칭 = 임직원 개인카드(대납용) */
+  /**
+   * 임직원 **개인 명의** 카드인가 (회사 비용을 개인 카드로 긋고 나중에 대납).
+   *
+   * ⚠️ 별칭의 (신법)·(국법) 은 개인 카드가 아니다. **신한법인 · 국민법인**
+   *    이고 뒤에 붙은 이름은 소지자다. 즉 지금 등록된 카드 14장은 전부
+   *    법인카드이며 이 값은 모두 false 다. (2026-08-24 확인)
+   *    처음에는 「법」을 개인 표기로 잘못 읽어 true 로 넣어 뒀었다.
+   */
   personal: boolean;
   /**
    * 결제수단 종류. **현금흐름 기준 집계의 근거**다.
    *   account 통장 — 결제 시점이 곧 출금 시점
    *   card    카드 — 사용 시점과 대금 출금 시점이 다르다
    *   cash    현금 — 통장과 같게 본다
-   * 지금 카드는 전부 임직원 개인 명의라 personal 과 일치하지만, 법인카드가
-   * 생기면 갈라진다. 그래서 별도 필드로 둔다.
+   * 지금은 카드 14장이 전부 법인카드라 personal 은 모두 false 다. 그래도
+   * 별도 필드로 두는 건 개인 카드 대납이 생겼을 때 현금흐름 판정(kind)과
+   * 정산 대상 판정(personal)이 서로 다른 질문이기 때문이다.
    */
   kind: "account" | "card" | "cash";
 }
@@ -526,20 +534,20 @@ export const FIN_PAYMENT_METHODS: FinPaymentMethodMaster[] = [
   { last4: "1769", alias: "신한일컴", site: "일해라컴퍼니", personal: false, kind: "account" },
   { last4: "5346", alias: "카카오일컴", site: "일해라컴퍼니", personal: false, kind: "account" },
   { last4: "7773", alias: "카카오와작", site: "와작홈즈", personal: false, kind: "account" },
-  { last4: "2171", alias: "(신법)이동주", site: "네안데르", personal: true, kind: "card" },
-  { last4: "2392", alias: "(신법)유재영하이", site: "네안데르", personal: true, kind: "card" },
-  { last4: "4306", alias: "(신법)유재영", site: "네안데르", personal: true, kind: "card" },
-  { last4: "1804", alias: "(신법)이동주", site: "네안데르", personal: true, kind: "card" },
-  { last4: "6379", alias: "(신법)김주희", site: "네안데르", personal: true, kind: "card" },
-  { last4: "3847", alias: "(신법)유선화", site: "네안데르", personal: true, kind: "card" },
-  { last4: "7753", alias: "(신법)김주연", site: "네안데르", personal: true, kind: "card" },
-  { last4: "4528", alias: "(신법)유재영-신", site: "네안데르", personal: true, kind: "card" },
-  { last4: "3513", alias: "(신법)김주연-신", site: "네안데르", personal: true, kind: "card" },
-  { last4: "2842", alias: "(신법)유다혜", site: "네안데르", personal: true, kind: "card" },
-  { last4: "0815", alias: "(국법)이동주", site: "네안데르", personal: true, kind: "card" },
-  { last4: "7889", alias: "(국법)유재영", site: "네안데르", personal: true, kind: "card" },
-  { last4: "9806", alias: "(국법)유선화", site: "네안데르", personal: true, kind: "card" },
-  { last4: "3800", alias: "(국법)식대", site: "네안데르", personal: true, kind: "card" },
+  { last4: "2171", alias: "(신법)이동주", site: "네안데르", personal: false, kind: "card" },
+  { last4: "2392", alias: "(신법)유재영하이", site: "네안데르", personal: false, kind: "card" },
+  { last4: "4306", alias: "(신법)유재영", site: "네안데르", personal: false, kind: "card" },
+  { last4: "1804", alias: "(신법)이동주", site: "네안데르", personal: false, kind: "card" },
+  { last4: "6379", alias: "(신법)김주희", site: "네안데르", personal: false, kind: "card" },
+  { last4: "3847", alias: "(신법)유선화", site: "네안데르", personal: false, kind: "card" },
+  { last4: "7753", alias: "(신법)김주연", site: "네안데르", personal: false, kind: "card" },
+  { last4: "4528", alias: "(신법)유재영-신", site: "네안데르", personal: false, kind: "card" },
+  { last4: "3513", alias: "(신법)김주연-신", site: "네안데르", personal: false, kind: "card" },
+  { last4: "2842", alias: "(신법)유다혜", site: "네안데르", personal: false, kind: "card" },
+  { last4: "0815", alias: "(국법)이동주", site: "네안데르", personal: false, kind: "card" },
+  { last4: "7889", alias: "(국법)유재영", site: "네안데르", personal: false, kind: "card" },
+  { last4: "9806", alias: "(국법)유선화", site: "네안데르", personal: false, kind: "card" },
+  { last4: "3800", alias: "(국법)식대", site: "네안데르", personal: false, kind: "card" },
 ];
 
 export const FIN_VENDOR_RULES: FinVendorRuleMaster[] = [

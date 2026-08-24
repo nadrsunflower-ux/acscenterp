@@ -70,6 +70,13 @@ import {
   periodFilter,
 } from "@/lib/neander/finance/sheetFilter";
 import { filtersFromQuery } from "@/lib/neander/finance/ledgerLink";
+import {
+  SCOPE_TABS,
+  inScope,
+  paymentIndex,
+  scopeCounts,
+  type ScopeKey,
+} from "@/lib/neander/finance/sheetScope";
 import { todayStr } from "@/lib/neander/format";
 import { totals, plOnly } from "@/lib/neander/finance/aggregate";
 
@@ -156,6 +163,8 @@ export default function LedgerPage() {
   const { transactions, accounts, paymentMethods, loading, refresh } = useFinance();
 
   const [filters, setFilters] = useState<Filters>({});
+  /** 결제수단 탭. 열 필터와 다른 축이라 필터가 아니라 보기로 둔다 */
+  const [scope, setScope] = useState<ScopeKey>("all");
   const [search, setSearch] = useState("");
 
   /**
@@ -301,9 +310,18 @@ export default function LedgerPage() {
     [search],
   );
 
-  const filtered = useMemo(
+  const pmIndex = useMemo(() => paymentIndex(paymentMethods), [paymentMethods]);
+
+  // 탭을 적용하기 **전**. 탭 건수는 여기서 센다 — 그래야 「법인카드 1,623」
+  // 을 보고 누르면 정말 그만큼 나온다.
+  const beforeScope = useMemo(
     () => applyFilters(transactions, filters).filter(searchMatch),
     [transactions, filters, searchMatch],
+  );
+  const counts = useMemo(() => scopeCounts(beforeScope, pmIndex), [beforeScope, pmIndex]);
+  const filtered = useMemo(
+    () => beforeScope.filter((t) => inScope(t, scope, pmIndex)),
+    [beforeScope, scope, pmIndex],
   );
 
   /**
@@ -312,8 +330,13 @@ export default function LedgerPage() {
    */
   const optionsFor = useCallback(
     (key: FilterKey) =>
-      columnOptions(applyFilters(transactions, filters, key).filter(searchMatch), key),
-    [transactions, filters, searchMatch],
+      columnOptions(
+        applyFilters(transactions, filters, key)
+          .filter(searchMatch)
+          .filter((t) => inScope(t, scope, pmIndex)),
+        key,
+      ),
+    [transactions, filters, searchMatch, scope, pmIndex],
   );
 
   // 시트에 보이는 행 = 필터 결과(삭제 제외, 초안 덮어쓰기) + 새 행.
@@ -482,13 +505,18 @@ export default function LedgerPage() {
   const filterCount = activeFilterKeys(filters).length;
   // 파일명에 쓸 범위 이름 — 거래일 필터로 한 달만 골랐으면 그 달을 쓴다
   const dateFilter = filters.date;
-  const exportScope =
+  const periodLabel =
     dateFilter?.kind === "values" && dateFilter.values.length === 1
       ? dateFilter.values[0]
       : period.year && !period.month && !period.custom && filterCount === 1 && !search.trim()
         ? `${period.year}년`
         : anyFilterLabel(filterCount, search);
+  // 탭을 좁혀 놓고 내보냈는데 파일명이 「전체」면 나중에 그 파일이 뭔지 모른다
+  const scopeLabel = SCOPE_TABS.find((t) => t.key === scope)?.label ?? "";
+  const exportScope = scope === "all" ? periodLabel : `${scopeLabel}_${periodLabel}`;
   const anyFilter = filterCount > 0 || search.trim() !== "";
+  /** 필터든 탭이든 범위를 좁힌 상태인가 — 빈 표 안내 문구를 가른다 */
+  const narrowed = anyFilter || scope !== "all";
   const resetFilters = () => {
     setFilters({});
     setSearch("");
@@ -674,6 +702,43 @@ export default function LedgerPage() {
         </div>
       </div>
 
+      {/* ---- 결제수단 탭 ---------------------------------------------
+           「미지정」은 있을 때만 보인다 — 0건짜리 탭은 누를 이유가 없고,
+           반대로 1건이라도 있으면 반드시 보여야 한다. 계좌·카드만 두면
+           마스터에 없는 결제수단이 어느 탭에도 안 나오면서 전체 건수와만
+           어긋나기 때문이다. */}
+      <div className="flex shrink-0 items-center gap-0.5 overflow-x-auto border-b border-zinc-200 px-3">
+        {SCOPE_TABS.filter((t) => t.key !== "unknown" || counts.unknown > 0).map((t) => {
+          const on = scope === t.key;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setScope(t.key)}
+              title={t.hint}
+              aria-current={on ? "page" : undefined}
+              className={cn(
+                "shrink-0 border-b-2 px-3 py-1.5 text-xs font-medium transition",
+                on
+                  ? "border-indigo-600 text-indigo-700"
+                  : "border-transparent text-zinc-500 hover:text-zinc-800",
+                t.key === "unknown" && !on && "text-amber-600 hover:text-amber-700",
+              )}
+            >
+              {t.label}
+              <span
+                className={cn(
+                  "ml-1.5 tabular-nums",
+                  on ? "text-indigo-400" : "text-zinc-400",
+                )}
+              >
+                {counts[t.key].toLocaleString("ko-KR")}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* ---- 상태 줄: 합계 + 초안 상태 ------------------------------- */}
       <div
         className={cn(
@@ -722,8 +787,16 @@ export default function LedgerPage() {
       <div ref={slot.ref} className="min-h-0 flex-1 overflow-hidden">
         {rows.length === 0 ? (
           <div className="p-8">
-            {anyFilter ? (
-              <EmptyState icon="🔍" title="조건에 맞는 거래가 없습니다" description="필터를 풀거나 검색어를 바꿔보세요." />
+            {narrowed ? (
+              <EmptyState
+                icon="🔍"
+                title="조건에 맞는 거래가 없습니다"
+                description={
+                  scope === "all"
+                    ? "필터를 풀거나 검색어를 바꿔보세요."
+                    : `「${scopeLabel}」 탭에는 없습니다. 다른 탭을 보거나 필터를 풀어보세요.`
+                }
+              />
             ) : (
               <EmptyState icon="📒" title="거래가 없습니다" description="행 추가를 누르거나 엑셀 임포트로 장부를 올리세요." />
             )}

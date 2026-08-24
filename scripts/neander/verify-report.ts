@@ -119,12 +119,22 @@ const eq = (got: number, want: number, label: string) => {
   const isCardByKind = makeIsCard(seeded);
   const kindCards = seeded.filter((p) => p.kind === "card").map((p) => p.last4).sort();
   const personalCards = seeded.filter((p) => p.personal).map((p) => p.last4).sort();
+  // 별칭의 (신법)·(국법) 은 신한법인·국민법인이다. 등록된 카드는 전부
+  // 법인카드이므로 개인 명의는 0장이어야 한다. 예전에는 이 둘이 "일치"
+  // 하는지를 봤는데, 「법」을 개인 표기로 잘못 읽은 데서 나온 검사였다.
   console.log(
-    JSON.stringify(kindCards) === JSON.stringify(personalCards)
-      ? "ok   kind=card 와 personal 이 일치 (법인카드 0장인 현 상태)"
-      : "FAIL kind 와 personal 이 갈라짐",
+    personalCards.length === 0
+      ? `ok   카드 ${kindCards.length}장이 전부 법인 명의 (개인 명의 0장)`
+      : `FAIL 개인 명의로 남은 카드 ${personalCards.length}장 — ${personalCards.join(",")}`,
   );
-  if (JSON.stringify(kindCards) !== JSON.stringify(personalCards)) fails++;
+  if (personalCards.length !== 0) fails++;
+  const mislabeled = seeded.filter((p) => /^\((신법|국법)\)/.test(p.alias) && p.personal);
+  console.log(
+    mislabeled.length === 0
+      ? "ok   (신법)·(국법) 별칭이 개인 명의로 잘못 표시된 것 없음"
+      : `FAIL (신법)/(국법) 인데 개인 명의 — ${mislabeled.map((p) => p.alias).join(", ")}`,
+  );
+  if (mislabeled.length > 0) fails++;
   const cashByKind = buildReport(transactions, { basis: "cash", isCard: isCardByKind, scope, accounts });
   eq(cashByKind.total.expense, 56_989_399, "kind 로 판정해도 현금흐름 동일");
   console.log(`     통장 ${seeded.filter((p) => p.kind === "account").length} · 카드 ${kindCards.length} · 현금 ${seeded.filter((p) => p.kind === "cash").length}`);
