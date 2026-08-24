@@ -29,13 +29,17 @@ import {
   monthlyTrend,
   bySite,
   topVendors,
-  subscriptionSpend,
   totals,
   plOnly,
 } from "@/lib/neander/finance/aggregate";
+import {
+  SUBSCRIPTION_ACCOUNTS,
+  subscriptionMatchers,
+  subscriptionReport,
+} from "@/lib/neander/finance/report";
 
 export default function FinanceDashboard() {
-  const { transactions, vendorRules, loading, masterEmpty } = useFinance();
+  const { transactions, vendorRules, subscriptions, loading, masterEmpty } = useFinance();
   const months = useMemo(() => availableMonths(transactions), [transactions]);
   const [month, setMonth] = useState<string>("");
 
@@ -52,10 +56,13 @@ export default function FinanceDashboard() {
   const trend = useMemo(() => monthlyTrend(transactions), [transactions]);
   const sites = useMemo(() => bySite(scoped), [scoped]);
   const vendors = useMemo(() => topVendors(scoped, 10), [scoped]);
-  const subs = useMemo(
-    () => subscriptionSpend(scoped, vendorRules).filter((s) => s.count > 0),
-    [scoped, vendorRules],
+  // 구독 집계는 리포트 탭과 같은 함수를 쓴다 — 계정으로 먼저 좁혀야
+  // 이름이 같은 급여 이체가 구독비로 섞이지 않는다 (report.ts 주석 참고)
+  const matchers = useMemo(
+    () => subscriptionMatchers(subscriptions, vendorRules),
+    [subscriptions, vendorRules],
   );
+  const subs = useMemo(() => subscriptionReport(scoped, matchers), [scoped, matchers]);
 
   const pending = transactions.filter(
     (x) => x.status === "suggested" || x.status === "needs_review",
@@ -307,25 +314,38 @@ export default function FinanceDashboard() {
       </div>
 
       {/* 구독 서비스 */}
-      {subs.length > 0 && (
+      {subs.count > 0 && (
         <Card className="mt-4">
-          <SectionTitle hint="거래처 키워드 규칙 기준 · 규칙에 없는 구독은 잡히지 않습니다">
+          <SectionTitle
+            hint={`계정 ${SUBSCRIPTION_ACCOUNTS.join("·")} 안에서 거래처 규칙 매칭`}
+            action={
+              <Link href="/neander/finance/reports/subscriptions" className="text-sm text-indigo-600 hover:underline">
+                자세히 →
+              </Link>
+            }
+          >
             구독 서비스 지출
           </SectionTitle>
           <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
-            {subs.map((s) => (
+            {subs.services.map((s) => (
               <div
-                key={s.keyword}
+                key={s.service}
                 className="flex items-center justify-between border-b border-zinc-100 py-2 text-sm"
               >
                 <span className="min-w-0 truncate text-zinc-800">{s.service}</span>
                 <span className="ml-3 flex shrink-0 items-center gap-3">
                   <span className="text-xs text-zinc-400">{s.count}건</span>
-                  <Money value={s.amount} unit={false} />
+                  <Money value={s.net} unit={false} />
                 </span>
               </div>
             ))}
           </div>
+          {subs.unmatched.length > 0 && (
+            <p className="mt-3 border-t border-zinc-100 pt-3 text-xs text-zinc-500">
+              규칙에 없는 구독 {subs.unmatched.length}건 <Money value={subs.unmatchedTotal} unit={false} />원 —
+              마스터 탭에서 거래처 규칙을 추가하세요.
+            </p>
+          )}
         </Card>
       )}
     </div>

@@ -204,38 +204,6 @@ export function topVendors(rows: FinTransaction[], limit = 15): VendorSpend[] {
   return [...map.values()].sort((a, b) => b.amount - a.amount).slice(0, limit);
 }
 
-export interface SubscriptionSpend {
-  service: string;
-  keyword: string;
-  count: number;
-  amount: number;
-}
-
-/**
- * 구독 서비스별 지출 — 엑셀 「구독서비스 관리」 시트 재현.
- * 어느 규칙에도 안 걸린 건은 집계에서 빠지므로, 규칙 미커버를 감지하려면
- * 원장에서 직접 확인해야 한다 (엑셀의 "분류안된 구독비" 행과 같은 역할).
- */
-export function subscriptionSpend(
-  rows: FinTransaction[],
-  rules: { service: string; keyword: string }[],
-): SubscriptionSpend[] {
-  return rules
-    .map((r) => {
-      const kw = r.keyword.toLowerCase();
-      const hit = plOnly(rows).filter(
-        (t) => t.txType === "지출" && (t.vendor ?? "").toLowerCase().includes(kw),
-      );
-      return {
-        service: r.service,
-        keyword: r.keyword,
-        count: hit.length,
-        amount: hit.reduce((s, t) => s + netAmount(t), 0),
-      };
-    })
-    .sort((a, b) => b.amount - a.amount);
-}
-
 /** 사용 가능한 월 목록 (최신순) */
 export function availableMonths(rows: FinTransaction[]): string[] {
   const set = new Set<string>();
