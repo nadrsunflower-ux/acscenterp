@@ -142,3 +142,46 @@ export function columnOptions(rows: FinTransaction[], key: FilterKey): FilterOpt
     return a.label.localeCompare(b.label, "ko");
   });
 }
+
+// ---- 기간(연·월) 선택 ------------------------------------------
+//  거래일 열은 월(YYYY-MM) 단위 값 필터다. 툴바의 연/월 선택기도 **같은
+//  필터**를 읽고 쓴다. 따로 상태를 두면 둘이 어긋나서, 툴바에는 「2026년」
+//  이라고 떠 있는데 실제로는 7월만 걸려 있는 표가 된다.
+
+export interface Period {
+  /** `YYYY` — 빈 문자열이면 전체 */
+  year: string;
+  /** `MM` — 빈 문자열이면 그 해 전체 */
+  month: string;
+  /** 연/월로 표현할 수 없는 조합 (열 드롭다운에서 달을 골라 담은 경우) */
+  custom: boolean;
+}
+
+/** 장부에 실제로 있는 그 해의 달 목록 */
+export const monthsOfYear = (months: string[], year: string) =>
+  year ? months.filter((m) => m.startsWith(`${year}-`)) : [];
+
+/** 현재 거래일 필터를 연/월로 읽는다 */
+export function periodOf(filter: ColumnFilter | undefined, months: string[]): Period {
+  if (!filter || filter.kind !== "values" || filter.values.length === 0) {
+    return { year: "", month: "", custom: false };
+  }
+  const vs = filter.values;
+  const years = new Set(vs.map((v) => v.slice(0, 4)));
+  if (years.size !== 1) return { year: "", month: "", custom: true };
+  const year = [...years][0];
+  if (vs.length === 1) return { year, month: vs[0].slice(5, 7), custom: false };
+  // 그 해의 달을 **전부** 고른 것이어야 「연 전체」다. 몇 달만 골랐으면
+  // 연 전체라고 말할 수 없으므로 직접 선택으로 둔다.
+  const all = monthsOfYear(months, year);
+  const whole = all.length === vs.length && all.every((m) => vs.includes(m));
+  return { year, month: "", custom: !whole };
+}
+
+/** 연/월 선택 → 거래일 필터 (없으면 null = 필터 해제) */
+export function periodFilter(months: string[], year: string, month: string): ValueFilter | null {
+  if (!year) return null;
+  if (month) return { kind: "values", values: [`${year}-${month}`] };
+  const vs = monthsOfYear(months, year);
+  return vs.length > 0 ? { kind: "values", values: vs } : null;
+}

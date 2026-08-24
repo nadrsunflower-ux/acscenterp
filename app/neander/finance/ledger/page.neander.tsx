@@ -65,10 +65,16 @@ import {
   type ColumnFilter,
   type FilterKey,
   type Filters,
+  monthsOfYear,
+  periodOf,
+  periodFilter,
 } from "@/lib/neander/finance/sheetFilter";
 import { filtersFromQuery } from "@/lib/neander/finance/ledgerLink";
 import { todayStr } from "@/lib/neander/format";
 import { totals, plOnly } from "@/lib/neander/finance/aggregate";
+
+/** 연/월로 표현할 수 없는 선택 — 선택기에 그대로 드러낸다 */
+const CUSTOM_PERIOD = "__custom__";
 
 /** 내보내기 파일명에 붙일 범위 이름 */
 function anyFilterLabel(filterCount: number, search: string): string {
@@ -455,13 +461,33 @@ export default function LedgerPage() {
     });
   };
 
+  // 장부에 있는 달·해. **필터를 걸기 전** 전체 기준이어야 선택지가 줄지 않는다
+  //  — 7월을 고르는 순간 목록에 7월만 남으면 다른 달로 옮겨갈 수가 없다.
+  const allMonths = useMemo(
+    () =>
+      [
+        ...new Set(
+          transactions
+            .map((t) => (t.date ?? "").slice(0, 7))
+            .filter((m) => /^\d{4}-\d{2}$/.test(m)),
+        ),
+      ]
+        .sort()
+        .reverse(),
+    [transactions],
+  );
+  const years = useMemo(() => [...new Set(allMonths.map((m) => m.slice(0, 4)))], [allMonths]);
+  const period = periodOf(filters.date, allMonths);
+
   const filterCount = activeFilterKeys(filters).length;
   // 파일명에 쓸 범위 이름 — 거래일 필터로 한 달만 골랐으면 그 달을 쓴다
   const dateFilter = filters.date;
   const exportScope =
     dateFilter?.kind === "values" && dateFilter.values.length === 1
       ? dateFilter.values[0]
-      : anyFilterLabel(filterCount, search);
+      : period.year && !period.month && !period.custom && filterCount === 1 && !search.trim()
+        ? `${period.year}년`
+        : anyFilterLabel(filterCount, search);
   const anyFilter = filterCount > 0 || search.trim() !== "";
   const resetFilters = () => {
     setFilters({});
@@ -499,6 +525,41 @@ export default function LedgerPage() {
           onChange={(e) => setSearch(e.target.value)}
           className="h-8 w-48 rounded-md border border-zinc-300 bg-white px-2.5 text-xs text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
         />
+        {/* 기간 — 거래일 열 필터와 같은 값을 읽고 쓴다.
+            따로 상태를 두면 툴바엔 「2026년」인데 실제로는 7월만 걸린 표가 된다. */}
+        <select
+          value={period.custom ? CUSTOM_PERIOD : period.year}
+          onChange={(e) => {
+            const y = e.target.value;
+            if (y === CUSTOM_PERIOD) return; // 표시 전용
+            setColumnFilter("date", periodFilter(allMonths, y, ""));
+          }}
+          title="연도로 거르기"
+          className="h-8 cursor-pointer rounded-md border border-zinc-300 bg-white px-2 text-xs text-zinc-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+        >
+          <option value="">전체 기간</option>
+          {years.map((y) => (
+            <option key={y} value={y}>
+              {y}년
+            </option>
+          ))}
+          {period.custom && <option value={CUSTOM_PERIOD}>직접 선택</option>}
+        </select>
+        <select
+          value={period.month}
+          disabled={!period.year || period.custom}
+          onChange={(e) => setColumnFilter("date", periodFilter(allMonths, period.year, e.target.value))}
+          title={period.custom ? "머리글에서 달을 직접 고른 상태입니다" : "월로 거르기"}
+          className="h-8 cursor-pointer rounded-md border border-zinc-300 bg-white px-2 text-xs text-zinc-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:bg-zinc-50 disabled:text-zinc-400"
+        >
+          <option value="">연 전체</option>
+          {/* allMonths 는 최신순이라 뒤집어 1월 → 12월 로 보여준다 */}
+          {[...monthsOfYear(allMonths, period.year)].reverse().map((m) => (
+            <option key={m} value={m.slice(5, 7)}>
+              {Number(m.slice(5, 7))}월
+            </option>
+          ))}
+        </select>
         {filterCount > 0 && (
           <span className="flex h-8 items-center gap-1 rounded-md bg-indigo-50 px-2 text-xs font-medium text-indigo-700">
             열 필터 {filterCount}개
