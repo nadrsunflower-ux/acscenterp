@@ -20,7 +20,7 @@ export async function GET(req: Request) {
   try {
     await requireFinanceUser(req);
 
-    const [transactions, accounts, paymentMethods, vendorRules, subscriptions, allocations, budgets, imports] =
+    const [transactions, accounts, paymentMethods, vendorRules, subscriptions, allocations, budgets, imports, closes] =
       await Promise.all([
         readAll(NEANDER_COL.finTransactions),
         readAll(NEANDER_COL.finAccounts),
@@ -30,6 +30,7 @@ export async function GET(req: Request) {
         readAll(NEANDER_COL.finAllocations),
         readAll(NEANDER_COL.finBudgets),
         readAll(NEANDER_COL.finImports),
+        readAll(NEANDER_COL.finCloses),
       ]);
 
     // 정렬은 서버에서 끝내둔다 — 클라이언트가 매번 다시 정렬할 이유가 없다
@@ -53,6 +54,7 @@ export async function GET(req: Request) {
       allocations,
       budgets,
       imports,
+      closes,
     });
   } catch (e) {
     const denied = accessErrorResponse(e);

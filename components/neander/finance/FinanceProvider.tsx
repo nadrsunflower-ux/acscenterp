@@ -29,6 +29,7 @@ import type {
   FinVendorRuleDoc,
 } from "@/lib/neander/finance/db-types";
 import type { FinTransaction, FinImportBatch } from "@/lib/neander/finance/types";
+import type { MonthCloseDoc } from "@/lib/neander/finance/close";
 import { buildVendorIndex, type VendorStat } from "@/lib/neander/finance/classify";
 import { useAuth } from "@/components/neander/auth";
 
@@ -41,6 +42,8 @@ interface FinanceValue {
   allocations: FinAllocationDoc[];
   budgets: FinBudgetDoc[];
   imports: FinImportBatch[];
+  /** 마감된 달 (문서 id = YYYY-MM) */
+  closes: MonthCloseDoc[];
   /** 확정 거래로 만든 거래처 색인 (자동분류·검토함에서 사용) */
   vendorIndex: Map<string, VendorStat>;
   loading: boolean;
@@ -63,6 +66,7 @@ const EMPTY = {
   allocations: [] as FinAllocationDoc[],
   budgets: [] as FinBudgetDoc[],
   imports: [] as FinImportBatch[],
+  closes: [] as MonthCloseDoc[],
 };
 
 export function FinanceProvider({ children }: { children: ReactNode }) {
@@ -85,6 +89,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
         allocations: snap.allocations ?? [],
         budgets: snap.budgets ?? [],
         imports: snap.imports ?? [],
+        closes: snap.closes ?? [],
       });
       setError(null);
     } catch (e) {

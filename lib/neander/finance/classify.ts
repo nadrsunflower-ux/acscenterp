@@ -149,8 +149,25 @@ const NON_PL: TxType[] = ["자금거래", "카드대금결제"];
  */
 const ALLOWED_MISMATCH = new Set(["카드대금결제|카드대금결제"]);
 
-export const isAllowedTxAccountMismatch = (txType: string, acctMinor?: string) =>
-  ALLOWED_MISMATCH.has(`${txType}|${acctMinor ?? ""}`);
+/**
+ * 거래유형과 계정의 거래유형이 달라도 **정상**인가.
+ *
+ * `acctTxType` 을 주면 규칙 하나가 더 걸린다 — **환급은 지출 계정을 쓴다.**
+ * 환급은 "쓴 돈을 되돌려받은 것"이라 되돌린 대상 계정(=지출 계정)을
+ * 가리켜야 순손익 계산 `수입 − (지출 − 환급)` 이 맞는다. 전용 환급 계정을
+ * 따로 두면 어느 비용이 줄었는지 알 수 없다.
+ *
+ * 이걸 빠뜨려서 장부의 환급 4건이 전부 「검토필요」로 떨어져 있었다.
+ * 규칙이 맞다고 우기는 대신 실제 장부를 보고 찾았다 (7월 143,700원).
+ */
+export const isAllowedTxAccountMismatch = (
+  txType: string,
+  acctMinor?: string,
+  acctTxType?: string,
+) => {
+  if (ALLOWED_MISMATCH.has(`${txType}|${acctMinor ?? ""}`)) return true;
+  return txType === "환급" && acctTxType === "지출";
+};
 
 /** 분류 대상 — 임포트 직후의 최소 정보 */
 export interface ClassifyInput {
@@ -240,7 +257,7 @@ export function classifyOne(input: ClassifyInput, ctx: ClassifyContext): Classif
 
     // 이력이 준 계정의 거래유형이 지금 유형과 다르면 그냥 넘기면 안 된다.
     const acctTx = accountTxType(ctx.accounts, base.acctMajor, base.acctMid, base.acctMinor);
-    if (acctTx && acctTx !== input.txType && !isAllowedTxAccountMismatch(input.txType, base.acctMinor)) {
+    if (acctTx && acctTx !== input.txType && !isAllowedTxAccountMismatch(input.txType, base.acctMinor, acctTx)) {
       if (NON_PL.includes(acctTx)) {
         // 은행은 입출금 방향만 안다. 이력이 이 거래처를 비손익으로 분류해
         // 왔다면 그게 더 정확하다 — 유형을 고쳐 제안하고 사람이 확인한다.

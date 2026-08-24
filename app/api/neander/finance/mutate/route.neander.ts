@@ -277,6 +277,44 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: true, saved: Object.keys(kept).length });
       }
 
+      // ---- 월 마감 ----------------------------------------------
+      case "close.set": {
+        // 마감 시점의 숫자를 그대로 얼려 둔다. 이후 그 달의 거래가 바뀌면
+        // 화면이 스냅샷과 현재를 비교해 차이를 드러낸다 (close.ts 주석 참고).
+        // 스냅샷을 클라이언트가 계산해 보내는 게 마음에 걸릴 수 있지만,
+        // 어차피 같은 데이터를 같은 함수(monthSnapshot)로 만든다. 서버에서
+        // 다시 세려면 그 달 거래를 통째로 다시 읽어야 한다.
+        const { month, snapshot, note } = payload as {
+          month: string;
+          snapshot: Record<string, number>;
+          note?: string;
+        };
+        if (!/^\d{4}-\d{2}$/.test(month ?? "")) {
+          return NextResponse.json({ error: "month 는 YYYY-MM 형식이어야 합니다." }, { status: 400 });
+        }
+        const nums = ["count", "income", "expense", "refund", "net"] as const;
+        const frozen: Record<string, number> = {};
+        nums.forEach((k) => {
+          const v = Number(snapshot?.[k]);
+          frozen[k] = Number.isFinite(v) ? v : 0;
+        });
+        await db
+          .collection(NEANDER_COL.finCloses)
+          .doc(month)
+          .set(
+            clean({ month, snapshot: frozen, note, closedAt: now, closedBy: user.email }),
+            { merge: false },
+          );
+        return NextResponse.json({ ok: true });
+      }
+
+      case "close.reopen": {
+        const { month } = payload as { month: string };
+        if (!month) return NextResponse.json({ error: "month 가 필요합니다." }, { status: 400 });
+        await db.collection(NEANDER_COL.finCloses).doc(month).delete();
+        return NextResponse.json({ ok: true });
+      }
+
       // ---- 배분 규칙 --------------------------------------------
       case "allocation.upsert": {
         const input = payload as Record<string, unknown>;

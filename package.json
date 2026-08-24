@@ -21,7 +21,8 @@
     "finance:verify": "tsx scripts/neander/verify-finance-import.ts",
     "firebase:deploy:rules": "bash scripts/deploy-rules.sh",
     "finance:import": "tsx scripts/neander/import-ledger.ts",
-    "finance:normalize": "tsx scripts/neander/normalize-accounts.ts"
+    "finance:normalize": "tsx scripts/neander/normalize-accounts.ts",
+    "finance:verify-close": "tsx scripts/neander/verify-close.ts"
   },
   "dependencies": {
     "firebase": "10.14.1",

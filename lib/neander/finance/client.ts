@@ -14,6 +14,7 @@
 
 import { getNeanderAuth } from "@/lib/neander/firebase";
 import type { FinTransaction, FinImportBatch, FinTransactionInput } from "./types";
+import type { CloseSnapshot, MonthCloseDoc } from "./close";
 import type {
   FinAccountDoc,
   FinAllocationDoc,
@@ -35,6 +36,7 @@ export interface FinanceSnapshot {
   allocations: FinAllocationDoc[];
   budgets: FinBudgetDoc[];
   imports: FinImportBatch[];
+  closes: MonthCloseDoc[];
 }
 
 /** 서버가 신원을 검증할 수 있게 로그인 ID 토큰을 붙인다 */
@@ -115,6 +117,15 @@ export async function bulkAddFinTransactions(
     onProgress?.(Math.min(i + CHUNK, rows.length), rows.length);
   }
 }
+
+// ---- 월 마감 --------------------------------------------------
+
+/** 마감. 스냅샷은 monthSnapshot() 으로 만든 그 달의 숫자다. */
+export const closeFinMonth = (month: string, snapshot: CloseSnapshot, note?: string) =>
+  mutate("close.set", { month, snapshot, note });
+
+/** 마감 해제. 스냅샷도 함께 지운다 — 다시 마감할 때 새로 얼린다. */
+export const reopenFinMonth = (month: string) => mutate("close.reopen", { month });
 
 // ---- 임포트 이력 --------------------------------------------
 

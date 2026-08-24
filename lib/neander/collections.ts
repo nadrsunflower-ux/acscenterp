@@ -46,4 +46,6 @@ export const NEANDER_COL = {
   finBudgets: "neander_fin_budgets",
   /** 엑셀 임포트 배치 이력 */
   finImports: "neander_fin_imports",
+  /** 월 마감 (문서 1개 = 한 달, 마감 시점 숫자 스냅샷) */
+  finCloses: "neander_fin_closes",
 } as const;
