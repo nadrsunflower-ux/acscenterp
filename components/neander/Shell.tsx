@@ -204,7 +204,7 @@ export function Shell({ children }: { children: ReactNode }) {
       {/* 메인 영역 */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* 상단바 */}
-        <header className="flex items-center justify-between gap-3 border-b border-zinc-200 bg-white px-5 py-3">
+        <header className="neander-topbar flex items-center justify-between gap-3 border-b border-zinc-200 bg-white px-5 py-3">
           {/* 모바일용 간단 네비 */}
           <nav className="-mx-1 flex items-center gap-1 overflow-x-auto px-1 sm:hidden">
             {NAV.map((item) => {
@@ -267,7 +267,7 @@ export function Shell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="w-full flex-1 p-4 sm:p-6 lg:p-8">{children}</main>
+        <main className="neander-main w-full flex-1 p-4 sm:p-6 lg:p-8">{children}</main>
       </div>
     </div>
   );

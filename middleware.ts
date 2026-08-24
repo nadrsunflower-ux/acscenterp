@@ -18,8 +18,24 @@ import { ADMIN_COOKIE, ADMIN_LOGIN_PATH } from "@/lib/auth";
 const TARGET =
   process.env.APP_TARGET ?? process.env.NEXT_PUBLIC_APP_TARGET ?? "acscent";
 
+/**
+ * 정적 자산은 도메인 분기 대상이 아니다.
+ *
+ * NEANDER 타깃은 `/neander` 밖의 모든 경로를 `/neander` 로 돌려보내는데,
+ * PWA manifest 와 아이콘은 그 밖(`/card-memo.webmanifest`, `/icons/...`)에
+ * 있다. 그래서 리다이렉트에 걸려 홈 화면 앱 설치가 통째로 실패했다.
+ * matcher 의 제외 목록(_next/static 등)만으로는 부족해서 여기서 한 번 더
+ * 통과시킨다.
+ */
+const STATIC_PATH =
+  /^\/(icons|images)\/|\.(webmanifest|json|png|jpe?g|svg|ico|gif|webp|avif|txt|xml|woff2?)$/i;
+
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  if (STATIC_PATH.test(pathname)) {
+    return NextResponse.next();
+  }
 
   // ---- 본사(NEANDER) 도메인 ----------------------------------
   if (TARGET === "neander") {

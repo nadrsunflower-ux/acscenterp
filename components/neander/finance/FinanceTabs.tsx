@@ -26,7 +26,7 @@ export function FinanceTabs() {
   ).length;
 
   return (
-    <div className="sticky top-0 z-10 border-b border-zinc-200 bg-white/90 backdrop-blur">
+    <div className="finance-tabs sticky top-0 z-10 border-b border-zinc-200 bg-white/90 backdrop-blur">
       <nav className="mx-auto flex w-full max-w-7xl gap-1 overflow-x-auto px-5">
         {TABS.map((t) => {
           const active =

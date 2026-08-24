@@ -51,3 +51,25 @@ body {
     @apply mb-1 block text-sm font-medium text-gray-700;
   }
 }
+
+/* ============================================================
+   카드 기록을 홈 화면 앱으로 열었을 때
+   ------------------------------------------------------------
+   브라우저에서는 사이드바·상단바·재무 탭이 있어야 다른 화면으로 갈 수
+   있다. 하지만 홈 화면 아이콘을 누른 사람은 **카드 기록만 하러 온 것**
+   이라, 그 줄들이 입력칸을 아래로 밀어낼 뿐이다.
+
+   표시는 StandaloneChrome 이 붙인다(그 파일 주석 참고). 미디어쿼리만으로
+   하지 않는 이유는, 앱으로 연 채 다른 메뉴에 들어가면 길을 잃기 때문이다.
+   ============================================================ */
+html[data-pwa-card] .neander-topbar,
+html[data-pwa-card] .finance-tabs {
+  display: none;
+}
+
+/* 감춘 만큼 위쪽 여백을 줄여 입력칸이 바로 보이게 한다.
+   아이폰 노치/홈 인디케이터를 피하도록 안전영역을 더한다. */
+html[data-pwa-card] .neander-main {
+  padding-top: max(0.75rem, env(safe-area-inset-top));
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
