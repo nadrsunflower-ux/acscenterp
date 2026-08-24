@@ -16,11 +16,11 @@
 
 import type { FinAccountDoc, FinPaymentMethodDoc } from "../db-types";
 import type { FinTransaction } from "../types";
+import { DEFAULT_FIN_AI_MODEL, isFinAiModelId } from "../ai-models";
 import { renderAccounts } from "./ai-classify";
 import { TOOL_DEFS, runTool, type ChangeProposal, type ToolContext } from "./ai-tools";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const DEFAULT_MODEL = "anthropic/claude-opus-5";
 /** 도구 왕복 상한 — 폭주하면 비용이 튄다 */
 const MAX_STEPS = 8;
 
@@ -90,6 +90,8 @@ const SYSTEM = `당신은 (주)네안데르의 재무 담당자와 함께 일하
 export async function runFinanceChat(args: {
   messages: ChatMessage[];
   ctx: ToolContext;
+  /** 사용자가 고른 모델 — 허용 목록(ai-models.ts)에 없으면 무시하고 기본값 */
+  model?: string;
 }): Promise<ChatResult> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -97,7 +99,9 @@ export async function runFinanceChat(args: {
       "OPENROUTER_API_KEY 가 설정되지 않았습니다. .env.local(로컬)과 Vercel 환경변수(배포)에 넣어주세요.",
     );
   }
-  const model = process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
+  const model = isFinAiModelId(args.model)
+    ? args.model
+    : process.env.OPENROUTER_MODEL || DEFAULT_FIN_AI_MODEL;
 
   // 계정 마스터는 매 요청 같으므로 캐시를 건다 (≈4천 토큰)
   const wire: WireMessage[] = [

@@ -225,9 +225,10 @@ export interface ChatResult {
 /**
  * 재무 비서와 대화한다. 대화 기록을 매번 통째로 보낸다 (서버는 상태를 갖지 않는다).
  * 응답의 proposals 는 **아직 저장되지 않은** 변경 제안이다.
+ * model 은 ai-models.ts 허용 목록의 ID — 안 보내면 서버 기본값을 쓴다.
  */
-export const sendFinanceChat = (messages: ChatMessage[]) =>
-  mutateJson<ChatResult>("/api/neander/finance/ai/chat", { messages });
+export const sendFinanceChat = (messages: ChatMessage[], model?: string) =>
+  mutateJson<ChatResult>("/api/neander/finance/ai/chat", { messages, model });
 
 // ---- 암호 걸린 엑셀 --------------------------------------------
 

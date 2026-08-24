@@ -34,7 +34,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const body = (await req.json()) as { messages?: ChatMessage[] };
+    const body = (await req.json()) as { messages?: ChatMessage[]; model?: string };
     const messages = Array.isArray(body.messages) ? body.messages : [];
     if (messages.length === 0) {
       return NextResponse.json({ error: "messages 가 필요합니다." }, { status: 400 });
@@ -65,7 +65,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const result = await runFinanceChat({ messages: trimmed, ctx });
+    const result = await runFinanceChat({ messages: trimmed, ctx, model: body.model });
     return NextResponse.json(result);
   } catch (e) {
     console.error("[finance/ai/chat]", e);
