@@ -37,6 +37,7 @@ import {
   requestAiSuggestions,
   type AiSuggestResult,
 } from "@/lib/neander/finance/client";
+import { BIZ_MAJORS } from "@/lib/neander/finance/sheet";
 import {
   STATUS_COLOR,
   STATUS_LABEL,
@@ -47,10 +48,21 @@ import {
 
 const ALL = "__all__";
 
+/** 계정 3단 경로. 소분류 이름은 중분류마다 겹치므로(일반소모품비 등) 전체 경로로 묶는다 */
+const acctPathOf = (t: FinTransaction) =>
+  `${t.acctMajor ?? "-"} > ${t.acctMid ?? "-"} > ${t.acctMinor ?? "-"}`;
+
 export default function ReviewPage() {
   const { transactions, accounts, paymentMethods, loading, refresh } = useFinance();
 
   const [statusFilter, setStatusFilter] = useState<string>(ALL);
+  /**
+   * 계정으로 좁히기. 대기함이 수백 건이 되면 이게 없으면 일괄 지정이
+   * 무의미하다 — 날짜순으로 섞인 목록에서 같은 계정 146건을 고르려면
+   * 체크박스를 146번 눌러야 한다. 좁힌 뒤 「전체 선택」을 누르면 그
+   * 묶음만 잡힌다.
+   */
+  const [acctFilter, setAcctFilter] = useState<string>(ALL);
   const [cursor, setCursor] = useState(0);
   const [editing, setEditing] = useState<FinTransaction | null>(null);
   const [busy, setBusy] = useState(false);
@@ -58,6 +70,8 @@ export default function ReviewPage() {
   // 수십 건씩 몰려 있어서, 하나씩 누르게 하면 아무도 끝까지 안 한다.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkAcct, setBulkAcct] = useState<AccountValue>({});
+  // 사업구분은 거래유형과 무관하므로 유형이 섞여 있어도 한 번에 지정할 수 있다
+  const [bulkBiz, setBulkBiz] = useState<{ major: string; minor: string }>({ major: "", minor: "" });
   const rowRefs = useRef<(HTMLLIElement | null)[]>([]);
 
   // ---- AI 추천 ----
@@ -76,9 +90,20 @@ export default function ReviewPage() {
       transactions
         .filter((t) => t.status === "suggested" || t.status === "needs_review")
         .filter((t) => statusFilter === ALL || t.status === statusFilter)
+        .filter((t) => acctFilter === ALL || acctPathOf(t) === acctFilter)
         .sort((a, b) => (a.date < b.date ? 1 : -1)),
-    [transactions, statusFilter],
+    [transactions, statusFilter, acctFilter],
   );
+
+  /** 계정 필터 후보 — 계정 필터를 **빼고** 센다 (좁힌 뒤에도 다른 계정으로 옮겨갈 수 있게) */
+  const acctGroups = useMemo(() => {
+    const m = new Map<string, number>();
+    transactions
+      .filter((t) => t.status === "suggested" || t.status === "needs_review")
+      .filter((t) => statusFilter === ALL || t.status === statusFilter)
+      .forEach((t) => m.set(acctPathOf(t), (m.get(acctPathOf(t)) ?? 0) + 1));
+    return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ko"));
+  }, [transactions, statusFilter]);
 
   const bizMinors = useMemo(
     () =>
@@ -209,6 +234,46 @@ export default function ReviewPage() {
   const selectedTypes = [...new Set(selectedRows.map((t) => t.txType))];
   const bulkTxType = selectedTypes.length === 1 ? selectedTypes[0] : null;
 
+  /** 계정 3단이 마스터에 있는가 (거래유형은 뺀다 — 환급은 지출 계정을 쓴다) */
+  const acctPaths = useMemo(
+    () => new Set(accounts.map((a) => `${a.major}|${a.mid}|${a.minor}`)),
+    [accounts],
+  );
+
+  /**
+   * 사업구분 일괄 지정.
+   *
+   * 계정까지 멀쩡한 행만 확정으로 올린다. 사업구분만 비어서 대기함에 온
+   * 행은 채우는 순간 볼 일이 끝나지만, 계정이 마스터에 없어서 온 행까지
+   * 함께 확정해 버리면 **정작 고쳐야 할 문제가 대기함에서 사라진다.**
+   * 그래서 행마다 상태를 달리 쓴다(applyEdits 는 행별 패치를 받는다).
+   */
+  const applyBulkBiz = async () => {
+    if (!bulkBiz.major || selectedRows.length === 0) return;
+    setBusy(true);
+    try {
+      const updates = selectedRows.map((t) => {
+        const acctOk = !!t.acctMinor && acctPaths.has(`${t.acctMajor}|${t.acctMid}|${t.acctMinor}`);
+        return {
+          id: t.id,
+          patch: {
+            bizMajor: bulkBiz.major,
+            bizMinor: bulkBiz.minor || bulkBiz.major,
+            ...(acctOk
+              ? { status: "confirmed" as const, classReason: `검토 대기함에서 사업구분 일괄 지정 (${selectedRows.length}건)` }
+              : { classReason: "사업구분은 지정했으나 계정이 마스터에 없어 대기함에 남긴다" }),
+          },
+        };
+      });
+      await applyFinEdits({ updates, inserts: [], deletes: [] });
+      setSelected(new Set());
+      setBulkBiz({ major: "", minor: "" });
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const applyBulk = async () => {
     if (!bulkAcct.acctMinor || selectedRows.length === 0) return;
     setBusy(true);
@@ -262,6 +327,23 @@ export default function ReviewPage() {
               <option value={ALL}>전체</option>
               {(["suggested", "needs_review"] as ClassificationStatus[]).map((s) => (
                 <option key={s} value={s}>{STATUS_LABEL[s]}</option>
+              ))}
+            </Select>
+            <Select
+              value={acctFilter}
+              className="w-auto max-w-[20rem]"
+              onChange={(e) => {
+                setAcctFilter(e.target.value);
+                setSelected(new Set()); // 안 보이는 행이 선택된 채로 남으면 안 된다
+                setCursor(0);
+              }}
+              title="계정으로 좁힌 뒤 「전체 선택」 을 누르면 그 묶음만 잡힙니다"
+            >
+              <option value={ALL}>모든 계정 ({acctGroups.reduce((n, [, c]) => n + c, 0)})</option>
+              {acctGroups.map(([path, n]) => (
+                <option key={path} value={path}>
+                  {path} ({n})
+                </option>
               ))}
             </Select>
             {aiTargets.length > 0 && (
@@ -389,6 +471,47 @@ export default function ReviewPage() {
                     ({selectedTypes.join(" · ")}). 같은 유형끼리 골라주세요.
                   </p>
                 )}
+              </div>
+
+              {/* 사업구분은 거래유형과 무관하다 — 유형이 섞여 있어도 지정할 수 있다 */}
+              <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-indigo-200 pt-3">
+                <span className="text-xs font-medium text-zinc-600">사업구분 일괄</span>
+                <Select
+                  value={bulkBiz.major}
+                  onChange={(e) => setBulkBiz({ major: e.target.value, minor: "" })}
+                  className="h-8 w-28 text-xs"
+                >
+                  <option value="">대분류</option>
+                  {BIZ_MAJORS.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                </Select>
+                <Select
+                  value={bulkBiz.minor}
+                  onChange={(e) => setBulkBiz((v) => ({ ...v, minor: e.target.value }))}
+                  disabled={!bulkBiz.major}
+                  className="h-8 w-32 text-xs"
+                >
+                  <option value="">소분류 (대분류와 같게)</option>
+                  {bizMinors.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                </Select>
+                <Button
+                  variant="secondary"
+                  onClick={applyBulkBiz}
+                  disabled={busy || !bulkBiz.major}
+                  className="h-8 px-3 text-xs"
+                >
+                  {selected.size}건에 사업구분 적용
+                </Button>
+                <span className="text-xs text-zinc-500">
+                  계정까지 멀쩡한 행만 확정으로 올라갑니다
+                </span>
               </div>
             </Card>
           )}

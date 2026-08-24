@@ -25,7 +25,8 @@
     "finance:verify-close": "tsx scripts/neander/verify-close.ts",
     "finance:fix-accounts": "tsx scripts/neander/fix-legacy-accounts.ts",
     "finance:backfill-biz-learned": "tsx scripts/neander/backfill-biz-learned.ts",
-    "finance:backfill-biz-decisions": "tsx scripts/neander/backfill-biz-decisions.ts"
+    "finance:backfill-biz-decisions": "tsx scripts/neander/backfill-biz-decisions.ts",
+    "finance:queue-ambiguous": "tsx scripts/neander/queue-ambiguous.ts"
   },
   "dependencies": {
     "firebase": "10.14.1",
