@@ -47,6 +47,12 @@ import { todayStr } from "@/lib/neander/format";
 /** 마지막에 고른 카드를 기억한다 — 보통 같은 카드를 계속 쓴다 */
 const LAST_CARD_KEY = "neander.finance.cardMemo.last4";
 
+/** 숫자만 남겨 천 단위 콤마를 찍는다. 금액은 항상 양수다(서버도 절댓값을 쓴다). */
+const commafy = (raw: string) => {
+  const digits = raw.replace(/\D/g, "");
+  return digits ? Number(digits).toLocaleString("ko-KR") : "";
+};
+
 /** 모델이 채운 칸임을 알린다 — 사람이 어디를 확인해야 하는지 알아야 한다 */
 const filled = (v: unknown) =>
   v ? <span className="ml-1 font-normal text-indigo-500">· 캡처에서 읽음</span> : null;
@@ -76,6 +82,37 @@ export default function CardMemoPage() {
   const [matching, setMatching] = useState(false);
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const amountRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * 콤마를 찍으면 글자 수가 바뀌어 커서가 끝으로 튄다. 20,290 을 20,190
+   * 으로 고치려고 가운데를 눌렀는데 커서가 맨 뒤로 가면, 지웠다 다시
+   * 쳐야 한다. 그래서 **몇 번째 숫자 뒤였는지**를 기억했다가 되돌린다.
+   */
+  const onAmountChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const el = e.target;
+    const digitsBeforeCaret = el.value.slice(0, el.selectionStart ?? 0).replace(/\D/g, "").length;
+    const next = commafy(el.value);
+    setAmount(next);
+    requestAnimationFrame(() => {
+      const node = amountRef.current;
+      if (!node) return;
+      if (digitsBeforeCaret === 0) {
+        node.setSelectionRange(0, 0);
+        return;
+      }
+      let seen = 0;
+      let pos = next.length;
+      for (let i = 0; i < next.length; i++) {
+        if (/\d/.test(next[i])) seen += 1;
+        if (seen === digitsBeforeCaret) {
+          pos = i + 1;
+          break;
+        }
+      }
+      node.setSelectionRange(pos, pos);
+    });
+  }, []);
 
   /**
    * 사진을 고르는 즉시 읽는다. 「읽기」 버튼을 따로 두면 안 누른다 —
@@ -93,7 +130,7 @@ export default function CardMemoPage() {
       try {
         const r = await readCardReceipt(files);
         setRead(r);
-        if (r.amount && !amount) setAmount(String(r.amount));
+        if (r.amount && !amount) setAmount(commafy(String(r.amount)));
         if (r.items && !note) setNote(r.items);
         if (r.vendor && !vendor) setVendor(r.vendor);
         if (r.date) setDate(r.date);
@@ -134,7 +171,7 @@ export default function CardMemoPage() {
     else if (cards.length === 1) setLast4(cards[0].last4);
   }, [cards, last4]);
 
-  const amountNum = Math.round(Number(amount.replace(/[^\d.-]/g, "")));
+  const amountNum = Number(amount.replace(/\D/g, ""));
   const canSave = !!date && !!last4 && note.trim() !== "" && Number.isFinite(amountNum) && amountNum !== 0;
 
   const save = async () => {
@@ -312,11 +349,12 @@ export default function CardMemoPage() {
           <label className="block">
             <span className="text-xs font-medium text-zinc-500">금액{filled(read?.amount)}</span>
             <input
+              ref={amountRef}
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={onAmountChange}
               // 휴대폰에서 숫자 키패드가 뜨게 한다
               inputMode="numeric"
-              placeholder="20290"
+              placeholder="20,290"
               className={`mt-1 ${field} text-right tabular-nums`}
             />
           </label>
