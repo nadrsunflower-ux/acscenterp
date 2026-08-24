@@ -18,7 +18,21 @@ import "./ledger-sheet.css";
 
 import { useCallback, useMemo, useState, type Ref } from "react";
 import {
-  DataSheetGrid,
+  // ⚠️ 이 라이브러리에서 `DataSheetGrid` 라는 이름으로 나오는 것은 실제로는
+  //    StaticDataSheetGrid 다. 그 안은 이렇게 생겼다:
+  //
+  //      const [staticProps] = useState({ columns, gutterColumn, rowClassName, … })
+  //
+  //    useState 의 초기값이라 **첫 렌더의 값을 영원히 붙잡는다.** 그래서
+  //    나중에 columns 를 바꿔도 표에 닿지 않는다. rowHeight 만 숫자일 때
+  //    통과시키는 예외가 있어서, 행 높이는 되는데 열 폭은 안 되는 기묘한
+  //    증상이 나왔다.
+  //
+  //    이걸 모르고 쓰는 동안 조용히 멈춰 있던 것들 — 정렬 화살표, 필터
+  //    깔때기, 오류 셀 빨간 표시(cellClassName), 저장 전 행 색칠
+  //    (rowClassName) — 이 전부 마운트 시점 값에 묶여 있었다.
+  //    DynamicDataSheetGrid 가 매 렌더 값을 그대로 쓰는 쪽이다.
+  DynamicDataSheetGrid,
   createTextColumn,
   keyColumn,
   type Column,
@@ -86,6 +100,28 @@ const DEFAULT_BASIS: Record<SortKey, number> = {
   note: 200,
   status: 96,
 };
+
+/** 머리글 이름 — 머리글은 셀 정의와 따로 만든다 (아래 두 층 구조 참고) */
+const LABEL: Record<SortKey, string> = {
+  date: "거래일",
+  txType: "유형",
+  last4: "계좌/카번",
+  vendor: "거래처",
+  bizMajor: "사업대분류",
+  bizMinor: "사업소분류",
+  acctMajor: "계정대분류",
+  acctMid: "계정중분류",
+  acctMinor: "계정소분류",
+  gross: "원금액",
+  adjust: "조정금액",
+  net: "순금액",
+  site: "사업장",
+  note: "비고",
+  status: "상태",
+};
+
+/** 검증 오류를 빨갛게 칠하는 열. 오류 필드 이름이 열 키와 같다. */
+const INVALID_KEYS = new Set<SortKey>(["date", "txType", "last4", "bizMajor", "acctMajor", "acctMid", "acctMinor", "gross", "adjust", "status"]);
 
 /** 남는 폭을 나눠 갖는 열 → 값은 그때 지켜야 할 최소 폭 */
 const FLEX_MIN: Partial<Record<SortKey, number>> = { vendor: 140, note: 120 };
@@ -184,19 +220,15 @@ export function LedgerSheet({
 
   const { layout, setWidth, clearWidth, setRowHeight, reset, customized } = useSheetLayout();
 
-  const baseColumns = useMemo<Col[]>(() => {
-    const header = (label: string, key: SortKey) => (
-      <ColumnHead
-        label={label}
-        dir={sort?.key === key ? sort.dir : null}
-        filtered={isActiveFilter(filters[key])}
-        onSort={() => onSort(key)}
-        onOpenMenu={(anchor) => setMenu({ key, label, anchor })}
-        onResize={(px) => setWidth(key, px)}
-        onResetWidth={() => clearWidth(key)}
-      />
-    );
-
+  /**
+   * ① 셀 정의. 마스터가 바뀔 때만 다시 만든다.
+   *
+   * 여기서 머리글(정렬·필터 상태)이나 오류 표시(issues)를 함께 만들면,
+   * 글자 하나 고칠 때마다 issues 가 새로 생기면서 열 정의가 통째로 다시
+   * 만들어지고 — component 의 함수 신원이 바뀌어 — 화면의 셀 수백 개가
+   * 다시 마운트된다. 편집 중이던 셀도 날아간다. 그래서 층을 가른다.
+   */
+  const cellColumns = useMemo<Col[]>(() => {
     /** 기본 폭. 사용자가 정한 폭은 이 memo 밖에서 얹는다 (아래 주석 참고) */
     const size = (key: SortKey) => {
       const min = FLEX_MIN[key];
@@ -204,11 +236,6 @@ export function LedgerSheet({
         ? { id: key, basis: DEFAULT_BASIS[key], grow: 0, shrink: 0, minWidth: 0 }
         : { id: key, basis: DEFAULT_BASIS[key], grow: 1, shrink: 1, minWidth: min };
     };
-
-    const invalid = (field: RowIssue["field"]) => ({
-      cellClassName: ({ rowData }: { rowData: FinTransaction }) =>
-        issues.get(rowData.id)?.some((i) => i.field === field) ? "ledger-cell-invalid" : undefined,
-    });
 
     const pmOptions: SelectOption[] = paymentMethods.map((p) => ({
       value: p.last4,
@@ -234,8 +261,6 @@ export function LedgerSheet({
     return [
       {
         ...keyColumn<FinTransaction, "date">("date", dateText),
-        ...invalid("date"),
-        title: header("거래일", "date"),
         ...size("date"),
       },
       {
@@ -247,8 +272,6 @@ export function LedgerSheet({
               : { ...t, txType: v as TxType, acctMajor: undefined, acctMid: undefined, acctMinor: undefined },
           options: () => asOptions([...TX_TYPES]),
         }),
-        ...invalid("txType"),
-        title: header("유형", "txType"),
         ...size("txType"),
       },
       {
@@ -258,13 +281,10 @@ export function LedgerSheet({
           options: () => pmOptions,
           placeholder: "(없음)",
         }),
-        ...invalid("last4"),
-        title: header("계좌/카번", "last4"),
         ...size("last4"),
       },
       {
         ...keyColumn<FinTransaction, "vendor">("vendor", optionalText),
-        title: header("거래처", "vendor"),
         ...size("vendor"),
       },
       {
@@ -274,13 +294,10 @@ export function LedgerSheet({
           options: () => asOptions([...BIZ_MAJORS]),
           placeholder: "(미정)",
         }),
-        ...invalid("bizMajor"),
-        title: header("사업대분류", "bizMajor"),
         ...size("bizMajor"),
       },
       {
         ...keyColumn<FinTransaction, "bizMinor">("bizMinor", optionalText),
-        title: header("사업소분류", "bizMinor"),
         ...size("bizMinor"),
       },
       {
@@ -293,8 +310,6 @@ export function LedgerSheet({
           options: majors,
           placeholder: "대분류",
         }),
-        ...invalid("acctMajor"),
-        title: header("계정대분류", "acctMajor"),
         ...size("acctMajor"),
       },
       {
@@ -305,8 +320,6 @@ export function LedgerSheet({
           options: mids,
           placeholder: "중분류",
         }),
-        ...invalid("acctMid"),
-        title: header("계정중분류", "acctMid"),
         ...size("acctMid"),
       },
       {
@@ -316,20 +329,14 @@ export function LedgerSheet({
           options: minors,
           placeholder: "소분류",
         }),
-        ...invalid("acctMinor"),
-        title: header("계정소분류", "acctMinor"),
         ...size("acctMinor"),
       },
       {
         ...keyColumn<FinTransaction, "gross">("gross", amount),
-        ...invalid("gross"),
-        title: header("원금액", "gross"),
         ...size("gross"),
       },
       {
         ...keyColumn<FinTransaction, "adjust">("adjust", amount),
-        ...invalid("adjust"),
-        title: header("조정금액", "adjust"),
         ...size("adjust"),
       },
       {
@@ -341,7 +348,6 @@ export function LedgerSheet({
           copy: (t) => netAmount(t),
           alignRight: true,
         }),
-        title: header("순금액", "net"),
         ...size("net"),
       },
       {
@@ -351,12 +357,10 @@ export function LedgerSheet({
           options: () => siteOptions,
           placeholder: "(기본)",
         }),
-        title: header("사업장", "site"),
         ...size("site"),
       },
       {
         ...keyColumn<FinTransaction, "note">("note", optionalText),
-        title: header("비고", "note"),
         ...size("note"),
       },
       {
@@ -365,30 +369,51 @@ export function LedgerSheet({
           set: (t, v) => ({ ...t, status: (v || "confirmed") as FinTransaction["status"] }),
           options: () => STATUSES.map((s) => ({ value: s, label: STATUS_LABEL[s] })),
         }),
-        ...invalid("status"),
-        title: header("상태", "status"),
         ...size("status"),
       },
     ];
-  }, [accounts, paymentMethods, sites, issues, sort, onSort, filters, setWidth, clearWidth]);
+  }, [accounts, paymentMethods, sites]);
 
   /**
-   * 사용자가 정한 폭을 **얹기만** 한다. 폭을 위 memo 안에서 읽으면 드래그
-   * 한 프레임마다 열 정의가 통째로 새로 만들어지고, 그러면 셀 component
-   * 의 함수 신원이 바뀌어 React 가 화면의 셀 300개를 매 프레임 다시
-   * 마운트한다 (편집 중이던 셀도 날아간다). 여기서는 기존 객체를 펼쳐
-   * 복사하므로 component 참조가 그대로 유지된다.
+   * ② 머리글 · 오류 표시 · 사용자가 정한 폭을 **얹기만** 한다.
    *
-   * 폭을 정하면 grow 를 0 으로 고정한다 — 남겨두면 남는 공간을 받아
-   * 끈 자리보다 넓어져서, 끌었는데 다른 값이 되는 표가 된다.
+   * 기존 객체를 펼쳐 복사하므로 component 참조가 그대로 유지된다 — 위
+   * 주석의 재마운트가 일어나지 않는다.
+   *
+   * 폭을 정하면 grow 를 0 으로 고정한다. 남겨두면 남는 공간을 받아 끈
+   * 자리보다 넓어져서, 끌었는데 다른 값이 되는 표가 된다.
    */
   const columns = useMemo<Col[]>(
     () =>
-      baseColumns.map((c) => {
-        const w = layout.widths[String(c.id)];
-        return w === undefined ? c : { ...c, basis: w, grow: 0, shrink: 0, minWidth: w };
+      cellColumns.map((c) => {
+        const key = String(c.id) as SortKey;
+        const label = LABEL[key] ?? key;
+        const w = layout.widths[key];
+        return {
+          ...c,
+          title: (
+            <ColumnHead
+              label={label}
+              dir={sort?.key === key ? sort.dir : null}
+              filtered={isActiveFilter(filters[key])}
+              onSort={() => onSort(key)}
+              onOpenMenu={(anchor) => setMenu({ key, label, anchor })}
+              onResize={(px) => setWidth(key, px)}
+              onResetWidth={() => clearWidth(key)}
+            />
+          ),
+          ...(INVALID_KEYS.has(key)
+            ? {
+                cellClassName: ({ rowData }: { rowData: FinTransaction }) =>
+                  issues.get(rowData.id)?.some((i) => i.field === key)
+                    ? "ledger-cell-invalid"
+                    : undefined,
+              }
+            : null),
+          ...(w === undefined ? null : { basis: w, grow: 0, shrink: 0, minWidth: w }),
+        };
       }),
-    [baseColumns, layout.widths],
+    [cellColumns, layout.widths, sort, filters, issues, onSort, setWidth, clearWidth],
   );
 
   // 행 번호 칸 — 아래 경계가 행 높이 손잡이, 왼쪽 위 모서리가 초기화 버튼
@@ -415,7 +440,7 @@ export function LedgerSheet({
 
   return (
     <div className="ledger-sheet">
-      <DataSheetGrid<FinTransaction>
+      <DynamicDataSheetGrid<FinTransaction>
         ref={gridRef}
         value={rows}
         onChange={(next) => onChange(next)}
