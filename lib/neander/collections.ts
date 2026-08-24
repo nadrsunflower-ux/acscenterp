@@ -38,6 +38,12 @@ export const NEANDER_COL = {
   finPaymentMethods: "neander_fin_payment_methods",
   /** 거래처 키워드 → 구독 서비스 자동분류 규칙 */
   finVendorRules: "neander_fin_vendor_rules",
+  /** 구독 서비스 마스터 (계정+거래처 키워드 매칭 · 결제수단 정비 계획) */
+  finSubscriptions: "neander_fin_subscriptions",
+  /** 공통비 배분 규칙 (공용·홍대공용 → 사업부) */
+  finAllocations: "neander_fin_allocations",
+  /** 월별 예산 (문서 1개 = 한 달, 계정 경로별 금액 맵) */
+  finBudgets: "neander_fin_budgets",
   /** 엑셀 임포트 배치 이력 */
   finImports: "neander_fin_imports",
 } as const;

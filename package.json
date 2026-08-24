@@ -15,6 +15,8 @@
     "scheduler:check": "tsx scripts/scheduler/check-schedules.ts",
     "scheduler:import-shifts": "tsx scripts/scheduler/import-from-shifts.ts",
     "neander:backfill-emails": "tsx scripts/neander/backfill-member-emails.ts",
+    "finance:verify-report": "tsx scripts/neander/verify-report.ts",
+    "finance:seed-master": "tsx scripts/neander/seed-finance-master.ts",
     "finance:verify": "tsx scripts/neander/verify-finance-import.ts",
     "firebase:deploy:rules": "bash scripts/deploy-rules.sh",
     "finance:import": "tsx scripts/neander/import-ledger.ts",
@@ -25,7 +27,9 @@
     "firebase-admin": "^13.10.0",
     "html2canvas": "1.4.1",
     "next": "14.2.35",
+    "officecrypto-tool": "^0.0.19",
     "react": "18.3.1",
+    "react-datasheet-grid": "^4.11.6",
     "react-dom": "18.3.1",
     "server-only": "^0.0.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"

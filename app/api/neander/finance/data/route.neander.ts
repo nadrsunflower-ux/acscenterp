@@ -20,12 +20,15 @@ export async function GET(req: Request) {
   try {
     await requireFinanceUser(req);
 
-    const [transactions, accounts, paymentMethods, vendorRules, imports] =
+    const [transactions, accounts, paymentMethods, vendorRules, subscriptions, allocations, budgets, imports] =
       await Promise.all([
         readAll(NEANDER_COL.finTransactions),
         readAll(NEANDER_COL.finAccounts),
         readAll(NEANDER_COL.finPaymentMethods),
         readAll(NEANDER_COL.finVendorRules),
+        readAll(NEANDER_COL.finSubscriptions),
+        readAll(NEANDER_COL.finAllocations),
+        readAll(NEANDER_COL.finBudgets),
         readAll(NEANDER_COL.finImports),
       ]);
 
@@ -46,6 +49,9 @@ export async function GET(req: Request) {
       accounts,
       paymentMethods,
       vendorRules,
+      subscriptions,
+      allocations,
+      budgets,
       imports,
     });
   } catch (e) {

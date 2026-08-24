@@ -39,7 +39,151 @@ export interface FinPaymentMethodMaster {
   site: string;
   /** (신법)/(국법) 접두 별칭 = 임직원 개인카드(대납용) */
   personal: boolean;
+  /**
+   * 결제수단 종류. **현금흐름 기준 집계의 근거**다.
+   *   account 통장 — 결제 시점이 곧 출금 시점
+   *   card    카드 — 사용 시점과 대금 출금 시점이 다르다
+   *   cash    현금 — 통장과 같게 본다
+   * 지금 카드는 전부 임직원 개인 명의라 personal 과 일치하지만, 법인카드가
+   * 생기면 갈라진다. 그래서 별도 필드로 둔다.
+   */
+  kind: "account" | "card" | "cash";
 }
+
+/**
+ * 구독 서비스 마스터 — 엑셀 「구독서비스 관리」 + 「구독결제수단 정비」 시트
+ *
+ * 거래처 키워드만 쓰던 옛 규칙(FIN_VENDOR_RULES)을 대체한다. 두 가지가 다르다:
+ *
+ *  ① **계정으로 먼저 좁힌다.** 구독 계정(구독서비스비·툴구독비·개발프로그램구독비)
+ *     안에서만 거래처를 맞춘다. 안 그러면 사람 이름 키워드가 급여 이체를
+ *     구독비로 끌어온다 — 2026-07 실측 500만원이 그렇게 섞였다.
+ *
+ *  ② **키워드가 여러 개다.** 같은 서비스가 결제 창구마다 다른 이름으로 찍힌다.
+ *     Anthropic 은 `ANTHROPIC* CLAUDE SUB` · `ANTHROPIC` · `CLAUDE.AI SUBSCRIPTION`
+ *     세 가지로 들어오는데, 키워드 하나(`ANTHROPIC`)면 마지막 483,175원을 놓친다.
+ *
+ * `recommendedCard` 는 「구독결제수단 정비」 시트의 권장안이다. 현재 결제는
+ * 전부 임직원 개인 명의 카드라(법인카드 0장) 이 열은 아직 "계획"이다.
+ */
+export interface FinSubscriptionMaster {
+  service: string;
+  /** 거래처명에 이 중 하나가 포함되면 매칭 (대소문자 무시) */
+  keywords: string[];
+  /** 이 계정소분류일 때만 매칭. 비우면 구독 계정 전체 */
+  acctMinors?: string[];
+  /** monthly 월정액 · usage 사용량 과금 */
+  cycle: "monthly" | "usage";
+  /** 월 예상액. 있으면 초과할 때 경고한다 (없으면 과거 중앙값을 기준으로 본다) */
+  expected?: number;
+  /** 권장 결제수단 그룹 — 「카드 1장 = 목적 1개」 */
+  recommendedCard?: string;
+  /** active 정상 · review 확인 필요 · cancelled 해지 */
+  status: "active" | "review" | "cancelled";
+  note?: string;
+}
+
+export const FIN_SUBSCRIPTIONS: FinSubscriptionMaster[] = [
+  // ---- 전사 공통 SaaS ----
+  { service: "Anthropic (Claude)", keywords: ["ANTHROPIC", "CLAUDE"], cycle: "monthly", recommendedCard: "법인_공용SaaS", status: "active", note: "결제 창구가 3종(ANTHROPIC* CLAUDE SUB / ANTHROPIC / CLAUDE.AI) — 카드 분산" },
+  { service: "OpenAI (ChatGPT)", keywords: ["OPENAI"], cycle: "monthly", recommendedCard: "법인_공용SaaS", status: "active" },
+  { service: "카페24", keywords: ["카페24"], cycle: "monthly", recommendedCard: "법인_공용SaaS", status: "active", note: "조향 원자재비로 오분류된 건 있음" },
+  { service: "Adyen", keywords: ["Adyen"], cycle: "monthly", recommendedCard: "법인_공용SaaS", status: "review", note: "용도 확인 필요" },
+  { service: "SGT", keywords: ["SGT"], cycle: "monthly", recommendedCard: "법인_공용SaaS", status: "review", note: "서비스 정체 확인 필요" },
+
+  // ---- 인프라 (사용량 과금) ----
+  { service: "Google Cloud", keywords: ["구글클라우드", "GOOGLE CLOUD"], cycle: "usage", recommendedCard: "법인_인프라", status: "active", note: "카드 2장 분산 · 프로젝트별 결제계정 분리 검토" },
+  { service: "OpenRouter", keywords: ["OPENROUTER"], cycle: "usage", recommendedCard: "법인_인프라", status: "active", note: "키별 사용량으로 SMOAT·사내개발 배분 (OpenRouter배분 시트)" },
+  { service: "Vercel", keywords: ["VERCEL"], cycle: "usage", recommendedCard: "법인_인프라", status: "active" },
+  { service: "Supabase", keywords: ["SUPABASE"], cycle: "usage", recommendedCard: "법인_인프라", status: "active", note: "카드 2장 분산" },
+  { service: "fal.ai", keywords: ["FAL FEATURES"], cycle: "usage", recommendedCard: "법인_인프라", status: "active" },
+  { service: "다날 호스팅", keywords: ["다날"], cycle: "monthly", recommendedCard: "법인_인프라", status: "active" },
+
+  // ---- 마케팅·제작 도구 ----
+  { service: "미리디(미리캔버스)", keywords: ["미리디"], cycle: "monthly", recommendedCard: "법인_마케팅", status: "active" },
+  { service: "Envato", keywords: ["ENVATO"], cycle: "monthly", recommendedCard: "법인_마케팅", status: "active" },
+  { service: "Canva", keywords: ["CANVA"], cycle: "monthly", recommendedCard: "법인_마케팅", status: "active", note: "청구서가 건별로 쪼개져 들어온다" },
+  { service: "Higgsfield", keywords: ["HIGGSFIELD"], cycle: "monthly", recommendedCard: "법인_마케팅", status: "active" },
+  { service: "KlingAI", keywords: ["KLINGAI"], cycle: "monthly", recommendedCard: "법인_마케팅", status: "active", note: "영상생성 AI" },
+  { service: "베러웨이시스템즈", keywords: ["베러웨이"], cycle: "monthly", recommendedCard: "법인_마케팅", status: "active" },
+
+  // ---- 개인 대납 (구조 폐지 대상) ----
+  // 이름 키워드지만 구독 계정 안에서만 맞추므로 급여가 섞이지 않는다.
+  { service: "OpenRouter 대납(김제연)", keywords: ["김제연"], cycle: "usage", recommendedCard: "※ 법인카드 직접결제로 전환", status: "review", note: "대납 구조 폐지 대상 — 계정 자체를 프로젝트별로 분리 필요" },
+  { service: "유튜브(이동주)", keywords: ["이동주"], cycle: "monthly", recommendedCard: "※ 법인카드 직접결제로 전환", status: "review", note: "대납 구조 폐지 대상" },
+  { service: "개인대납(김주연)", keywords: ["김주연"], cycle: "monthly", recommendedCard: "※ 법인카드 직접결제로 전환", status: "review", note: "대납 구조 폐지 대상" },
+  { service: "개인대납(유재영)", keywords: ["유재영"], cycle: "monthly", recommendedCard: "※ 법인카드 직접결제로 전환", status: "review", note: "대납 구조 폐지 대상" },
+
+  // ---- 정체 미상 ----
+  { service: "카카오페이 (미상)", keywords: ["카카오페이"], cycle: "monthly", status: "review", note: "결제대행 표기라 실제 서비스를 알 수 없다 — 거래처를 실제 서비스명으로 고칠 것" },
+];
+
+/**
+ * 공통비 배분 규칙 — 사업부 손익을 "진짜" 손익으로 만드는 장치.
+ *
+ * 공용·홍대공용에 쌓인 비용은 어느 사업부에도 귀속돼 있지 않다. 그래서
+ * 와우·아이디의 흑자는 공통비를 빼기 전 숫자다(2026-07 기준 공용 △3,071만,
+ * 홍대공용 △1,528만). 이걸 나눠 실어야 "이 사업부가 돈을 버는가"에 답할 수 있다.
+ *
+ * ⚠️ **전부 비활성으로 시드한다.** 배분은 사실이 아니라 **경영 판단**이다.
+ *    드라이버(무엇에 비례해 나눌 것인가)를 정하는 순간 사업부 손익이 달라지므로,
+ *    사람이 규칙을 보고 켜기 전까지는 아무것도 바꾸지 않는다.
+ *
+ * ⚠️ OpenRouter 사용량 배분은 규칙으로 넣지 않았다. 이미 장부에서 수동으로
+ *    재분류(2026-07-31 SMOAT △285,535 ↔ 공용 +285,535)돼 있어 규칙까지 걸면
+ *    이중 계상된다.
+ */
+export interface FinAllocationMaster {
+  /** 규칙 이름 (문서 id 로도 쓴다) */
+  name: string;
+  /** 배분 원천 사업부 */
+  fromMajor: string;
+  fromMinor: string;
+  /** 이 계정대분류만 배분. 비우면 원천의 지출 전체 */
+  acctMajors?: string[];
+  /**
+   * 배분 기준.
+   *   revenue 대상 사업부의 수입 비율
+   *   expense 대상 사업부의 지출 비율
+   *   fixed   shares 에 적은 고정 비율
+   */
+  driver: "revenue" | "expense" | "fixed";
+  /** 배분 받을 사업부 `대분류|소분류`. 비우면 원천을 뺀 전부 */
+  targets?: string[];
+  /** driver=fixed 일 때의 비율 (합이 1) */
+  shares?: Record<string, number>;
+  active: boolean;
+  note?: string;
+}
+
+export const FIN_ALLOCATIONS: FinAllocationMaster[] = [
+  {
+    name: "홍대공용 → 와우·아이디 (매출비율)",
+    fromMajor: "B2C",
+    fromMinor: "홍대공용",
+    driver: "revenue",
+    targets: ["B2C|와우", "B2C|아이디"],
+    active: false,
+    note: "홍대 두 매장이 함께 쓰는 공간·인력 비용. 매출이 큰 쪽이 더 많이 쓴다고 본다. ⚠ 매출비율이라 그 달 매출이 0 인 사업부는 한 푼도 받지 않는다.",
+  },
+  {
+    name: "공용 → 전 사업부 (매출비율)",
+    fromMajor: "공용",
+    fromMinor: "공용",
+    driver: "revenue",
+    active: false,
+    note: "전사 인건비·임차료·SaaS. 매출 비율은 가장 무난한 기본값이다. ⚠ 매출이 0 인 사업부(예: 그 달 매출 없는 조향·개발)는 공통비를 받지 않아 실제보다 좋아 보인다 — 인원수·사용량 기준이 맞으면 fixed 로 바꿔 쓴다.",
+  },
+  {
+    name: "공용 인건비만 → 전 사업부 (매출비율)",
+    fromMajor: "공용",
+    fromMinor: "공용",
+    acctMajors: ["인건비"],
+    driver: "revenue",
+    active: false,
+    note: "공용 전액이 부담스러우면 인건비만 먼저 나눠 보는 용도. 위 규칙과 함께 켜면 인건비가 두 번 배분되니 둘 중 하나만 켠다.",
+  },
+];
 
 /** 거래처 키워드 → 구독 서비스 매핑 (자동분류·구독비 집계에 사용) */
 export interface FinVendorRuleMaster {
@@ -369,33 +513,33 @@ export const FIN_ACCOUNTS: FinAccountMaster[] = [
 ];
 
 export const FIN_PAYMENT_METHODS: FinPaymentMethodMaster[] = [
-  { last4: "7069", alias: "신한지원", site: "네안데르", personal: false },
-  { last4: "4248", alias: "신한입금", site: "네안데르", personal: false },
-  { last4: "4223", alias: "신한출금", site: "네안데르", personal: false },
-  { last4: "8804", alias: "국민", site: "네안데르", personal: false },
-  { last4: "9279", alias: "우리온라인", site: "네안데르", personal: false },
-  { last4: "3695", alias: "우리지원", site: "네안데르", personal: false },
-  { last4: "9719", alias: "우리대출", site: "네안데르", personal: false },
-  { last4: "3470", alias: "신한신보대출", site: "네안데르", personal: false },
-  { last4: "0429", alias: "토스모임", site: "안다르", personal: false },
-  { last4: "9999", alias: "사무실지폐", site: "안다르", personal: false },
-  { last4: "1769", alias: "신한일컴", site: "일해라컴퍼니", personal: false },
-  { last4: "5346", alias: "카카오일컴", site: "일해라컴퍼니", personal: false },
-  { last4: "7773", alias: "카카오와작", site: "와작홈즈", personal: false },
-  { last4: "2171", alias: "(신법)이동주", site: "네안데르", personal: true },
-  { last4: "2392", alias: "(신법)유재영하이", site: "네안데르", personal: true },
-  { last4: "4306", alias: "(신법)유재영", site: "네안데르", personal: true },
-  { last4: "1804", alias: "(신법)이동주", site: "네안데르", personal: true },
-  { last4: "6379", alias: "(신법)김주희", site: "네안데르", personal: true },
-  { last4: "3847", alias: "(신법)유선화", site: "네안데르", personal: true },
-  { last4: "7753", alias: "(신법)김주연", site: "네안데르", personal: true },
-  { last4: "4528", alias: "(신법)유재영-신", site: "네안데르", personal: true },
-  { last4: "3513", alias: "(신법)김주연-신", site: "네안데르", personal: true },
-  { last4: "2842", alias: "(신법)유다혜", site: "네안데르", personal: true },
-  { last4: "0815", alias: "(국법)이동주", site: "네안데르", personal: true },
-  { last4: "7889", alias: "(국법)유재영", site: "네안데르", personal: true },
-  { last4: "9806", alias: "(국법)유선화", site: "네안데르", personal: true },
-  { last4: "3800", alias: "(국법)식대", site: "네안데르", personal: true },
+  { last4: "7069", alias: "신한지원", site: "네안데르", personal: false, kind: "account" },
+  { last4: "4248", alias: "신한입금", site: "네안데르", personal: false, kind: "account" },
+  { last4: "4223", alias: "신한출금", site: "네안데르", personal: false, kind: "account" },
+  { last4: "8804", alias: "국민", site: "네안데르", personal: false, kind: "account" },
+  { last4: "9279", alias: "우리온라인", site: "네안데르", personal: false, kind: "account" },
+  { last4: "3695", alias: "우리지원", site: "네안데르", personal: false, kind: "account" },
+  { last4: "9719", alias: "우리대출", site: "네안데르", personal: false, kind: "account" },
+  { last4: "3470", alias: "신한신보대출", site: "네안데르", personal: false, kind: "account" },
+  { last4: "0429", alias: "토스모임", site: "안다르", personal: false, kind: "account" },
+  { last4: "9999", alias: "사무실지폐", site: "안다르", personal: false, kind: "cash" },
+  { last4: "1769", alias: "신한일컴", site: "일해라컴퍼니", personal: false, kind: "account" },
+  { last4: "5346", alias: "카카오일컴", site: "일해라컴퍼니", personal: false, kind: "account" },
+  { last4: "7773", alias: "카카오와작", site: "와작홈즈", personal: false, kind: "account" },
+  { last4: "2171", alias: "(신법)이동주", site: "네안데르", personal: true, kind: "card" },
+  { last4: "2392", alias: "(신법)유재영하이", site: "네안데르", personal: true, kind: "card" },
+  { last4: "4306", alias: "(신법)유재영", site: "네안데르", personal: true, kind: "card" },
+  { last4: "1804", alias: "(신법)이동주", site: "네안데르", personal: true, kind: "card" },
+  { last4: "6379", alias: "(신법)김주희", site: "네안데르", personal: true, kind: "card" },
+  { last4: "3847", alias: "(신법)유선화", site: "네안데르", personal: true, kind: "card" },
+  { last4: "7753", alias: "(신법)김주연", site: "네안데르", personal: true, kind: "card" },
+  { last4: "4528", alias: "(신법)유재영-신", site: "네안데르", personal: true, kind: "card" },
+  { last4: "3513", alias: "(신법)김주연-신", site: "네안데르", personal: true, kind: "card" },
+  { last4: "2842", alias: "(신법)유다혜", site: "네안데르", personal: true, kind: "card" },
+  { last4: "0815", alias: "(국법)이동주", site: "네안데르", personal: true, kind: "card" },
+  { last4: "7889", alias: "(국법)유재영", site: "네안데르", personal: true, kind: "card" },
+  { last4: "9806", alias: "(국법)유선화", site: "네안데르", personal: true, kind: "card" },
+  { last4: "3800", alias: "(국법)식대", site: "네안데르", personal: true, kind: "card" },
 ];
 
 export const FIN_VENDOR_RULES: FinVendorRuleMaster[] = [

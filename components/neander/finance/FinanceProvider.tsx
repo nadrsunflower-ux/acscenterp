@@ -22,7 +22,10 @@ import {
 import { fetchFinanceData } from "@/lib/neander/finance/client";
 import type {
   FinAccountDoc,
+  FinAllocationDoc,
+  FinBudgetDoc,
   FinPaymentMethodDoc,
+  FinSubscriptionDoc,
   FinVendorRuleDoc,
 } from "@/lib/neander/finance/db-types";
 import type { FinTransaction, FinImportBatch } from "@/lib/neander/finance/types";
@@ -34,6 +37,9 @@ interface FinanceValue {
   accounts: FinAccountDoc[];
   paymentMethods: FinPaymentMethodDoc[];
   vendorRules: FinVendorRuleDoc[];
+  subscriptions: FinSubscriptionDoc[];
+  allocations: FinAllocationDoc[];
+  budgets: FinBudgetDoc[];
   imports: FinImportBatch[];
   /** 확정 거래로 만든 거래처 색인 (자동분류·검토함에서 사용) */
   vendorIndex: Map<string, VendorStat>;
@@ -53,6 +59,9 @@ const EMPTY = {
   accounts: [] as FinAccountDoc[],
   paymentMethods: [] as FinPaymentMethodDoc[],
   vendorRules: [] as FinVendorRuleDoc[],
+  subscriptions: [] as FinSubscriptionDoc[],
+  allocations: [] as FinAllocationDoc[],
+  budgets: [] as FinBudgetDoc[],
   imports: [] as FinImportBatch[],
 };
 
@@ -72,6 +81,9 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
         accounts: snap.accounts ?? [],
         paymentMethods: snap.paymentMethods ?? [],
         vendorRules: snap.vendorRules ?? [],
+        subscriptions: snap.subscriptions ?? [],
+        allocations: snap.allocations ?? [],
+        budgets: snap.budgets ?? [],
         imports: snap.imports ?? [],
       });
       setError(null);

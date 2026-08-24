@@ -14,7 +14,14 @@
 
 import { getNeanderAuth } from "@/lib/neander/firebase";
 import type { FinTransaction, FinImportBatch, FinTransactionInput } from "./types";
-import type { FinAccountDoc, FinPaymentMethodDoc, FinVendorRuleDoc } from "./db-types";
+import type {
+  FinAccountDoc,
+  FinAllocationDoc,
+  FinBudgetDoc,
+  FinPaymentMethodDoc,
+  FinSubscriptionDoc,
+  FinVendorRuleDoc,
+} from "./db-types";
 
 const DATA_URL = "/api/neander/finance/data";
 const MUTATE_URL = "/api/neander/finance/mutate";
@@ -24,6 +31,9 @@ export interface FinanceSnapshot {
   accounts: FinAccountDoc[];
   paymentMethods: FinPaymentMethodDoc[];
   vendorRules: FinVendorRuleDoc[];
+  subscriptions: FinSubscriptionDoc[];
+  allocations: FinAllocationDoc[];
+  budgets: FinBudgetDoc[];
   imports: FinImportBatch[];
 }
 
@@ -79,6 +89,17 @@ export const bulkPatchFinTransactions = (
   patch: Partial<FinTransactionInput>,
 ) => mutate<{ updated: number }>("transaction.bulkPatch", { ids, patch });
 
+/** 원장 시트 일괄 저장 — 행별 패치·신규·삭제를 한 요청에 */
+export const applyFinEdits = (edits: {
+  updates: { id: string; patch: Partial<FinTransactionInput> }[];
+  inserts: FinTransactionInput[];
+  deletes: string[];
+}) =>
+  mutate<{ updated: number; inserted: number; deleted: number }>(
+    "transaction.applyEdits",
+    edits,
+  );
+
 /**
  * 임포트 대량 적재.
  * 한 요청에 수백 건을 통째로 보내면 본문이 커지고 실패 시 전부 날아가므로,
@@ -106,10 +127,151 @@ export const updateFinImport = (id: string, patch: Partial<FinImportBatch>) =>
 export const undoFinImport = (id: string) =>
   mutate<{ deleted: number }>("import.undo", { id });
 
+// ---- AI 분류 추천 ----------------------------------------------
+
+export interface AiSuggestion {
+  id: string;
+  acctMajor: string;
+  acctMid: string;
+  acctMinor: string;
+  bizMajor?: string;
+  bizMinor?: string;
+  confidence: number;
+  reason: string;
+}
+
+export interface AiSuggestResult {
+  suggestions: AiSuggestion[];
+  rejected: { id: string; proposed: string; reason: string }[];
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    /** OpenRouter 가 알려주는 이번 호출 비용 (USD) */
+    costUsd?: number;
+  };
+  model: string;
+}
+
+/**
+ * 규칙이 못 맞힌 거래의 계정을 모델에게 물어본다.
+ * 결과는 **제안**일 뿐이라 사람이 승인해야 저장된다.
+ */
+export const requestAiSuggestions = (ids: string[]) => {
+  return mutateJson<AiSuggestResult>("/api/neander/finance/ai/suggest", { ids });
+};
+
+/** mutate URL 이 아닌 별도 라우트를 부를 때 */
+async function mutateJson<T>(url: string, payload: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return (await res.json()) as T;
+}
+
+// ---- 재무 채팅 에이전트 ------------------------------------------
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ChangeProposal {
+  id: string;
+  ids: string[];
+  patch: Record<string, unknown>;
+  reason: string;
+  before: {
+    id: string;
+    date: string;
+    vendor?: string;
+    txType: string;
+    acct: string;
+    biz: string;
+    amount: number;
+    status: string;
+  }[];
+}
+
+export interface ChatResult {
+  reply: string;
+  toolCalls: { name: string; args: Record<string, unknown>; summary: string }[];
+  proposals: ChangeProposal[];
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    costUsd?: number;
+  };
+  model: string;
+  truncated: boolean;
+}
+
+/**
+ * 재무 비서와 대화한다. 대화 기록을 매번 통째로 보낸다 (서버는 상태를 갖지 않는다).
+ * 응답의 proposals 는 **아직 저장되지 않은** 변경 제안이다.
+ */
+export const sendFinanceChat = (messages: ChatMessage[]) =>
+  mutateJson<ChatResult>("/api/neander/finance/ai/chat", { messages });
+
+// ---- 암호 걸린 엑셀 --------------------------------------------
+
+/**
+ * 토스·카카오뱅크 거래내역은 암호가 걸려 있어 브라우저에서 못 읽는다.
+ * 서버에 보내 풀어 온다. 파일도 비밀번호도 서버에 남지 않는다.
+ */
+export async function decryptFinanceFile(file: File, password: string): Promise<ArrayBuffer> {
+  const user = getNeanderAuth().currentUser;
+  if (!user) throw new Error("로그인이 필요합니다.");
+  const form = new FormData();
+  form.append("file", file);
+  form.append("password", password);
+  const res = await fetch("/api/neander/finance/decrypt", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${await user.getIdToken()}` },
+    body: form,
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return res.arrayBuffer();
+}
+
 // ---- 마스터 -------------------------------------------------
 
 export const seedFinanceMaster = () =>
-  mutate<{ accounts: number; paymentMethods: number; vendorRules: number }>("master.seed");
+  mutate<{
+    accounts: number;
+    paymentMethods: number;
+    vendorRules: number;
+    subscriptions: number;
+    allocations: number;
+  }>("master.seed");
+
+// ---- 구독 마스터 --------------------------------------------
+
+export const upsertFinSubscription = (sub: Partial<FinSubscriptionDoc> & { service: string }) =>
+  mutate("subscription.upsert", sub);
+
+export const deleteFinSubscription = (id: string) => mutate("subscription.delete", { id });
+
+// ---- 예산 ----------------------------------------------------
+
+/** 한 달치 예산을 통째로 저장 (0 인 줄은 서버에서 버린다) */
+export const saveFinBudget = (month: string, lines: Record<string, number>, note?: string) =>
+  mutate<{ saved: number }>("budget.save", { month, lines, note });
+
+// ---- 배분 규칙 ----------------------------------------------
+
+export const upsertFinAllocation = (rule: Partial<FinAllocationDoc> & { name: string }) =>
+  mutate("allocation.upsert", rule);
+
+export const setFinAllocationActive = (id: string, active: boolean) =>
+  mutate("allocation.setActive", { id, active });
+
+export const deleteFinAllocation = (id: string) => mutate("allocation.delete", { id });
 
 export const upsertFinVendorRule = (rule: {
   keyword: string;
