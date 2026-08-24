@@ -210,6 +210,11 @@ export function createActionColumn<T>(data: ActionColumnData<T>) {
  * 포인터 캡처를 쓰므로 커서가 시트 밖으로 나가도 드래그가 끊기지 않는다.
  * 갱신은 프레임당 한 번으로 묶는다 — 안 그러면 열 정의가 초당 수백 번
  * 새로 만들어져 표 전체가 다시 그려진다.
+ *
+ * ⚠️ 표가 확대/축소(CSS zoom)돼 있으면 두 좌표계가 갈린다. 커서 좌표와
+ *    getBoundingClientRect 는 **화면 픽셀**인데 우리가 저장할 폭·높이는
+ *    표 안쪽의 **본래 픽셀**이다. 배율로 나눠야 80% 로 줄여 놓고 끌었을 때
+ *    끈 만큼만 움직인다. 나누지 않으면 커서보다 표가 덜 따라온다.
  */
 interface LiveDrag {
   px: number;
@@ -224,6 +229,7 @@ export function ResizeGrip({
   onResize,
   onReset,
   clamp,
+  scale,
   label,
   title,
   className,
@@ -234,6 +240,8 @@ export function ResizeGrip({
   onReset?: () => void;
   /** 화면 수치와 실제 저장값을 같게 만든다 */
   clamp: (px: number) => number;
+  /** 현재 표 배율. 드래그 시작 시점에 읽는다 */
+  scale: () => number;
   /** 수치 앞에 붙는 말 — "너비" / "높이" */
   label: string;
   title: string;
@@ -274,7 +282,9 @@ export function ResizeGrip({
       };
 
       const from = axis === "x" ? e.clientX : e.clientY;
-      const start = axis === "x" ? cellBox.width : cellBox.height;
+      // 화면 픽셀 → 표 안쪽 픽셀
+      const z = scale() || 1;
+      const start = (axis === "x" ? cellBox.width : cellBox.height) / z;
 
       grip.setPointerCapture(e.pointerId);
       document.body.classList.add(axis === "x" ? "dsg-resizing-col" : "dsg-resizing-row");
@@ -282,7 +292,7 @@ export function ResizeGrip({
 
       const move = (ev: PointerEvent) => {
         pending.current = {
-          px: clamp(start + ((axis === "x" ? ev.clientX : ev.clientY) - from)),
+          px: clamp(start + ((axis === "x" ? ev.clientX : ev.clientY) - from) / z),
           x: ev.clientX,
           y: ev.clientY,
           box,
@@ -306,7 +316,7 @@ export function ResizeGrip({
       grip.addEventListener("pointerup", up);
       grip.addEventListener("pointercancel", up);
     },
-    [axis, clamp, flush],
+    [axis, clamp, scale, flush],
   );
 
   return (
@@ -372,6 +382,7 @@ export function ResizeGrip({
 interface GutterData {
   onResizeRow: (px: number) => void;
   onResetRow: () => void;
+  scale: () => number;
 }
 
 const GutterCell = <T,>({ rowIndex, columnData }: CellProps<T, GutterData>) => (
@@ -382,6 +393,7 @@ const GutterCell = <T,>({ rowIndex, columnData }: CellProps<T, GutterData>) => (
       className="dsg-row-grip"
       title="끌어서 행 높이 조절 · 더블클릭 기본값"
       clamp={clampRowHeight}
+      scale={columnData.scale}
       label="높이"
       onResize={columnData.onResizeRow}
       onReset={columnData.onResetRow}
@@ -394,18 +406,20 @@ export function createGutterColumn<T>({
   onResetRow,
   onResetAll,
   canReset,
+  scale,
 }: {
   onResizeRow: (px: number) => void;
   onResetRow: () => void;
   onResetAll: () => void;
   canReset: boolean;
+  scale: () => number;
 }): SimpleColumn<T, GutterData> {
   return {
     basis: 46,
     grow: 0,
     shrink: 0,
     minWidth: 0,
-    columnData: { onResizeRow, onResetRow },
+    columnData: { onResizeRow, onResetRow, scale },
     // title 은 머리글 한 칸에만 쓰이므로 매번 바뀌어도 셀을 건드리지 않는다
     title: (
       <button
@@ -434,6 +448,7 @@ export function ColumnHead({
   onOpenMenu,
   onResize,
   onResetWidth,
+  scale,
 }: {
   label: string;
   /** 이 열이 현재 정렬 기준일 때의 방향. 아니면 null */
@@ -445,6 +460,8 @@ export function ColumnHead({
   /** 오른쪽 경계를 끌었을 때의 새 폭 */
   onResize: (px: number) => void;
   onResetWidth: () => void;
+  /** 현재 표 배율 */
+  scale: () => number;
 }) {
   const stop = (e: React.MouseEvent) => e.stopPropagation();
   return (
@@ -494,6 +511,7 @@ export function ColumnHead({
         className="dsg-col-grip"
         title={`끌어서 ${label} 너비 조절 · 더블클릭 기본값`}
         clamp={clampColWidth}
+        scale={scale}
         label="너비"
         onResize={onResize}
         onReset={onResetWidth}

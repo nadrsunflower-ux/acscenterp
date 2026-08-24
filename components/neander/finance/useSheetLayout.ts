@@ -24,6 +24,13 @@ export const MAX_COL_WIDTH = 720;
 export const MIN_ROW_HEIGHT = 24;
 export const MAX_ROW_HEIGHT = 160;
 
+/**
+ * 확대/축소 단계. 자유로운 슬라이더 대신 단계로 둔다 — 표는 87% 같은
+ * 어중간한 배율에서 글자가 흐려지고, 사람이 다시 100% 로 돌아오기도 어렵다.
+ */
+export const ZOOM_STEPS = [0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2] as const;
+export const DEFAULT_ZOOM = 1;
+
 /** 열 구성이 바뀌면 v 를 올린다 — 옛 폭이 엉뚱한 열에 붙지 않게 */
 const STORAGE_KEY = "neander.finance.ledger.layout.v1";
 /** 드래그 중 60fps 로 쓰지 않는다 */
@@ -33,9 +40,15 @@ export interface SheetLayout {
   /** 열 id → px. 없는 열은 기본 폭(유동) */
   widths: Record<string, number>;
   rowHeight: number;
+  /** 표 전체 배율. 1 = 100% */
+  zoom: number;
 }
 
-const EMPTY: SheetLayout = { widths: {}, rowHeight: DEFAULT_ROW_HEIGHT };
+const EMPTY: SheetLayout = { widths: {}, rowHeight: DEFAULT_ROW_HEIGHT, zoom: DEFAULT_ZOOM };
+
+/** 저장된 값이 단계 목록에 없으면 가장 가까운 단계로 (목록을 바꿔도 안 깨진다) */
+const nearestZoom = (v: number) =>
+  ZOOM_STEPS.reduce((best, z) => (Math.abs(z - v) < Math.abs(best - v) ? z : best), DEFAULT_ZOOM);
 
 const clamp = (v: number, lo: number, hi: number) =>
   Math.round(Math.min(hi, Math.max(lo, v)));
@@ -59,9 +72,11 @@ function read(): SheetLayout {
       if (Number.isFinite(n)) widths[k] = clamp(n, MIN_COL_WIDTH, MAX_COL_WIDTH);
     });
     const h = Number(p.rowHeight);
+    const z = Number(p.zoom);
     return {
       widths,
       rowHeight: Number.isFinite(h) ? clamp(h, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT) : DEFAULT_ROW_HEIGHT,
+      zoom: Number.isFinite(z) && z > 0 ? nearestZoom(z) : DEFAULT_ZOOM,
     };
   } catch {
     // 사생활 보호 모드나 저장 공간 초과 — 설정이 없는 것으로 본다
@@ -116,10 +131,29 @@ export function useSheetLayout() {
     });
   }, []);
 
+  /** 단계 목록에서 한 칸 이동. delta 는 +1 / -1 */
+  const stepZoom = useCallback((delta: number) => {
+    setLayout((l) => {
+      const i = ZOOM_STEPS.indexOf(l.zoom as (typeof ZOOM_STEPS)[number]);
+      const from = i >= 0 ? i : ZOOM_STEPS.indexOf(DEFAULT_ZOOM);
+      const next = ZOOM_STEPS[Math.min(ZOOM_STEPS.length - 1, Math.max(0, from + delta))];
+      return next === l.zoom ? l : { ...l, zoom: next };
+    });
+  }, []);
+
+  const setZoom = useCallback((z: number) => {
+    setLayout((l) => (l.zoom === z ? l : { ...l, zoom: nearestZoom(z) }));
+  }, []);
+
   const reset = useCallback(() => setLayout(EMPTY), []);
 
   const customized =
-    Object.keys(layout.widths).length > 0 || layout.rowHeight !== DEFAULT_ROW_HEIGHT;
+    Object.keys(layout.widths).length > 0 ||
+    layout.rowHeight !== DEFAULT_ROW_HEIGHT ||
+    layout.zoom !== DEFAULT_ZOOM;
 
-  return { layout, setWidth, clearWidth, setRowHeight, reset, customized };
+  return { layout, setWidth, clearWidth, setRowHeight, stepZoom, setZoom, reset, customized };
 }
+
+/** 페이지와 시트가 같은 설정을 나눠 쓴다 */
+export type SheetLayoutHandle = ReturnType<typeof useSheetLayout>;

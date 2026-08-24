@@ -16,7 +16,7 @@
 import "react-datasheet-grid/dist/style.css";
 import "./ledger-sheet.css";
 
-import { useCallback, useMemo, useState, type Ref } from "react";
+import { useCallback, useMemo, useRef, useState, type Ref } from "react";
 import {
   // ⚠️ 이 라이브러리에서 `DataSheetGrid` 라는 이름으로 나오는 것은 실제로는
   //    StaticDataSheetGrid 다. 그 안은 이렇게 생겼다:
@@ -67,7 +67,7 @@ import {
   ColumnHead,
   type SelectOption,
 } from "./sheetCells";
-import { useSheetLayout, DEFAULT_ROW_HEIGHT } from "./useSheetLayout";
+import { DEFAULT_ROW_HEIGHT, type SheetLayoutHandle } from "./useSheetLayout";
 import { ColumnMenu } from "./ColumnMenu";
 import {
   isActiveFilter,
@@ -122,6 +122,9 @@ const LABEL: Record<SortKey, string> = {
 
 /** 검증 오류를 빨갛게 칠하는 열. 오류 필드 이름이 열 키와 같다. */
 const INVALID_KEYS = new Set<SortKey>(["date", "txType", "last4", "bizMajor", "acctMajor", "acctMid", "acctMinor", "gross", "adjust", "status"]);
+
+/** 아래 "행 추가" 바 높이 — 시트 높이에서 빼야 화면을 넘지 않는다 */
+const ADD_ROW_BAR = 44;
 
 /** 남는 폭을 나눠 갖는 열 → 값은 그때 지켜야 할 최소 폭 */
 const FLEX_MIN: Partial<Record<SortKey, number>> = { vendor: 140, note: 120 };
@@ -189,6 +192,7 @@ export function LedgerSheet({
   optionsFor,
   height = 640,
   gridRef,
+  sheet,
 }: {
   rows: FinTransaction[];
   onChange: (rows: FinTransaction[]) => void;
@@ -211,14 +215,23 @@ export function LedgerSheet({
   onFilterChange: (key: FilterKey, next: ColumnFilter | null) => void;
   /** 드롭다운에 띄울 후보값 — 다른 열 필터를 반영한다 (페이지가 계산) */
   optionsFor: (key: FilterKey) => FilterOption[];
+  /** 시트에 쓸 수 있는 세로 공간(화면 픽셀). 배율·행추가바 보정은 여기서 한다 */
   height?: number;
   gridRef?: Ref<DataSheetGridRef>;
+  /** 열 너비·행 높이·배율. 툴바가 배율을 만지므로 페이지가 들고 있다 */
+  sheet: SheetLayoutHandle;
 }) {
   // 열린 드롭다운. anchor 는 머리글 버튼의 화면 좌표.
   const [menu, setMenu] = useState<{ key: FilterKey; label: string; anchor: DOMRect } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
 
-  const { layout, setWidth, clearWidth, setRowHeight, reset, customized } = useSheetLayout();
+  const { layout, setWidth, clearWidth, setRowHeight, reset, customized } = sheet;
+
+  // 배율은 드래그가 시작될 때의 값을 읽어야 한다. 값으로 넘기면 손잡이가
+  // 배율이 바뀔 때마다 새로 만들어진다.
+  const zoomRef = useRef(layout.zoom);
+  zoomRef.current = layout.zoom;
+  const scale = useCallback(() => zoomRef.current, []);
 
   /**
    * ① 셀 정의. 마스터가 바뀔 때만 다시 만든다.
@@ -400,6 +413,7 @@ export function LedgerSheet({
               onOpenMenu={(anchor) => setMenu({ key, label, anchor })}
               onResize={(px) => setWidth(key, px)}
               onResetWidth={() => clearWidth(key)}
+              scale={scale}
             />
           ),
           ...(INVALID_KEYS.has(key)
@@ -413,7 +427,7 @@ export function LedgerSheet({
           ...(w === undefined ? null : { basis: w, grow: 0, shrink: 0, minWidth: w }),
         };
       }),
-    [cellColumns, layout.widths, sort, filters, issues, onSort, setWidth, clearWidth],
+    [cellColumns, layout.widths, sort, filters, issues, onSort, setWidth, clearWidth, scale],
   );
 
   // 행 번호 칸 — 아래 경계가 행 높이 손잡이, 왼쪽 위 모서리가 초기화 버튼
@@ -424,8 +438,9 @@ export function LedgerSheet({
         onResetRow: () => setRowHeight(DEFAULT_ROW_HEIGHT),
         onResetAll: reset,
         canReset: customized,
+        scale,
       }),
-    [setRowHeight, reset, customized],
+    [setRowHeight, reset, customized, scale],
   );
 
   const detailColumn = useMemo(
@@ -438,8 +453,19 @@ export function LedgerSheet({
     [onDetail],
   );
 
+  /**
+   * 확대/축소는 transform 이 아니라 CSS `zoom` 이다. transform 은 레이아웃을
+   * 바꾸지 않아서, 줄여도 열이 더 보이지 않고 rdg 가 재는 컨테이너 폭도
+   * 그대로다(가상 스크롤이 어긋난다). zoom 은 자식이 본래 픽셀로 배치된
+   * 뒤 전체가 축척되므로, 80% 로 줄이면 같은 자리에 열이 25% 더 들어온다.
+   *
+   * 대신 세로 공간을 직접 보정해야 한다. 부모가 준 높이는 화면 픽셀이고
+   * 시트 안쪽은 본래 픽셀이라, 나누지 않으면 80% 에서 아래 20% 가 빈다.
+   */
+  const gridHeight = Math.max(200, height / layout.zoom - ADD_ROW_BAR);
+
   return (
-    <div className="ledger-sheet">
+    <div className="ledger-sheet" style={{ zoom: layout.zoom }}>
       <DynamicDataSheetGrid<FinTransaction>
         ref={gridRef}
         value={rows}
@@ -448,7 +474,7 @@ export function LedgerSheet({
         gutterColumn={gutterColumn}
         stickyRightColumn={detailColumn}
         rowKey="id"
-        height={height}
+        height={gridHeight}
         rowHeight={layout.rowHeight}
         headerRowHeight={36}
         createRow={createRow}

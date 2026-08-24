@@ -34,6 +34,11 @@ import { Button, EmptyState, cn } from "@/components/neander/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { TransactionEditor } from "@/components/neander/finance/TransactionEditor";
 import { LedgerSheet } from "@/components/neander/finance/LedgerSheet";
+import {
+  useSheetLayout,
+  ZOOM_STEPS,
+  DEFAULT_ZOOM,
+} from "@/components/neander/finance/useSheetLayout";
 import { Money } from "@/components/neander/finance/ui";
 import { applyFinEdits } from "@/lib/neander/finance/client";
 import { exportLedgerXlsx } from "@/lib/neander/finance/export";
@@ -93,9 +98,6 @@ interface History {
 }
 const EMPTY_HISTORY: History = { past: [], present: EMPTY_EDITS, future: [] };
 const HISTORY_LIMIT = 100;
-
-/** 하단 "행 추가" 바 높이 — 시트 높이에서 빼야 화면을 넘지 않는다 */
-const ADD_ROW_BAR = 44;
 
 /**
  * 요소가 뷰포트 바닥까지 차지하도록 높이를 잰다. 상단에 무엇이 있든
@@ -468,6 +470,8 @@ export default function LedgerPage() {
 
   const page = useFillViewport<HTMLDivElement>(!loading);
   const slot = useMeasuredHeight<HTMLDivElement>(!loading);
+  // 열 너비·행 높이·배율. 배율 조절이 툴바에 있어서 페이지가 들고 있다.
+  const sheet = useSheetLayout();
 
   if (loading) {
     return <div className="px-5 py-16 text-center text-zinc-400">불러오는 중…</div>;
@@ -540,6 +544,37 @@ export default function LedgerPage() {
               className="flex h-8 w-8 items-center justify-center rounded-md text-base text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 disabled:cursor-not-allowed disabled:text-zinc-300 disabled:hover:bg-transparent"
             >
               ↷
+            </button>
+          </div>
+          {/* 표 배율 — 구글 스프레드시트처럼 단계로 */}
+          <div className="flex h-8 items-center rounded-md border border-zinc-200">
+            <button
+              type="button"
+              onClick={() => sheet.stepZoom(-1)}
+              disabled={sheet.layout.zoom <= ZOOM_STEPS[0]}
+              title="축소"
+              aria-label="표 축소"
+              className="flex h-8 w-7 items-center justify-center rounded-l-md text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 disabled:cursor-not-allowed disabled:text-zinc-300 disabled:hover:bg-transparent"
+            >
+              −
+            </button>
+            <button
+              type="button"
+              onClick={() => sheet.setZoom(DEFAULT_ZOOM)}
+              title="100% 로"
+              className="h-8 w-12 text-xs tabular-nums text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+            >
+              {Math.round(sheet.layout.zoom * 100)}%
+            </button>
+            <button
+              type="button"
+              onClick={() => sheet.stepZoom(1)}
+              disabled={sheet.layout.zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1]}
+              title="확대"
+              aria-label="표 확대"
+              className="flex h-8 w-7 items-center justify-center rounded-r-md text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 disabled:cursor-not-allowed disabled:text-zinc-300 disabled:hover:bg-transparent"
+            >
+              +
             </button>
           </div>
           <Button variant="secondary" className="h-8 px-3 text-xs" onClick={addRow}>
@@ -649,7 +684,8 @@ export default function LedgerPage() {
             filters={filters}
             onFilterChange={setColumnFilter}
             optionsFor={optionsFor}
-            height={Math.max(200, slot.height - ADD_ROW_BAR)}
+            height={slot.height}
+            sheet={sheet}
           />
         ) : null}
       </div>
