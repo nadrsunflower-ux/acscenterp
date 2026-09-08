@@ -12,7 +12,7 @@
 //  실제 DOM 요소라 한글 IME·접근성·모바일이 공짜로 해결된다.
 // ============================================================
 
-import React, { memo, useCallback, useLayoutEffect, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { clampColWidth, clampRowHeight } from "./useSheetLayout";
 import {
@@ -111,6 +111,217 @@ export function createSelectColumn<T>(data: SelectColumnData<T>): Column<T, Sele
     copyValue: ({ rowData }) => data.get(rowData),
     pasteValue: ({ rowData, value }) => data.set(rowData, value.trim()),
     isCellEmpty: ({ rowData }) => data.get(rowData) === "",
+  };
+}
+
+// ---- 글자 셀 (한글 조합 안전) ----------------------------------
+//
+//  내장 textColumn 은 셀이 **편집 상태로 바뀌는 순간** 입력칸에 포커스를
+//  옮긴다. 알파벳은 이 방식으로 괜찮지만 한글은 깨진다.
+//
+//    ㄱ 입력 → (포커스가 아직 표에 있다) → 그리드가 편집 상태로 전환
+//            → 입력칸으로 포커스 이동 → 조합이 끊긴다
+//    ㅏ 입력 → 입력칸에서 **새 조합**이 시작 → 「ㄱㅏ」
+//
+//  IME 의 조합은 조합이 시작된 그 요소에 묶여 있어서, 도중에 포커스가
+//  옮겨가면 이어지지 않는다. 그래서 **셀이 선택되는 순간** 미리 입력칸에
+//  포커스를 준다. 첫 자음부터 입력칸 안에서 조합되므로 옮길 일이 없다.
+//
+//  선택만 된 칸에서 커서가 깜빡이거나 글자가 파랗게 잡혀 보이면 안 되므로
+//  (엑셀은 그러지 않는다) 편집 전에는 커서와 선택 표시를 CSS 로 감춘다.
+//  글자를 미리 전체 선택해 두는 이유는 엑셀처럼 **타자를 치면 기존 값이
+//  덮어써지게** 하기 위해서다.
+
+interface TextColumnData<V> {
+  parse: (raw: string) => V;
+  /** 읽을 때 보이는 글자 (천 단위 콤마 등) */
+  formatBlurred: (value: V) => string;
+  /** 편집할 때 보이는 글자 (맨 숫자 등) */
+  formatEditing: (value: V) => string;
+  alignRight?: boolean;
+  placeholder?: string;
+}
+
+function TextCellInner<V>({
+  rowData,
+  setRowData,
+  active,
+  focus,
+  columnData,
+}: CellProps<V, TextColumnData<V>>) {
+  const ref = useRef<HTMLInputElement>(null);
+  // 비동기 접근용 — 효과의 의존성 목록을 늘리지 않으려고 ref 에 담는다
+  const async = useRef({ rowData, columnData, setRowData, composing: false, esc: false });
+  async.current.rowData = rowData;
+  async.current.columnData = columnData;
+  async.current.setRowData = setRowData;
+
+  /** 값이 밖에서 바뀌면 화면 글자를 맞춘다. 조합·편집 중에는 건드리지 않는다. */
+  useEffect(() => {
+    if (!focus && !async.current.composing && ref.current) {
+      ref.current.value = columnData.formatBlurred(rowData);
+    }
+  }, [focus, rowData, columnData]);
+
+  /**
+   * 선택된 칸이면 입력칸에 포커스를 준다.
+   *
+   * 그리드는 활성 셀이 처음 생길 때 `document.activeElement.blur()` 를
+   * 부른다(DataSheetGrid.js). 그 뒤에 포커스를 잡아야 하므로 한 틱 미룬다.
+   */
+  useEffect(() => {
+    if (!active) {
+      if (ref.current && document.activeElement === ref.current) ref.current.blur();
+      return;
+    }
+    const t = setTimeout(() => {
+      const el = ref.current;
+      if (!el || document.activeElement === el) return;
+      el.focus({ preventScroll: true });
+      // 타자를 치면 기존 값이 덮어써지도록 미리 전체 선택 (엑셀과 같다)
+      el.select();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [active]);
+
+  /** 편집 상태 전환 — 시작할 때 편집용 글자로, 끝날 때 값을 확정한다 */
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const { formatEditing, formatBlurred, parse } = async.current.columnData;
+    if (focus) {
+      // 이미 사용자가 치기 시작했거나 조합 중이면 건드리지 않는다.
+      // (키를 누른 뒤 이 효과가 실행되는 순서는 브라우저마다 다르다)
+      const untouched = el.value === formatBlurred(async.current.rowData);
+      if (untouched && !async.current.composing) {
+        el.value = formatEditing(async.current.rowData);
+        el.select();
+      }
+      if (document.activeElement !== el) el.focus({ preventScroll: true });
+      async.current.esc = false;
+    } else {
+      // 편집을 마쳤다. 글자가 달라졌으면 값을 확정한다.
+      //
+      // onChange 가 불렸는지로 판단하면 안 된다 — React 는 IME 조합 중의
+      // input 이벤트를 눌러 두었다가 조합이 끝나야 흘려보내는데, 조합 도중
+      // 다른 칸으로 옮기면 그 이벤트가 오지 않는다. 그러면 방금 친 한글이
+      // 조용히 사라진다. 그래서 **글자를 직접 비교**한다.
+      //
+      // Esc 로 나갔으면 되돌린다 — 편집을 취소한 것이다.
+      if (!async.current.esc && el.value !== formatEditing(async.current.rowData)) {
+        async.current.setRowData(parse(el.value));
+      }
+      el.value = formatBlurred(async.current.rowData);
+      if (document.activeElement === el && !active) el.blur();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus]);
+
+  return (
+    <input
+      ref={ref}
+      // 값을 직접 들고 있지 않는다 (제어 컴포넌트로 만들면 조합 중 값이
+      // 되돌아가면서 한글이 깨진다). 성능상으로도 이쪽이 가볍다.
+      defaultValue={columnData.formatBlurred(rowData)}
+      className={`dsg-input${columnData.alignRight ? " dsg-input-align-right" : ""}${focus ? "" : " dsg-input-idle"}`}
+      placeholder={active ? columnData.placeholder : undefined}
+      tabIndex={-1}
+      // 편집 중이 아니면 클릭이 통과해 그리드가 셀 선택을 처리한다
+      style={{ pointerEvents: focus ? "auto" : "none" }}
+      onCompositionStart={() => {
+        async.current.composing = true;
+      }}
+      onCompositionEnd={() => {
+        async.current.composing = false;
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") async.current.esc = true;
+      }}
+    />
+  );
+}
+const TextCell = memo(TextCellInner) as typeof TextCellInner;
+
+/**
+ * 한글 조합이 끊기지 않는 글자·숫자 셀. 내장 createTextColumn 을 대신한다.
+ * keyColumn 으로 감싸 쓰는 것은 같다.
+ */
+export function createSheetTextColumn<V>({
+  parse,
+  formatBlurred,
+  formatEditing,
+  formatForCopy,
+  parsePasted,
+  deletedValue,
+  alignRight,
+  placeholder,
+}: {
+  parse: (raw: string) => V;
+  formatBlurred: (value: V) => string;
+  formatEditing: (value: V) => string;
+  formatForCopy?: (value: V) => string;
+  parsePasted?: (raw: string) => V;
+  deletedValue: V;
+  alignRight?: boolean;
+  placeholder?: string;
+}): Column<V, TextColumnData<V>, string> {
+  const copy = formatForCopy ?? formatEditing;
+  const paste = parsePasted ?? ((raw: string) => parse(raw.replace(/[\n\r]+/g, " ")));
+  return {
+    component: TextCell as Column<V, TextColumnData<V>, string>["component"],
+    columnData: { parse, formatBlurred, formatEditing, alignRight, placeholder },
+    deleteValue: () => deletedValue,
+    copyValue: ({ rowData }) => copy(rowData),
+    pasteValue: ({ value }) => paste(value),
+    isCellEmpty: ({ rowData }) => rowData === null || rowData === undefined || rowData === "",
+  };
+}
+
+// ---- 체크 셀 --------------------------------------------------
+
+interface CheckColumnData<T> {
+  get: (row: T) => boolean;
+  set: (row: T, value: boolean) => T;
+  /** 스크린리더가 읽을 이름 */
+  label?: string;
+}
+
+function CheckCellInner<T>({ rowData, setRowData, columnData, active }: CellProps<T, CheckColumnData<T>>) {
+  const checked = columnData.get(rowData);
+  return (
+    <div className="dsg-check">
+      <input
+        type="checkbox"
+        checked={checked}
+        aria-label={columnData.label ?? "체크"}
+        // 셀을 고르는 것과 값을 바꾸는 것은 다른 동작이라, 클릭이 셀 선택으로
+        // 새어 나가지 않게 막는다. 스페이스바로도 바뀐다(브라우저 기본).
+        onMouseDown={(e) => e.stopPropagation()}
+        onChange={(e) => setRowData(columnData.set(rowData, e.target.checked))}
+        tabIndex={active ? 0 : -1}
+      />
+    </div>
+  );
+}
+const CheckCell = memo(CheckCellInner) as typeof CheckCellInner;
+
+/**
+ * 참/거짓 체크 칸.
+ *
+ * 내장 checkboxColumn 을 쓰지 않는 이유는 그쪽이 `boolean` 만 다루기
+ * 때문이다. 우리 모델의 체크는 **선택 항목**(`done?: boolean`)이라 값이
+ * 없을 수 있고, 없는 것과 false 를 같게 봐야 한다. 붙여넣기는 엑셀에서
+ * 오는 여러 표기(TRUE·O·Y·1·예)를 받아 준다.
+ */
+export function createCheckColumn<T>(data: CheckColumnData<T>): Column<T, CheckColumnData<T>, string> {
+  const TRUTHY = new Set(["true", "1", "o", "y", "yes", "예", "완료", "v", "✓"]);
+  return {
+    component: CheckCell as Column<T, CheckColumnData<T>, string>["component"],
+    columnData: data,
+    deleteValue: ({ rowData }) => data.set(rowData, false),
+    copyValue: ({ rowData }) => (data.get(rowData) ? "TRUE" : ""),
+    pasteValue: ({ rowData, value }) => data.set(rowData, TRUTHY.has(value.trim().toLowerCase())),
+    isCellEmpty: ({ rowData }) => !data.get(rowData),
   };
 }
 
@@ -449,6 +660,7 @@ export function ColumnHead({
   onResize,
   onResetWidth,
   scale,
+  sortable,
 }: {
   label: string;
   /** 이 열이 현재 정렬 기준일 때의 방향. 아니면 null */
@@ -462,8 +674,32 @@ export function ColumnHead({
   onResetWidth: () => void;
   /** 현재 표 배율 */
   scale: () => number;
+  /**
+   * 정렬·필터를 쓰지 않는 표(프로젝트 체크리스트)는 false.
+   * 눌러도 아무 일 없는 화살표와 깔때기를 띄우지 않는다 — 폭 조절은 그대로.
+   */
+  sortable?: boolean;
 }) {
   const stop = (e: React.MouseEvent) => e.stopPropagation();
+  if (sortable === false) {
+    return (
+      <div className="dsg-head">
+        <span className="dsg-head-label dsg-head-static">
+          <span className="dsg-head-text">{label}</span>
+        </span>
+        <ResizeGrip
+          axis="x"
+          className="dsg-col-grip"
+          title={`끌어서 ${label} 너비 조절 · 더블클릭 기본값`}
+          clamp={clampColWidth}
+          scale={scale}
+          label="너비"
+          onResize={onResize}
+          onReset={onResetWidth}
+        />
+      </div>
+    );
+  }
   return (
     <div className="dsg-head">
       <button

@@ -19,14 +19,14 @@ export interface FinAiModelOption {
 }
 
 export const FIN_AI_MODELS: FinAiModelOption[] = [
-  { id: "anthropic/claude-opus-5", label: "Claude Opus 5", note: "기본 · 성능/비용 균형" },
+  { id: "anthropic/claude-opus-5", label: "Claude Opus 5", note: "성능/비용 균형" },
   { id: "anthropic/claude-fable-5", label: "Claude Fable 5", note: "최고 성능 · 비용 2배" },
   { id: "anthropic/claude-sonnet-5", label: "Claude Sonnet 5", note: "빠름 · 저렴" },
   { id: "google/gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", note: "구글 상위 모델" },
-  { id: "google/gemini-3.7-flash", label: "Gemini 3.7 Flash", note: "가장 저렴 · 빠름" },
+  { id: "google/gemini-3.7-flash", label: "Gemini 3.7 Flash", note: "기본 · 가장 저렴 · 빠름" },
 ];
 
-export const DEFAULT_FIN_AI_MODEL = "anthropic/claude-opus-5";
+export const DEFAULT_FIN_AI_MODEL = "google/gemini-3.7-flash";
 
 /** 허용 목록에 있는 모델 ID 인가 — 서버가 요청 본문을 검증할 때 쓴다 */
 export const isFinAiModelId = (id: unknown): id is string =>

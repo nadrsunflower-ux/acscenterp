@@ -52,4 +52,8 @@ export const NEANDER_COL = {
   finCardMemos: "neander_fin_card_memos",
   /** 재무 비서와 나눈 대화 (문서 1개 = 대화 1개, 사용자별) */
   finChats: "neander_fin_chats",
+  /** 프로젝트 손익 (문서 1개 = 프로젝트 1개, 체크리스트 줄은 문서 안 배열) */
+  finProjects: "neander_fin_projects",
+  /** 프로젝트 문서 — 견적서·계약서 (문서 1개 = 서류 1개, kind 로 구분, 파일은 Storage 경로) */
+  finDocs: "neander_fin_docs",
 } as const;

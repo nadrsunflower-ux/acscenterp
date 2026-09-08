@@ -5,6 +5,9 @@ import { NEANDER_COL } from "@/lib/neander/collections";
 import { seedFinanceMasterData } from "@/lib/neander/finance/server/seed";
 import { matchMemos, patchFromMemo, type FinCardMemo } from "@/lib/neander/finance/card-memo";
 import type { FinTransaction } from "@/lib/neander/finance/types";
+import { sanitizeProject } from "@/lib/neander/finance/project";
+import { sanitizeFinDoc, sanitizeFiles } from "@/lib/neander/finance/docs";
+import { deleteFiles } from "@/lib/neander/finance/server/storage";
 
 // 재무 쓰기 전체. 액션 하나로 모아둔 이유는 인증 게이트를 한 곳에서만
 // 통과시키기 위해서다 — 라우트가 흩어지면 한 군데 빠뜨리기 쉽다.
@@ -391,6 +394,131 @@ export async function POST(req: Request) {
         if (!id) return NextResponse.json({ error: "id 가 필요합니다." }, { status: 400 });
         await db.collection(NEANDER_COL.finAllocations).doc(id).delete();
         return NextResponse.json({ ok: true });
+      }
+
+      // ---- 프로젝트 손익 ----------------------------------------
+      case "project.save": {
+        // 문서를 통째로 갈아치운다 (예산과 같은 방식). 줄 배열을 merge 하면
+        // 지운 줄이 되살아난다. id 가 없으면 새로 만든다.
+        const { id, project } = payload as { id?: string; project: Record<string, unknown> };
+        const parsed = sanitizeProject(project ?? {});
+        if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+        const col = db.collection(NEANDER_COL.finProjects);
+
+        // 코드는 원장과 잇는 열쇠라 프로젝트 사이에서 유일해야 한다.
+        // 대소문자만 다른 코드도 같은 것으로 본다 (원장 매칭이 그렇게 한다).
+        const wanted = parsed.value.code.toLowerCase();
+        const all = await col.get();
+        const clash = all.docs.find(
+          (d) => d.id !== id && String(d.data().code ?? "").trim().toLowerCase() === wanted,
+        );
+        if (clash) {
+          return NextResponse.json(
+            { error: `코드 ${parsed.value.code} 는 이미 「${clash.data().name}」 이 쓰고 있습니다.` },
+            { status: 409 },
+          );
+        }
+
+        if (id) {
+          const prev = await col.doc(id).get();
+          if (!prev.exists) return NextResponse.json({ error: "프로젝트가 없습니다." }, { status: 404 });
+          const keep = prev.data() ?? {};
+          await col.doc(id).set(
+            clean({
+              ...parsed.value,
+              createdAt: keep.createdAt ?? now,
+              createdBy: keep.createdBy,
+              updatedAt: now,
+              updatedBy: user.email,
+            }),
+            { merge: false },
+          );
+          return NextResponse.json({ ok: true, id });
+        }
+        const ref = await col.add(
+          clean({ ...parsed.value, createdAt: now, createdBy: user.email, updatedAt: now, updatedBy: user.email }),
+        );
+        return NextResponse.json({ ok: true, id: ref.id });
+      }
+
+      case "project.delete": {
+        const { id } = payload as { id: string };
+        if (!id) return NextResponse.json({ error: "id 가 필요합니다." }, { status: 400 });
+        await db.collection(NEANDER_COL.finProjects).doc(id).delete();
+        return NextResponse.json({ ok: true });
+      }
+
+      // ---- 프로젝트 문서 (견적서·계약서) ---------------------------
+      case "doc.save": {
+        // 프로젝트와 같은 통째 저장. 단 `files` 는 클라이언트가 보내는 값을
+        // 무시하고 저장돼 있던 것을 지킨다 — 파일은 파일 라우트가 붙이고
+        // 떼며, 화면의 낡은 목록으로 덮어쓰면 방금 올린 파일이 사라진다.
+        const { id, doc } = payload as { id?: string; doc: Record<string, unknown> };
+        const parsed = sanitizeFinDoc((doc ?? {}) as Parameters<typeof sanitizeFinDoc>[0]);
+        if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+        const projectRef = db.collection(NEANDER_COL.finProjects).doc(parsed.value.projectId);
+        if (!(await projectRef.get()).exists) {
+          return NextResponse.json({ error: "프로젝트가 없습니다." }, { status: 404 });
+        }
+        const col = db.collection(NEANDER_COL.finDocs);
+        if (id) {
+          const prev = await col.doc(id).get();
+          if (!prev.exists) return NextResponse.json({ error: "문서가 없습니다." }, { status: 404 });
+          const keep = prev.data() ?? {};
+          await col.doc(id).set(
+            clean({
+              ...parsed.value,
+              files: sanitizeFiles(keep.files),
+              createdAt: keep.createdAt ?? now,
+              createdBy: keep.createdBy,
+              updatedAt: now,
+              updatedBy: user.email,
+            }),
+            { merge: false },
+          );
+          return NextResponse.json({ ok: true, id });
+        }
+        const ref = await col.add(
+          clean({
+            ...parsed.value,
+            files: [],
+            createdAt: now,
+            createdBy: user.email,
+            updatedAt: now,
+            updatedBy: user.email,
+          }),
+        );
+        return NextResponse.json({ ok: true, id: ref.id });
+      }
+
+      case "doc.delete": {
+        const { id } = payload as { id: string };
+        if (!id) return NextResponse.json({ error: "id 가 필요합니다." }, { status: 400 });
+        const ref = db.collection(NEANDER_COL.finDocs).doc(id);
+        const snap = await ref.get();
+        if (!snap.exists) return NextResponse.json({ ok: true });
+        const paths = sanitizeFiles(snap.data()?.files).map((f) => f.path);
+        if (paths.length) await deleteFiles(paths);
+        await ref.delete();
+        return NextResponse.json({ ok: true });
+      }
+
+      case "doc.removeFile": {
+        const { id, path } = payload as { id: string; path: string };
+        if (!id || !path) return NextResponse.json({ error: "id 와 path 가 필요합니다." }, { status: 400 });
+        const ref = db.collection(NEANDER_COL.finDocs).doc(id);
+        const snap = await ref.get();
+        if (!snap.exists) return NextResponse.json({ error: "문서가 없습니다." }, { status: 404 });
+        const files = sanitizeFiles(snap.data()?.files);
+        if (!files.some((f) => f.path === path)) {
+          return NextResponse.json({ error: "그 문서에 붙은 파일이 아닙니다." }, { status: 404 });
+        }
+        // 문서를 먼저 고치고 Storage 는 그다음 — 지우기가 반쯤 실패해도
+        // 목록에서 사라진 파일이 되살아나는 것보다 고아 파일이 낫다
+        const kept = files.filter((f) => f.path !== path);
+        await ref.set({ files: kept, updatedAt: now, updatedBy: user.email }, { merge: true });
+        await deleteFiles([path]);
+        return NextResponse.json({ ok: true, files: kept });
       }
 
       case "vendorRule.delete": {

@@ -30,6 +30,8 @@ import type {
 } from "@/lib/neander/finance/db-types";
 import type { FinTransaction, FinImportBatch } from "@/lib/neander/finance/types";
 import type { MonthCloseDoc } from "@/lib/neander/finance/close";
+import type { FinProjectDoc } from "@/lib/neander/finance/project";
+import type { FinDoc } from "@/lib/neander/finance/docs";
 import { buildVendorIndex, type VendorStat } from "@/lib/neander/finance/classify";
 import { useAuth } from "@/components/neander/auth";
 
@@ -44,6 +46,10 @@ interface FinanceValue {
   imports: FinImportBatch[];
   /** 마감된 달 (문서 id = YYYY-MM) */
   closes: MonthCloseDoc[];
+  /** 프로젝트 손익 (행사·납품 건별 체크리스트 + 계약금액) */
+  projects: FinProjectDoc[];
+  /** 프로젝트 문서 — 견적서·계약서 (projectId 로 프로젝트에 붙는다) */
+  docs: FinDoc[];
   /** 확정 거래로 만든 거래처 색인 (자동분류·검토함에서 사용) */
   vendorIndex: Map<string, VendorStat>;
   loading: boolean;
@@ -67,6 +73,8 @@ const EMPTY = {
   budgets: [] as FinBudgetDoc[],
   imports: [] as FinImportBatch[],
   closes: [] as MonthCloseDoc[],
+  projects: [] as FinProjectDoc[],
+  docs: [] as FinDoc[],
 };
 
 export function FinanceProvider({ children }: { children: ReactNode }) {
@@ -90,6 +98,8 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
         budgets: snap.budgets ?? [],
         imports: snap.imports ?? [],
         closes: snap.closes ?? [],
+        projects: snap.projects ?? [],
+        docs: snap.docs ?? [],
       });
       setError(null);
     } catch (e) {

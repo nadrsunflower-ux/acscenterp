@@ -272,7 +272,10 @@ export async function suggestClassifications(args: {
   history: FinTransaction[];
   accounts: FinAccountDoc[];
 }): Promise<AiResult> {
-  const { items, history, accounts } = args;
+  const { items, history } = args;
+  // 은퇴 계정(active:false)은 추천 후보에서 뺀다 — 새 거래가 폐점 매장
+  // 계정에 붙으면 안 된다. 프롬프트와 검증 집합이 같은 목록을 봐야 한다.
+  const accounts = args.accounts.filter((a) => a.active !== false);
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
     throw new Error(

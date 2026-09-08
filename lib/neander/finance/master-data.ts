@@ -29,6 +29,15 @@ export interface FinAccountMaster {
   pay: string;
   /** 지점코드 */
   branch: string;
+  /**
+   * 은퇴 계정 (기본 true).
+   *
+   * 매장 폐점 등으로 더는 쓰지 않지만 과거 거래가 물려 있어 지울 수 없는
+   * 계정은 false 로 둔다. 리포트·조인·월별 비교에는 그대로 잡히고,
+   * 계정 선택 드롭다운과 AI 분류 추천에서만 빠진다 — 새 거래가 실수로
+   * 붙는 것을 막는다. 이력이 있는 계정은 지우지 않는 것이 원칙이다.
+   */
+  active?: boolean;
 }
 
 /** 계좌·카드 — 뒷 4자리가 거래장의 `계좌/카번` 과 매칭된다. */
@@ -203,7 +212,7 @@ export interface FinVendorRuleMaster {
 export const FIN_ACCOUNTS: FinAccountMaster[] = [
   { lookupKey: "수입|매출|B2C매출|온라인판매", txType: "수입", major: "매출", mid: "B2C매출", minor: "온라인판매", example: "자사몰·오픈마켓 등 온라인 채널 제품 판매", code: "SL-001", vat: "과세", asset: "비자산", pay: "계좌이체", branch: "HQ" },
   { lookupKey: "수입|매출|B2C매출|와우판매", txType: "수입", major: "매출", mid: "B2C매출", minor: "와우판매", example: "와우 매장 현장 판매", code: "SL-002", vat: "과세", asset: "비자산", pay: "현금/카드", branch: "HON" },
-  { lookupKey: "수입|매출|B2C매출|신촌판매", txType: "수입", major: "매출", mid: "B2C매출", minor: "신촌판매", example: "신촌 매장 현장 판매(운영종료 — 과거 거래용)", code: "SL-007", vat: "과세", asset: "비자산", pay: "현금/카드", branch: "WOW" },
+  { lookupKey: "수입|매출|B2C매출|신촌판매", txType: "수입", major: "매출", mid: "B2C매출", minor: "신촌판매", example: "신촌 매장 현장 판매(2025 하반기 폐점 — 과거 거래용)", code: "SL-007", vat: "과세", asset: "비자산", pay: "현금/카드", branch: "SIN", active: false },
   { lookupKey: "수입|매출|B2C매출|아이디판매", txType: "수입", major: "매출", mid: "B2C매출", minor: "아이디판매", example: "아이디 매장 현장 판매", code: "SL-003", vat: "과세", asset: "비자산", pay: "현금/카드", branch: "ID" },
   { lookupKey: "수입|매출|B2C매출|정기구독", txType: "수입", major: "매출", mid: "B2C매출", minor: "정기구독", example: "정기구독 상품 결제 수입", code: "SL-004", vat: "과세", asset: "비자산", pay: "계좌이체", branch: "HQ" },
   { lookupKey: "수입|매출|B2C매출|선물세트", txType: "수입", major: "매출", mid: "B2C매출", minor: "선물세트", example: "시즌·명절 선물세트 판매", code: "SL-005", vat: "과세", asset: "비자산", pay: "계좌이체", branch: "HQ" },
@@ -346,6 +355,8 @@ export const FIN_ACCOUNTS: FinAccountMaster[] = [
   { lookupKey: "지출|운영비|홍대공용운영비|홍보물비", txType: "지출", major: "운영비", mid: "홍대공용운영비", minor: "홍보물비", example: "POP, 포스터, 안내판", code: "OP-033", vat: "공제", asset: "비자산", pay: "법인카드", branch: "HON" },
   { lookupKey: "지출|운영비|홍대공용운영비|보험료", txType: "지출", major: "운영비", mid: "홍대공용운영비", minor: "보험료", example: "화재보험 등", code: "OP-034", vat: "공제", asset: "비자산", pay: "계좌이체", branch: "HQ" },
   { lookupKey: "지출|운영비|일반운영비|임차료", txType: "지출", major: "운영비", mid: "일반운영비", minor: "임차료", example: "사무실 월세", code: "OP-035", vat: "공제", asset: "비자산", pay: "계좌이체", branch: "HQ" },
+  // 신촌 매장은 2025 하반기에 폐점 — 2024-12~2025 임차료 거래가 물려 있어 은퇴 계정으로 복원한다
+  { lookupKey: "지출|운영비|신촌운영비|임차료", txType: "지출", major: "운영비", mid: "신촌운영비", minor: "임차료", example: "신촌점 월세(2025 하반기 폐점 — 과거 거래용)", code: "OP-048", vat: "공제", asset: "비자산", pay: "계좌이체", branch: "SIN", active: false },
   { lookupKey: "지출|운영비|일반운영비|관리비", txType: "지출", major: "운영비", mid: "일반운영비", minor: "관리비", example: "사무실 관리비, 공용비", code: "OP-036", vat: "공제", asset: "비자산", pay: "계좌이체", branch: "HQ" },
   { lookupKey: "지출|운영비|일반운영비|전기수도통신비", txType: "지출", major: "운영비", mid: "일반운영비", minor: "전기수도통신비", example: "전기세, 수도세, 인터넷/전화", code: "OP-037", vat: "공제", asset: "비자산", pay: "계좌이체", branch: "HQ" },
   { lookupKey: "지출|운영비|일반운영비|비품구입비", txType: "지출", major: "운영비", mid: "일반운영비", minor: "비품구입비", example: "(50만원 미만)의자, 책상, 복합기", code: "OP-038", vat: "공제", asset: "비자산", pay: "법인카드", branch: "HQ" },

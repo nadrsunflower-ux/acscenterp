@@ -301,7 +301,7 @@ export default function LedgerPage() {
     (t: FinTransaction) => {
       const q = search.trim().toLowerCase();
       if (!q) return true;
-      return [t.vendor, t.acctMinor, t.note, t.acctNote, t.last4]
+      return [t.vendor, t.acctMinor, t.note, t.acctNote, t.last4, t.projectCode]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()

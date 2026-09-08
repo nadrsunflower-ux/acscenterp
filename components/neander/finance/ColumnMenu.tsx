@@ -25,6 +25,7 @@ const GAP = 4;
 
 export function ColumnMenu({
   columnKey,
+  range: rangeProp,
   label,
   anchor,
   sortDir,
@@ -34,7 +35,10 @@ export function ColumnMenu({
   onFilterChange,
   onClose,
 }: {
-  columnKey: FilterKey;
+  /** 열 id. 원장은 FilterKey, 체크리스트는 `x:<id>` 같은 자유 문자열도 온다 */
+  columnKey: string;
+  /** 숫자 범위로 거르는 열인가. 안 주면 원장 규칙으로 판단한다 */
+  range?: boolean;
   label: string;
   /** 머리글 버튼의 화면 좌표 */
   anchor: DOMRect;
@@ -48,7 +52,7 @@ export function ColumnMenu({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState("");
-  const range = isRangeKey(columnKey);
+  const range = rangeProp ?? isRangeKey(columnKey as FilterKey);
 
   // 바깥 클릭·Esc·스크롤로 닫는다. 메뉴 안의 mousedown 은 여기서 끊어
   // 그리드(document 리스너)까지 가지 않게 한다.

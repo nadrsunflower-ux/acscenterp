@@ -36,9 +36,17 @@ export function AccountPicker({
   onChange: (v: AccountValue) => void;
   compact?: boolean;
 }) {
+  // 은퇴 계정(active:false)은 후보에서 뺀다 — 단, 지금 이 거래가 이미 그
+  // 계정을 들고 있으면 보여준다 (과거 거래를 열었을 때 값이 사라지면 안 된다)
   const pool = useMemo(
-    () => accounts.filter((a) => a.txType === txType),
-    [accounts, txType],
+    () =>
+      accounts.filter(
+        (a) =>
+          a.txType === txType &&
+          (a.active !== false ||
+            (a.major === value.acctMajor && a.mid === value.acctMid && a.minor === value.acctMinor)),
+      ),
+    [accounts, txType, value.acctMajor, value.acctMid, value.acctMinor],
   );
   const majors = useMemo(() => uniq(pool.map((a) => a.major)), [pool]);
   const mids = useMemo(

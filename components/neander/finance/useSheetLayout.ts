@@ -33,6 +33,8 @@ export const DEFAULT_ZOOM = 1;
 
 /** 열 구성이 바뀌면 v 를 올린다 — 옛 폭이 엉뚱한 열에 붙지 않게 */
 const STORAGE_KEY = "neander.finance.ledger.layout.v1";
+/** 프로젝트 체크리스트 시트는 열이 다르므로 저장 자리도 따로 쓴다 */
+export const CHECKLIST_LAYOUT_KEY = "neander.finance.project-checklist.layout.v1";
 /** 드래그 중 60fps 로 쓰지 않는다 */
 const WRITE_DELAY = 250;
 
@@ -61,9 +63,9 @@ const clamp = (v: number, lo: number, hi: number) =>
 export const clampColWidth = (px: number) => clamp(px, MIN_COL_WIDTH, MAX_COL_WIDTH);
 export const clampRowHeight = (px: number) => clamp(px, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT);
 
-function read(): SheetLayout {
+function read(key: string): SheetLayout {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(key);
     if (!raw) return EMPTY;
     const p = JSON.parse(raw) as Partial<SheetLayout>;
     const widths: Record<string, number> = {};
@@ -84,11 +86,11 @@ function read(): SheetLayout {
   }
 }
 
-export function useSheetLayout() {
+export function useSheetLayout(storageKey: string = STORAGE_KEY) {
   // 시트는 데이터를 받은 뒤에야 그려지므로(페이지가 loading 을 먼저 띄운다)
   // 첫 렌더에 localStorage 를 읽어도 서버 렌더와 어긋나지 않는다.
   const [layout, setLayout] = useState<SheetLayout>(() =>
-    typeof window === "undefined" ? EMPTY : read(),
+    typeof window === "undefined" ? EMPTY : read(storageKey),
   );
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -96,7 +98,7 @@ export function useSheetLayout() {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       try {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
+        window.localStorage.setItem(storageKey, JSON.stringify(layout));
       } catch {
         // 저장 못 해도 화면은 그대로 동작한다 — 다음에 열면 기본값일 뿐
       }
@@ -104,7 +106,7 @@ export function useSheetLayout() {
     return () => {
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [layout]);
+  }, [layout, storageKey]);
 
   const setWidth = useCallback((id: string, px: number) => {
     setLayout((l) => {

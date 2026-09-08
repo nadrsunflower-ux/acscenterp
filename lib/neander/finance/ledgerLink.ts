@@ -25,6 +25,8 @@ export interface LedgerQuery {
   site?: string;
   vendor?: string;
   search?: string;
+  /** 프로젝트 코드 — 전용 열이 없어 전체 검색으로 건다 */
+  projectCode?: string;
 }
 
 const PARAM = {
@@ -58,7 +60,7 @@ export function ledgerHref(q: LedgerQuery): string {
   put(PARAM.acctMinor, unlabel(q.acctMinor));
   put(PARAM.site, unlabel(q.site));
   put(PARAM.vendor, q.vendor);
-  put(PARAM.search, q.search);
+  put(PARAM.search, q.search ?? q.projectCode);
   const s = p.toString();
   return s ? `/neander/finance/ledger?${s}` : "/neander/finance/ledger";
 }

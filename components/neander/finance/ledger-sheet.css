@@ -342,3 +342,92 @@ body.dsg-resizing-row * {
 .dsg-context-menu-item:hover {
   background: #eef2ff;
 }
+
+/* ---- 프로젝트 체크리스트 ------------------------------------
+   준비 완료 줄은 옅은 초록, 실제금액을 적은 줄은 옅은 파랑.
+   색만으로 뜻을 나르지 않는다 — 준비는 체크박스가, 실제금액은 그 칸의
+   숫자가 이미 보이고, 배경은 표를 훑을 때의 보조 신호일 뿐이다. */
+.ledger-sheet .checklist-row-done {
+  --dsg-cell-background-color: #f0fdf4; /* green-50 */
+}
+.ledger-sheet .checklist-row-actual {
+  --dsg-cell-background-color: #f0f9ff; /* sky-50 */
+}
+.ledger-sheet .checklist-row-done .dsg-cell-gutter::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: #16a34a;
+}
+.ledger-sheet .dsg-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+.ledger-sheet .dsg-check input {
+  accent-color: #16a34a;
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+/* 정렬을 쓰지 않는 표의 머리글 — 버튼이 아니라 글자다 */
+.ledger-sheet .dsg-head-static {
+  cursor: default;
+  background: none;
+}
+
+/* ---- 사용자 열 머리글 --------------------------------------- */
+.ledger-sheet .dsg-head-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  padding: 2px 4px;
+  font: inherit;
+  font-weight: 600;
+  color: #3730a3; /* indigo-800 — 고정 열과 구분되는 사용자 열 */
+  outline: none;
+}
+.ledger-sheet .dsg-head-input:hover {
+  border-color: #c7d2fe;
+  background: #fff;
+}
+.ledger-sheet .dsg-head-input:focus {
+  border-color: #6366f1;
+  background: #fff;
+}
+.ledger-sheet .dsg-head-sort,
+.ledger-sheet .dsg-head-remove {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 18px;
+  border-radius: 3px;
+  color: #a1a1aa;
+}
+.ledger-sheet .dsg-head-sort:hover,
+.ledger-sheet .dsg-head-remove:hover {
+  background: #f4f4f5;
+  color: #52525b;
+}
+.ledger-sheet .dsg-head-remove:hover {
+  color: #e11d48;
+}
+
+/* 선택만 된 칸 — 커서와 선택 표시를 감춘다.
+   입력칸은 한글 조합을 위해 미리 포커스돼 있지만(sheetCells 주석 참고),
+   사람 눈에는 "아직 편집 전"으로 보여야 한다. */
+.ledger-sheet .dsg-input-idle {
+  caret-color: transparent;
+}
+.ledger-sheet .dsg-input-idle::selection {
+  background: transparent;
+}

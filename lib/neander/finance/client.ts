@@ -17,6 +17,8 @@ import type { FinTransaction, FinImportBatch, FinTransactionInput } from "./type
 import type { CloseSnapshot, MonthCloseDoc } from "./close";
 import type { FinCardMemoView, ReceiptRead } from "./card-memo";
 import type { FinChatDoc, FinChatSummary } from "./chat-log";
+import type { FinProjectDoc, FinProjectInput } from "./project";
+import type { FinDoc, FinDocFile, FinDocInput } from "./docs";
 import type {
   FinAccountDoc,
   FinAllocationDoc,
@@ -39,6 +41,8 @@ export interface FinanceSnapshot {
   budgets: FinBudgetDoc[];
   imports: FinImportBatch[];
   closes: MonthCloseDoc[];
+  projects: FinProjectDoc[];
+  docs: FinDoc[];
 }
 
 /** 서버가 신원을 검증할 수 있게 로그인 ID 토큰을 붙인다 */
@@ -79,8 +83,21 @@ async function mutate<T = unknown>(action: string, payload?: unknown): Promise<T
 export const addFinTransaction = (input: FinTransactionInput) =>
   mutate("transaction.add", input);
 
-export const updateFinTransaction = (id: string, patch: Partial<FinTransactionInput>) =>
-  mutate("transaction.update", { id, patch });
+/**
+ * 거래 한 건 수정.
+ *
+ * ⚠️ `undefined` 를 `null` 로 바꿔 보낸다. 서버는 "undefined 면 필드를 비운다"
+ *    로 짜여 있지만, JSON.stringify 가 undefined 키를 **통째로 지워** 버려서
+ *    그 분기에 닿지 못했다 — 거래처나 프로젝트코드를 지우고 저장해도 옛 값이
+ *    그대로 남았다. 명시적 null 로 보내야 비우기가 실제로 전달된다.
+ */
+export const updateFinTransaction = (id: string, patch: Partial<FinTransactionInput>) => {
+  const wire: Record<string, unknown> = {};
+  (Object.keys(patch) as (keyof FinTransactionInput)[]).forEach((k) => {
+    wire[k] = patch[k] === undefined ? null : patch[k];
+  });
+  return mutate("transaction.update", { id, patch: wire });
+};
 
 export const deleteFinTransaction = (id: string) => mutate("transaction.delete", { id });
 
@@ -427,6 +444,69 @@ export const deleteFinSubscription = (id: string) => mutate("subscription.delete
 /** 한 달치 예산을 통째로 저장 (0 인 줄은 서버에서 버린다) */
 export const saveFinBudget = (month: string, lines: Record<string, number>, note?: string) =>
   mutate<{ saved: number }>("budget.save", { month, lines, note });
+
+// ---- 프로젝트 손익 ------------------------------------------
+
+/** 프로젝트를 통째로 저장. id 가 없으면 새로 만들고 id 를 돌려준다. */
+export const saveFinProject = (project: FinProjectInput, id?: string) =>
+  mutate<{ id: string }>("project.save", { id, project });
+
+export const deleteFinProject = (id: string) => mutate("project.delete", { id });
+
+// ---- 프로젝트 문서 (견적서·계약서) --------------------------------
+
+const DOC_FILES_URL = "/api/neander/finance/docs/files";
+
+/** 문서를 통째로 저장. 파일 목록은 서버가 지키고 있어 여기서 보내지 않는다. */
+export const saveFinDoc = (doc: FinDocInput, id?: string) =>
+  mutate<{ id: string }>("doc.save", { id, doc });
+
+/** 문서와 붙은 파일을 모두 지운다 */
+export const deleteFinDoc = (id: string) => mutate("doc.delete", { id });
+
+/** 파일 하나만 뗀다 (Storage 에서도 지운다) */
+export const removeFinDocFile = (id: string, path: string) =>
+  mutate<{ files: FinDocFile[] }>("doc.removeFile", { id, path });
+
+/**
+ * 문서에 파일을 붙인다. multipart 라 mutate 를 못 탄다.
+ * 한 번에 한 파일씩 보낸다 — Vercel 함수 본문 한도(4.5MB)가 요청 단위라,
+ * 여러 파일을 한 요청에 실으면 합계가 걸린다.
+ */
+export async function uploadFinDocFiles(
+  id: string,
+  files: File[],
+  onProgress?: (done: number, total: number) => void,
+): Promise<FinDocFile[]> {
+  const user = getNeanderAuth().currentUser;
+  if (!user) throw new Error("로그인이 필요합니다.");
+  let last: FinDocFile[] = [];
+  for (let i = 0; i < files.length; i += 1) {
+    const form = new FormData();
+    form.append("id", id);
+    form.append("file", files[i]);
+    const res = await fetch(DOC_FILES_URL, {
+      method: "POST",
+      // Content-Type 은 브라우저가 boundary 와 함께 넣는다
+      headers: { Authorization: `Bearer ${await user.getIdToken()}` },
+      body: form,
+    });
+    if (!res.ok) throw new Error(await readError(res));
+    last = ((await res.json()) as { files: FinDocFile[] }).files;
+    onProgress?.(i + 1, files.length);
+  }
+  return last;
+}
+
+/** 파일을 여는 서명 URL. 한 시간 뒤 만료되므로 누를 때마다 받는다. */
+export async function finDocFileUrl(path: string): Promise<string> {
+  const res = await fetch(`${DOC_FILES_URL}?path=${encodeURIComponent(path)}`, {
+    headers: await authHeaders(),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return ((await res.json()) as { url: string }).url;
+}
 
 // ---- 배분 규칙 ----------------------------------------------
 

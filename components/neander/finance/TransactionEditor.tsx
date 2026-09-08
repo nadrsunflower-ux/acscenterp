@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import { Button, Field, Input, Select, Textarea } from "@/components/neander/ui";
 import { AccountPicker } from "./AccountPicker";
+import { useFinance } from "./FinanceProvider";
 import { Money } from "./ui";
 import type { FinAccountDoc, FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
 import {
@@ -48,6 +49,9 @@ export function TransactionEditor({
   onDelete?: () => Promise<void>;
   onClose: () => void;
 }) {
+  // 프로젝트 코드 후보 — 등록된 프로젝트에서. 두 호출처(원장·검토함) 모두
+  // 재무 레이아웃 안이라 프로바이더가 있다.
+  const { projects } = useFinance();
   const [form, setForm] = useState<FinTransaction>(tx);
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -247,11 +251,17 @@ export function TransactionEditor({
         </div>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-3">
-          <Field label="프로젝트코드">
+          <Field label="프로젝트코드" hint="프로젝트 손익 화면과 이 코드로 이어진다">
             <Input
               value={form.projectCode ?? ""}
               onChange={(e) => set("projectCode", e.target.value || undefined)}
+              list="tx-editor-project-codes"
             />
+            <datalist id="tx-editor-project-codes">
+              {projects.map((p) => (
+                <option key={p.id} value={p.code}>{p.name}</option>
+              ))}
+            </datalist>
           </Field>
           <Field label="환급매칭ID" hint="원거래와 공유하는 라벨">
             <Input

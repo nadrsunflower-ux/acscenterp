@@ -33,7 +33,6 @@ import {
   //    (rowClassName) — 이 전부 마운트 시점 값에 묶여 있었다.
   //    DynamicDataSheetGrid 가 매 렌더 값을 그대로 쓰는 쪽이다.
   DynamicDataSheetGrid,
-  createTextColumn,
   keyColumn,
   type Column,
   type DataSheetGridRef,
@@ -64,6 +63,7 @@ import {
   createDerivedColumn,
   createGutterColumn,
   createSelectColumn,
+  createSheetTextColumn,
   ColumnHead,
   type SelectOption,
 } from "./sheetCells";
@@ -138,40 +138,38 @@ const asOptions = (xs: string[]): SelectOption[] => xs.map((v) => ({ value: v, l
 /**
  * 빈 문자열은 undefined 로 — 저장 규칙(빈 값 = 필드 비우기)과 맞춘다.
  *
- * continuousUpdates:false — 타자 한 글자마다가 아니라 셀을 떠날 때 값이
- * 확정된다. 실행취소가 "글자 단위"가 아니라 "셀 단위"가 되고, 편집 중
- * Esc 를 누르면 그 셀의 수정이 취소된다 (엑셀·구글 시트와 같다).
+ * 값은 셀을 떠날 때 확정된다(타자 한 글자마다가 아니라). 실행취소가
+ * "글자 단위"가 아니라 "셀 단위"가 되고, 편집 중 Esc 를 누르면 그 셀의
+ * 수정이 취소된다 — 엑셀·구글 시트와 같다.
+ *
+ * 내장 createTextColumn 이 아니라 우리 팩토리를 쓰는 이유는 한글 때문이다.
+ * 내장 셀은 편집이 시작되는 순간 입력칸으로 포커스를 옮기는데, 그 사이에
+ * IME 조합이 끊겨 「가」가 「ㄱㅏ」로 들어간다 (sheetCells 주석 참고).
  */
-const optionalText = createTextColumn<string | undefined>({
-  continuousUpdates: false,
-  parseUserInput: (v) => v.trim() || undefined,
-  parsePastedValue: (v) => v.replace(/[\n\r]+/g, " ").trim() || undefined,
-  formatBlurredInput: (v) => v ?? "",
-  formatInputOnFocus: (v) => v ?? "",
-  formatForCopy: (v) => v ?? "",
+const optionalText = createSheetTextColumn<string | undefined>({
+  parse: (v) => v.trim() || undefined,
+  parsePasted: (v) => v.replace(/[\n\r]+/g, " ").trim() || undefined,
+  formatBlurred: (v) => v ?? "",
+  formatEditing: (v) => v ?? "",
   deletedValue: undefined,
 });
 
-const dateText = createTextColumn<string>({
-  continuousUpdates: false,
+const dateText = createSheetTextColumn<string>({
   placeholder: "YYYY-MM-DD",
-  parseUserInput: normalizeDateInput,
-  parsePastedValue: normalizeDateInput,
-  formatBlurredInput: (v) => v ?? "",
-  formatInputOnFocus: (v) => v ?? "",
-  formatForCopy: (v) => v ?? "",
+  parse: normalizeDateInput,
+  parsePasted: normalizeDateInput,
+  formatBlurred: (v) => v ?? "",
+  formatEditing: (v) => v ?? "",
   deletedValue: "",
 });
 
-const amount = createTextColumn<number>({
-  continuousUpdates: false,
+const amount = createSheetTextColumn<number>({
   alignRight: true,
-  parseUserInput: parseAmountInput,
-  parsePastedValue: parseAmountInput,
+  parse: parseAmountInput,
+  parsePasted: parseAmountInput,
   // 읽을 때는 천 단위 콤마, 편집할 때는 맨 숫자 — 엑셀과 같은 느낌
-  formatBlurredInput: (n) => (Number.isFinite(n) ? formatSigned(n) : "⚠"),
-  formatInputOnFocus: (n) => (Number.isFinite(n) ? String(n) : ""),
-  formatForCopy: (n) => (Number.isFinite(n) ? String(n) : ""),
+  formatBlurred: (n) => (Number.isFinite(n) ? formatSigned(n) : "⚠"),
+  formatEditing: (n) => (Number.isFinite(n) ? String(n) : ""),
   deletedValue: 0,
 });
 
@@ -256,8 +254,15 @@ export function LedgerSheet({
     }));
     const siteOptions = asOptions(uniq([...sites, ...paymentMethods.map((p) => p.site)]));
 
-    // 계정 후보 — 거래유형 → 대 → 중 → 소 순으로 좁힌다
-    const pool = (t: FinTransaction) => accounts.filter((a) => a.txType === t.txType);
+    // 계정 후보 — 거래유형 → 대 → 중 → 소 순으로 좁힌다.
+    // 은퇴 계정(active:false)은 빼되, 그 행이 이미 들고 있는 계정은 남긴다.
+    const pool = (t: FinTransaction) =>
+      accounts.filter(
+        (a) =>
+          a.txType === t.txType &&
+          (a.active !== false ||
+            (a.major === t.acctMajor && a.mid === t.acctMid && a.minor === t.acctMinor)),
+      );
     const majors = (t: FinTransaction) => asOptions(uniq(pool(t).map((a) => a.major)));
     const mids = (t: FinTransaction) =>
       asOptions(uniq(pool(t).filter((a) => a.major === t.acctMajor).map((a) => a.mid)));

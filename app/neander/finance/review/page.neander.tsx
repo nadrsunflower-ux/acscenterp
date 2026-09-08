@@ -48,6 +48,16 @@ import {
 
 const ALL = "__all__";
 
+/**
+ * 한 페이지에 그리는 행 수.
+ *
+ * 대기함이 1천 건을 넘으면서 전부를 한 번에 그리면 첫 렌더가 수 초씩
+ * 걸렸다 — 행마다 체크박스·AI 추천·계정 선택기가 붙는 무거운 카드라
+ * 목록 길이가 그대로 렌더 비용이 된다. 화면에는 100건씩만 올리고
+ * 페이지로 넘긴다. 선택(체크)은 id 기반이라 페이지를 넘겨도 유지된다.
+ */
+const PAGE_SIZE = 100;
+
 /** 계정 3단 경로. 소분류 이름은 중분류마다 겹치므로(일반소모품비 등) 전체 경로로 묶는다 */
 const acctPathOf = (t: FinTransaction) =>
   `${t.acctMajor ?? "-"} > ${t.acctMid ?? "-"} > ${t.acctMinor ?? "-"}`;
@@ -63,6 +73,8 @@ export default function ReviewPage() {
    * 묶음만 잡힌다.
    */
   const [acctFilter, setAcctFilter] = useState<string>(ALL);
+  const [page, setPage] = useState(0);
+  /** 커서는 **현재 페이지 안**의 위치다 (0 ~ PAGE_SIZE-1) */
   const [cursor, setCursor] = useState(0);
   const [editing, setEditing] = useState<FinTransaction | null>(null);
   const [busy, setBusy] = useState(false);
@@ -93,6 +105,25 @@ export default function ReviewPage() {
         .filter((t) => acctFilter === ALL || acctPathOf(t) === acctFilter)
         .sort((a, b) => (a.date < b.date ? 1 : -1)),
     [transactions, statusFilter, acctFilter],
+  );
+
+  // ---- 페이지 ----
+  const pageCount = Math.max(1, Math.ceil(pending.length / PAGE_SIZE));
+  // 처리해서 목록이 줄면 페이지가 범위를 벗어날 수 있다
+  useEffect(() => {
+    if (page >= pageCount) setPage(pageCount - 1);
+  }, [page, pageCount]);
+  const pageRows = useMemo(
+    () => pending.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+    [pending, page],
+  );
+  const goPage = useCallback(
+    (p: number) => {
+      setPage(Math.max(0, Math.min(pageCount - 1, p)));
+      setCursor(0);
+      window.scrollTo({ top: 0 });
+    },
+    [pageCount],
   );
 
   /** 계정 필터 후보 — 계정 필터를 **빼고** 센다 (좁힌 뒤에도 다른 계정으로 옮겨갈 수 있게) */
@@ -176,8 +207,8 @@ export default function ReviewPage() {
 
   // 목록이 줄어들면 커서가 범위를 벗어난다
   useEffect(() => {
-    if (cursor >= pending.length) setCursor(Math.max(0, pending.length - 1));
-  }, [pending.length, cursor]);
+    if (cursor >= pageRows.length) setCursor(Math.max(0, pageRows.length - 1));
+  }, [pageRows.length, cursor]);
 
   const approve = useCallback(
     async (t: FinTransaction) => {
@@ -195,26 +226,35 @@ export default function ReviewPage() {
       if (editing) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
-      if (pending.length === 0) return;
+      if (pageRows.length === 0) return;
 
       if (e.key === "ArrowDown" || e.key === "j") {
         e.preventDefault();
-        setCursor((c) => Math.min(pending.length - 1, c + 1));
+        // 페이지 끝에서 한 번 더 내리면 다음 페이지로
+        if (cursor >= pageRows.length - 1) {
+          if (page < pageCount - 1) goPage(page + 1);
+        } else setCursor(cursor + 1);
       } else if (e.key === "ArrowUp" || e.key === "k") {
         e.preventDefault();
-        setCursor((c) => Math.max(0, c - 1));
+        // 페이지 첫 행에서 한 번 더 올리면 이전 페이지의 끝으로
+        if (cursor <= 0) {
+          if (page > 0) {
+            setPage(page - 1);
+            setCursor(PAGE_SIZE - 1);
+          }
+        } else setCursor(cursor - 1);
       } else if (e.key === "Enter") {
         e.preventDefault();
-        const t = pending[cursor];
+        const t = pageRows[cursor];
         if (t) approve(t);
       } else if (e.key === "e" || e.key === "E") {
         e.preventDefault();
-        setEditing(pending[cursor] ?? null);
+        setEditing(pageRows[cursor] ?? null);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pending, cursor, editing, approve]);
+  }, [pageRows, cursor, editing, approve, page, pageCount, goPage]);
 
   // 커서가 화면 밖으로 나가지 않게
   useEffect(() => {
@@ -312,6 +352,41 @@ export default function ReviewPage() {
 
   const suggestedCount = transactions.filter((t) => t.status === "suggested").length;
 
+  // 페이지 번호: 처음·끝·현재 주변만 보여준다 (사이는 …)
+  const pageNums = (() => {
+    const s = new Set<number>([0, pageCount - 1]);
+    for (let p = page - 2; p <= page + 2; p++) if (p >= 0 && p < pageCount) s.add(p);
+    return [...s].sort((a, b) => a - b);
+  })();
+
+  const pager =
+    pageCount > 1 ? (
+      <nav className="my-3 flex flex-wrap items-center justify-center gap-1.5" aria-label="페이지">
+        <Button variant="secondary" disabled={page === 0} onClick={() => goPage(page - 1)}>
+          ← 이전
+        </Button>
+        {pageNums.map((p, i) => (
+          <span key={p} className="flex items-center gap-1.5">
+            {i > 0 && pageNums[i - 1] !== p - 1 && <span className="px-1 text-zinc-400">…</span>}
+            <button
+              onClick={() => goPage(p)}
+              aria-current={p === page ? "page" : undefined}
+              className={`min-w-[2.25rem] rounded-lg border px-2 py-1.5 text-sm tabular-nums transition ${
+                p === page
+                  ? "border-indigo-600 bg-indigo-600 font-semibold text-white"
+                  : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50"
+              }`}
+            >
+              {p + 1}
+            </button>
+          </span>
+        ))}
+        <Button variant="secondary" disabled={page >= pageCount - 1} onClick={() => goPage(page + 1)}>
+          다음 →
+        </Button>
+      </nav>
+    ) : null;
+
   return (
     <div className="mx-auto w-full max-w-6xl px-5 py-8">
       <PageHeader
@@ -322,7 +397,11 @@ export default function ReviewPage() {
             <Select
               value={statusFilter}
               className="w-auto"
-              onChange={(e) => setStatusFilter(e.target.value)}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setPage(0);
+                setCursor(0);
+              }}
             >
               <option value={ALL}>전체</option>
               {(["suggested", "needs_review"] as ClassificationStatus[]).map((s) => (
@@ -335,6 +414,7 @@ export default function ReviewPage() {
               onChange={(e) => {
                 setAcctFilter(e.target.value);
                 setSelected(new Set()); // 안 보이는 행이 선택된 채로 남으면 안 된다
+                setPage(0);
                 setCursor(0);
               }}
               title="계정으로 좁힌 뒤 「전체 선택」 을 누르면 그 묶음만 잡힙니다"
@@ -424,8 +504,17 @@ export default function ReviewPage() {
         <>
           <Card className="mb-4 py-3">
             <p className="text-sm text-zinc-600">
-              <b className="text-zinc-900">{pending.length.toLocaleString("ko-KR")}건</b> 대기 ·
-              키보드로 처리할 수 있습니다 —{" "}
+              <b className="text-zinc-900">{pending.length.toLocaleString("ko-KR")}건</b> 대기
+              {pending.length > PAGE_SIZE && (
+                <>
+                  {" · 이 페이지 "}
+                  <b className="tabular-nums text-zinc-900">
+                    {(page * PAGE_SIZE + 1).toLocaleString("ko-KR")}–
+                    {(page * PAGE_SIZE + pageRows.length).toLocaleString("ko-KR")}
+                  </b>
+                </>
+              )}
+              {" · 키보드로 처리할 수 있습니다 — "}
               <kbd className="rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 text-xs">↑</kbd>{" "}
               <kbd className="rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 text-xs">↓</kbd> 이동 ·{" "}
               <kbd className="rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 text-xs">Enter</kbd> 확정 ·{" "}
@@ -531,11 +620,14 @@ export default function ReviewPage() {
             </button>
             <span className="text-zinc-400">
               여러 건을 골라 같은 계정으로 한 번에 지정할 수 있습니다
+              {pageCount > 1 && " · 선택은 페이지를 넘겨도 유지됩니다"}
             </span>
           </div>
 
+          {pager}
+
           <ul className="space-y-2">
-            {pending.map((t, i) => {
+            {pageRows.map((t, i) => {
               const active = i === cursor;
               return (
                 <li
@@ -636,6 +728,8 @@ export default function ReviewPage() {
               );
             })}
           </ul>
+
+          {pager}
         </>
       )}
 

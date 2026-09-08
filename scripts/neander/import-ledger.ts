@@ -5,9 +5,12 @@
 //  않고 Admin SDK 로 직접 넣는다. 여러 달치를 한 번에 밀어넣거나
 //  브라우저에서 막혔을 때 쓰는 경로다.
 //
-//    npm run finance:import -- <장부.xlsx> [--dry]
+//    npm run finance:import -- <장부.xlsx> [--dry] [--until YYYY-MM-DD]
 //
 //  --dry 를 붙이면 무엇이 들어갈지만 보여주고 쓰지 않는다.
+//  --until 은 그 날짜 이후의 행을 걸러낸다 — 연말결산 통합본처럼
+//  다음 해 첫 며칠이 섞여 들어간 파일을 이미 적재된 기간과 겹치지
+//  않게 자를 때 쓴다.
 //  적재분은 임포트 이력에 배치로 남으므로 화면에서 '되돌리기' 가능.
 // ============================================================
 
@@ -51,9 +54,15 @@ function initAdmin() {
 async function main() {
   const args = process.argv.slice(2);
   const dry = args.includes("--dry");
-  const file = args.find((a) => !a.startsWith("--"));
+  const untilIdx = args.indexOf("--until");
+  const until = untilIdx >= 0 ? args[untilIdx + 1] : undefined;
+  if (untilIdx >= 0 && !/^\d{4}-\d{2}-\d{2}$/.test(until ?? "")) {
+    console.error("--until 은 YYYY-MM-DD 형식이어야 합니다.");
+    process.exit(1);
+  }
+  const file = args.find((a, i) => !a.startsWith("--") && i !== untilIdx + 1);
   if (!file) {
-    console.error("사용법: npm run finance:import -- <장부.xlsx> [--dry]");
+    console.error("사용법: npm run finance:import -- <장부.xlsx> [--dry] [--until YYYY-MM-DD]");
     process.exit(1);
   }
 
@@ -65,6 +74,11 @@ async function main() {
   console.log(`시트 ${parsed.sheetName} · 헤더 ${parsed.headerRowNo}행`);
   console.log(`읽은 거래 ${parsed.rows.length}건 · 오류 ${parsed.errors.length}건`);
   parsed.errors.slice(0, 10).forEach((e) => console.log(`   ⚠️  ${e.rowNo}행 — ${e.reason}`));
+  if (until) {
+    const before = parsed.rows.length;
+    parsed.rows = parsed.rows.filter((r) => r.date <= until);
+    console.log(`--until ${until} — ${before - parsed.rows.length}건 잘라냄`);
+  }
   if (parsed.rows.length === 0) process.exit(1);
 
   // 기존 데이터 — 중복 판정과 자동분류 이력의 근거

@@ -20,6 +20,8 @@ import { adminApp } from "./admin";
 
 /** 영수증이 놓이는 자리 */
 const PREFIX = "neander_fin/card-memo";
+/** 프로젝트 문서(견적서·계약서) 파일이 놓이는 자리 — 문서 id 아래에 모은다 */
+const DOC_PREFIX = "neander_fin/docs";
 /** 서명 URL 수명. 화면을 열어 두고 한참 보는 일은 없다 */
 const URL_TTL_MS = 60 * 60 * 1000;
 
@@ -50,6 +52,29 @@ export async function uploadReceipt(
   return path;
 }
 
+/**
+ * 견적서·계약서 파일. 영수증과 같은 방식이되 자리만 다르다 — 지울 때
+ * 문서 id 아래를 통째로 지우면 된다. 이름은 원본을 살린다 (계약서 파일명에
+ * 「초안(0804)」 같은 정보가 들어 있다).
+ */
+export async function uploadDocFile(
+  docId: string,
+  file: { name: string; type: string; bytes: Buffer },
+): Promise<string> {
+  const path = `${DOC_PREFIX}/${docId}/${Date.now()}_${safeName(file.name)}`;
+  await bucket()
+    .file(path)
+    .save(file.bytes, {
+      contentType: file.type || "application/octet-stream",
+      resumable: false,
+    });
+  return path;
+}
+
+/** 우리 문서 자리인지 — 아무 경로나 서명해 주면 다른 폴더까지 열어 주는 셈이 된다 */
+export const isDocPath = (path: string) =>
+  path.startsWith(`${DOC_PREFIX}/`) && !path.includes("..");
+
 /** 화면에 보여줄 때만 만든다. 저장하지 않는다 — 만료되기 때문이다. */
 export async function signedUrl(path: string): Promise<string> {
   const [url] = await bucket()
@@ -57,6 +82,8 @@ export async function signedUrl(path: string): Promise<string> {
     .getSignedUrl({ action: "read", expires: Date.now() + URL_TTL_MS });
   return url;
 }
+
+export const deleteFiles = deleteReceipts;
 
 export async function deleteReceipts(paths: string[]): Promise<void> {
   const b = bucket();

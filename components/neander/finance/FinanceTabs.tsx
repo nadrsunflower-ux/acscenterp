@@ -11,6 +11,7 @@ const TABS = [
   { href: "/neander/finance/review", label: "검토 대기함" },
   { href: "/neander/finance/card", label: "카드 기록" },
   { href: "/neander/finance/reports", label: "리포트" },
+  { href: "/neander/finance/projects", label: "프로젝트" },
   { href: "/neander/finance/close", label: "월 마감" },
   { href: "/neander/finance/import", label: "엑셀 임포트" },
   { href: "/neander/finance/master", label: "마스터" },
