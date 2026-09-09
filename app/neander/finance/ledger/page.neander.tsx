@@ -45,7 +45,7 @@ import { exportLedgerXlsx } from "@/lib/neander/finance/export";
 import type { FinTransaction } from "@/lib/neander/finance/types";
 import {
   NEW_ID_PREFIX,
-  accountKeySet,
+  accountIndex,
   blankRow,
   isBlankRow,
   isNewRow,
@@ -386,18 +386,18 @@ export default function LedgerPage() {
   );
 
   // ---- 검증 ----------------------------------------------------
-  const accountKeys = useMemo(() => accountKeySet(accounts), [accounts]);
+  const acctIndex = useMemo(() => accountIndex(accounts), [accounts]);
   const issues = useMemo(() => {
     const m = new Map<string, RowIssue[]>();
     const check = (t: FinTransaction) => {
       if (isNewRow(t) && isBlankRow(t)) return; // 빈 새 행은 저장 대상이 아니다
-      const found = validateRow(t, { accountKeys, paymentMethods });
+      const found = validateRow(t, { accounts: acctIndex, paymentMethods });
       if (found.length) m.set(t.id, found);
     };
     edits.draft.forEach(check);
     edits.newRows.forEach(check);
     return m;
-  }, [edits, accountKeys, paymentMethods]);
+  }, [edits, acctIndex, paymentMethods]);
 
   const dirtyIds = useMemo(() => new Set(edits.draft.keys()), [edits.draft]);
   const blankNew = edits.newRows.filter(isBlankRow).length;

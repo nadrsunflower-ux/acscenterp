@@ -9,6 +9,7 @@
 //  두 행이 같은지, 행이 저장 가능한 상태인지, 서버에 보낼 패치는 무엇인지.
 // ============================================================
 
+import { isAllowedTxAccountMismatch } from "./classify";
 import type { FinAccountDoc, FinPaymentMethodDoc } from "./db-types";
 import {
   TX_TYPES,
@@ -111,7 +112,7 @@ export interface RowIssue {
  */
 export function validateRow(
   t: FinTransaction,
-  ctx: { accountKeys: Set<string>; paymentMethods: FinPaymentMethodDoc[] },
+  ctx: { accounts: AccountIndex; paymentMethods: FinPaymentMethodDoc[] },
 ): RowIssue[] {
   const issues: RowIssue[] = [];
   if (!isValidDate(t.date ?? "")) issues.push({ field: "date", message: "거래일은 YYYY-MM-DD" });
@@ -129,15 +130,50 @@ export function validateRow(
   if (!STATUSES.includes(t.status)) issues.push({ field: "status", message: "상태 값이 잘못됨" });
 
   const anyAcct = Boolean(t.acctMajor || t.acctMid || t.acctMinor);
-  if (anyAcct && !ctx.accountKeys.has(lookupKeyOf(t))) {
-    const field: EditableField = !t.acctMajor ? "acctMajor" : !t.acctMid ? "acctMid" : "acctMinor";
-    issues.push({ field, message: "계정 마스터에 없는 조합" });
+  if (anyAcct && !ctx.accounts.keys.has(lookupKeyOf(t))) {
+    // 조회키가 안 맞아도 **계정 3단은 맞는** 경우가 있다. 거래유형만 다른
+    // 것인데, 그중 일부는 장부의 확립된 관행이라 틀린 게 아니다.
+    //   카드대금결제  계정은 「지출 > 재무비용 > 금융비용 > 카드대금결제」 로
+    //                 등록돼 있지만 거래유형은 손익에서 빼려고 별도로 둔다.
+    //   환급          되돌린 대상(=지출) 계정을 가리켜야 순손익이 맞는다.
+    // 분류 엔진은 이미 이 둘을 정상으로 안다(classify.ts). 검증만 몰라서
+    // 멀쩡한 행에 경고가 붙어 있었다 — 2608 장부에서 13건.
+    const acctTxType = ctx.accounts.txTypeByPath.get(accountPathOf(t));
+    if (!acctTxType || !isAllowedTxAccountMismatch(t.txType, t.acctMinor, acctTxType)) {
+      const field: EditableField = !t.acctMajor ? "acctMajor" : !t.acctMid ? "acctMid" : "acctMinor";
+      issues.push({
+        field,
+        message: acctTxType
+          ? `이 계정은 ${acctTxType} 용이라 ${t.txType} 에 쓸 수 없음`
+          : "계정 마스터에 없는 조합",
+      });
+    }
   }
   return issues;
 }
 
-export const accountKeySet = (accounts: FinAccountDoc[]) =>
-  new Set(accounts.map((a) => a.lookupKey));
+/** 계정 3단 경로 — 거래유형을 뺀 나머지. 조회키와 달리 유형에 매이지 않는다. */
+const accountPathOf = (t: Pick<FinTransaction, "acctMajor" | "acctMid" | "acctMinor">) =>
+  [t.acctMajor ?? "", t.acctMid ?? "", t.acctMinor ?? ""].join("|");
+
+/**
+ * 검증에 쓰는 계정 색인.
+ *
+ * 조회키 집합만으로는 "마스터에 아예 없는 계정" 과 "계정은 맞는데 거래유형만
+ * 다른 것" 을 구별할 수 없다. 후자는 관행상 정상인 경우가 있어서 3단 경로 →
+ * 거래유형 맵을 함께 들고 다닌다.
+ */
+export interface AccountIndex {
+  keys: Set<string>;
+  txTypeByPath: Map<string, string>;
+}
+
+export const accountIndex = (accounts: FinAccountDoc[]): AccountIndex => ({
+  keys: new Set(accounts.map((a) => a.lookupKey)),
+  txTypeByPath: new Map(
+    accounts.map((a) => [[a.major ?? "", a.mid ?? "", a.minor ?? ""].join("|"), a.txType]),
+  ),
+});
 
 // ---- 정렬 ----------------------------------------------------
 
