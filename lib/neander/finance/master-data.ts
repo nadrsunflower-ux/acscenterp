@@ -559,6 +559,8 @@ export const FIN_PAYMENT_METHODS: FinPaymentMethodMaster[] = [
   { last4: "7889", alias: "(국법)유재영", site: "네안데르", personal: false, kind: "card" },
   { last4: "9806", alias: "(국법)유선화", site: "네안데르", personal: false, kind: "card" },
   { last4: "3800", alias: "(국법)식대", site: "네안데르", personal: false, kind: "card" },
+  // 2026-08 에 생긴 카드. 2608 장부 「계좌카드목록」 34행에 있다.
+  { last4: "2639", alias: "(신법)이동주하이", site: "네안데르", personal: false, kind: "card" },
 ];
 
 export const FIN_VENDOR_RULES: FinVendorRuleMaster[] = [
