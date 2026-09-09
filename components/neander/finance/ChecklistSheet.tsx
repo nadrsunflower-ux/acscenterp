@@ -117,6 +117,25 @@ const FLEX_MIN: Record<string, number> = { item: 140, note: 120 };
 
 const ADD_ROW_BAR = 44;
 
+/**
+ * 은/는 을 붙인다. 열 이름이 사람이 지은 값이라 미리 정할 수 없다.
+ * 한글은 마지막 글자에 받침이 있으면 「은」, 없으면 「는」이다.
+ * 한글이 아닌 글자로 끝나면(EVA, 40×40) 「는」이 덜 어색하다.
+ */
+function withTopic(word: string): string {
+  const last = word.trim().slice(-1);
+  const code = last.charCodeAt(0);
+  if (code >= 0xac00 && code <= 0xd7a3) {
+    // 한글 음절 — 받침이 있으면 은
+    return `${word}${(code - 0xac00) % 28 !== 0 ? "은" : "는"}`;
+  }
+  // 숫자는 읽는 소리로 정한다 (1=일, 3=삼 … 받침 있음 / 2=이, 4=사 … 없음)
+  if (/[0-9]/.test(last)) {
+    return `${word}${"013678".includes(last) ? "은" : "는"}`;
+  }
+  return `${word}는`;
+}
+
 // ---- 셀 종류 --------------------------------------------------
 
 /** 빈 값이 undefined 인 글자 셀 (단위·발주처·위치·비고·사용자 열) */
@@ -222,8 +241,8 @@ export function ChecklistSheet({
   const [sort, setSort] = useState<ChecklistSort | null>(null);
   const [filters, setFilters] = useState<ChecklistFilters>({});
   const [menu, setMenu] = useState<{ colId: string; label: string; anchor: DOMRect } | null>(null);
-  /** 지금 고른 칸 — 「행 추가」·「열 추가」가 어디에 넣을지의 기준 */
-  const [picked, setPicked] = useState<{ colId?: string; rowMax: number } | null>(null);
+  /** 지금 고른 칸 — 넣고 지우는 자리의 기준 */
+  const [picked, setPicked] = useState<{ colId?: string; rowMin: number; rowMax: number } | null>(null);
 
   const zoomRef = useRef(layout.zoom);
   zoomRef.current = layout.zoom;
@@ -273,6 +292,31 @@ export function ChecklistSheet({
     // 새 줄이 필터에 안 걸릴 수 있어 커서를 옮기지 않는다.
     if (!transformed) setTimeout(() => gridRef.current?.setActiveCell({ col: "item", row: at }), 0);
   }, [picked, view, lines, createRow, onChange, transformed]);
+
+  /** 고른 줄을 지운다. 여러 줄을 골랐으면 그 범위 전체. */
+  const removeRows = useCallback(() => {
+    if (!picked) return;
+    const targets = view.slice(picked.rowMin, picked.rowMax + 1);
+    if (targets.length === 0) return;
+    const ids = new Set(targets.map((l) => l.id));
+    // 무엇이든 적힌 줄을 지울 때만 물어본다. 「행 추가」를 눌러 만든 빈 줄을
+    // 지우는 데까지 확인을 받으면 손이 무거워진다.
+    const filled = targets.filter(
+      (l) => l.item || l.category || l.vendor || l.note || lineEstimate(l) !== 0 || hasActual(l),
+    );
+    if (filled.length > 0) {
+      const head = filled
+        .slice(0, 3)
+        .map((l) => l.item || l.category || "(이름 없음)")
+        .join(", ");
+      const ok = window.confirm(
+        `${targets.length}줄을 지웁니다.\n${head}${filled.length > 3 ? ` 외 ${filled.length - 3}줄` : ""}`,
+      );
+      if (!ok) return;
+    }
+    onChange(lines.filter((l) => !ids.has(l.id)));
+    setPicked(null);
+  }, [picked, view, lines, onChange]);
 
   /** 고른 열 **바로 오른쪽**에 새 열을 만든다 */
   const addColumnRight = useCallback(() => {
@@ -460,6 +504,8 @@ export function ChecklistSheet({
   const gridHeight = Math.max(200, height / layout.zoom - ADD_ROW_BAR);
   const filterCount = activeChecklistFilterCount(filters);
   const pickedCol = picked?.colId ? labelOf(picked.colId) : null;
+  /** 기본 열은 지울 수 없다 — 계산과 엑셀 내보내기가 그 열들을 전제한다 */
+  const canRemoveCol = Boolean(picked?.colId?.startsWith("x:"));
 
   return (
     <div>
@@ -478,6 +524,25 @@ export function ChecklistSheet({
         </button>
         <button
           type="button"
+          onClick={removeRows}
+          disabled={!picked}
+          className="rounded border border-zinc-300 px-2 py-1 font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40"
+          title={picked ? "고른 줄을 지웁니다" : "지울 줄을 먼저 고르세요"}
+        >
+          − 행 삭제
+          <span className="ml-1 font-normal text-zinc-400">
+            {picked
+              ? picked.rowMax > picked.rowMin
+                ? `${picked.rowMin + 1}~${picked.rowMax + 1}행`
+                : `${picked.rowMax + 1}행`
+              : "줄 선택"}
+          </span>
+        </button>
+
+        <span className="mx-1 h-4 w-px bg-zinc-200" aria-hidden />
+
+        <button
+          type="button"
           onClick={addColumnRight}
           className="rounded border border-zinc-300 px-2 py-1 font-medium text-zinc-700 hover:bg-zinc-50"
           title="고른 열 바로 오른쪽에 새 열을 만듭니다 (고른 열이 없으면 맨 오른쪽)"
@@ -486,6 +551,22 @@ export function ChecklistSheet({
           <span className="ml-1 font-normal text-zinc-400">
             {pickedCol ? `${pickedCol} 오른쪽` : "맨 오른쪽"}
           </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => picked?.colId && removeColumn(picked.colId.slice(2))}
+          disabled={!canRemoveCol}
+          className="rounded border border-zinc-300 px-2 py-1 font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40"
+          title={
+            canRemoveCol
+              ? `${pickedCol} 열을 지웁니다`
+              : pickedCol
+                ? `${withTopic(pickedCol)} 기본 열이라 지울 수 없습니다. 직접 만든 열만 지웁니다.`
+                : "지울 열을 먼저 고르세요"
+          }
+        >
+          − 열 삭제
+          <span className="ml-1 font-normal text-zinc-400">{canRemoveCol ? pickedCol : "내가 만든 열"}</span>
         </button>
 
         <span className="ml-1 text-zinc-400">머리글을 누르면 정렬, 옆 화살표를 누르면 필터입니다.</span>
@@ -538,7 +619,12 @@ export function ChecklistSheet({
           // 늘 맨 끝에 붙어 버린다 — 버튼을 누르려면 반드시 바깥을 클릭해야
           // 하므로 사실상 위치 지정이 동작하지 않게 된다.
           onSelectionChange={({ selection }) => {
-            if (selection) setPicked({ colId: selection.min.colId, rowMax: selection.max.row });
+            if (selection)
+              setPicked({
+                colId: selection.min.colId,
+                rowMin: selection.min.row,
+                rowMax: selection.max.row,
+              });
           }}
           addRowsComponent={KoAddRows}
           contextMenuComponent={KoContextMenu}
