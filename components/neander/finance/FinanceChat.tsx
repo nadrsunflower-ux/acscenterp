@@ -27,7 +27,10 @@ import {
 import {
   DEFAULT_FIN_AI_MODEL,
   FIN_AI_MODELS,
+  finAiModelConfirm,
+  finAiModelLabel,
   isFinAiModelId,
+  type FinAiModelOption,
 } from "@/lib/neander/finance/ai-models";
 import { openChatReportPdf } from "@/lib/neander/finance/chat-pdf";
 import {
@@ -80,6 +83,8 @@ export function FinanceChat() {
   const [applied, setApplied] = useState<Set<string>>(new Set());
   const [model, setModel] = useState(DEFAULT_FIN_AI_MODEL);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  /** 확인을 기다리는 모델. 사람이 「바꾸기」를 눌러야 model 로 넘어간다 */
+  const [modelToConfirm, setModelToConfirm] = useState<FinAiModelOption | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
 
@@ -141,6 +146,7 @@ export function FinanceChat() {
     }
   }, []);
 
+  /** 실제로 바꾸는 곳. 여기까지 온 선택은 확인을 받았거나 물을 필요가 없는 것이다 */
   const pickModel = (id: string) => {
     setModel(id);
     try {
@@ -148,6 +154,22 @@ export function FinanceChat() {
     } catch {
       // 못 남겨도 이번 세션 동안은 선택이 유지된다
     }
+  };
+
+  /**
+   * 메뉴에서 하나를 눌렀을 때. 비싼 모델이면 바로 바꾸지 않고 확인 창을 띄운다.
+   *
+   * 메뉴는 먼저 닫는다 — 확인 창 뒤에 메뉴가 남아 있으면 어느 쪽을 눌러야
+   * 하는지 헷갈리고, 바깥 클릭으로 메뉴를 닫으려다 확인 창까지 건드리게 된다.
+   */
+  const requestModel = (id: string) => {
+    setModelMenuOpen(false);
+    const reason = finAiModelConfirm(id, model);
+    if (reason === undefined) {
+      pickModel(id);
+      return;
+    }
+    setModelToConfirm(FIN_AI_MODELS.find((m) => m.id === id) ?? null);
   };
 
   // 저장된 배치 불러오기 — 뷰포트 밖으로 나간 값은 안으로 끌어온다
@@ -743,7 +765,7 @@ export function FinanceChat() {
                 disabled={busy}
                 className="flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700 hover:border-indigo-400 disabled:opacity-50"
               >
-                {(FIN_AI_MODELS.find((m) => m.id === model) ?? FIN_AI_MODELS[0]).label}
+                {finAiModelLabel(model)}
                 <span className="text-[9px] text-zinc-400">▲</span>
               </button>
               {modelMenuOpen && (
@@ -752,10 +774,7 @@ export function FinanceChat() {
                     <li key={m.id}>
                       <button
                         type="button"
-                        onClick={() => {
-                          pickModel(m.id);
-                          setModelMenuOpen(false);
-                        }}
+                        onClick={() => requestModel(m.id)}
                         className={`flex w-full items-baseline justify-between gap-2 px-3 py-1.5 text-left text-xs hover:bg-indigo-50 ${
                           m.id === model ? "bg-indigo-50/60 font-medium text-indigo-700" : "text-zinc-700"
                         }`}
@@ -854,7 +873,102 @@ export function FinanceChat() {
           )}
         </div>
       )}
+
+      {/* 비싼 모델은 고르는 순간 한 번 물어본다 */}
+      {modelToConfirm && (
+        <ModelConfirmDialog
+          option={modelToConfirm}
+          current={model}
+          onCancel={() => setModelToConfirm(null)}
+          onConfirm={() => {
+            pickModel(modelToConfirm.id);
+            setModelToConfirm(null);
+          }}
+        />
+      )}
     </>
+  );
+}
+
+// ============================================================
+//  모델 바꾸기 확인 창
+// ------------------------------------------------------------
+//  기본 포커스를 「취소」에 둔다. 메뉴를 키보드로 훑다가 Enter 를 치는 손이
+//  그대로 비싼 모델로 넘어가면 확인 창을 둔 뜻이 없어진다 — 바꾸려면 그
+//  버튼을 눈으로 찾아 눌러야 한다.
+//
+//  패널이 z-40 이라 이 창은 z-50 이다. 다른 재무 화면의 모달과 같은 층이다.
+// ============================================================
+
+function ModelConfirmDialog({
+  option,
+  current,
+  onCancel,
+  onConfirm,
+}: {
+  option: FinAiModelOption;
+  /** 지금 쓰고 있는 모델 — 무엇에서 무엇으로 가는지 보여준다 */
+  current: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    cancelRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/40 p-4"
+      onClick={onCancel}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="fin-model-confirm-title"
+        className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 id="fin-model-confirm-title" className="text-base font-bold leading-relaxed text-zinc-900">
+          정말로 「{option.label}」 모델로 선택하시겠습니까?
+        </h2>
+
+        {option.confirm && (
+          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
+            {option.confirm}
+          </p>
+        )}
+
+        <p className="mt-3 text-xs leading-relaxed text-zinc-500">
+          지금은 <b className="font-medium text-zinc-700">{finAiModelLabel(current)}</b> 를 쓰고 있습니다.
+          바꾸면 다음 질문부터 이 모델로 물어보고, 이 브라우저에 기억됩니다.
+        </p>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            ref={cancelRef}
+            type="button"
+            onClick={onCancel}
+            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+          >
+            「{option.label}」 로 바꾸기
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
