@@ -6,8 +6,9 @@
 //  클릭 시 onOpen(task) 로 상세 모달 오픈.
 // ============================================================
 
+import { CalendarDays, CalendarSync, Clock, SquareCheck } from "lucide-react";
 import { KindTag, PriorityTag, FeatureChip, AssigneeStack } from "@/components/neander/dev/atoms";
-import { cn } from "@/components/neander/ui";
+import { Badge, Icon, cn } from "@/components/neander/ui";
 import { isOverdue, todayStr } from "@/lib/neander/format";
 import {
   DEV_STATUSES,
@@ -87,7 +88,7 @@ export function TaskCard({
       tabIndex={0}
       aria-label={`작업 열기: ${task.title}`}
       className={cn(
-        "group rounded-xl border border-zinc-200 bg-white p-3 shadow-sm transition hover:border-indigo-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-100",
+        "nd-surface group rounded-nd-md p-3 transition-shadow duration-nd-fast hover:shadow-nd-pop focus:outline-none focus-visible:shadow-nd-focus",
         draggable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
       )}
     >
@@ -96,7 +97,7 @@ export function TaskCard({
         <span className="mt-0.5 shrink-0">
           <KindTag kind={task.kind} iconOnly />
         </span>
-        <p className="min-w-0 flex-1 text-sm font-semibold leading-snug text-zinc-900">
+        <p className="min-w-0 flex-1 text-nd-body font-semibold leading-snug text-nd-fg">
           {task.title}
         </p>
         <span className="shrink-0">
@@ -111,19 +112,16 @@ export function TaskCard({
             <FeatureChip feature={feature} name={task.featureName} />
           )}
           {task.labels?.map((l) => (
-            <span
-              key={l}
-              className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500"
-            >
+            <Badge key={l} size="sm" tone="neutral">
               #{l}
-            </span>
+            </Badge>
           ))}
           {linkedDaily && (
-            <span
-              className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-600"
-              title="담당자의 일일업무에 자동 등록되어 대시보드 캘린더에도 표시됩니다"
-            >
-              📅 일일업무 연동
+            <span title="담당자의 일일업무에 자동 등록되어 대시보드 캘린더에도 표시됩니다" className="inline-flex">
+              <Badge size="sm" tone="success">
+                <Icon icon={CalendarSync} size={11} />
+                일일업무 연동
+              </Badge>
             </span>
           )}
         </div>
@@ -132,39 +130,39 @@ export function TaskCard({
       {/* 하단 메타 */}
       <div className="mt-2.5 flex items-center gap-2">
         <AssigneeStack members={assignees} size="xs" />
-        <div className="ml-auto flex items-center gap-2 text-[11px]">
+        <div className="ml-auto flex items-center gap-2 text-nd-micro">
           {total > 0 && (
             <span
               className={cn(
-                "inline-flex items-center gap-1 font-medium tabular-nums",
-                allDone ? "text-emerald-600" : "text-zinc-400",
+                "nd-num inline-flex items-center gap-1 font-medium",
+                allDone ? "text-nd-success-text" : "text-nd-fg-3",
               )}
               title="체크리스트 진행"
             >
-              ☑ {done}/{total}
+              <Icon icon={SquareCheck} size={12} />
+              {done}/{total}
             </span>
           )}
           {task.dueDate &&
             (overdue ? (
-              <span
-                className="inline-flex items-center gap-0.5 rounded-full bg-red-100 px-1.5 py-0.5 font-semibold tabular-nums text-red-700"
-                title={`마감 ${task.dueDate} — 기한이 지났습니다`}
-              >
-                ⏰ {daysLate(task.dueDate)}일 지남
+              <span title={`마감 ${task.dueDate} — 기한이 지났습니다`} className="inline-flex">
+                <Badge size="sm" tone="danger" className="nd-num font-semibold">
+                  <Icon icon={Clock} size={11} />
+                  {daysLate(task.dueDate)}일 지남
+                </Badge>
               </span>
             ) : dueToday ? (
-              <span
-                className="inline-flex items-center gap-0.5 rounded-full bg-orange-100 px-1.5 py-0.5 font-semibold text-orange-700"
-                title={`오늘(${task.dueDate})이 마감입니다`}
-              >
-                오늘
+              <span title={`오늘(${task.dueDate})이 마감입니다`} className="inline-flex">
+                <Badge size="sm" tone="warning" className="font-semibold">
+                  오늘
+                </Badge>
               </span>
             ) : (
-              <span
-                className="inline-flex items-center gap-0.5 rounded-full bg-zinc-100 px-1.5 py-0.5 font-medium tabular-nums text-zinc-500"
-                title="마감일"
-              >
-                📅 {shortDate(task.dueDate)}
+              <span title="마감일" className="inline-flex">
+                <Badge size="sm" tone="neutral" className="nd-num">
+                  <Icon icon={CalendarDays} size={11} />
+                  {shortDate(task.dueDate)}
+                </Badge>
               </span>
             ))}
         </div>
@@ -174,7 +172,7 @@ export function TaskCard({
           카드 클릭/드래그와 충돌하지 않도록 이벤트 전파를 막는다. */}
       {onChangeStatus && (
         <div
-          className="mt-2.5 border-t border-zinc-100 pt-2"
+          className="mt-2.5 border-t border-nd-line pt-2"
           onClick={(e) => e.stopPropagation()}
         >
           <select
@@ -189,7 +187,7 @@ export function TaskCard({
               if (next !== task.status) onChangeStatus(task, next);
             }}
             aria-label={`상태 변경: ${task.title}`}
-            className="w-full cursor-pointer rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1 text-[11px] font-medium text-zinc-600 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            className="h-ctl-sm w-full cursor-pointer rounded-[8px] border border-nd-border bg-nd-sunken px-2 text-nd-micro font-medium text-nd-fg-2 outline-none transition-colors duration-nd-fast focus:border-nd-accent focus-visible:shadow-nd-focus"
           >
             {DEV_STATUSES.map((s) => (
               <option key={s.value} value={s.value}>

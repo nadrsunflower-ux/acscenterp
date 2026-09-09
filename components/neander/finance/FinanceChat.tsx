@@ -12,8 +12,36 @@
 // ============================================================
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, cn } from "@/components/neander/ui";
-import { MessageSquareText } from "lucide-react";
+import {
+  Badge,
+  Button,
+  Dialog,
+  Icon,
+  IconButton,
+  InlineNotice,
+  LoadingState,
+  Menu,
+  Table,
+  Td,
+  Th,
+  Tr,
+  cn,
+  useConfirm,
+  useMediaQuery,
+} from "@/components/neander/ui";
+import {
+  ChevronUp,
+  FileDown,
+  History,
+  MessageSquareText,
+  PanelRight,
+  Paperclip,
+  PictureInPicture2,
+  Plus,
+  SendHorizontal,
+  Trash2,
+  X,
+} from "lucide-react";
 import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useFinance } from "./FinanceProvider";
 import { fetchChat, fetchChatList, deleteChat } from "@/lib/neander/finance/client";
@@ -53,6 +81,12 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 /** 도킹 패널 너비 한계 — 본문이 아예 안 보일 만큼은 못 넓힌다 */
 const dockWidthBounds = () => [320, Math.max(320, Math.min(800, window.innerWidth - 160))] as const;
 
+/**
+ * 이 폭 아래에서는 도킹 패널이 화면을 통째로 쓴다. 390px 화면에 320px
+ * 패널을 붙이면 본문이 70px 만 남아 "밀어낸다" 는 뜻이 없어진다.
+ */
+const NARROW_QUERY = "(max-width: 767px)";
+
 interface Turn {
   role: "user" | "assistant";
   content: string;
@@ -77,6 +111,8 @@ const EXAMPLES = [
 
 export function FinanceChat() {
   const { refresh } = useFinance();
+  const ask = useConfirm();
+  const narrow = useMediaQuery(NARROW_QUERY);
   const [open, setOpen] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
@@ -107,10 +143,13 @@ export function FinanceChat() {
   const layoutLoaded = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const modelMenuRef = useRef<HTMLDivElement>(null);
+  const modelBtnRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   /** dragenter/leave 는 자식 요소마다 발화한다 — 깊이를 세서 겹침을 무시 */
   const dragDepth = useRef(0);
+
+  /** 좁은 화면의 도킹 = 전체 화면. 너비 조절·본문 밀어내기는 뜻이 없다 */
+  const fullScreen = panelMode === "docked" && narrow;
 
   /** 형식·개수·용량을 미리 거른다 (서버도 다시 검사한다) */
   const addFiles = (list: FileList | File[] | null) => {
@@ -225,7 +264,7 @@ export function FinanceChat() {
     window.addEventListener("pointerup", onUp, { once: true });
   };
 
-  /** 도킹 모드: 왼쪽 경계 드래그로 너비 조절 */
+  /** 도킹 모드: 왼쪽 경계 드래그로 너비 조절 (좁은 화면에서는 손잡이가 없다) */
   const startDockResize = (e: React.PointerEvent) => {
     e.preventDefault();
     trackPointer((ev) => {
@@ -266,23 +305,6 @@ export function FinanceChat() {
       }));
     });
   };
-
-  // 메뉴 밖 클릭·Esc 로 닫기
-  useEffect(() => {
-    if (!modelMenuOpen) return;
-    const onDown = (e: MouseEvent) => {
-      if (!modelMenuRef.current?.contains(e.target as Node)) setModelMenuOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setModelMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [modelMenuOpen]);
 
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -346,7 +368,13 @@ export function FinanceChat() {
 
   const removeChat = useCallback(
     async (id: string) => {
-      if (!confirm("이 대화를 지울까요? 되돌릴 수 없습니다.")) return;
+      const ok = await ask({
+        title: "이 대화를 지울까요?",
+        message: "되돌릴 수 없습니다.",
+        confirmLabel: "삭제",
+        tone: "danger",
+      });
+      if (!ok) return;
       try {
         await deleteChat(id);
         setChats((prev) => (prev ?? []).filter((c) => c.id !== id));
@@ -355,7 +383,7 @@ export function FinanceChat() {
         setError(e instanceof Error ? e.message : "삭제에 실패했습니다.");
       }
     },
-    [conversationId, startNew],
+    [ask, conversationId, startNew],
   );
 
   const send = async (text: string) => {
@@ -452,22 +480,29 @@ export function FinanceChat() {
       </ToolbarPortal>
 
       {/* 도킹 모드: 본문을 밀어낼 자리 — 실제 패널은 fixed 로 화면 오른쪽 끝에
-          겹쳐 그린다 (메인 영역 패딩과 무관하게 가장자리에 붙이기 위해) */}
-      {open && panelMode === "docked" && (
+          겹쳐 그린다 (메인 영역 패딩과 무관하게 가장자리에 붙이기 위해).
+          좁은 화면에서는 패널이 전체를 덮으므로 자리를 비우지 않는다. */}
+      {open && panelMode === "docked" && !narrow && (
         <div aria-hidden className="shrink-0" style={{ width: dockWidth }} />
       )}
 
       {/* 패널 */}
       {open && (
-        <div
-          className={
+        <section
+          aria-label="재무 비서"
+          className={cn(
+            "fixed z-nd-dock flex flex-col bg-nd-content",
             panelMode === "docked"
-              ? "fixed inset-y-0 right-0 z-40 flex flex-col border-l border-zinc-200 bg-white shadow-xl"
-              : "fixed z-40 flex flex-col overflow-hidden rounded-xl border border-zinc-300 bg-white shadow-2xl"
-          }
+              ? fullScreen
+                ? "inset-0"
+                : "inset-y-0 right-0 border-l border-nd-line shadow-nd-pop"
+              : "overflow-hidden rounded-nd-xl border border-nd-line shadow-nd-dialog",
+          )}
           style={
             panelMode === "docked"
-              ? { width: dockWidth, maxWidth: "100vw" }
+              ? fullScreen
+                ? { width: "100vw" }
+                : { width: dockWidth, maxWidth: "100vw" }
               : { left: floatBox.x, top: floatBox.y, width: floatBox.w, height: floatBox.h }
           }
           onDragEnter={(e) => {
@@ -494,137 +529,118 @@ export function FinanceChat() {
           }}
         >
           {/* 도킹: 왼쪽 경계를 드래그해 너비 조절 */}
-          {panelMode === "docked" && (
+          {panelMode === "docked" && !fullScreen && (
             <div
               onPointerDown={startDockResize}
               title="드래그해서 너비 조절"
-              className="absolute inset-y-0 left-0 z-20 w-1.5 cursor-col-resize touch-none transition-colors hover:bg-indigo-300 active:bg-indigo-400"
+              className="absolute inset-y-0 left-0 z-20 w-1.5 cursor-col-resize touch-none transition-colors duration-nd-fast hover:bg-nd-accent/40 active:bg-nd-accent/60"
             />
           )}
 
           {/* 드래그 중 안내 오버레이 */}
           {dragOver && (
-            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center border-2 border-dashed border-indigo-400 bg-indigo-50/85">
-              <p className="text-sm font-medium text-indigo-700">
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center border-2 border-dashed border-nd-accent bg-nd-accent-soft/85">
+              <p className="text-nd-body font-medium text-nd-accent-strong">
                 파일을 놓아 첨부 — PDF · Word(docx) · 엑셀 · 한글(hwpx)
               </p>
             </div>
           )}
           <header
             onPointerDown={panelMode === "floating" ? startFloatDrag : undefined}
-            className={`flex shrink-0 items-center justify-between border-b border-zinc-200 px-4 py-3 ${
-              panelMode === "floating" ? "cursor-move touch-none select-none" : ""
-            }`}
+            className={cn(
+              "flex shrink-0 items-center justify-between gap-2 border-b border-nd-line px-4 py-3",
+              panelMode === "floating" && "cursor-move touch-none select-none",
+            )}
           >
             <div className="min-w-0">
-              <p className="font-semibold text-zinc-900">재무 비서</p>
-              <p className="text-xs text-zinc-500">
+              <p className="text-nd-section text-nd-fg">재무 비서</p>
+              <p className="truncate text-nd-caption text-nd-fg-3">
                 장부를 조회하고 고칠 것을 제안합니다 · 저장은 승인 후에만
               </p>
             </div>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
+            <div className="flex shrink-0 items-center gap-0.5">
+              <IconButton
+                icon={History}
+                label="지난 대화"
+                size="sm"
+                active={listOpen}
                 onClick={() => (listOpen ? setListOpen(false) : void openList())}
                 disabled={busy}
-                title="지난 대화"
-                aria-label="지난 대화"
-                className={`rounded-md px-2 py-1 text-sm leading-none hover:bg-zinc-100 disabled:opacity-50 ${
-                  listOpen ? "bg-zinc-100 text-zinc-800" : "text-zinc-400 hover:text-zinc-700"
-                }`}
-              >
-                ☰
-              </button>
+                className={cn(listOpen && "bg-nd-fg/[.08] text-nd-fg")}
+              />
               {turns.length > 0 && (
-                <button
-                  type="button"
-                  onClick={startNew}
-                  disabled={busy}
-                  className="rounded-md px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 disabled:opacity-50"
-                >
-                  새 대화
-                </button>
+                <IconButton icon={Plus} label="새 대화" size="sm" onClick={startNew} disabled={busy} />
               )}
-              <button
-                type="button"
-                onClick={() => setPanelMode((m) => (m === "docked" ? "floating" : "docked"))}
-                title={panelMode === "docked" ? "팝업 창으로 띄우기" : "오른쪽에 고정"}
-                aria-label={panelMode === "docked" ? "팝업 창으로 띄우기" : "오른쪽에 고정"}
-                className="rounded-md px-2 py-1 text-sm leading-none text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
-              >
-                {panelMode === "docked" ? "⧉" : "⇥"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                className="rounded-md px-2 py-1 text-lg leading-none text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
-                aria-label="닫기"
-              >
-                ✕
-              </button>
+              {/* 좁은 화면에서는 도킹이 곧 전체 화면이라 팝업으로 바꿀 이유가 없다 */}
+              {!narrow && (
+                <IconButton
+                  icon={panelMode === "docked" ? PictureInPicture2 : PanelRight}
+                  label={panelMode === "docked" ? "팝업 창으로 띄우기" : "오른쪽에 고정"}
+                  size="sm"
+                  onClick={() => setPanelMode((m) => (m === "docked" ? "floating" : "docked"))}
+                />
+              )}
+              <IconButton icon={X} label="닫기" size="sm" onClick={() => setOpen(false)} />
             </div>
           </header>
 
           {/* 지난 대화 — 패널 폭이 좁아 옆에 두지 않고 본문 위를 덮는다.
               고르면 닫히므로 대화 화면을 오래 가리지 않는다. */}
           {listOpen && (
-            <div className="flex min-h-0 flex-1 flex-col border-b border-zinc-200 bg-zinc-50/60">
+            <div className="flex min-h-0 flex-1 flex-col border-b border-nd-line bg-nd-sunken">
               <div className="flex items-center justify-between px-4 py-2">
-                <p className="text-xs font-semibold text-zinc-600">지난 대화</p>
-                <button
-                  type="button"
-                  onClick={startNew}
-                  className="rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-indigo-700"
-                >
-                  + 새 대화
-                </button>
+                <p className="text-nd-caption font-semibold text-nd-fg-2">지난 대화</p>
+                <Button size="sm" icon={Plus} onClick={startNew}>
+                  새 대화
+                </Button>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+              <div className="nd-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-2">
                 {chats === null ? (
-                  <p className="px-2 py-6 text-center text-xs text-zinc-400">불러오는 중…</p>
+                  <LoadingState size="block" />
                 ) : chats.length === 0 ? (
-                  <p className="px-2 py-6 text-center text-xs text-zinc-400">
+                  <p className="px-2 py-6 text-center text-nd-caption text-nd-fg-3">
                     아직 나눈 대화가 없습니다.
                   </p>
                 ) : (
                   chats.map((c) => (
                     <div
                       key={c.id}
-                      className={`group flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-white ${
-                        c.id === conversationId ? "bg-white ring-1 ring-indigo-200" : ""
-                      }`}
+                      className={cn(
+                        "group flex items-center gap-1 rounded-nd-md px-2 py-1.5 transition-colors duration-nd-fast hover:bg-nd-content",
+                        c.id === conversationId && "bg-nd-content shadow-nd-card",
+                      )}
                     >
                       <button
                         type="button"
                         onClick={() => void openChat(c.id)}
                         disabled={loadingChat}
-                        className="min-w-0 flex-1 text-left disabled:opacity-50"
+                        className="min-w-0 flex-1 rounded-[6px] py-0.5 text-left disabled:opacity-50"
                       >
-                        <p className="truncate text-xs font-medium text-zinc-800">{c.title}</p>
-                        <p className="mt-0.5 text-[11px] text-zinc-400">
-                          {new Date(c.updatedAt).toLocaleString("ko-KR", {
-                            month: "numeric",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                          {" · "}
-                          {c.messageCount}개
+                        <p className="truncate text-nd-caption font-medium text-nd-fg" title={c.title}>{c.title}</p>
+                        <p className="mt-0.5 flex flex-wrap items-center gap-x-1 text-nd-micro font-normal text-nd-fg-3">
+                          <span className="nd-num">
+                            {new Date(c.updatedAt).toLocaleString("ko-KR", {
+                              month: "numeric",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                            {" · "}
+                            {c.messageCount}개
+                          </span>
                           {/* 제안이 오간 대화는 나중에 되짚을 일이 많다 */}
                           {c.hasProposals && (
-                            <span className="ml-1 text-amber-600">· 변경 제안</span>
+                            <Badge tone="warning" size="sm">변경 제안</Badge>
                           )}
                         </p>
                       </button>
-                      <button
-                        type="button"
+                      <IconButton
+                        icon={Trash2}
+                        label="이 대화 지우기"
+                        size="sm"
                         onClick={() => void removeChat(c.id)}
-                        title="이 대화 지우기"
-                        aria-label="이 대화 지우기"
-                        className="shrink-0 rounded px-1.5 py-1 text-xs text-zinc-300 opacity-0 transition hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100"
-                      >
-                        ✕
-                      </button>
+                        className="text-nd-fg-3 opacity-0 transition-opacity hover:text-nd-danger-text focus-visible:opacity-100 group-hover:opacity-100"
+                      />
                     </div>
                   ))
                 )}
@@ -632,12 +648,12 @@ export function FinanceChat() {
             </div>
           )}
 
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+          <div className="nd-scroll min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
             {turns.length === 0 && (
-              <div className="pt-6">
-                <p className="text-sm text-zinc-500">
+              <div className="pt-4">
+                <p className="text-nd-body text-nd-fg-2">
                   장부에 대해 물어보세요. 계정을 고쳐야 할 것 같으면 제안해 드립니다 —
-                  <b className="text-zinc-700"> 승인 전에는 아무것도 저장되지 않습니다.</b>
+                  <b className="text-nd-fg"> 승인 전에는 아무것도 저장되지 않습니다.</b>
                 </p>
                 <div className="mt-3 space-y-1.5">
                   {EXAMPLES.map((e) => (
@@ -645,7 +661,7 @@ export function FinanceChat() {
                       key={e}
                       type="button"
                       onClick={() => void send(e)}
-                      className="block w-full rounded-lg border border-zinc-200 px-3 py-2 text-left text-sm text-zinc-700 hover:border-indigo-300 hover:bg-indigo-50/50"
+                      className="block w-full rounded-nd-md border border-nd-line px-3 py-2 text-left text-nd-body text-nd-fg transition-colors duration-nd-fast hover:border-nd-accent/50 hover:bg-nd-accent-soft/50"
                     >
                       {e}
                     </button>
@@ -662,35 +678,40 @@ export function FinanceChat() {
                       {t.attachmentNames.map((n) => (
                         <span
                           key={n}
-                          className="max-w-full truncate rounded-md bg-indigo-100 px-2 py-0.5 text-[11px] text-indigo-800"
+                          className="inline-flex max-w-full items-center gap-1 rounded-[6px] bg-nd-accent-soft px-2 py-0.5 text-nd-micro text-nd-accent-strong"
+                          title={n}
                         >
-                          📎 {n}
+                          <Icon icon={Paperclip} size={12} />
+                          <span className="truncate">{n}</span>
                         </span>
                       ))}
                     </div>
                   )}
-                  <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-indigo-600 px-3.5 py-2 text-sm text-white">
+                  <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-[6px] bg-nd-accent px-3.5 py-2 text-nd-body text-white">
                     {t.content}
                   </p>
                 </div>
               ) : (
                 <div key={i} className="space-y-2">
                   {t.readAttachments && t.readAttachments.length > 0 && (
-                    <p className="text-[11px] text-zinc-400">
-                      {t.readAttachments
-                        .map(
-                          (a) =>
-                            `📎 ${a.name} — ${a.chars.toLocaleString("ko-KR")}자 읽음${a.truncated ? " (길어서 일부만)" : ""}`,
-                        )
-                        .join(" · ")}
+                    <p className="flex items-start gap-1 text-nd-micro font-normal text-nd-fg-3">
+                      <Icon icon={Paperclip} size={12} className="mt-0.5" />
+                      <span>
+                        {t.readAttachments
+                          .map(
+                            (a) =>
+                              `${a.name} — ${a.chars.toLocaleString("ko-KR")}자 읽음${a.truncated ? " (길어서 일부만)" : ""}`,
+                          )
+                          .join(" · ")}
+                      </span>
                     </p>
                   )}
                   {t.toolCalls && t.toolCalls.length > 0 && (
-                    <details className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5">
-                      <summary className="cursor-pointer text-xs text-zinc-500">
+                    <details className="rounded-nd-md border border-nd-line bg-nd-sunken px-3 py-1.5">
+                      <summary className="cursor-pointer text-nd-caption text-nd-fg-2">
                         조회 {t.toolCalls.length}회 — 어떻게 찾았는지 보기
                       </summary>
-                      <ul className="mt-1.5 space-y-0.5 text-xs text-zinc-500">
+                      <ul className="mt-1.5 space-y-0.5 text-nd-caption text-nd-fg-2">
                         {t.toolCalls.map((c, k) => (
                           <li key={k} className="break-all">· {c.summary}</li>
                         ))}
@@ -699,7 +720,7 @@ export function FinanceChat() {
                   )}
 
                   {t.content && (
-                    <div className="max-w-full rounded-2xl rounded-bl-sm bg-zinc-100 px-3.5 py-2.5 text-sm text-zinc-800">
+                    <div className="max-w-full rounded-2xl rounded-bl-[6px] bg-nd-sunken px-3.5 py-2.5 text-nd-body text-nd-fg">
                       <Markdown text={t.content} />
                     </div>
                   )}
@@ -717,7 +738,7 @@ export function FinanceChat() {
 
                   <div className="flex items-center justify-between gap-2">
                     {t.usage && (
-                      <p className="text-[11px] text-zinc-400">
+                      <p className="nd-num text-nd-micro font-normal text-nd-fg-3">
                         {t.model} · 입력 {t.usage.inputTokens.toLocaleString("ko-KR")}
                         {t.usage.cacheReadTokens > 0 &&
                           ` (캐시 ${t.usage.cacheReadTokens.toLocaleString("ko-KR")})`}
@@ -727,8 +748,10 @@ export function FinanceChat() {
                       </p>
                     )}
                     {t.content && (
-                      <button
-                        type="button"
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={FileDown}
                         onClick={() => {
                           // 이 답변을 만든 질문 = 앞쪽에서 가장 가까운 사용자 발화
                           const q =
@@ -737,60 +760,52 @@ export function FinanceChat() {
                             setError("팝업이 차단되어 보고서 창을 열지 못했습니다. 이 사이트의 팝업을 허용해주세요.");
                           }
                         }}
-                        className="shrink-0 text-[11px] text-zinc-400 underline decoration-zinc-300 underline-offset-2 hover:text-indigo-600"
+                        className="ml-auto shrink-0 text-nd-fg-3"
                       >
                         PDF 저장
-                      </button>
+                      </Button>
                     )}
                   </div>
                 </div>
               ),
             )}
 
-            {busy && (
-              <p className="text-sm text-zinc-400">
-                <span className="inline-block animate-pulse">장부를 보고 있습니다…</span>
-              </p>
-            )}
-            {error && (
-              <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
-                {error}
-              </p>
-            )}
+            {busy && <LoadingState size="inline" label="장부를 보고 있습니다…" />}
+            {error && <InlineNotice tone="danger">{error}</InlineNotice>}
             <div ref={endRef} />
           </div>
 
-          <div className="shrink-0 border-t border-zinc-200 p-3">
-            {/* 네이티브 select 는 열리는 방향을 못 정한다 — 위로 열리게 직접 그린다 */}
-            <div ref={modelMenuRef} className="relative mb-2 flex items-center gap-1.5 text-xs text-zinc-500">
+          <div className="shrink-0 border-t border-nd-line p-3">
+            {/* 모델 고르기 — 위로 열리는 메뉴 (네이티브 select 는 방향을 못 정한다) */}
+            <div className="mb-2 flex items-center gap-1.5 text-nd-caption text-nd-fg-2">
               모델
               <button
+                ref={modelBtnRef}
                 type="button"
                 onClick={() => setModelMenuOpen((v) => !v)}
                 disabled={busy}
-                className="flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700 hover:border-indigo-400 disabled:opacity-50"
+                aria-haspopup="menu"
+                aria-expanded={modelMenuOpen}
+                className="inline-flex h-ctl-sm items-center gap-1 rounded-[8px] border border-nd-border bg-nd-content px-2 text-[13px] text-nd-fg transition-colors duration-nd-fast hover:border-nd-accent disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {finAiModelLabel(model)}
-                <span className="text-[9px] text-zinc-400">▲</span>
+                <Icon icon={ChevronUp} size={12} className="text-nd-fg-3" />
               </button>
-              {modelMenuOpen && (
-                <ul className="absolute bottom-full left-0 z-10 mb-1.5 w-72 overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
-                  {FIN_AI_MODELS.map((m) => (
-                    <li key={m.id}>
-                      <button
-                        type="button"
-                        onClick={() => requestModel(m.id)}
-                        className={`flex w-full items-baseline justify-between gap-2 px-3 py-1.5 text-left text-xs hover:bg-indigo-50 ${
-                          m.id === model ? "bg-indigo-50/60 font-medium text-indigo-700" : "text-zinc-700"
-                        }`}
-                      >
-                        {m.label}
-                        <span className="shrink-0 text-[11px] font-normal text-zinc-400">{m.note}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <Menu
+                open={modelMenuOpen}
+                onClose={() => setModelMenuOpen(false)}
+                anchorRef={modelBtnRef}
+                placement="top-start"
+                ariaLabel="모델 선택"
+                className="w-72"
+                items={FIN_AI_MODELS.map((m) => ({
+                  key: m.id,
+                  label: m.label,
+                  hint: m.note,
+                  checked: m.id === model,
+                  onSelect: () => requestModel(m.id),
+                }))}
+              />
             </div>
             {/* 보내기 전 첨부 목록 */}
             {pendingFiles.length > 0 && (
@@ -798,21 +813,21 @@ export function FinanceChat() {
                 {pendingFiles.map((f, k) => (
                   <span
                     key={`${f.name}-${f.size}`}
-                    className="flex max-w-full items-center gap-1 rounded-md bg-zinc-100 px-2 py-1 text-[11px] text-zinc-700 ring-1 ring-zinc-200"
+                    className="inline-flex h-7 max-w-full items-center gap-1 rounded-[8px] border border-nd-border bg-nd-sunken pl-2 pr-0.5 text-nd-micro font-normal text-nd-fg"
                   >
-                    <span className="truncate">📎 {f.name}</span>
-                    <span className="shrink-0 text-zinc-400">
+                    <Icon icon={Paperclip} size={12} className="text-nd-fg-3" />
+                    <span className="truncate" title={f.name}>{f.name}</span>
+                    <span className="nd-num shrink-0 text-nd-fg-3">
                       {(f.size / 1024).toLocaleString("ko-KR", { maximumFractionDigits: 0 })}KB
                     </span>
-                    <button
-                      type="button"
+                    <IconButton
+                      icon={X}
+                      label={`${f.name} 첨부 취소`}
+                      size="sm"
                       onClick={() => setPendingFiles(pendingFiles.filter((_, j) => j !== k))}
                       disabled={busy}
-                      className="shrink-0 text-zinc-400 hover:text-rose-600 disabled:opacity-50"
-                      aria-label={`${f.name} 첨부 취소`}
-                    >
-                      ✕
-                    </button>
+                      className="text-nd-fg-3 hover:text-nd-danger-text"
+                    />
                   </span>
                 ))}
               </div>
@@ -829,16 +844,15 @@ export function FinanceChat() {
                   e.target.value = ""; // 같은 파일을 다시 골라도 change 가 뜨게
                 }}
               />
-              <button
-                type="button"
+              <IconButton
+                icon={Paperclip}
+                label="파일 첨부 (PDF·Word·엑셀·한글)"
+                variant="secondary"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={busy}
-                aria-label="파일 첨부 (PDF·Word·엑셀·한글)"
                 title="파일 첨부 — 드래그해서 놓아도 됩니다"
-                className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-300 text-lg text-zinc-500 hover:border-indigo-400 hover:text-indigo-600 disabled:opacity-50"
-              >
-                +
-              </button>
+                className="mb-0.5"
+              />
               <textarea
                 ref={inputRef}
                 rows={2}
@@ -851,13 +865,17 @@ export function FinanceChat() {
                   }
                 }}
                 placeholder="장부에 대해 물어보세요 (Enter 전송 · Shift+Enter 줄바꿈)"
-                className="min-h-[52px] flex-1 resize-none rounded-lg border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                aria-label="질문"
+                className="min-h-[52px] min-w-0 flex-1 resize-none rounded-nd-md border border-nd-border bg-nd-content px-3 py-2 text-nd-body text-nd-fg outline-none transition-colors duration-nd-fast placeholder:text-nd-fg-3 focus:border-nd-accent"
               />
               <Button
+                icon={SendHorizontal}
                 onClick={() => void send(input)}
                 disabled={busy || (!input.trim() && pendingFiles.length === 0)}
+                className="max-sm:w-9 max-sm:px-0"
+                aria-label="보내기"
               >
-                보내기
+                <span className="max-sm:hidden">보내기</span>
               </Button>
             </div>
           </div>
@@ -867,7 +885,7 @@ export function FinanceChat() {
             <div
               onPointerDown={startFloatResize}
               title="드래그해서 크기 조절"
-              className="absolute bottom-0 right-0 z-20 flex h-5 w-5 cursor-nwse-resize touch-none items-end justify-end p-1 text-zinc-300 hover:text-indigo-500"
+              className="absolute bottom-0 right-0 z-20 flex h-5 w-5 cursor-nwse-resize touch-none items-end justify-end p-1 text-nd-fg-4 hover:text-nd-accent"
             >
               <svg viewBox="0 0 10 10" className="h-3 w-3" fill="currentColor" aria-hidden>
                 <circle cx="8.5" cy="8.5" r="1.1" />
@@ -876,7 +894,7 @@ export function FinanceChat() {
               </svg>
             </div>
           )}
-        </div>
+        </section>
       )}
 
       {/* 비싼 모델은 고르는 순간 한 번 물어본다 */}
@@ -902,7 +920,7 @@ export function FinanceChat() {
 //  그대로 비싼 모델로 넘어가면 확인 창을 둔 뜻이 없어진다 — 바꾸려면 그
 //  버튼을 눈으로 찾아 눌러야 한다.
 //
-//  패널이 z-40 이라 이 창은 z-50 이다. 다른 재무 화면의 모달과 같은 층이다.
+//  패널이 z-nd-dock 이라 이 창(Dialog, z-nd-dialog)은 그 위에 뜬다.
 // ============================================================
 
 function ModelConfirmDialog({
@@ -919,61 +937,33 @@ function ModelConfirmDialog({
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    cancelRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/40 p-4"
-      onClick={onCancel}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="fin-model-confirm-title"
-        className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 id="fin-model-confirm-title" className="text-base font-bold leading-relaxed text-zinc-900">
-          정말로 「{option.label}」 모델로 선택하시겠습니까?
-        </h2>
-
-        {option.confirm && (
-          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
-            {option.confirm}
-          </p>
-        )}
-
-        <p className="mt-3 text-xs leading-relaxed text-zinc-500">
-          지금은 <b className="font-medium text-zinc-700">{finAiModelLabel(current)}</b> 를 쓰고 있습니다.
-          바꾸면 다음 질문부터 이 모델로 물어보고, 이 브라우저에 기억됩니다.
-        </p>
-
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            ref={cancelRef}
-            type="button"
-            onClick={onCancel}
-            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
-          >
+    <Dialog
+      open
+      onClose={onCancel}
+      size="sm"
+      title={`정말로 「${option.label}」 모델로 선택하시겠습니까?`}
+      initialFocus={cancelRef}
+      hideClose
+      footer={
+        <>
+          <Button ref={cancelRef} variant="secondary" onClick={onCancel}>
             취소
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
-          >
-            「{option.label}」 로 바꾸기
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+          <Button onClick={onConfirm}>「{option.label}」 로 바꾸기</Button>
+        </>
+      }
+    >
+      {option.confirm && (
+        <InlineNotice tone="warning" className="text-nd-caption">
+          {option.confirm}
+        </InlineNotice>
+      )}
+      <p className="mt-3 text-nd-caption leading-relaxed text-nd-fg-2">
+        지금은 <b className="font-medium text-nd-fg">{finAiModelLabel(current)}</b> 를 쓰고 있습니다.
+        바꾸면 다음 질문부터 이 모델로 물어보고, 이 브라우저에 기억됩니다.
+      </p>
+    </Dialog>
   );
 }
 
@@ -1012,81 +1002,68 @@ function ProposalCard({
   const total = proposal.before.reduce((s, b) => s + b.amount, 0);
 
   return (
-    <div className="rounded-xl border-2 border-amber-300 bg-amber-50/60 p-3">
+    <div className="rounded-nd-lg border border-nd-warning/50 bg-nd-warning-soft/50 p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <p className="text-sm font-semibold text-zinc-900">
-          변경 제안 · {proposal.ids.length}건
-          <span className="ml-2 text-xs font-normal text-zinc-500">
+        <p className="text-nd-body font-semibold text-nd-fg">
+          <Badge tone="warning" size="sm" className="mr-1.5 align-middle">제안</Badge>
+          변경 {proposal.ids.length}건
+          <span className="ml-2 text-nd-caption font-normal text-nd-fg-2">
             합계 <Money value={total} unit={false} />원
           </span>
         </p>
         {applied ? (
-          <span className="rounded-md bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800">
-            처리됨
-          </span>
+          <Badge tone="success">처리됨</Badge>
         ) : (
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={onDismiss}
-              disabled={busy}
-              className="rounded-md px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-200 disabled:opacity-50"
-            >
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" onClick={onDismiss} disabled={busy}>
               무시
-            </button>
-            <button
-              type="button"
-              onClick={onApply}
-              disabled={busy}
-              className="rounded-md bg-amber-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
-            >
+            </Button>
+            <Button size="sm" onClick={onApply} disabled={busy}>
               적용
-            </button>
+            </Button>
           </div>
         )}
       </div>
 
-      <p className="mt-1 text-xs leading-relaxed text-zinc-600">{proposal.reason}</p>
+      <p className="mt-1 text-nd-caption leading-relaxed text-nd-fg-2">{proposal.reason}</p>
 
       {/* 바뀔 값 */}
       <div className="mt-2 flex flex-wrap gap-1.5">
         {Object.entries(proposal.patch).map(([k, v]) => (
-          <span key={k} className="rounded bg-white px-2 py-0.5 text-xs ring-1 ring-amber-200">
-            <span className="text-zinc-500">{FIELD_LABEL[k] ?? k}</span>{" "}
-            <b className="text-zinc-900">{String(v)}</b>
+          <span key={k} className="rounded-[6px] bg-nd-content px-2 py-0.5 text-nd-caption ring-1 ring-nd-warning/40">
+            <span className="text-nd-fg-2">{FIELD_LABEL[k] ?? k}</span>{" "}
+            <b className="text-nd-fg">{String(v)}</b>
           </span>
         ))}
       </div>
 
       {/* 대상 거래 */}
-      <div className="mt-2 overflow-x-auto rounded-lg border border-amber-200 bg-white">
-        <table className="w-full text-xs">
+      <div className="nd-scroll mt-2 overflow-x-auto rounded-nd-md border border-nd-line bg-nd-content">
+        <Table dense className="text-nd-caption">
           <thead>
-            <tr className="border-b border-amber-100 text-zinc-500">
-              <th className="px-2 py-1 text-left font-medium">거래일</th>
-              <th className="px-2 py-1 text-left font-medium">거래처</th>
-              <th className="px-2 py-1 text-left font-medium">지금 계정</th>
-              <th className="px-2 py-1 text-right font-medium">금액</th>
+            <tr>
+              <Th className="!bg-transparent border-t-0 px-2">거래일</Th>
+              <Th className="!bg-transparent border-t-0 px-2">거래처</Th>
+              <Th className="!bg-transparent border-t-0 px-2">지금 계정</Th>
+              <Th align="right" className="!bg-transparent border-t-0 px-2">금액</Th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-amber-50">
+          <tbody>
             {rows.map((b) => (
-              <tr key={b.id}>
-                <td className="whitespace-nowrap px-2 py-1 tabular-nums text-zinc-600">{b.date}</td>
-                <td className="max-w-[120px] truncate px-2 py-1 text-zinc-900">{b.vendor ?? "—"}</td>
-                <td className="max-w-[140px] truncate px-2 py-1 text-zinc-500">{b.acct}</td>
-                <td className="whitespace-nowrap px-2 py-1 text-right tabular-nums">
-                  {b.amount.toLocaleString("ko-KR")}
-                </td>
-              </tr>
+              <Tr key={b.id} hover={false}>
+                <Td className="whitespace-nowrap px-2 nd-num text-nd-fg-2">{b.date}</Td>
+                <Td className="max-w-[120px] truncate px-2 text-nd-fg" title={b.vendor ?? undefined}>{b.vendor ?? "—"}</Td>
+                <Td className="max-w-[140px] truncate px-2 text-nd-fg-2" title={b.acct}>{b.acct}</Td>
+                <Td num className="whitespace-nowrap px-2">{b.amount.toLocaleString("ko-KR")}</Td>
+              </Tr>
             ))}
           </tbody>
-        </table>
+        </Table>
         {proposal.before.length > 5 && (
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
-            className="w-full border-t border-amber-100 px-2 py-1 text-xs text-amber-800 hover:bg-amber-50"
+            className="w-full border-t border-nd-line px-2 py-1.5 text-nd-caption font-medium text-nd-warning-text transition-colors duration-nd-fast hover:bg-nd-warning-soft/50"
           >
             {expanded ? "접기" : `나머지 ${proposal.before.length - 5}건 보기`}
           </button>
@@ -1125,10 +1102,10 @@ function Markdown({ text }: { text: string }) {
         i += 1;
       }
       blocks.push(
-        <div key={key++} className="my-1.5 overflow-x-auto rounded border border-zinc-300 bg-white">
-          <table className="w-full text-xs">
+        <div key={key++} className="nd-scroll my-1.5 overflow-x-auto rounded-[8px] border border-nd-line bg-nd-content">
+          <table className="w-full text-nd-caption">
             <thead>
-              <tr className="border-b border-zinc-200 bg-zinc-50 text-zinc-500">
+              <tr className="border-b border-nd-line bg-nd-sunken text-nd-fg-2">
                 {head.map((h, k) => (
                   <th key={k} className="whitespace-nowrap px-2 py-1 text-left font-medium">
                     <Inline text={h} />
@@ -1136,13 +1113,13 @@ function Markdown({ text }: { text: string }) {
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-100">
+            <tbody className="divide-y divide-nd-line">
               {body.map((r, k) => (
                 <tr key={k}>
                   {r.map((c, j) => (
                     <td
                       key={j}
-                      className={`px-2 py-1 ${/^[\d,.\-△()₩원%]+$/.test(c) ? "text-right tabular-nums" : ""}`}
+                      className={cn("px-2 py-1", /^[\d,.\-△()₩원%]+$/.test(c) && "nd-num text-right")}
                     >
                       <Inline text={c} />
                     </td>
@@ -1181,7 +1158,7 @@ function Inline({ text }: { text: string }) {
         }
         if (p.startsWith("`") && p.endsWith("`")) {
           return (
-            <code key={i} className="rounded bg-zinc-200/70 px-1 text-[0.92em]">
+            <code key={i} className="rounded-[4px] bg-nd-fg/[.08] px-1 text-[0.92em]">
               {p.slice(1, -1)}
             </code>
           );

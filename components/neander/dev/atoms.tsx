@@ -6,10 +6,9 @@
 //  기존 components/neander/ui 에서 재사용한다.
 // ============================================================
 
-import { Badge, MemberAvatar, cn } from "@/components/neander/ui";
+import { Badge, MemberAvatar, cn, type Tone } from "@/components/neander/ui";
 import {
   devStatusLabel,
-  devStatusColor,
   devPriorityLabel,
   devPriorityColor,
   devPriorityIcon,
@@ -23,11 +22,20 @@ import {
   type DevFeature,
 } from "@/lib/neander/dev/types";
 
+/** 작업 상태 → 의미 톤 (hex 딕셔너리 대신) */
+export const DEV_STATUS_TONE: Record<DevStatus, Tone> = {
+  backlog: "neutral",
+  todo: "accent",
+  in_progress: "info",
+  review: "warning",
+  done: "success",
+};
+export const devStatusTone = (s: DevStatus): Tone => DEV_STATUS_TONE[s] ?? "neutral";
+
 /** 작업 상태 뱃지 */
 export function StatusBadge({ status, className }: { status: DevStatus; className?: string }) {
   return (
-    <Badge color={devStatusColor(status)} className={className}>
-      <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: devStatusColor(status) }} />
+    <Badge tone={devStatusTone(status)} dot className={className}>
       {devStatusLabel(status)}
     </Badge>
   );
@@ -38,7 +46,7 @@ export function PriorityTag({ priority, compact }: { priority: DevPriority; comp
   const color = devPriorityColor(priority);
   return (
     <span
-      className="inline-flex items-center gap-1 text-xs font-semibold"
+      className="inline-flex items-center gap-1 text-nd-caption font-semibold"
       style={{ color }}
       title={`우선순위: ${devPriorityLabel(priority)}`}
     >
@@ -52,7 +60,7 @@ export function PriorityTag({ priority, compact }: { priority: DevPriority; comp
 export function KindTag({ kind, iconOnly }: { kind: DevKind; iconOnly?: boolean }) {
   if (iconOnly) {
     return (
-      <span title={devKindLabel(kind)} className="text-sm leading-none">
+      <span title={devKindLabel(kind)} className="text-nd-body leading-none">
         {devKindIcon(kind)}
       </span>
     );
@@ -78,18 +86,14 @@ export function FeatureChip({
 }) {
   const label = feature?.name ?? name;
   if (!label) return null;
-  const color = feature ? featureColorFor(feature) : "#94a3b8";
+  // 프로젝트 색은 데이터가 가진 색 — 없으면 중성 톤
+  const color = feature ? featureColorFor(feature) : undefined;
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium",
-        className,
-      )}
-      style={{ backgroundColor: `${color}14`, color }}
-    >
-      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
-      {label}
-    </span>
+    <Badge size="sm" tone="neutral" color={color} dot className={cn("max-w-full", className)}>
+      <span className="truncate" title={label}>
+        {label}
+      </span>
+    </Badge>
   );
 }
 
@@ -104,7 +108,7 @@ export function AssigneeStack({
   max?: number;
 }) {
   if (members.length === 0) {
-    return <span className="text-[11px] text-zinc-300">미배정</span>;
+    return <span className="text-nd-micro text-nd-fg-4">미배정</span>;
   }
   const dim =
     size === "xs" ? "h-5 w-5 text-[9px]" : size === "md" ? "h-8 w-8 text-sm" : "h-6 w-6 text-[11px]";
@@ -118,13 +122,13 @@ export function AssigneeStack({
           name={m.name}
           color={m.color ?? "#71717a"}
           avatar={m.avatar}
-          className={cn(dim, "ring-2 ring-white")}
+          className={cn(dim, "ring-2 ring-nd-content")}
         />
       ))}
       {rest > 0 && (
         <span
           className={cn(
-            "flex items-center justify-center rounded-full bg-zinc-200 font-semibold text-zinc-600 ring-2 ring-white",
+            "nd-num flex items-center justify-center rounded-full bg-nd-fg/10 font-semibold text-nd-fg-2 ring-2 ring-nd-content",
             dim,
           )}
         >

@@ -20,14 +20,31 @@
 //  ⚠️ AI 결과는 **자동 저장되지 않는다.** 화면에 추천으로 얹히고, 사람이
 //     「적용」을 눌러야 저장된다. 확신도가 낮은 건은 눌러도 확정이 아니라
 //     제안됨으로 들어간다.
+//
+//  화면: 행은 거래처·금액이 먼저(업무 화면은 작업·상태가 먼저), 근거는
+//  아래. 일괄 처리 바는 sticky 유리 캡슐 하나 — 그 안에는 유리가 없다.
 // ============================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Card, PageHeader, Badge, EmptyState, Select } from "@/components/neander/ui";
+import { ChevronLeft, ChevronRight, CircleCheck, Sparkles } from "lucide-react";
+import {
+  Badge,
+  Button,
+  Card,
+  Checkbox,
+  EmptyState,
+  ErrorState,
+  InlineNotice,
+  LoadingState,
+  PageHeader,
+  Select,
+  cn,
+  type Tone,
+} from "@/components/neander/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { TransactionEditor } from "@/components/neander/finance/TransactionEditor";
 import { AccountPicker, type AccountValue } from "@/components/neander/finance/AccountPicker";
-import { Money, SectionTitle } from "@/components/neander/finance/ui";
+import { Money } from "@/components/neander/finance/ui";
 import {
   updateFinTransaction,
   deleteFinTransaction,
@@ -39,7 +56,6 @@ import {
 } from "@/lib/neander/finance/client";
 import { BIZ_MAJORS } from "@/lib/neander/finance/sheet";
 import {
-  STATUS_COLOR,
   STATUS_LABEL,
   netAmount,
   type ClassificationStatus,
@@ -47,6 +63,13 @@ import {
 } from "@/lib/neander/finance/types";
 
 const ALL = "__all__";
+
+/** 상태 → 의미 색조 (hex 딕셔너리 대신) */
+const STATUS_TONE: Record<ClassificationStatus, Tone> = {
+  confirmed: "success",
+  suggested: "warning",
+  needs_review: "danger",
+};
 
 /**
  * 한 페이지에 그리는 행 수.
@@ -61,6 +84,14 @@ const PAGE_SIZE = 100;
 /** 계정 3단 경로. 소분류 이름은 중분류마다 겹치므로(일반소모품비 등) 전체 경로로 묶는다 */
 const acctPathOf = (t: FinTransaction) =>
   `${t.acctMajor ?? "-"} > ${t.acctMid ?? "-"} > ${t.acctMinor ?? "-"}`;
+
+function Kbd({ children }: { children: string }) {
+  return (
+    <kbd className="rounded-[6px] border border-nd-border bg-nd-sunken px-1.5 py-0.5 font-sans text-nd-micro text-nd-fg-2">
+      {children}
+    </kbd>
+  );
+}
 
 export default function ReviewPage() {
   const { transactions, accounts, paymentMethods, loading, refresh } = useFinance();
@@ -347,7 +378,7 @@ export default function ReviewPage() {
   };
 
   if (loading) {
-    return <div className="px-5 py-16 text-center text-zinc-400">불러오는 중…</div>;
+    return <LoadingState label="대기함을 불러오는 중…" />;
   }
 
   const suggestedCount = transactions.filter((t) => t.status === "suggested").length;
@@ -362,39 +393,44 @@ export default function ReviewPage() {
   const pager =
     pageCount > 1 ? (
       <nav className="my-3 flex flex-wrap items-center justify-center gap-1.5" aria-label="페이지">
-        <Button variant="secondary" disabled={page === 0} onClick={() => goPage(page - 1)}>
-          ← 이전
+        <Button variant="secondary" size="sm" icon={ChevronLeft} disabled={page === 0} onClick={() => goPage(page - 1)}>
+          이전
         </Button>
         {pageNums.map((p, i) => (
           <span key={p} className="flex items-center gap-1.5">
-            {i > 0 && pageNums[i - 1] !== p - 1 && <span className="px-1 text-zinc-400">…</span>}
+            {i > 0 && pageNums[i - 1] !== p - 1 && <span className="px-1 text-nd-fg-3">…</span>}
             <button
+              type="button"
               onClick={() => goPage(p)}
               aria-current={p === page ? "page" : undefined}
-              className={`min-w-[2.25rem] rounded-lg border px-2 py-1.5 text-sm tabular-nums transition ${
+              aria-label={`${p + 1}페이지`}
+              className={cn(
+                "nd-num h-ctl-sm min-w-[2.25rem] rounded-[8px] px-2 text-[13px] transition-colors duration-nd-fast",
                 p === page
-                  ? "border-indigo-600 bg-indigo-600 font-semibold text-white"
-                  : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50"
-              }`}
+                  ? "bg-nd-accent font-semibold text-white"
+                  : "border border-nd-border bg-nd-content text-nd-fg-2 hover:bg-nd-sunken hover:text-nd-fg",
+              )}
             >
               {p + 1}
             </button>
           </span>
         ))}
-        <Button variant="secondary" disabled={page >= pageCount - 1} onClick={() => goPage(page + 1)}>
-          다음 →
+        <Button variant="secondary" size="sm" trailingIcon={ChevronRight} disabled={page >= pageCount - 1} onClick={() => goPage(page + 1)}>
+          다음
         </Button>
       </nav>
     ) : null;
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-5 py-8">
+    <div className="mx-auto w-full max-w-5xl">
       <PageHeader
         title="검토 대기함"
         description="자동분류가 확신하지 못한 거래입니다. 근거를 보고 승인하거나 고치세요."
-        actions={
-          <div className="flex items-center gap-2">
+        meta={
+          <div className="flex flex-wrap items-center gap-2">
             <Select
+              size="sm"
+              aria-label="상태로 거르기"
               value={statusFilter}
               className="w-auto"
               onChange={(e) => {
@@ -403,12 +439,14 @@ export default function ReviewPage() {
                 setCursor(0);
               }}
             >
-              <option value={ALL}>전체</option>
+              <option value={ALL}>전체 상태</option>
               {(["suggested", "needs_review"] as ClassificationStatus[]).map((s) => (
                 <option key={s} value={s}>{STATUS_LABEL[s]}</option>
               ))}
             </Select>
             <Select
+              size="sm"
+              aria-label="계정으로 거르기"
               value={acctFilter}
               className="w-auto max-w-[20rem]"
               onChange={(e) => {
@@ -426,40 +464,44 @@ export default function ReviewPage() {
                 </option>
               ))}
             </Select>
+          </div>
+        }
+        actions={
+          <>
             {aiTargets.length > 0 && (
-              <Button variant="secondary" onClick={askAi} disabled={aiBusy || busy}>
+              <Button variant="secondary" icon={Sparkles} onClick={askAi} loading={aiBusy} disabled={busy}>
                 {aiBusy ? "AI 가 보고 있습니다…" : `AI 추천 (${aiTargets.length}건)`}
               </Button>
             )}
             {suggestedCount > 0 && (
-              <Button variant="secondary" onClick={approveAllSuggested} disabled={busy}>
+              <Button variant={pending.length > 0 ? "primary" : "secondary"} onClick={approveAllSuggested} disabled={busy}>
                 제안됨 {suggestedCount}건 일괄 확정
               </Button>
             )}
-          </div>
+          </>
         }
       />
 
       {aiError && (
-        <Card className="mb-4 border-rose-200 bg-rose-50/60">
-          <p className="font-semibold text-rose-900">AI 추천을 받지 못했습니다</p>
-          <p className="mt-1 text-sm leading-relaxed text-rose-800">{aiError}</p>
-        </Card>
+        <ErrorState className="mb-4" title="AI 추천을 받지 못했습니다" description={aiError} />
       )}
 
       {ai && (
-        <Card className="mb-4 border-violet-200 bg-violet-50/50">
+        <Card className="mb-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="font-semibold text-zinc-900">
-                AI 추천 {ai.suggestions.length}건
-                <span className="ml-2 text-xs font-normal text-zinc-500">{ai.model}</span>
+              <p className="flex flex-wrap items-baseline gap-x-2 text-nd-section text-nd-fg">
+                <span className="inline-flex items-center gap-1.5">
+                  <Sparkles size={16} strokeWidth={1.75} className="text-nd-info" aria-hidden />
+                  AI 추천 {ai.suggestions.length}건
+                </span>
+                <span className="text-nd-caption font-normal text-nd-fg-3">{ai.model}</span>
               </p>
-              <p className="mt-1 text-sm text-zinc-600">
-                아래 각 거래에 추천이 붙었습니다. <b>저장되지 않았습니다</b> — 확인 후 적용하세요.
+              <p className="mt-1 text-nd-body text-nd-fg-2">
+                아래 각 거래에 추천이 붙었습니다. <b className="text-nd-fg">저장되지 않았습니다</b> — 확인 후 적용하세요.
                 확신도 70% 미만은 적용해도 「검토필요」로 남습니다.
               </p>
-              <p className="mt-1 text-xs text-zinc-400">
+              <p className="nd-num mt-1 text-nd-caption text-nd-fg-3">
                 토큰 입력 {ai.usage.inputTokens.toLocaleString("ko-KR")}
                 {ai.usage.cacheReadTokens > 0 &&
                   ` (캐시 재사용 ${ai.usage.cacheReadTokens.toLocaleString("ko-KR")})`}
@@ -467,13 +509,6 @@ export default function ReviewPage() {
                 {ai.usage.outputTokens.toLocaleString("ko-KR")}
                 {ai.usage.costUsd !== undefined && ` · 비용 $${ai.usage.costUsd.toFixed(4)}`}
               </p>
-              {ai.rejected.length > 0 && (
-                <p className="mt-1.5 text-xs text-amber-800">
-                  계정 마스터에 없는 계정을 제안한 {ai.rejected.length}건은 버렸습니다
-                  ({ai.rejected.slice(0, 2).map((r) => r.proposed).join(", ")}
-                  {ai.rejected.length > 2 && " …"}).
-                </p>
-              )}
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2">
               <Button variant="ghost" onClick={() => setAi(null)} disabled={busy}>
@@ -491,47 +526,53 @@ export default function ReviewPage() {
               </Button>
             </div>
           </div>
+          {ai.rejected.length > 0 && (
+            <InlineNotice tone="warning" className="mt-3">
+              계정 마스터에 없는 계정을 제안한 {ai.rejected.length}건은 버렸습니다
+              ({ai.rejected.slice(0, 2).map((r) => r.proposed).join(", ")}
+              {ai.rejected.length > 2 && " …"}).
+            </InlineNotice>
+          )}
         </Card>
       )}
 
       {pending.length === 0 ? (
         <EmptyState
-          icon="✅"
+          icon={CircleCheck}
           title="검토할 거래가 없습니다"
           description="모든 거래가 확정 상태입니다."
         />
       ) : (
         <>
-          <Card className="mb-4 py-3">
-            <p className="text-sm text-zinc-600">
-              <b className="text-zinc-900">{pending.length.toLocaleString("ko-KR")}건</b> 대기
-              {pending.length > PAGE_SIZE && (
-                <>
-                  {" · 이 페이지 "}
-                  <b className="tabular-nums text-zinc-900">
-                    {(page * PAGE_SIZE + 1).toLocaleString("ko-KR")}–
-                    {(page * PAGE_SIZE + pageRows.length).toLocaleString("ko-KR")}
-                  </b>
-                </>
-              )}
-              {" · 키보드로 처리할 수 있습니다 — "}
-              <kbd className="rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 text-xs">↑</kbd>{" "}
-              <kbd className="rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 text-xs">↓</kbd> 이동 ·{" "}
-              <kbd className="rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 text-xs">Enter</kbd> 확정 ·{" "}
-              <kbd className="rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 text-xs">E</kbd> 상세
-            </p>
-          </Card>
+          <p className="mb-3 text-nd-body text-nd-fg-2">
+            <b className="nd-num text-nd-fg">{pending.length.toLocaleString("ko-KR")}건</b> 대기
+            {pending.length > PAGE_SIZE && (
+              <>
+                {" · 이 페이지 "}
+                <b className="nd-num text-nd-fg">
+                  {(page * PAGE_SIZE + 1).toLocaleString("ko-KR")}–
+                  {(page * PAGE_SIZE + pageRows.length).toLocaleString("ko-KR")}
+                </b>
+              </>
+            )}
+            <span className="ml-3 inline-flex flex-wrap items-center gap-x-1.5 gap-y-1 text-nd-caption text-nd-fg-3">
+              <Kbd>↑</Kbd>
+              <Kbd>↓</Kbd> 이동 · <Kbd>Enter</Kbd> 확정 · <Kbd>E</Kbd> 상세
+            </span>
+          </p>
 
           {selected.size > 0 && (
-            <Card className="sticky top-14 z-10 mb-3 border-indigo-300 bg-indigo-50/80 backdrop-blur">
+            // 일괄 처리 바 — sticky 유리 캡슐 하나. 안쪽은 불투명 컨트롤만.
+            <div className="nd-glass sticky top-16 z-nd-sticky mb-3 rounded-nd-xl p-4">
               <div className="flex flex-wrap items-end gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-zinc-900">
-                    {selected.size}건 선택됨
+                  <p className="text-nd-body font-semibold text-nd-fg">
+                    {selected.size.toLocaleString("ko-KR")}건 선택됨
                   </p>
                   <button
+                    type="button"
                     onClick={() => setSelected(new Set())}
-                    className="mt-0.5 text-xs text-zinc-500 underline hover:text-zinc-800"
+                    className="mt-0.5 text-nd-caption text-nd-fg-2 underline hover:text-nd-fg"
                   >
                     선택 해제
                   </button>
@@ -547,15 +588,12 @@ export default function ReviewPage() {
                         onChange={setBulkAcct}
                       />
                     </div>
-                    <Button
-                      onClick={applyBulk}
-                      disabled={busy || !bulkAcct.acctMinor}
-                    >
+                    <Button size="sm" onClick={applyBulk} disabled={busy || !bulkAcct.acctMinor}>
                       {selected.size}건에 적용
                     </Button>
                   </>
                 ) : (
-                  <p className="text-sm text-rose-700">
+                  <p className="text-nd-body text-nd-danger-text">
                     거래유형이 섞여 있어 계정을 한 번에 지정할 수 없습니다
                     ({selectedTypes.join(" · ")}). 같은 유형끼리 골라주세요.
                   </p>
@@ -563,12 +601,14 @@ export default function ReviewPage() {
               </div>
 
               {/* 사업구분은 거래유형과 무관하다 — 유형이 섞여 있어도 지정할 수 있다 */}
-              <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-indigo-200 pt-3">
-                <span className="text-xs font-medium text-zinc-600">사업구분 일괄</span>
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-nd-line pt-3">
+                <span className="text-nd-caption font-medium text-nd-fg-2">사업구분 일괄</span>
                 <Select
+                  size="sm"
+                  aria-label="사업대분류"
                   value={bulkBiz.major}
                   onChange={(e) => setBulkBiz({ major: e.target.value, minor: "" })}
-                  className="h-8 w-28 text-xs"
+                  className="w-28"
                 >
                   <option value="">대분류</option>
                   {BIZ_MAJORS.map((b) => (
@@ -578,10 +618,12 @@ export default function ReviewPage() {
                   ))}
                 </Select>
                 <Select
+                  size="sm"
+                  aria-label="사업소분류"
                   value={bulkBiz.minor}
                   onChange={(e) => setBulkBiz((v) => ({ ...v, minor: e.target.value }))}
                   disabled={!bulkBiz.major}
-                  className="h-8 w-32 text-xs"
+                  className="w-40"
                 >
                   <option value="">소분류 (대분류와 같게)</option>
                   {bizMinors.map((b) => (
@@ -590,23 +632,19 @@ export default function ReviewPage() {
                     </option>
                   ))}
                 </Select>
-                <Button
-                  variant="secondary"
-                  onClick={applyBulkBiz}
-                  disabled={busy || !bulkBiz.major}
-                  className="h-8 px-3 text-xs"
-                >
+                <Button variant="secondary" size="sm" onClick={applyBulkBiz} disabled={busy || !bulkBiz.major}>
                   {selected.size}건에 사업구분 적용
                 </Button>
-                <span className="text-xs text-zinc-500">
+                <span className="text-nd-caption text-nd-fg-3">
                   계정까지 멀쩡한 행만 확정으로 올라갑니다
                 </span>
               </div>
-            </Card>
+            </div>
           )}
 
-          <div className="mb-2 flex items-center gap-3 text-sm">
+          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-nd-body">
             <button
+              type="button"
               onClick={() =>
                 setSelected(
                   selected.size === pending.length
@@ -614,11 +652,11 @@ export default function ReviewPage() {
                     : new Set(pending.map((t) => t.id)),
                 )
               }
-              className="text-indigo-700 underline hover:text-indigo-900"
+              className="font-medium text-nd-accent-strong hover:underline"
             >
-              {selected.size === pending.length ? "전체 해제" : `전체 선택 (${pending.length})`}
+              {selected.size === pending.length ? "전체 해제" : `전체 선택 (${pending.length.toLocaleString("ko-KR")})`}
             </button>
-            <span className="text-zinc-400">
+            <span className="text-nd-caption text-nd-fg-3">
               여러 건을 골라 같은 계정으로 한 번에 지정할 수 있습니다
               {pageCount > 1 && " · 선택은 페이지를 넘겨도 유지됩니다"}
             </span>
@@ -629,83 +667,102 @@ export default function ReviewPage() {
           <ul className="space-y-2">
             {pageRows.map((t, i) => {
               const active = i === cursor;
+              const suggestion = aiById.has(t.id) && !aiApplied.has(t.id) ? aiById.get(t.id) : undefined;
               return (
                 <li
                   key={t.id}
                   ref={(el) => { rowRefs.current[i] = el; }}
                   onClick={() => setCursor(i)}
-                  className={`rounded-xl border bg-white p-4 shadow-sm transition ${
-                    active ? "border-indigo-500 ring-2 ring-indigo-100" : "border-zinc-200"
-                  }`}
+                  aria-current={active ? "true" : undefined}
+                  className={cn(
+                    "nd-surface rounded-nd-lg p-4 transition-shadow duration-nd-fast",
+                    active && "ring-2 ring-nd-accent/60",
+                  )}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <input
-                          type="checkbox"
+                    <div className="min-w-0 flex-1">
+                      {/* 거래처·금액이 먼저 */}
+                      <div className="flex items-start gap-2.5">
+                        <Checkbox
                           checked={selected.has(t.id)}
                           onChange={() => toggle(t.id)}
                           onClick={(e) => e.stopPropagation()}
-                          className="h-4 w-4 cursor-pointer rounded border-zinc-300 accent-indigo-600"
-                          aria-label="선택"
+                          aria-label={`${t.vendor || "(거래처 없음)"} 선택`}
+                          className="mt-0.5"
                         />
-                        <Badge color={STATUS_COLOR[t.status]}>{STATUS_LABEL[t.status]}</Badge>
-                        <span className="tabular-nums text-sm text-zinc-500">{t.date}</span>
-                        <span className="text-sm text-zinc-500">{t.txType}</span>
-                        <span className="font-semibold text-zinc-900">
-                          {t.vendor || "(거래처 없음)"}
-                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                            <span className="min-w-0 truncate text-nd-body font-semibold text-nd-fg" title={t.vendor || undefined}>
+                              {t.vendor || "(거래처 없음)"}
+                            </span>
+                            <span className="text-nd-section">
+                              <Money value={netAmount(t)} />
+                            </span>
+                          </p>
+                          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-nd-caption text-nd-fg-2">
+                            <Badge tone={STATUS_TONE[t.status]} size="sm" dot>
+                              {STATUS_LABEL[t.status]}
+                            </Badge>
+                            <span className="nd-num">{t.date}</span>
+                            <span>{t.txType}</span>
+                            {t.acctMinor && (
+                              <span className="text-nd-fg-3">
+                                {[t.acctMajor, t.acctMid, t.acctMinor].filter(Boolean).join(" › ")}
+                              </span>
+                            )}
+                          </p>
+                          {t.classReason && (
+                            <p className="mt-1.5 text-nd-caption leading-relaxed text-nd-fg-3">{t.classReason}</p>
+                          )}
+                        </div>
                       </div>
-                      <p className="mt-1.5 text-sm text-zinc-500">{t.classReason}</p>
-                      {aiById.has(t.id) && !aiApplied.has(t.id) && (() => {
-                        const s = aiById.get(t.id)!;
-                        const strong = s.confidence >= 0.7;
-                        return (
-                          <div className="mt-2 rounded-lg border border-violet-300 bg-white px-3 py-2">
-                            <p className="flex flex-wrap items-center gap-2 text-sm">
-                              <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[11px] font-medium text-violet-800">
-                                AI 추천
+
+                      {suggestion && (
+                        <InlineNotice
+                          tone={suggestion.confidence >= 0.7 ? "info" : "warning"}
+                          icon={Sparkles}
+                          className="mt-2"
+                          action={
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={(ev) => { ev.stopPropagation(); void applyAi([t.id]); }}
+                              disabled={busy}
+                            >
+                              적용
+                            </Button>
+                          }
+                        >
+                          <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <span className="text-nd-micro uppercase tracking-wide opacity-80">AI 추천</span>
+                            <span className="font-medium text-nd-fg">
+                              {[suggestion.acctMajor, suggestion.acctMid, suggestion.acctMinor].join(" › ")}
+                            </span>
+                            {suggestion.bizMinor && (
+                              <span className="text-nd-caption text-nd-fg-2">
+                                {suggestion.bizMajor} · {suggestion.bizMinor}
                               </span>
-                              <span className="font-medium text-zinc-900">
-                                {[s.acctMajor, s.acctMid, s.acctMinor].join(" › ")}
-                              </span>
-                              {s.bizMinor && (
-                                <span className="text-xs text-zinc-500">
-                                  {s.bizMajor} · {s.bizMinor}
-                                </span>
-                              )}
-                              <span className={`text-xs font-medium ${strong ? "text-emerald-700" : "text-amber-700"}`}>
-                                확신 {Math.round(s.confidence * 100)}%
-                              </span>
-                              <button
-                                type="button"
-                                onClick={(ev) => { ev.stopPropagation(); void applyAi([t.id]); }}
-                                disabled={busy}
-                                className="rounded-md border border-violet-300 px-2 py-0.5 text-xs font-medium text-violet-800 hover:bg-violet-50 disabled:opacity-50"
-                              >
-                                적용
-                              </button>
-                            </p>
-                            <p className="mt-1 text-xs leading-relaxed text-zinc-500">{s.reason}</p>
-                          </div>
-                        );
-                      })()}
+                            )}
+                            <span className="nd-num text-nd-caption font-medium">
+                              확신 {Math.round(suggestion.confidence * 100)}%
+                            </span>
+                          </p>
+                          <p className="mt-0.5 text-nd-caption text-nd-fg-2">{suggestion.reason}</p>
+                        </InlineNotice>
+                      )}
                     </div>
-                    <div className="flex shrink-0 items-center gap-3">
-                      <span className="text-lg font-bold">
-                        <Money value={netAmount(t)} />
-                      </span>
-                      <Button variant="secondary" onClick={() => setEditing(t)}>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Button variant="secondary" size="sm" onClick={() => setEditing(t)}>
                         상세
                       </Button>
-                      <Button onClick={() => approve(t)}>확정</Button>
+                      <Button size="sm" onClick={() => approve(t)}>확정</Button>
                     </div>
                   </div>
 
                   {/* 현재 커서 행에서만 바로 분류를 고칠 수 있게 */}
                   {active && (
-                    <div className="mt-3 border-t border-zinc-100 pt-3">
-                      <p className="mb-2 text-xs font-medium text-zinc-500">
+                    <div className="mt-3 border-t border-nd-line pt-3">
+                      <p className="mb-2 text-nd-caption font-medium text-nd-fg-2">
                         계정 (여기서 바로 고칠 수 있습니다)
                       </p>
                       <AccountPicker

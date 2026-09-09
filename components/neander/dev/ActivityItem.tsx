@@ -7,31 +7,52 @@
 //  커밋(meta.sha) 항목은 제목을 모노스페이스로 요약한다.
 // ============================================================
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
+import {
+  Bot,
+  ExternalLink,
+  GitBranch,
+  GitPullRequest,
+  GitFork,
+  Link2,
+  Megaphone,
+  MessageCircle,
+  PenLine,
+  Pin,
+  Plus,
+  RefreshCw,
+  StickyNote,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { useAppData } from "@/components/neander/app-data";
 import { toggleReaction, deleteActivity, setPinned } from "@/lib/neander/dev/activity";
 import { AttachmentGallery } from "@/components/neander/dev/ScreenshotUploader";
 import { FeatureChip } from "@/components/neander/dev/atoms";
 import { CommentThread } from "@/components/neander/dev/CommentThread";
-import { MemberAvatar, cn } from "@/components/neander/ui";
+import { Badge, Button, Icon, IconButton, MemberAvatar, Popover, cn, useConfirm, type Tone } from "@/components/neander/ui";
 import { formatTimestamp } from "@/lib/neander/format";
 import type { DevActivity, DevFeature } from "@/lib/neander/dev/types";
 
 const REACTIONS = ["👍", "🔥", "🎉", "👀", "❤️"];
 
-const SOURCE_META: Record<DevActivity["source"], { label: string; icon: string; color: string }> = {
-  manual: { label: "수동", icon: "✍️", color: "#6366f1" },
-  github: { label: "GitHub", icon: "🐙", color: "#111827" },
-  claude: { label: "Claude", icon: "🤖", color: "#d97757" },
+// 출처 배지 — 수동은 의미 톤, GitHub/Claude 는 외부 브랜드 색(데이터 색)을 유지
+const SOURCE_META: Record<
+  DevActivity["source"],
+  { label: string; icon: LucideIcon; tone?: Tone; color?: string; avatarColor: string }
+> = {
+  manual: { label: "수동", icon: PenLine, tone: "accent", avatarColor: "#6366f1" },
+  github: { label: "GitHub", icon: GitFork, color: "#111827", avatarColor: "#111827" },
+  claude: { label: "Claude", icon: Bot, color: "#d97757", avatarColor: "#d97757" },
 };
 
-const TYPE_ICON: Record<DevActivity["type"], string> = {
-  update: "📣",
-  note: "🗒️",
-  commit: "🔀",
-  pr: "🔃",
-  status: "🔁",
+const TYPE_ICON: Record<DevActivity["type"], LucideIcon> = {
+  update: Megaphone,
+  note: StickyNote,
+  commit: GitBranch,
+  pr: GitPullRequest,
+  status: RefreshCw,
 };
 
 export function ActivityItem({
@@ -42,34 +63,15 @@ export function ActivityItem({
   feature?: DevFeature;
 }) {
   const { currentMember, members } = useAppData();
+  const confirm = useConfirm();
   const [showComments, setShowComments] = useState(false);
   const [reactOpen, setReactOpen] = useState(false);
-  const reactRef = useRef<HTMLDivElement>(null);
-
-  // 반응 팝오버: 바깥 클릭 / ESC 로 닫기 (터치·키보드 지원)
-  useEffect(() => {
-    if (!reactOpen) return;
-    function onPointerDown(e: MouseEvent | TouchEvent) {
-      if (reactRef.current && !reactRef.current.contains(e.target as Node)) {
-        setReactOpen(false);
-      }
-    }
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setReactOpen(false);
-    }
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("touchstart", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("touchstart", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [reactOpen]);
+  // 반응 팝오버: 바깥 클릭 / ESC / 포커스 복귀는 Popover 가 담당한다
+  const reactBtnRef = useRef<HTMLButtonElement>(null);
 
   const a = activity;
   const isAuthor = !!currentMember && currentMember.id === a.authorId;
-  const authorColor = members.find((m) => m.id === a.authorId)?.color ?? SOURCE_META[a.source].color;
+  const authorColor = members.find((m) => m.id === a.authorId)?.color ?? SOURCE_META[a.source].avatarColor;
   const authorAvatar = members.find((m) => m.id === a.authorId)?.avatar;
   const src = SOURCE_META[a.source];
 
@@ -81,15 +83,16 @@ export function ActivityItem({
   const reactionEntries = Object.entries(a.reactions ?? {}).filter(([, ids]) => ids.length > 0);
 
   return (
-    <div
+    <article
       className={cn(
-        "relative rounded-2xl border bg-white p-4 shadow-sm transition",
-        a.pinned ? "border-amber-200 ring-1 ring-amber-100" : "border-zinc-200",
+        "nd-surface relative rounded-nd-lg p-4",
+        a.pinned && "ring-1 ring-nd-warning/40",
       )}
     >
       {a.pinned && (
-        <span className="absolute -top-2 left-4 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-white">
-          📌 고정됨
+        <span className="absolute -top-2.5 left-4 inline-flex items-center gap-1 rounded-full bg-nd-warning px-2 py-0.5 text-nd-micro font-semibold text-white">
+          <Icon icon={Pin} size={10} />
+          고정됨
         </span>
       )}
 
@@ -98,58 +101,49 @@ export function ActivityItem({
         <div className="min-w-0 flex-1">
           {/* 헤더 */}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-            <span className="text-sm font-semibold text-zinc-800">{a.authorName}</span>
-            <span className="text-sm leading-none" title={a.type}>
-              {TYPE_ICON[a.type]}
-            </span>
+            <span className="text-nd-body font-semibold text-nd-fg">{a.authorName}</span>
+            <Icon icon={TYPE_ICON[a.type]} size={14} className="text-nd-fg-3" label={a.type} />
             {/* source 배지 — 수동/GitHub/Claude 출처를 항상 표시 */}
-            <span
-              className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold"
-              style={{
-                backgroundColor: `${src.color}14`,
-                borderColor: `${src.color}33`,
-                color: src.color,
-              }}
-              title={`출처: ${src.label}`}
-            >
-              {src.icon} {src.label}
+            <span title={`출처: ${src.label}`} className="inline-flex">
+              <Badge size="sm" tone={src.tone} color={src.color} className="font-semibold">
+                <Icon icon={src.icon} size={11} />
+                {src.label}
+              </Badge>
             </span>
-            <span className="text-[11px] text-zinc-400">{formatTimestamp(a.createdAt)}</span>
-            <div className="ml-auto flex items-center gap-1">
+            <span className="text-nd-micro font-normal text-nd-fg-3">{formatTimestamp(a.createdAt)}</span>
+            <div className="ml-auto flex items-center gap-0.5">
               {(isAuthor || currentMember) && (
-                <button
+                <IconButton
+                  icon={Pin}
+                  label={a.pinned ? "고정 해제" : "고정"}
+                  size="sm"
+                  active={a.pinned}
                   onClick={() => setPinned(a.id, !a.pinned)}
-                  className={cn(
-                    "rounded px-1.5 py-0.5 text-xs transition",
-                    a.pinned ? "text-amber-500" : "text-zinc-300 hover:text-amber-500",
-                  )}
-                  aria-label="고정 토글"
-                  title="고정"
-                >
-                  📌
-                </button>
+                  className={cn(!a.pinned && "text-nd-fg-4 hover:text-nd-warning")}
+                />
               )}
               {isAuthor && (
-                <button
-                  onClick={() => {
-                    if (confirm("이 항목을 삭제할까요?")) deleteActivity(a.id);
+                <IconButton
+                  icon={X}
+                  label="삭제"
+                  size="sm"
+                  onClick={async () => {
+                    if (await confirm({ title: "이 항목을 삭제할까요?", confirmLabel: "삭제", tone: "danger" }))
+                      deleteActivity(a.id);
                   }}
-                  className="rounded px-1.5 py-0.5 text-xs text-zinc-300 hover:text-red-500"
-                  aria-label="삭제"
-                >
-                  ✕
-                </button>
+                  className="text-nd-fg-4 hover:text-nd-danger"
+                />
               )}
             </div>
           </div>
 
           {/* 제목 — 커밋(meta.sha) 항목은 모노스페이스 요약 */}
           {a.meta?.sha ? (
-            <p className="mt-0.5 break-words font-mono text-[13px] font-medium leading-snug text-zinc-800">
+            <p className="mt-0.5 break-words font-mono text-nd-table font-medium leading-snug text-nd-fg">
               {a.title}
             </p>
           ) : (
-            <p className="mt-0.5 text-[15px] font-semibold leading-snug text-zinc-900">{a.title}</p>
+            <p className="mt-0.5 text-nd-section leading-snug text-nd-fg">{a.title}</p>
           )}
 
           {/* 태그들 */}
@@ -160,44 +154,58 @@ export function ActivityItem({
                 (a.taskId ? (
                   <Link
                     href={`/neander/dev/board?task=${a.taskId}`}
-                    className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] text-zinc-500 transition hover:bg-indigo-50 hover:text-indigo-600"
+                    className="inline-flex h-5 max-w-full items-center gap-1 rounded-full bg-nd-fg/[.07] px-1.5 text-nd-micro text-nd-fg-2 transition-colors duration-nd-fast hover:bg-nd-accent-soft hover:text-nd-accent-strong"
                     aria-label={`연결 작업 열기: ${a.taskTitle}`}
+                    title={a.taskTitle}
                   >
-                    🔗 {a.taskTitle}
+                    <Icon icon={Link2} size={11} />
+                    <span className="truncate">{a.taskTitle}</span>
                   </Link>
                 ) : (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] text-zinc-500">
-                    🔗 {a.taskTitle}
-                  </span>
+                  <Badge size="sm" tone="neutral" className="max-w-full">
+                    <Icon icon={Link2} size={11} />
+                    <span className="truncate" title={a.taskTitle}>
+                      {a.taskTitle}
+                    </span>
+                  </Badge>
                 ))}
             </div>
           )}
 
           {/* 본문 */}
           {a.body && (
-            <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-600">
+            <p className="mt-2 whitespace-pre-wrap break-words text-nd-body leading-relaxed text-nd-fg-2">
               {a.body}
             </p>
           )}
 
           {/* 자동연동 커밋/PR 메타 */}
           {a.meta && (a.meta.sha || a.meta.branch || a.meta.url) && (
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-zinc-400">
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-nd-micro font-normal text-nd-fg-3">
               {a.meta.branch && (
-                <span className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono">⎇ {a.meta.branch}</span>
+                <span className="inline-flex items-center gap-1 rounded-nd-sm bg-nd-fg/[.06] px-1.5 py-0.5 font-mono">
+                  <Icon icon={GitBranch} size={11} />
+                  {a.meta.branch}
+                </span>
               )}
               {a.meta.sha && (
-                <span className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono">{a.meta.sha.slice(0, 7)}</span>
+                <span className="rounded-nd-sm bg-nd-fg/[.06] px-1.5 py-0.5 font-mono">{a.meta.sha.slice(0, 7)}</span>
               )}
               {typeof a.meta.additions === "number" && (
-                <span className="text-emerald-600">+{a.meta.additions}</span>
+                <span className="nd-num text-nd-success-text">+{a.meta.additions}</span>
               )}
               {typeof a.meta.deletions === "number" && (
-                <span className="text-red-500">-{a.meta.deletions}</span>
+                <span className="nd-num text-nd-danger-text">-{a.meta.deletions}</span>
               )}
               {a.meta.url && (
-                <a href={a.meta.url} target="_blank" rel="noreferrer" className="text-indigo-500 hover:underline">
-                  원본 보기 ↗
+                <a
+                  href={a.meta.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-0.5 text-nd-accent-strong hover:underline"
+                >
+                  원본 보기
+                  <Icon icon={ExternalLink} size={11} />
                 </a>
               )}
             </div>
@@ -218,42 +226,50 @@ export function ActivityItem({
                 <button
                   key={emoji}
                   onClick={() => react(emoji)}
+                  aria-pressed={mine}
+                  aria-label={`${emoji} 반응 ${ids.length}`}
                   className={cn(
-                    "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition",
+                    "inline-flex h-7 items-center gap-1 rounded-full border px-2 text-nd-caption transition-colors duration-nd-fast",
                     mine
-                      ? "border-indigo-200 bg-indigo-50 text-indigo-700"
-                      : "border-zinc-200 bg-white text-zinc-500 hover:bg-zinc-50",
+                      ? "border-nd-accent bg-nd-accent-soft text-nd-accent-strong"
+                      : "border-nd-border bg-nd-content text-nd-fg-2 hover:bg-nd-sunken",
                   )}
                 >
                   <span>{emoji}</span>
-                  <span className="tabular-nums">{ids.length}</span>
+                  <span className="nd-num">{ids.length}</span>
                 </button>
               );
             })}
 
             {/* 빠른 반응 추가 — 클릭 토글(터치·키보드 지원) */}
             {currentMember && (
-              <div className="relative" ref={reactRef}>
+              <>
                 <button
+                  ref={reactBtnRef}
                   type="button"
                   onClick={() => setReactOpen((v) => !v)}
                   className={cn(
-                    "rounded-full border border-dashed px-2 py-0.5 text-xs transition",
+                    "inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed transition-colors duration-nd-fast",
                     reactOpen
-                      ? "border-indigo-300 text-indigo-500"
-                      : "border-zinc-300 text-zinc-400 hover:border-indigo-300 hover:text-indigo-500",
+                      ? "border-nd-accent text-nd-accent"
+                      : "border-nd-strong text-nd-fg-3 hover:border-nd-accent hover:text-nd-accent",
                   )}
                   aria-label={reactOpen ? "반응 선택 닫기" : "반응 추가"}
                   aria-expanded={reactOpen}
                   aria-haspopup="menu"
                 >
-                  ＋
+                  <Icon icon={Plus} size={14} />
                 </button>
-                {reactOpen && (
-                  <div
-                    role="menu"
-                    className="absolute bottom-full left-0 z-10 mb-1 flex gap-0.5 rounded-full border border-zinc-200 bg-white p-1 shadow-md"
-                  >
+                {/* 반응 이모지는 데이터 — 팝오버 껍데기만 공통 Popover 로 */}
+                <Popover
+                  open={reactOpen}
+                  onClose={() => setReactOpen(false)}
+                  anchorRef={reactBtnRef}
+                  placement="top-start"
+                  role="menu"
+                  ariaLabel="반응 선택"
+                >
+                  <div className="flex gap-0.5">
                     {REACTIONS.map((emoji) => (
                       <button
                         key={emoji}
@@ -263,36 +279,37 @@ export function ActivityItem({
                           react(emoji);
                           setReactOpen(false);
                         }}
-                        className="rounded-full px-1 text-base hover:bg-zinc-100"
+                        className="h-8 w-8 rounded-full text-base transition-colors duration-nd-fast hover:bg-nd-fg/[.06]"
                         aria-label={`${emoji} 반응`}
                       >
                         {emoji}
                       </button>
                     ))}
                   </div>
-                )}
-              </div>
+                </Popover>
+              </>
             )}
 
-            <button
+            <Button
+              variant={showComments ? "soft" : "ghost"}
+              size="sm"
+              icon={MessageCircle}
               onClick={() => setShowComments((v) => !v)}
-              className={cn(
-                "ml-auto inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition",
-                showComments ? "bg-indigo-50 text-indigo-600" : "text-zinc-400 hover:bg-zinc-100",
-              )}
+              aria-expanded={showComments}
+              className="ml-auto"
             >
-              💬 댓글
-            </button>
+              댓글
+            </Button>
           </div>
 
           {/* 댓글 스레드 */}
           {showComments && (
-            <div className="mt-3 border-t border-zinc-100 pt-3">
+            <div className="mt-3 border-t border-nd-line pt-3">
               <CommentThread targetType="activity" targetId={a.id} />
             </div>
           )}
         </div>
       </div>
-    </div>
+    </article>
   );
 }

@@ -18,6 +18,7 @@ import { NowInProgress } from "@/components/neander/dev/home/NowInProgress";
 import { RecentDigest } from "@/components/neander/dev/home/RecentDigest";
 import { UpNext } from "@/components/neander/dev/home/UpNext";
 import { BigPicture } from "@/components/neander/dev/home/BigPicture";
+import { Skeleton } from "@/components/neander/ui";
 
 export default function DevDashboardPage() {
   const { members, currentMember } = useAppData();
@@ -26,14 +27,14 @@ export default function DevDashboardPage() {
   if (loading) {
     return (
       <div className="flex flex-col gap-6">
-        <div className="h-12 w-72 animate-pulse rounded-xl bg-zinc-100" />
+        <Skeleton className="h-12 w-72 max-w-full" />
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="h-24 animate-pulse rounded-xl bg-zinc-100" />
+            <Skeleton key={i} className="h-24" />
           ))}
         </div>
-        <div className="h-64 animate-pulse rounded-2xl bg-zinc-100" />
-        <div className="h-48 animate-pulse rounded-2xl bg-zinc-100" />
+        <Skeleton className="h-64 rounded-nd-lg" />
+        <Skeleton className="h-48 rounded-nd-lg" />
       </div>
     );
   }

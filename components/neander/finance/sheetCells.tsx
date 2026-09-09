@@ -13,7 +13,8 @@
 // ============================================================
 
 import React, { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { ArrowDown, ArrowUp, ChevronDown, Funnel, Grid2x2 } from "lucide-react";
+import { Icon, Portal, type LucideIcon } from "@/components/neander/ui";
 import { clampColWidth, clampRowHeight } from "./useSheetLayout";
 import {
   createAddRowsComponent,
@@ -359,8 +360,11 @@ export function createDerivedColumn<T>(data: DerivedColumnData<T>): Column<T, De
 
 interface ActionColumnData<T> {
   onClick: (row: T) => void;
+  /** 글자 라벨. icon 이 있으면 접근 가능한 이름으로만 쓰인다 */
   label: string;
   title?: string;
+  /** 선형 아이콘 — 있으면 글자 대신 그린다 */
+  icon?: LucideIcon;
 }
 
 function ActionCellInner<T>({ rowData, columnData }: CellProps<T, ActionColumnData<T>>) {
@@ -369,6 +373,7 @@ function ActionCellInner<T>({ rowData, columnData }: CellProps<T, ActionColumnDa
       type="button"
       className="dsg-action-btn"
       title={columnData.title}
+      aria-label={columnData.title ?? columnData.label}
       tabIndex={-1}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => {
@@ -376,7 +381,7 @@ function ActionCellInner<T>({ rowData, columnData }: CellProps<T, ActionColumnDa
         columnData.onClick(rowData);
       }}
     >
-      {columnData.label}
+      {columnData.icon ? <Icon icon={columnData.icon} size={16} /> : columnData.label}
     </button>
   );
 }
@@ -551,30 +556,28 @@ export function ResizeGrip({
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
       />
-      {live &&
-        typeof document !== "undefined" &&
-        createPortal(
-          <>
-            <div
-              className={axis === "x" ? "dsg-guide-v" : "dsg-guide-h"}
-              style={
-                axis === "x"
-                  ? { left: live.x, top: live.box.top, height: live.box.height }
-                  : { top: live.y, left: live.box.left, width: live.box.width }
-              }
-              aria-hidden
-            />
-            <div
-              className="dsg-size-badge"
-              style={{ left: live.x, top: live.y }}
-              role="status"
-              aria-live="polite"
-            >
-              {label} {live.px}px
-            </div>
-          </>,
-          document.body,
-        )}
+      {live && (
+        // 공통 포탈 뿌리(data-app="neander")에 그려야 토큰 색이 닿는다
+        <Portal>
+          <div
+            className={axis === "x" ? "dsg-guide-v" : "dsg-guide-h"}
+            style={
+              axis === "x"
+                ? { left: live.x, top: live.box.top, height: live.box.height }
+                : { top: live.y, left: live.box.left, width: live.box.width }
+            }
+            aria-hidden
+          />
+          <div
+            className="dsg-size-badge"
+            style={{ left: live.x, top: live.y }}
+            role="status"
+            aria-live="polite"
+          >
+            {label} {live.px}px
+          </div>
+        </Portal>
+      )}
     </>
   );
 }
@@ -642,9 +645,7 @@ export function createGutterColumn<T>({
         onMouseDown={(e) => e.stopPropagation()}
         onClick={onResetAll}
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" className="h-3 w-3" aria-hidden>
-          <path d="M4 9h16M4 15h16M9 4v16M15 4v16" />
-        </svg>
+        <Icon icon={Grid2x2} size={12} />
       </button>
     ),
     component: GutterCell,
@@ -711,7 +712,7 @@ export function ColumnHead({
       >
         <span className="dsg-head-text">{label}</span>
         <span className={`dsg-head-arrow${dir ? " dsg-head-arrow-on" : ""}`} aria-hidden>
-          {dir === "desc" ? "▼" : "▲"}
+          <Icon icon={dir === "desc" ? ArrowDown : ArrowUp} size={11} strokeWidth={2.25} />
         </span>
       </button>
       <button
@@ -724,22 +725,9 @@ export function ColumnHead({
       >
         {filtered ? (
           // 깔때기 — 필터가 걸린 열임을 이름 옆에서 바로 알 수 있게
-          <svg viewBox="0 0 24 24" fill="currentColor" className="h-3 w-3" aria-hidden>
-            <path d="M3 5h18l-7 8v6l-4 2v-8L3 5z" />
-          </svg>
+          <Icon icon={Funnel} size={12} fill="currentColor" />
         ) : (
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2.5}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="h-3 w-3"
-            aria-hidden
-          >
-            <path d="M6 9l6 6 6-6" />
-          </svg>
+          <Icon icon={ChevronDown} size={13} strokeWidth={2.5} />
         )}
       </button>
       <ResizeGrip

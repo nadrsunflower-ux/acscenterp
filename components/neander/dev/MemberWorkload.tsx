@@ -9,9 +9,10 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { MemberAvatar, EmptyState, cn } from "@/components/neander/ui";
+import { Users } from "lucide-react";
+import { MemberAvatar, EmptyState, StatusDot, cn, toneCls } from "@/components/neander/ui";
+import { devStatusTone } from "@/components/neander/dev/atoms";
 import {
-  devStatusColor,
   devStatusLabel,
   type DevTask,
   type DevStatus,
@@ -63,7 +64,7 @@ export function MemberWorkload({
   if (members.length === 0) {
     return (
       <EmptyState
-        icon="👥"
+        icon={Users}
         title="팀원이 없습니다"
         description="팀원이 등록되면 담당 작업 부하가 여기에 표시됩니다."
       />
@@ -77,7 +78,7 @@ export function MemberWorkload({
           key={m.id}
           href={`/neander/dev/board?assignee=${m.id}`}
           aria-label={`${m.name} 담당 작업 ${total}건 보기`}
-          className="-mx-1 flex items-center gap-3 rounded-lg px-1 py-1 transition-colors hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+          className="-mx-1 flex items-center gap-3 rounded-nd-md px-1 py-1 transition-colors duration-nd-fast hover:bg-nd-sunken focus:outline-none focus-visible:shadow-nd-focus"
         >
           {/* 팀원 */}
           <div className="flex w-24 shrink-0 items-center gap-2 sm:w-28">
@@ -87,13 +88,13 @@ export function MemberWorkload({
               avatar={m.avatar}
               className="h-7 w-7 text-[11px]"
             />
-            <span className="min-w-0 truncate text-sm font-medium text-zinc-700">
+            <span className="min-w-0 truncate text-nd-body font-medium text-nd-fg-2" title={m.name}>
               {m.name}
             </span>
           </div>
 
           {/* 상태별 스택 바 */}
-          <div className="flex h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-zinc-100">
+          <div className="flex h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-nd-fg/[.07]">
             {total === 0
               ? null
               : SEGMENT_ORDER.map((s) => {
@@ -102,11 +103,8 @@ export function MemberWorkload({
                   return (
                     <div
                       key={s}
-                      className="h-full"
-                      style={{
-                        width: `${(c / max) * 100}%`,
-                        backgroundColor: devStatusColor(s),
-                      }}
+                      className={cn("h-full", toneCls[devStatusTone(s)].dot)}
+                      style={{ width: `${(c / max) * 100}%` }}
                       title={`${devStatusLabel(s)} ${c}건`}
                     />
                   );
@@ -116,8 +114,8 @@ export function MemberWorkload({
           {/* 총 진행중(미완료) 개수 */}
           <span
             className={cn(
-              "w-8 shrink-0 text-right text-sm font-semibold tabular-nums",
-              total > 0 ? "text-zinc-800" : "text-zinc-300",
+              "nd-num w-8 shrink-0 text-right text-nd-body font-semibold",
+              total > 0 ? "text-nd-fg" : "text-nd-fg-4",
             )}
           >
             {total}
@@ -126,15 +124,11 @@ export function MemberWorkload({
       ))}
 
       {/* 범례 */}
-      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-zinc-100 pt-3">
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-nd-line pt-3">
         {SEGMENT_ORDER.map((s) => (
-          <span key={s} className="flex items-center gap-1 text-[11px] text-zinc-500">
-            <span
-              className="h-2 w-2 rounded-full"
-              style={{ backgroundColor: devStatusColor(s) }}
-            />
+          <StatusDot key={s} tone={devStatusTone(s)} className="text-nd-micro font-normal">
             {devStatusLabel(s)}
-          </span>
+          </StatusDot>
         ))}
       </div>
     </div>

@@ -8,8 +8,9 @@
 // ============================================================
 
 import { useCallback, useRef, useState } from "react";
+import { Image as ImageIcon, Paperclip, X } from "lucide-react";
 import { uploadDevFile } from "@/lib/neander/dev/upload";
-import { cn } from "@/components/neander/ui";
+import { Icon, cn } from "@/components/neander/ui";
 import { formatFileSize } from "@/lib/neander/format";
 import type { DevAttachment } from "@/lib/neander/dev/types";
 
@@ -104,20 +105,20 @@ export function ScreenshotUploader({
         aria-label="스크린샷 첨부: 클릭·붙여넣기·드래그"
         onClick={() => !disabled && inputRef.current?.click()}
         className={cn(
-          "flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-center transition",
+          "flex cursor-pointer flex-col items-center justify-center gap-1 rounded-nd-md border border-dashed text-center transition-colors duration-nd-fast focus:outline-none focus-visible:shadow-nd-focus",
           compact ? "px-3 py-2.5" : "px-4 py-5",
           dragOver
-            ? "border-indigo-400 bg-indigo-50"
-            : "border-zinc-300 bg-zinc-50/60 hover:border-indigo-300 hover:bg-zinc-50",
+            ? "border-nd-accent bg-nd-accent-soft"
+            : "border-nd-strong bg-nd-sunken hover:border-nd-accent",
           disabled && "cursor-not-allowed opacity-50",
         )}
       >
-        <span className={cn("text-zinc-400", compact ? "text-lg" : "text-2xl")}>🖼️</span>
-        <span className="text-xs font-medium text-zinc-500">
-          이미지 붙여넣기 · 드래그 · <span className="text-indigo-600">클릭해서 선택</span>
+        <Icon icon={ImageIcon} size={compact ? 18 : 24} className="text-nd-fg-3" />
+        <span className="text-nd-caption font-medium text-nd-fg-2">
+          이미지 붙여넣기 · 드래그 · <span className="text-nd-accent-strong">클릭해서 선택</span>
         </span>
         {!compact && (
-          <span className="text-[11px] text-zinc-400">스크린샷은 Ctrl+V 로 바로 붙일 수 있어요</span>
+          <span className="text-nd-micro font-normal text-nd-fg-3">스크린샷은 Ctrl+V 로 바로 붙일 수 있어요</span>
         )}
       </div>
       <input
@@ -135,17 +136,23 @@ export function ScreenshotUploader({
 
       {/* 업로드 진행 */}
       {uploads.map((u) => (
-        <div key={u.key} className="flex items-center gap-2 rounded-lg bg-zinc-50 px-3 py-2">
+        <div key={u.key} className="flex items-center gap-2 rounded-nd-md bg-nd-sunken px-3 py-2">
           <div className="min-w-0 flex-1">
-            <div className="truncate text-xs text-zinc-600">{u.name}</div>
-            <div className="mt-1 h-1 overflow-hidden rounded-full bg-zinc-200">
-              <div
-                className="h-full rounded-full bg-indigo-500 transition-all"
-                style={{ width: `${u.pct}%` }}
-              />
+            <div className="truncate text-nd-caption text-nd-fg-2" title={u.name}>
+              {u.name}
+            </div>
+            <div
+              className="mt-1 h-1 overflow-hidden rounded-full bg-nd-fg/10"
+              role="progressbar"
+              aria-valuenow={u.pct}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label={`${u.name} 업로드`}
+            >
+              <div className="h-full rounded-full bg-nd-accent transition-all duration-nd" style={{ width: `${u.pct}%` }} />
             </div>
           </div>
-          <span className="text-[11px] tabular-nums text-zinc-400">{u.pct}%</span>
+          <span className="nd-num text-nd-micro font-normal text-nd-fg-3">{u.pct}%</span>
         </div>
       ))}
 
@@ -155,25 +162,25 @@ export function ScreenshotUploader({
           {attachments.map((a, i) => (
             <div
               key={`${a.url}-${i}`}
-              className="group relative overflow-hidden rounded-lg border border-zinc-200 bg-white"
+              className="group relative overflow-hidden rounded-nd-md border border-nd-line bg-nd-content"
             >
               {a.kind === "image" ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={a.url} alt={a.name} className="h-20 w-20 object-cover" />
               ) : (
-                <div className="flex h-20 w-20 flex-col items-center justify-center gap-1 p-1.5 text-center">
-                  <span className="text-xl">📎</span>
-                  <span className="line-clamp-2 text-[9px] text-zinc-500">{a.name}</span>
-                  <span className="text-[9px] text-zinc-400">{formatFileSize(a.size)}</span>
+                <div className="flex h-20 w-20 flex-col items-center justify-center gap-1 p-1.5 text-center" title={a.name}>
+                  <Icon icon={Paperclip} size={18} className="text-nd-fg-3" />
+                  <span className="line-clamp-2 text-nd-micro font-normal text-nd-fg-2">{a.name}</span>
+                  <span className="nd-num text-nd-micro font-normal text-nd-fg-3">{formatFileSize(a.size)}</span>
                 </div>
               )}
               <button
                 type="button"
                 onClick={() => removeAt(i)}
-                className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-xs text-white opacity-0 transition group-hover:opacity-100"
+                className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-nd-inverse/70 text-white opacity-0 transition-opacity duration-nd-fast focus-visible:opacity-100 group-hover:opacity-100"
                 aria-label="첨부 삭제"
               >
-                ✕
+                <Icon icon={X} size={12} />
               </button>
             </div>
           ))}
@@ -195,7 +202,7 @@ export function AttachmentGallery({ attachments }: { attachments?: DevAttachment
             href={a.url}
             target="_blank"
             rel="noreferrer"
-            className="block overflow-hidden rounded-lg border border-zinc-200 transition hover:opacity-90"
+            className="block overflow-hidden rounded-nd-md border border-nd-line transition-opacity duration-nd-fast hover:opacity-90"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={a.url} alt={a.name} className="max-h-64 max-w-[240px] object-cover" />
@@ -206,11 +213,12 @@ export function AttachmentGallery({ attachments }: { attachments?: DevAttachment
             href={a.url}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-600 transition hover:bg-zinc-50"
+            className="inline-flex items-center gap-2 rounded-nd-md border border-nd-border bg-nd-content px-3 py-2 text-nd-caption text-nd-fg-2 transition-colors duration-nd-fast hover:bg-nd-sunken"
+            title={a.name}
           >
-            <span>📎</span>
+            <Icon icon={Paperclip} size={13} className="text-nd-fg-3" />
             <span className="max-w-[160px] truncate">{a.name}</span>
-            <span className="text-zinc-400">{formatFileSize(a.size)}</span>
+            <span className="nd-num text-nd-fg-3">{formatFileSize(a.size)}</span>
           </a>
         ),
       )}

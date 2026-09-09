@@ -8,6 +8,7 @@
 // ============================================================
 
 import { useEffect, useMemo, useState } from "react";
+import { Plus } from "lucide-react";
 import { useAppData } from "@/components/neander/app-data";
 import { useDevData } from "@/components/neander/dev/dev-data";
 import { KanbanBoard } from "@/components/neander/dev/KanbanBoard";
@@ -15,7 +16,7 @@ import { TaskComposer } from "@/components/neander/dev/TaskComposer";
 import { TaskDetailModal } from "@/components/neander/dev/TaskDetailModal";
 import { addActivity } from "@/lib/neander/dev/activity";
 import { setDevTaskStatus } from "@/lib/neander/dev/tasks";
-import { Button, Input, Select } from "@/components/neander/ui";
+import { Badge, Button, Input, LoadingState, Select } from "@/components/neander/ui";
 import {
   DEV_KINDS,
   DEV_PRIORITIES,
@@ -146,30 +147,35 @@ export default function BoardPage() {
     <div>
       {/* 상단: 얇은 설명 한 줄 + 새 작업 (H1 은 dev layout 이 유일 — 여기선 헤더 없음) */}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-zinc-500">카드를 끌어 상태를 바꾸고, 눌러서 상세를 여세요</p>
+        <p className="text-nd-body text-nd-fg-2">카드를 끌어 상태를 바꾸고, 눌러서 상세를 여세요</p>
         <Button
+          icon={Plus}
           onClick={() => openComposer(undefined)}
           disabled={!currentMember}
           title={currentMember ? undefined : "팀원 계정으로 로그인하면 작업을 만들 수 있어요"}
         >
-          ＋ 새 작업
+          새 작업
         </Button>
       </div>
 
       {/* 검색 + 필터 (한 줄 wrap) + 활성 개수 배지 + 초기화 */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <span className="text-xs font-medium text-zinc-400">필터</span>
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="제목·설명 검색"
-          aria-label="작업 검색"
-          className="!w-40 !py-1.5 !text-xs sm:!w-52"
-        />
+      {/* [&>select]:w-auto — 프리미티브의 w-full 보다 우선해 필터 Select 를 내용 폭으로 */}
+      <div className="mb-4 flex flex-wrap items-center gap-2 [&>select]:w-auto">
+        <span className="text-nd-caption font-medium text-nd-fg-3">필터</span>
+        <div className="w-40 sm:w-52">
+          <Input
+            size="sm"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="제목·설명 검색"
+            aria-label="작업 검색"
+          />
+        </div>
         <Select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="!w-auto !py-1.5 !text-xs"
+          size="sm"
+          className="w-auto"
           aria-label="상태 필터"
         >
           <option value="all">전체 상태</option>
@@ -182,7 +188,8 @@ export default function BoardPage() {
         <Select
           value={priorityFilter}
           onChange={(e) => setPriorityFilter(e.target.value)}
-          className="!w-auto !py-1.5 !text-xs"
+          size="sm"
+          className="w-auto"
           aria-label="우선순위 필터"
         >
           <option value="all">전체 우선순위</option>
@@ -195,7 +202,8 @@ export default function BoardPage() {
         <Select
           value={featureFilter}
           onChange={(e) => setFeatureFilter(e.target.value)}
-          className="!w-auto !py-1.5 !text-xs"
+          size="sm"
+          className="w-auto"
           aria-label="프로젝트 필터"
         >
           <option value="all">전체 프로젝트</option>
@@ -208,7 +216,8 @@ export default function BoardPage() {
         <Select
           value={assigneeFilter}
           onChange={(e) => setAssigneeFilter(e.target.value)}
-          className="!w-auto !py-1.5 !text-xs"
+          size="sm"
+          className="w-auto"
           aria-label="담당자 필터"
         >
           <option value="all">전체 담당자</option>
@@ -221,7 +230,8 @@ export default function BoardPage() {
         <Select
           value={kindFilter}
           onChange={(e) => setKindFilter(e.target.value)}
-          className="!w-auto !py-1.5 !text-xs"
+          size="sm"
+          className="w-auto"
           aria-label="종류 필터"
         >
           <option value="all">전체 종류</option>
@@ -233,30 +243,23 @@ export default function BoardPage() {
         </Select>
         {activeFilterCount > 0 && (
           <>
-            <span
-              className="inline-flex items-center rounded-full bg-indigo-600 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-white"
-              title="현재 적용 중인 검색·필터 개수"
-            >
-              필터 {activeFilterCount}
+            <span title="현재 적용 중인 검색·필터 개수" className="inline-flex">
+              <Badge tone="accent" size="sm" className="nd-num">
+                필터 {activeFilterCount}
+              </Badge>
             </span>
-            <button
-              type="button"
-              onClick={resetFilters}
-              className="rounded-lg px-2 py-1 text-xs font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700"
-            >
+            <Button variant="ghost" size="sm" onClick={resetFilters}>
               초기화
-            </button>
+            </Button>
           </>
         )}
         {!currentMember && (
-          <span className="ml-auto text-xs text-zinc-400">보기 전용 — 로그인 시 편집 가능</span>
+          <span className="ml-auto text-nd-caption text-nd-fg-3">보기 전용 — 로그인 시 편집 가능</span>
         )}
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center rounded-2xl border border-dashed border-zinc-300 py-20 text-sm text-zinc-400">
-          <span className="animate-pulse">보드를 불러오는 중…</span>
-        </div>
+        <LoadingState label="보드를 불러오는 중…" />
       ) : (
         <KanbanBoard
           tasks={filtered}

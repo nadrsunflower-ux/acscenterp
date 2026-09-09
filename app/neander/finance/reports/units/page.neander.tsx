@@ -21,11 +21,24 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Card, EmptyState } from "@/components/neander/ui";
+import { Building2, Info, TriangleAlert } from "lucide-react";
+import {
+  Card,
+  Checkbox,
+  EmptyState,
+  InlineNotice,
+  LoadingState,
+  PageHeader,
+  SectionHeader,
+  SegmentedControl,
+  TableNote,
+  cn,
+} from "@/components/neander/ui";
+import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
-import { ReportTabs } from "@/components/neander/finance/ReportTabs";
+import { MonthStepper, ReportTabs } from "@/components/neander/finance/ReportTabs";
 import { TreeTable, type TreeColumn } from "@/components/neander/finance/TreeTable";
-import { Money, SectionTitle } from "@/components/neander/finance/ui";
+import { Money, monthLabel } from "@/components/neander/finance/ui";
 import { availableMonths } from "@/lib/neander/finance/aggregate";
 import { ledgerHref } from "@/lib/neander/finance/ledgerLink";
 import { allocate, unitTotals } from "@/lib/neander/finance/allocation";
@@ -106,16 +119,17 @@ export default function UnitReport() {
     [transactions, basis, isCard, scope, accounts],
   );
 
-  if (loading) {
-    return <div className="px-5 py-16 text-center text-zinc-400">불러오는 중…</div>;
-  }
+  if (loading) return <LoadingState label="리포트를 만드는 중…" />;
   if (transactions.length === 0) {
     return (
-      <div className="mx-auto w-full max-w-7xl px-5 py-8">
-        <ReportTabs />
-        <div className="mt-6">
-          <EmptyState icon="🏢" title="아직 거래가 없습니다" description="임포트 탭에서 장부를 올리면 사업부별 손익이 나타납니다." />
-        </div>
+      <div>
+        <PageHeader title="리포트" description="지출상세 · 사업부 · 구독 · 예산" />
+        <ReportTabs className="mb-6" />
+        <EmptyState
+          icon={Building2}
+          title="아직 거래가 없습니다"
+          description="임포트 탭에서 장부를 올리면 사업부별 손익이 나타납니다."
+        />
       </div>
     );
   }
@@ -133,101 +147,98 @@ export default function UnitReport() {
     ? alloc.lines.filter((l) => l.to === selected.key || l.from === selected.key)
     : [];
 
+  const unitBtn = (active: boolean) =>
+    cn(
+      "flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-nd-body transition-colors duration-nd-fast",
+      active ? "bg-nd-accent-soft font-medium text-nd-accent-strong" : "hover:bg-nd-sunken",
+    );
+
   return (
-    <div className="mx-auto w-full max-w-7xl px-5 py-6">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <ReportTabs />
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={activeMonth}
-            onChange={(e) => setMonth(e.target.value)}
-            className="h-8 cursor-pointer rounded-md border border-zinc-300 bg-white pl-2 pr-6 text-xs text-zinc-800 outline-none focus:border-indigo-500"
-          >
-            {months.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
-          <div className="flex items-center rounded-md border border-zinc-300 p-0.5" role="group" aria-label="집계 기준">
-            {(["accrual", "cash"] as Basis[]).map((b) => (
-              <button
-                key={b}
-                type="button"
-                onClick={() => setBasis(b)}
-                aria-pressed={basis === b}
-                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                  basis === b ? "bg-indigo-600 text-white" : "text-zinc-600 hover:bg-zinc-100"
-                }`}
-              >
-                {BASIS_LABEL[b]}
-              </button>
-            ))}
-          </div>
-          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-zinc-600">
-            <input
-              type="checkbox"
+    <div>
+      <ToolbarPortal order={0}>
+        <MonthStepper glass months={months} value={activeMonth} onChange={setMonth} />
+      </ToolbarPortal>
+
+      <PageHeader
+        title="리포트"
+        description="사업부 — B2C · B2B · 공용 손익"
+        actions={
+          <>
+            <SegmentedControl<Basis>
+              size="sm"
+              ariaLabel="집계 기준"
+              value={basis}
+              onChange={setBasis}
+              options={(["accrual", "cash"] as Basis[]).map((b) => ({ value: b, label: BASIS_LABEL[b] }))}
+            />
+            <Checkbox
+              label="0원 계정도 보기"
               checked={showEmpty}
               onChange={(e) => setShowEmpty(e.target.checked)}
-              className="accent-indigo-600"
+              className="text-nd-caption text-nd-fg-2"
             />
-            0원 계정도 보기
-          </label>
-        </div>
-      </div>
+          </>
+        }
+      />
+
+      <ReportTabs className="mb-5" />
 
       {/* ---- 배분 상태 ---- */}
       {alloc.applied > 0 ? (
-        <div className="mb-4 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              checked={allocOn}
-              onChange={(e) => setAllocOn(e.target.checked)}
-              className="accent-indigo-600"
-            />
-            <span>
-              <b>공통비 배분 {showAlloc ? "적용 중" : "꺼짐"}</b> — 규칙 {alloc.applied}개 ·{" "}
-              {alloc.lines.length}줄로 <Money value={alloc.lines.reduce((s, l) => s + l.amount, 0)} unit={false} />
-              원이 옮겨집니다. 배분은 경영 판단이라 원본 숫자는 바뀌지 않습니다.
-            </span>
-          </label>
-        </div>
+        <InlineNotice tone="accent" className="mb-4 text-nd-caption">
+          <Checkbox
+            checked={allocOn}
+            onChange={(e) => setAllocOn(e.target.checked)}
+            className="items-start text-nd-caption text-nd-accent-strong"
+            label={
+              <span>
+                <b>공통비 배분 {showAlloc ? "적용 중" : "꺼짐"}</b> — 규칙 {alloc.applied}개 ·{" "}
+                {alloc.lines.length}줄로 <Money value={alloc.lines.reduce((s, l) => s + l.amount, 0)} unit={false} />
+                원이 옮겨집니다. 배분은 경영 판단이라 원본 숫자는 바뀌지 않습니다.
+              </span>
+            }
+          />
+        </InlineNotice>
       ) : (
         unallocated !== 0 && (
-          <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <InlineNotice tone="warning" icon={Info} className="mb-4 text-nd-caption">
             공용·홍대공용의 <Money value={unallocated} unit={false} />원은 <b>아직 어느 사업부에도 배분되지 않았습니다.</b>{" "}
             와우·아이디 등의 순손익은 공통비를 빼기 전 숫자입니다 —{" "}
-            <Link href="/neander/finance/master" className="underline">마스터 › 배분 규칙</Link>에서 규칙을 켜면 배분 후 손익을 볼 수 있습니다.
+            <Link href="/neander/finance/master" className="font-medium underline">마스터 › 배분 규칙</Link>에서 규칙을 켜면 배분 후 손익을 볼 수 있습니다.
             {activeRules.length > 0 && " (켜진 규칙이 있지만 이 달에는 적용되지 않았습니다.)"}
-          </p>
+          </InlineNotice>
         )
       )}
       {alloc.warnings.length > 0 && (
-        <ul className="mb-4 space-y-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          {alloc.warnings.map((w) => (
-            <li key={w}>{w}</li>
-          ))}
-        </ul>
+        <InlineNotice tone="warning" icon={TriangleAlert} className="mb-4 text-nd-caption">
+          <ul className="space-y-1">
+            {alloc.warnings.map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </ul>
+        </InlineNotice>
       )}
 
       <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
         {/* ---- 왼쪽: 사업부 목록 ---- */}
-        <Card className="h-fit p-0">
-          <div className="border-b border-zinc-200 px-4 py-3">
-            <SectionTitle hint={`${activeMonth} · ${BASIS_LABEL[basis]}${showAlloc ? " · 배분 후" : ""}`}>
-              사업부
-            </SectionTitle>
+        <Card padding="none" className="h-fit overflow-hidden">
+          <div className="px-4 pt-4">
+            <SectionHeader
+              as="h3"
+              title="사업부"
+              hint={`${monthLabel(activeMonth)} · ${BASIS_LABEL[basis]}${showAlloc ? " · 배분 후" : ""}`}
+            />
           </div>
-          <ul className="divide-y divide-zinc-100">
+          <ul className="divide-y divide-nd-line border-t border-nd-line">
             <li>
               <button
                 type="button"
                 onClick={() => setUnitKey(ALL_UNITS)}
-                className={`flex w-full items-center justify-between px-4 py-2 text-left text-sm transition-colors ${
-                  unitKey === ALL_UNITS ? "bg-indigo-50 font-medium text-indigo-800" : "hover:bg-zinc-50"
-                }`}
+                aria-pressed={unitKey === ALL_UNITS}
+                className={unitBtn(unitKey === ALL_UNITS)}
               >
                 <span>전체</span>
-                <span className="tabular-nums text-xs">
+                <span className="nd-num text-nd-caption">
                   <Money value={grand.net} unit={false} />
                 </span>
               </button>
@@ -235,23 +246,23 @@ export default function UnitReport() {
             {units.map((u) => {
               const after = netOf(u.key, u.net);
               const moved = showAlloc && (alloc.delta[u.key] ?? 0) !== 0;
+              const active = unitKey === u.key;
               return (
                 <li key={u.key}>
                   <button
                     type="button"
                     onClick={() => setUnitKey(u.key)}
-                    className={`flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-sm transition-colors ${
-                      unitKey === u.key ? "bg-indigo-50 font-medium text-indigo-800" : "hover:bg-zinc-50"
-                    }`}
+                    aria-pressed={active}
+                    className={unitBtn(active)}
                   >
-                    <span className="min-w-0 truncate">
+                    <span className="min-w-0 truncate" title={`${u.bizMajor} · ${u.bizMinor}`}>
                       {u.bizMinor}
-                      <span className="ml-1.5 text-xs font-normal text-zinc-400">{u.bizMajor}</span>
+                      <span className="ml-1.5 text-nd-caption font-normal text-nd-fg-3">{u.bizMajor}</span>
                     </span>
-                    <span className="shrink-0 text-right tabular-nums text-xs">
+                    <span className="nd-num shrink-0 text-right text-nd-caption">
                       <Money value={after} unit={false} />
                       {moved && (
-                        <span className="block text-[10px] font-normal text-zinc-400">
+                        <span className="block text-nd-micro font-normal text-nd-fg-3">
                           배분 전 {u.net.toLocaleString("ko-KR")}
                         </span>
                       )}
@@ -261,27 +272,30 @@ export default function UnitReport() {
               );
             })}
           </ul>
-          <div className="flex items-center justify-between border-t border-zinc-200 px-4 py-2 text-xs">
-            <span className="font-medium text-zinc-700">합계</span>
-            <span className="font-semibold tabular-nums">
+          <div className="flex items-center justify-between border-t border-nd-strong bg-nd-sunken px-4 py-2 text-nd-caption">
+            <span className="font-medium text-nd-fg-2">합계</span>
+            <span className="nd-num font-semibold">
               <Money value={grand.net} unit={false} />
             </span>
           </div>
         </Card>
 
         {/* ---- 오른쪽: 계정 트리 ---- */}
-        <Card className="overflow-hidden p-0">
-          <div className="border-b border-zinc-200 px-4 py-3">
-            <SectionTitle hint={BASIS_HINT[basis]}>
-              {selected ? `${selected.bizMajor} · ${selected.bizMinor}` : "전체 사업부"} 수입·지출 상세
-            </SectionTitle>
-            <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1 text-xs text-zinc-500">
+        <Card padding="none" className="overflow-hidden">
+          <div className="px-5 pt-5">
+            <SectionHeader
+              title={`${selected ? `${selected.bizMajor} · ${selected.bizMinor}` : "전체 사업부"} 수입·지출 상세`}
+              hint={BASIS_HINT[basis]}
+              action={<TableNote>단위: 원</TableNote>}
+              className="mb-1"
+            />
+            <div className="mb-4 flex flex-wrap gap-x-5 gap-y-1 text-nd-caption text-nd-fg-2">
               <span>수입 <Money value={report.total.income} unit={false} /></span>
               <span>지출 <Money value={report.total.expense} unit={false} /></span>
               <span>환급 <Money value={report.total.refund} unit={false} /></span>
               <span>순손익 <Money value={report.total.net} unit={false} className="font-semibold" /></span>
               {selected && showAlloc && (alloc.delta[selected.key] ?? 0) !== 0 && (
-                <span className="text-indigo-700">
+                <span className="text-nd-accent-strong">
                   배분 후{" "}
                   <Money
                     value={report.total.net + (alloc.delta[selected.key] ?? 0)}
@@ -290,30 +304,30 @@ export default function UnitReport() {
                   />
                 </span>
               )}
-              <span className="text-zinc-400">{report.total.count.toLocaleString("ko-KR")}건</span>
+              <span className="text-nd-fg-3">{report.total.count.toLocaleString("ko-KR")}건</span>
             </div>
           </div>
 
           {/* ---- 배분 내역 — 어떤 규칙이 얼마를 옮겼는지 ---- */}
           {selected && showAlloc && myLines.length > 0 && (
-            <div className="border-b border-zinc-200 bg-indigo-50/40 px-4 py-2.5">
-              <p className="mb-1.5 text-xs font-medium text-indigo-900">공통비 배분 내역</p>
-              <ul className="space-y-0.5 text-xs text-indigo-900/80">
+            <div className="border-t border-nd-line bg-nd-accent-soft/40 px-5 py-2.5">
+              <p className="mb-1.5 text-nd-caption font-medium text-nd-accent-strong">공통비 배분 내역</p>
+              <ul className="space-y-0.5 text-nd-caption text-nd-fg-2">
                 {myLines.map((l, i) => {
                   const incoming = l.to === selected.key;
                   return (
                     <li key={`${l.rule}-${i}`} className="flex flex-wrap items-baseline gap-x-2">
-                      <span className={incoming ? "text-rose-700" : "text-emerald-700"}>
+                      <span className={incoming ? "text-nd-danger-text" : "text-nd-success-text"}>
                         {incoming ? "받음" : "내보냄"}
                       </span>
-                      <span className="tabular-nums font-medium">
+                      <span className="nd-num font-medium text-nd-fg">
                         {incoming ? "−" : "+"}
                         {l.amount.toLocaleString("ko-KR")}
                       </span>
-                      <span className="text-zinc-500">
+                      <span>
                         {incoming ? `${l.from} 에서` : `${l.to} 로`} · {(l.share * 100).toFixed(1)}%
                       </span>
-                      <span className="text-zinc-400">「{l.rule}」</span>
+                      <span className="text-nd-fg-3">「{l.rule}」</span>
                     </li>
                   );
                 })}

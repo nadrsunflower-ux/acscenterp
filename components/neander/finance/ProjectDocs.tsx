@@ -17,17 +17,16 @@
 // ============================================================
 
 import { useMemo, useState } from "react";
-import { Badge, Card } from "@/components/neander/ui";
-import { Money, SectionTitle } from "@/components/neander/finance/ui";
+import { FilePlus2, Printer } from "lucide-react";
+import { Badge, Button, Card, SectionHeader, type Tone } from "@/components/neander/ui";
+import { Money } from "@/components/neander/finance/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { FileChip } from "@/components/neander/finance/DocFiles";
 import { QuoteEditor } from "@/components/neander/finance/QuoteEditor";
 import { ContractEditor } from "@/components/neander/finance/ContractEditor";
 import { openQuotePdf } from "@/lib/neander/finance/quote-pdf";
 import {
-  CONTRACT_STATUS_COLOR,
   CONTRACT_STATUS_LABEL,
-  QUOTE_STATUS_COLOR,
   QUOTE_STATUS_LABEL,
   QUOTE_VAT_LABEL,
   docsOfProject,
@@ -37,12 +36,28 @@ import {
   isContract,
   isQuote,
   quoteTotals,
+  type ContractStatus,
   type FinContractDoc,
   type FinContractInput,
   type FinQuoteDoc,
   type FinQuoteInput,
+  type QuoteStatus,
 } from "@/lib/neander/finance/docs";
 import { VAT_LABEL, splitVat, type FinProjectDoc, type VatMode } from "@/lib/neander/finance/project";
+
+/** 상태 → 의미 색 (hex 딕셔너리 대신 tone) */
+const QUOTE_STATUS_TONE: Record<QuoteStatus, Tone> = {
+  draft: "neutral",
+  sent: "info",
+  accepted: "success",
+  rejected: "danger",
+};
+const CONTRACT_STATUS_TONE: Record<ContractStatus, Tone> = {
+  draft: "neutral",
+  signed: "accent",
+  done: "success",
+  cancelled: "danger",
+};
 
 type Open =
   | { kind: "quote"; id?: string; initial: FinQuoteInput; files: FinQuoteDoc["files"] }
@@ -58,6 +73,10 @@ function contractInput(d: FinContractDoc): FinContractInput {
   const { id: _id, createdAt: _c, createdBy: _cb, updatedAt: _u, updatedBy: _ub, files: _f, ...rest } = d;
   return { ...rest };
 }
+
+/** 목록 줄 — 누르면 편집창. 줄 전체가 버튼이라 파일 칩은 전파를 끊는다 */
+const rowCls =
+  "-mx-2 cursor-pointer rounded-nd-md px-2 py-2.5 transition-colors duration-nd-fast hover:bg-nd-sunken focus:bg-nd-accent-soft/60 focus:outline-none";
 
 export function ProjectDocs({
   project,
@@ -105,65 +124,75 @@ export function ProjectDocs({
 
   return (
     <>
-      <div className="mb-5 grid gap-5 lg:grid-cols-2">
+      <div className="mb-5 grid gap-4 lg:grid-cols-2">
         {/* ---- 견적서 ---- */}
-        <Card className="p-4">
-          <SectionTitle
+        <Card>
+          <SectionHeader
+            title={
+              <>
+                견적서 <span className="nd-num ml-1 font-normal text-nd-fg-3">{quotes.length}</span>
+              </>
+            }
             hint="만들어 인쇄·PDF·엑셀로 보내거나, 받은 파일을 붙여 둡니다"
             action={
-              <button type="button" onClick={newQuote} className="text-xs text-indigo-600 hover:underline">
-                + 새 견적서
-              </button>
+              <Button variant="ghost" size="sm" icon={FilePlus2} onClick={newQuote}>
+                새 견적서
+              </Button>
             }
-          >
-            견적서 <span className="ml-1 font-normal text-zinc-400">{quotes.length}</span>
-          </SectionTitle>
+          />
           {quotes.length === 0 ? (
-            <p className="py-4 text-center text-xs text-zinc-400">아직 견적서가 없습니다. 「새 견적서」 로 시작하세요.</p>
+            <p className="py-4 text-center text-nd-caption text-nd-fg-3">아직 견적서가 없습니다. 「새 견적서」 로 시작하세요.</p>
           ) : (
-            <ul className="divide-y divide-zinc-100">
+            <ul className="divide-y divide-nd-line">
               {quotes.map((q) => {
                 const t = quoteTotals(q);
+                const openQuote = () => setOpen({ kind: "quote", id: q.id, initial: quoteInput(q), files: q.files ?? [] });
                 return (
                   <li key={q.id}>
                     <div
                       role="button"
                       tabIndex={0}
-                      onClick={() => setOpen({ kind: "quote", id: q.id, initial: quoteInput(q), files: q.files ?? [] })}
+                      onClick={openQuote}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") setOpen({ kind: "quote", id: q.id, initial: quoteInput(q), files: q.files ?? [] });
+                        if (e.key === "Enter") openQuote();
                       }}
-                      className="-mx-2 cursor-pointer rounded-lg px-2 py-2 hover:bg-indigo-50/40 focus:bg-indigo-50 focus:outline-none"
+                      className={rowCls}
                       title="눌러서 엽니다"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-zinc-800">{q.title || <span className="text-zinc-400">(견적명 없음)</span>}</p>
-                          <p className="mt-0.5 text-xs text-zinc-500">
+                          <p className="truncate text-nd-body font-medium text-nd-fg" title={q.title || undefined}>
+                            {q.title || <span className="text-nd-fg-3">(견적명 없음)</span>}
+                          </p>
+                          <p className="mt-0.5 truncate text-nd-caption text-nd-fg-2">
                             {formatQuoteNo(q.quoteNo) || "번호 없음"} · {q.date} · {q.recipient || "수신 없음"}
                           </p>
                         </div>
                         <div className="shrink-0 text-right">
-                          <p className="text-sm font-semibold"><Money value={t.total} unit={false} /></p>
-                          <p className="text-[11px] text-zinc-400">{QUOTE_VAT_LABEL[q.vatMode]} · {q.lines.length}품목</p>
+                          <p className="text-nd-body font-semibold"><Money value={t.total} unit={false} /></p>
+                          <p className="text-nd-micro font-normal text-nd-fg-3">{QUOTE_VAT_LABEL[q.vatMode]} · {q.lines.length}품목</p>
                         </div>
                       </div>
                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                        <Badge color={QUOTE_STATUS_COLOR[q.status]}>{QUOTE_STATUS_LABEL[q.status]}</Badge>
+                        <Badge tone={QUOTE_STATUS_TONE[q.status]} size="sm" dot>
+                          {QUOTE_STATUS_LABEL[q.status]}
+                        </Badge>
                         {(q.files ?? []).map((f) => (
                           <FileChip key={f.path} file={f} />
                         ))}
-                        <button
-                          type="button"
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          icon={Printer}
                           onClick={(e) => {
                             e.stopPropagation();
                             printQuote(q);
                           }}
-                          className="ml-auto rounded border border-zinc-200 px-1.5 py-0.5 text-[11px] text-zinc-600 hover:border-indigo-300 hover:text-indigo-700"
+                          className="ml-auto"
                           title="인쇄창을 엽니다 — 대상에서 「PDF로 저장」"
                         >
                           인쇄 / PDF
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   </li>
@@ -174,57 +203,63 @@ export function ProjectDocs({
         </Card>
 
         {/* ---- 계약서 ---- */}
-        <Card className="p-4">
-          <SectionTitle
+        <Card>
+          <SectionHeader
+            title={
+              <>
+                계약서 <span className="nd-num ml-1 font-normal text-nd-fg-3">{contracts.length}</span>
+              </>
+            }
             hint="도장 찍힌 PDF 를 붙이고 금액·기간·상태를 요약해 둡니다"
             action={
-              <button type="button" onClick={newContract} className="text-xs text-indigo-600 hover:underline">
-                + 계약서 등록
-              </button>
+              <Button variant="ghost" size="sm" icon={FilePlus2} onClick={newContract}>
+                계약서 등록
+              </Button>
             }
-          >
-            계약서 <span className="ml-1 font-normal text-zinc-400">{contracts.length}</span>
-          </SectionTitle>
+          />
           {contracts.length === 0 ? (
-            <p className="py-4 text-center text-xs text-zinc-400">아직 계약서가 없습니다. 「계약서 등록」 으로 파일을 붙이세요.</p>
+            <p className="py-4 text-center text-nd-caption text-nd-fg-3">아직 계약서가 없습니다. 「계약서 등록」 으로 파일을 붙이세요.</p>
           ) : (
-            <ul className="divide-y divide-zinc-100">
+            <ul className="divide-y divide-nd-line">
               {contracts.map((c) => {
                 const split = splitVat(c.amount, c.vatMode);
                 const period = c.startDate || c.endDate ? `${c.startDate ?? "?"} ~ ${c.endDate ?? "?"}` : null;
+                const openContract = () => setOpen({ kind: "contract", id: c.id, initial: contractInput(c), files: c.files ?? [] });
                 return (
                   <li key={c.id}>
                     <div
                       role="button"
                       tabIndex={0}
-                      onClick={() => setOpen({ kind: "contract", id: c.id, initial: contractInput(c), files: c.files ?? [] })}
+                      onClick={openContract}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") setOpen({ kind: "contract", id: c.id, initial: contractInput(c), files: c.files ?? [] });
+                        if (e.key === "Enter") openContract();
                       }}
-                      className="-mx-2 cursor-pointer rounded-lg px-2 py-2 hover:bg-indigo-50/40 focus:bg-indigo-50 focus:outline-none"
+                      className={rowCls}
                       title="눌러서 엽니다"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-zinc-800">{c.title}</p>
-                          <p className="mt-0.5 text-xs text-zinc-500">
+                          <p className="truncate text-nd-body font-medium text-nd-fg" title={c.title}>{c.title}</p>
+                          <p className="mt-0.5 truncate text-nd-caption text-nd-fg-2">
                             {c.counterparty || "상대방 없음"}
                             {period ? ` · ${period}` : ""}
                             {c.signedDate ? ` · 체결 ${c.signedDate}` : ""}
                           </p>
                         </div>
                         <div className="shrink-0 text-right">
-                          <p className="text-sm font-semibold"><Money value={c.amount} unit={false} /></p>
-                          <p className="text-[11px] text-zinc-400">
+                          <p className="text-nd-body font-semibold"><Money value={c.amount} unit={false} /></p>
+                          <p className="text-nd-micro font-normal text-nd-fg-3">
                             {VAT_LABEL[c.vatMode]}
                             {c.vatMode !== "exempt" ? ` · 공급가액 ${split.supply.toLocaleString("ko-KR")}` : ""}
                           </p>
                         </div>
                       </div>
                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                        <Badge color={CONTRACT_STATUS_COLOR[c.status]}>{CONTRACT_STATUS_LABEL[c.status]}</Badge>
+                        <Badge tone={CONTRACT_STATUS_TONE[c.status]} size="sm" dot>
+                          {CONTRACT_STATUS_LABEL[c.status]}
+                        </Badge>
                         {(c.files ?? []).length === 0 ? (
-                          <span className="text-[11px] text-amber-700">파일 없음 — 계약서 원본을 붙여 두세요</span>
+                          <span className="text-nd-micro font-normal text-nd-warning-text">파일 없음 — 계약서 원본을 붙여 두세요</span>
                         ) : (
                           (c.files ?? []).map((f) => <FileChip key={f.path} file={f} />)
                         )}

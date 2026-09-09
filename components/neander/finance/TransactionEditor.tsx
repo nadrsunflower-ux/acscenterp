@@ -6,10 +6,13 @@
 //  파생 값(순금액·회계코드 등)은 입력받지 않고 즉시 계산해 보여준다.
 //  "지금 무엇이 저장되는지"가 화면에 그대로 드러나야 재무 데이터를
 //  믿고 고칠 수 있다.
+//
+//  공통 <Dialog> 위에 그린다 — 포커스 가두기·Esc·스크롤 잠금은 거기서.
+//  편집 중 내용을 잃기 쉬우므로 스크림 클릭으로는 닫지 않는다.
 // ============================================================
 
-import { useEffect, useState } from "react";
-import { Button, Field, Input, Select, Textarea } from "@/components/neander/ui";
+import { useEffect, useRef, useState } from "react";
+import { Button, Dialog, Field, Input, Select, Textarea, controlClass, useConfirm } from "@/components/neander/ui";
 import { AccountPicker } from "./AccountPicker";
 import { useFinance } from "./FinanceProvider";
 import { Money } from "./ui";
@@ -52,13 +55,13 @@ export function TransactionEditor({
   // 프로젝트 코드 후보 — 등록된 프로젝트에서. 두 호출처(원장·검토함) 모두
   // 재무 레이아웃 안이라 프로바이더가 있다.
   const { projects } = useFinance();
+  const confirm = useConfirm();
   const [form, setForm] = useState<FinTransaction>(tx);
   const [saving, setSaving] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const dateRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setForm(tx);
-    setConfirmDelete(false);
   }, [tx]);
 
   const set = <K extends keyof FinTransaction>(k: K, v: FinTransaction[K]) =>
@@ -104,232 +107,211 @@ export function TransactionEditor({
     }
   };
 
+  const remove = async () => {
+    if (!onDelete) return;
+    const ok = await confirm({
+      title: "이 거래를 삭제할까요?",
+      message: `${form.date} · ${form.vendor || "(거래처 없음)"} · ${net.toLocaleString("ko-KR")}원`,
+      confirmLabel: "삭제",
+      tone: "danger",
+    });
+    if (!ok) return;
+    setSaving(true);
+    try {
+      await onDelete();
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-zinc-900/40 p-4 sm:p-8"
-      onClick={onClose}
+    <Dialog
+      open
+      onClose={onClose}
+      size="lg"
+      title={isNew ? "거래 추가" : "거래 수정"}
+      description={form.classReason ? `근거: ${form.classReason}` : undefined}
+      initialFocus={dateRef}
+      closeOnOverlay={false}
+      footer={
+        <>
+          {!isNew && onDelete && (
+            <Button variant="danger" onClick={remove} disabled={saving} className="mr-auto">
+              삭제
+            </Button>
+          )}
+          <Button variant="secondary" onClick={onClose} disabled={saving}>
+            취소
+          </Button>
+          <Button onClick={() => save("confirmed")} disabled={!form.date} loading={saving}>
+            {saveLabel ?? (isNew ? "추가" : "확정 저장")}
+          </Button>
+        </>
+      }
     >
-      <div
-        className="w-full max-w-3xl rounded-2xl bg-white p-6 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-5 flex items-start justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-zinc-900">
-              {isNew ? "거래 추가" : "거래 수정"}
-            </h2>
-            {form.classReason && (
-              <p className="mt-1 text-sm text-zinc-500">근거: {form.classReason}</p>
-            )}
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg px-2 py-1 text-zinc-400 hover:bg-zinc-100"
-            aria-label="닫기"
-          >
-            ✕
-          </button>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-4">
-          <Field label="거래일" required>
-            <Input
-              type="date"
-              value={form.date}
-              onChange={(e) => set("date", e.target.value)}
-            />
-          </Field>
-          <Field label="거래유형" required>
-            <Select
-              value={form.txType}
-              onChange={(e) => {
-                const next = e.target.value as TxType;
-                // 거래유형이 바뀌면 계정 후보가 통째로 달라진다 → 초기화
-                setForm((f) => ({
-                  ...f,
-                  txType: next,
-                  acctMajor: undefined,
-                  acctMid: undefined,
-                  acctMinor: undefined,
-                }));
-              }}
-            >
-              {TX_TYPES.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="계좌/카번" hint={pm ? `${pm.alias} · ${pm.site}` : "뒷 4자리"}>
-            <Select
-              value={form.last4 ?? ""}
-              onChange={(e) => set("last4", e.target.value || undefined)}
-            >
-              <option value="">(없음)</option>
-              {paymentMethods.map((p) => (
-                <option key={p.last4} value={p.last4}>
-                  {p.last4} · {p.alias}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="사업장">
-            <Input
-              value={form.site ?? ""}
-              placeholder={pm?.site ?? "네안데르"}
-              onChange={(e) => set("site", e.target.value || undefined)}
-            />
-          </Field>
-        </div>
-
-        <div className="mt-3 grid gap-3 sm:grid-cols-3">
-          <Field label="거래처">
-            <Input
-              value={form.vendor ?? ""}
-              onChange={(e) => set("vendor", e.target.value || undefined)}
-            />
-          </Field>
-          <Field label="사업대분류">
-            <Select
-              value={form.bizMajor ?? ""}
-              onChange={(e) => set("bizMajor", e.target.value || undefined)}
-            >
-              <option value="">(미정)</option>
-              {BIZ_MAJORS.map((b) => (
-                <option key={b} value={b}>{b}</option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="사업소분류">
-            <Input
-              list="fin-biz-minors"
-              value={form.bizMinor ?? ""}
-              onChange={(e) => set("bizMinor", e.target.value || undefined)}
-            />
-          </Field>
-        </div>
-        <datalist id="fin-biz-minors">
-          {knownBizMinors.map((b) => (
-            <option key={b} value={b} />
-          ))}
-        </datalist>
-
-        <div className="mt-4">
-          <p className="mb-1.5 text-sm font-medium text-zinc-700">계정</p>
-          <AccountPicker
-            accounts={accounts}
-            txType={form.txType}
-            value={{
-              acctMajor: form.acctMajor,
-              acctMid: form.acctMid,
-              acctMinor: form.acctMinor,
-            }}
-            onChange={(v) => setForm((f) => ({ ...f, ...v }))}
-          />
-        </div>
-
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
-          <Field label="원금액" required>
-            <Input
-              type="number"
-              value={String(form.gross ?? 0)}
-              onChange={(e) => set("gross", Number(e.target.value))}
-            />
-          </Field>
-          <Field label="조정금액" hint="환불·부분취소분">
-            <Input
-              type="number"
-              value={String(form.adjust ?? 0)}
-              onChange={(e) => set("adjust", Number(e.target.value))}
-            />
-          </Field>
-          <div className="flex flex-col justify-end pb-1">
-            <span className="text-sm font-medium text-zinc-700">순금액</span>
-            <span className="mt-1.5 text-lg font-bold">
-              <Money value={net} />
-            </span>
-          </div>
-        </div>
-
-        <div className="mt-3 grid gap-3 sm:grid-cols-3">
-          <Field label="프로젝트코드" hint="프로젝트 손익 화면과 이 코드로 이어진다">
-            <Input
-              value={form.projectCode ?? ""}
-              onChange={(e) => set("projectCode", e.target.value || undefined)}
-              list="tx-editor-project-codes"
-            />
-            <datalist id="tx-editor-project-codes">
-              {projects.map((p) => (
-                <option key={p.id} value={p.code}>{p.name}</option>
-              ))}
-            </datalist>
-          </Field>
-          <Field label="환급매칭ID" hint="원거래와 공유하는 라벨">
-            <Input
-              value={form.refundMatchId ?? ""}
-              onChange={(e) => set("refundMatchId", e.target.value || undefined)}
-            />
-          </Field>
-          <Field label="개인사용">
-            <Select
-              value={form.personalUse ? "Y" : ""}
-              onChange={(e) => set("personalUse", e.target.value === "Y" || undefined)}
-            >
-              <option value="">아니오</option>
-              <option value="Y">예 (임직원 개인 사용분)</option>
-            </Select>
-          </Field>
-        </div>
-
-        <Field label="비고" className="mt-3">
-          <Textarea
-            rows={2}
-            value={form.note ?? ""}
-            onChange={(e) => set("note", e.target.value || undefined)}
+      <div className="grid gap-3 sm:grid-cols-4">
+        <Field label="거래일" required>
+          {/* 열릴 때 첫 포커스 — Input 은 ref 를 넘기지 않아 원소를 직접 쓴다 */}
+          <input
+            ref={dateRef}
+            type="date"
+            className={controlClass("md")}
+            value={form.date}
+            onChange={(e) => set("date", e.target.value)}
           />
         </Field>
+        <Field label="거래유형" required>
+          <Select
+            value={form.txType}
+            onChange={(e) => {
+              const next = e.target.value as TxType;
+              // 거래유형이 바뀌면 계정 후보가 통째로 달라진다 → 초기화
+              setForm((f) => ({
+                ...f,
+                txType: next,
+                acctMajor: undefined,
+                acctMid: undefined,
+                acctMinor: undefined,
+              }));
+            }}
+          >
+            {TX_TYPES.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="계좌/카번" hint={pm ? `${pm.alias} · ${pm.site}` : "뒷 4자리"}>
+          <Select
+            value={form.last4 ?? ""}
+            onChange={(e) => set("last4", e.target.value || undefined)}
+          >
+            <option value="">(없음)</option>
+            {paymentMethods.map((p) => (
+              <option key={p.last4} value={p.last4}>
+                {p.last4} · {p.alias}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="사업장">
+          <Input
+            value={form.site ?? ""}
+            placeholder={pm?.site ?? "네안데르"}
+            onChange={(e) => set("site", e.target.value || undefined)}
+          />
+        </Field>
+      </div>
 
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            {!isNew &&
-              onDelete &&
-              (confirmDelete ? (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-rose-600">정말 삭제할까요?</span>
-                  <Button
-                    variant="danger"
-                    disabled={saving}
-                    onClick={async () => {
-                      setSaving(true);
-                      try {
-                        await onDelete();
-                        onClose();
-                      } finally {
-                        setSaving(false);
-                      }
-                    }}
-                  >
-                    삭제
-                  </Button>
-                  <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
-                    취소
-                  </Button>
-                </div>
-              ) : (
-                <Button variant="ghost" onClick={() => setConfirmDelete(true)}>
-                  삭제
-                </Button>
-              ))}
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" onClick={onClose} disabled={saving}>
-              취소
-            </Button>
-            <Button onClick={() => save("confirmed")} disabled={saving || !form.date}>
-              {saving ? "저장 중…" : saveLabel ?? (isNew ? "추가" : "확정 저장")}
-            </Button>
-          </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <Field label="거래처">
+          <Input
+            value={form.vendor ?? ""}
+            onChange={(e) => set("vendor", e.target.value || undefined)}
+          />
+        </Field>
+        <Field label="사업대분류">
+          <Select
+            value={form.bizMajor ?? ""}
+            onChange={(e) => set("bizMajor", e.target.value || undefined)}
+          >
+            <option value="">(미정)</option>
+            {BIZ_MAJORS.map((b) => (
+              <option key={b} value={b}>{b}</option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="사업소분류">
+          <Input
+            list="fin-biz-minors"
+            value={form.bizMinor ?? ""}
+            onChange={(e) => set("bizMinor", e.target.value || undefined)}
+          />
+        </Field>
+      </div>
+      <datalist id="fin-biz-minors">
+        {knownBizMinors.map((b) => (
+          <option key={b} value={b} />
+        ))}
+      </datalist>
+
+      <div className="mt-4 border-t border-nd-line pt-4">
+        <p className="mb-1.5 text-nd-caption font-medium text-nd-fg-2">계정</p>
+        <AccountPicker
+          accounts={accounts}
+          txType={form.txType}
+          value={{
+            acctMajor: form.acctMajor,
+            acctMid: form.acctMid,
+            acctMinor: form.acctMinor,
+          }}
+          onChange={(v) => setForm((f) => ({ ...f, ...v }))}
+        />
+      </div>
+
+      <div className="mt-4 grid gap-3 border-t border-nd-line pt-4 sm:grid-cols-3">
+        <Field label="원금액" required>
+          <Input
+            type="number"
+            className="nd-num"
+            value={String(form.gross ?? 0)}
+            onChange={(e) => set("gross", Number(e.target.value))}
+          />
+        </Field>
+        <Field label="조정금액" hint="환불·부분취소분">
+          <Input
+            type="number"
+            className="nd-num"
+            value={String(form.adjust ?? 0)}
+            onChange={(e) => set("adjust", Number(e.target.value))}
+          />
+        </Field>
+        <div className="flex flex-col gap-1.5">
+          <span className="text-nd-caption font-medium text-nd-fg-2">순금액</span>
+          <span className="flex h-ctl-md items-center text-nd-title">
+            <Money value={net} />
+          </span>
+          <span className="text-nd-caption text-nd-fg-3">원금액 − 조정금액</span>
         </div>
       </div>
-    </div>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <Field label="프로젝트코드" hint="프로젝트 손익 화면과 이 코드로 이어진다">
+          <Input
+            value={form.projectCode ?? ""}
+            onChange={(e) => set("projectCode", e.target.value || undefined)}
+            list="tx-editor-project-codes"
+          />
+          <datalist id="tx-editor-project-codes">
+            {projects.map((p) => (
+              <option key={p.id} value={p.code}>{p.name}</option>
+            ))}
+          </datalist>
+        </Field>
+        <Field label="환급매칭ID" hint="원거래와 공유하는 라벨">
+          <Input
+            value={form.refundMatchId ?? ""}
+            onChange={(e) => set("refundMatchId", e.target.value || undefined)}
+          />
+        </Field>
+        <Field label="개인사용">
+          <Select
+            value={form.personalUse ? "Y" : ""}
+            onChange={(e) => set("personalUse", e.target.value === "Y" || undefined)}
+          >
+            <option value="">아니오</option>
+            <option value="Y">예 (임직원 개인 사용분)</option>
+          </Select>
+        </Field>
+      </div>
+
+      <Field label="비고" className="mt-3">
+        <Textarea
+          rows={2}
+          value={form.note ?? ""}
+          onChange={(e) => set("note", e.target.value || undefined)}
+        />
+      </Field>
+    </Dialog>
   );
 }

@@ -15,23 +15,27 @@
 // ============================================================
 
 import { useRef, useState } from "react";
+// File·Image 는 DOM 전역 이름과 겹친다 — 아래에서 File 타입을 쓰므로 별칭으로
+import { File as FileIcon, FileSpreadsheet, FileText, Image as ImageIcon, Paperclip, X } from "lucide-react";
+import { Button, Icon, cn, useConfirm, useToast, type LucideIcon } from "@/components/neander/ui";
 import { finDocFileUrl, removeFinDocFile } from "@/lib/neander/finance/client";
 import { formatBytes, type FinDocFile } from "@/lib/neander/finance/docs";
 import { DOC_FILE_ACCEPT, DOC_FILE_EXTS, MAX_DOC_FILES, MAX_DOC_FILE_BYTES, docFileExt } from "@/lib/neander/finance/doc-limits";
 
-const ICON: Record<string, string> = {
-  pdf: "📄",
-  xlsx: "📗",
-  xls: "📗",
-  docx: "📘",
-  hwp: "📙",
-  hwpx: "📙",
-  jpg: "🖼",
-  jpeg: "🖼",
-  png: "🖼",
-  zip: "🗜",
+/** 확장자 → 아이콘. 종류를 구분할 만큼만 — 색은 쓰지 않는다 */
+const ICON: Record<string, LucideIcon> = {
+  pdf: FileText,
+  xlsx: FileSpreadsheet,
+  xls: FileSpreadsheet,
+  docx: FileText,
+  hwp: FileText,
+  hwpx: FileText,
+  jpg: ImageIcon,
+  jpeg: ImageIcon,
+  png: ImageIcon,
+  zip: FileIcon,
 };
-const iconOf = (name: string) => ICON[docFileExt(name)] ?? "📎";
+const iconOf = (name: string): LucideIcon => ICON[docFileExt(name)] ?? FileIcon;
 
 /** 파일 하나를 새 창에 연다. 실패하면 사유를 돌려준다. */
 export async function openDocFile(path: string): Promise<string | null> {
@@ -73,9 +77,10 @@ export function FileChip({
   onRemove?: () => void;
   busy?: boolean;
 }) {
+  const toast = useToast();
   const [opening, setOpening] = useState(false);
   return (
-    <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-zinc-200 bg-white pl-1.5 pr-1 text-xs text-zinc-700">
+    <span className="inline-flex h-7 max-w-full items-center gap-0.5 rounded-[8px] border border-nd-border bg-nd-content pl-1.5 pr-0.5 text-nd-caption text-nd-fg">
       <button
         type="button"
         disabled={opening || busy}
@@ -84,14 +89,14 @@ export function FileChip({
           setOpening(true);
           const err = await openDocFile(file.path);
           setOpening(false);
-          if (err) window.alert(err);
+          if (err) toast.error(err);
         }}
-        className="flex min-w-0 items-center gap-1 py-0.5 hover:text-indigo-700 disabled:opacity-50"
+        className="flex min-w-0 items-center gap-1 rounded-[6px] py-0.5 pr-1 transition-colors duration-nd-fast hover:text-nd-accent-strong disabled:opacity-50"
         title={`${file.name} · ${formatBytes(file.size)} — 새 창에서 엽니다`}
       >
-        <span aria-hidden>{iconOf(file.name)}</span>
-        <span className="truncate">{file.name}</span>
-        <span className="shrink-0 text-[10px] text-zinc-400">{formatBytes(file.size)}</span>
+        <Icon icon={iconOf(file.name)} size={14} className="text-nd-fg-3" />
+        <span className="truncate" title={file.name}>{file.name}</span>
+        <span className="nd-num shrink-0 text-nd-micro font-normal text-nd-fg-3">{formatBytes(file.size)}</span>
       </button>
       {onRemove && (
         <button
@@ -101,11 +106,11 @@ export function FileChip({
             e.stopPropagation();
             onRemove();
           }}
-          className="rounded px-1 text-zinc-300 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] text-nd-fg-3 transition-colors duration-nd-fast hover:bg-nd-danger-soft hover:text-nd-danger-text disabled:opacity-40"
           title="이 파일 떼기 (저장소에서도 지웁니다)"
           aria-label="파일 떼기"
         >
-          ✕
+          <Icon icon={X} size={14} />
         </button>
       )}
     </span>
@@ -135,8 +140,10 @@ export function DocFilesField({
   disabled?: boolean;
   onError: (msg: string) => void;
 }) {
+  const confirm = useConfirm();
   const inputRef = useRef<HTMLInputElement>(null);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
 
   const pick = (list: FileList | null) => {
     if (!list) return;
@@ -147,7 +154,13 @@ export function DocFilesField({
 
   const remove = async (f: FinDocFile) => {
     if (!docId) return;
-    if (!window.confirm(`「${f.name}」 을 이 문서에서 떼고 저장소에서도 지웁니다.`)) return;
+    const ok = await confirm({
+      title: `「${f.name}」 을 뗄까요?`,
+      message: "이 문서에서 떼고 저장소에서도 지웁니다.",
+      confirmLabel: "떼기",
+      tone: "danger",
+    });
+    if (!ok) return;
     setRemoving(f.path);
     try {
       const res = await removeFinDocFile(docId, f.path);
@@ -163,12 +176,18 @@ export function DocFilesField({
     <div
       onDragOver={(e) => {
         e.preventDefault();
+        if (!disabled) setDragOver(true);
       }}
+      onDragLeave={() => setDragOver(false)}
       onDrop={(e) => {
         e.preventDefault();
+        setDragOver(false);
         if (!disabled) pick(e.dataTransfer.files);
       }}
-      className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50/60 px-3 py-2"
+      className={cn(
+        "rounded-nd-md border border-dashed px-3 py-2.5 transition-colors duration-nd-fast",
+        dragOver ? "border-nd-accent bg-nd-accent-soft/60" : "border-nd-strong bg-nd-sunken/60",
+      )}
     >
       <div className="flex flex-wrap items-center gap-1.5">
         {files.map((f) => (
@@ -177,20 +196,21 @@ export function DocFilesField({
         {pending.map((f, i) => (
           <span
             key={`${f.name}-${i}`}
-            className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 pl-1.5 pr-1 text-xs text-amber-900"
+            className="inline-flex h-7 max-w-full items-center gap-1 rounded-[8px] bg-nd-warning-soft pl-1.5 pr-0.5 text-nd-caption text-nd-warning-text"
             title="저장하면 올라갑니다"
           >
-            <span aria-hidden>{iconOf(f.name)}</span>
-            <span className="max-w-[14rem] truncate">{f.name}</span>
-            <span className="text-[10px] text-amber-700">{formatBytes(f.size)} · 붙일 예정</span>
+            <Icon icon={iconOf(f.name)} size={14} />
+            <span className="max-w-[14rem] truncate" title={f.name}>{f.name}</span>
+            <span className="nd-num shrink-0 text-nd-micro font-normal">{formatBytes(f.size)} · 붙일 예정</span>
             <button
               type="button"
               disabled={disabled}
               onClick={() => onPendingChange(pending.filter((_, j) => j !== i))}
-              className="rounded px-1 text-amber-400 hover:text-rose-600"
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] transition-colors duration-nd-fast hover:bg-nd-danger-soft hover:text-nd-danger-text disabled:opacity-40"
               aria-label="예정 취소"
+              title="예정 취소"
             >
-              ✕
+              <Icon icon={X} size={14} />
             </button>
           </span>
         ))}
@@ -205,16 +225,11 @@ export function DocFilesField({
             e.target.value = "";
           }}
         />
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => inputRef.current?.click()}
-          className="rounded-md border border-indigo-200 bg-white px-2 py-0.5 text-xs text-indigo-700 hover:bg-indigo-50 disabled:opacity-40"
-        >
-          + 파일 붙이기
-        </button>
+        <Button variant="soft" size="sm" icon={Paperclip} disabled={disabled} onClick={() => inputRef.current?.click()}>
+          파일 붙이기
+        </Button>
         {files.length === 0 && pending.length === 0 && (
-          <span className="text-[11px] text-zinc-400">
+          <span className="text-nd-micro font-normal text-nd-fg-3">
             PDF · 엑셀 · 한글 · 사진, 하나에 {MAX_DOC_FILE_BYTES / 1024 / 1024}MB 까지. 여기로 끌어다 놓아도 됩니다.
           </span>
         )}

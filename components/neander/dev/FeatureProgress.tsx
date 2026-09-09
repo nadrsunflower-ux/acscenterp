@@ -9,11 +9,12 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
+import { ArrowRight, Blocks } from "lucide-react";
 import { EmptyState, Badge } from "@/components/neander/ui";
 import { FeatureChip } from "@/components/neander/dev/atoms";
+import { FEATURE_STATUS_TONE } from "@/components/neander/dev/FeatureManager";
 import {
   featureColorFor,
-  featureStatusColor,
   featureStatusLabel,
   type DevFeature,
   type DevTask,
@@ -50,15 +51,16 @@ export function FeatureProgress({
     return (
       <div className="flex flex-col items-center gap-3">
         <EmptyState
-          icon="🧩"
+          icon={Blocks}
           title="프로젝트를 먼저 만들어보세요"
           description="작업을 프로젝트 단위로 묶으면 코드를 몰라도 진행률을 한눈에 볼 수 있어요."
         />
         <Link
           href="/neander/dev/features"
-          className="text-sm font-medium text-indigo-600 hover:underline"
+          className="inline-flex items-center gap-1 text-nd-body font-medium text-nd-accent-strong hover:underline"
         >
-          프로젝트 관리로 이동 →
+          프로젝트 관리로 이동
+          <ArrowRight size={14} aria-hidden />
         </Link>
       </div>
     );
@@ -74,20 +76,27 @@ export function FeatureProgress({
             key={f.id}
             href={`/neander/dev/board?feature=${f.id}`}
             aria-label={`${f.name} 관련 작업 보기 (${done}/${total} 완료)`}
-            className="-mx-1 flex flex-col gap-1.5 rounded-lg px-1 py-1 transition-colors hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+            className="-mx-1 flex flex-col gap-1.5 rounded-nd-md px-1 py-1 transition-colors duration-nd-fast hover:bg-nd-sunken focus:outline-none focus-visible:shadow-nd-focus"
           >
             <div className="flex items-center gap-2">
               <FeatureChip feature={f} className="min-w-0" />
-              <Badge color={featureStatusColor(f.status)}>
+              <Badge tone={FEATURE_STATUS_TONE[f.status]} dot>
                 {featureStatusLabel(f.status)}
               </Badge>
-              <span className="ml-auto text-xs font-semibold tabular-nums text-zinc-600">
+              <span className="nd-num ml-auto text-nd-caption font-semibold text-nd-fg-2">
                 {done}/{total}
               </span>
             </div>
-            <div className="flex h-2 w-full overflow-hidden rounded-full bg-zinc-100">
+            <div
+              className="flex h-2 w-full overflow-hidden rounded-full bg-nd-fg/[.07]"
+              role="progressbar"
+              aria-valuenow={pct}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label={`${f.name} 진행률 ${done}/${total}`}
+            >
               <div
-                className="h-full rounded-full transition-all"
+                className="h-full rounded-full transition-all duration-nd"
                 style={{ width: `${pct}%`, backgroundColor: color }}
               />
             </div>

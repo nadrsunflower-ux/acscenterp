@@ -9,18 +9,16 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
+import { CircleAlert, CircleCheck, Eye, Zap, type LucideIcon } from "lucide-react";
+import { Icon, cn, toneCls, type Tone } from "@/components/neander/ui";
 import { todayStr, weekKey } from "@/lib/neander/format";
-import {
-  devStatusColor,
-  devPriorityColor,
-  type DevTask,
-} from "@/lib/neander/dev/types";
+import { type DevTask } from "@/lib/neander/dev/types";
 
 type Tile = {
   key: string;
   label: string;
-  icon: string;
-  color: string;
+  icon: LucideIcon;
+  tone: Tone;
   value: number;
   /** 클릭 시 보드로 이동(필터 프리셋). 계약: board 가 이 쿼리를 읽음. */
   href: string;
@@ -53,24 +51,24 @@ export function HomeGreeting({
   }, [tasks]);
 
   const tiles: Tile[] = [
-    { key: "in_progress", label: "진행중", icon: "⚡", color: devStatusColor("in_progress"), value: stats.inProgress, href: "/neander/dev/board?status=in_progress" },
-    { key: "review", label: "리뷰 대기", icon: "👀", color: devStatusColor("review"), value: stats.review, href: "/neander/dev/board?status=review" },
-    { key: "done_week", label: "이번주 완료", icon: "✅", color: devStatusColor("done"), value: stats.doneThisWeek, href: "/neander/dev/board?status=done" },
-    { key: "urgent", label: "긴급 미완료", icon: "🔴", color: devPriorityColor("urgent"), value: stats.urgentOpen, href: "/neander/dev/board?priority=urgent" },
+    { key: "in_progress", label: "진행중", icon: Zap, tone: "info", value: stats.inProgress, href: "/neander/dev/board?status=in_progress" },
+    { key: "review", label: "리뷰 대기", icon: Eye, tone: "warning", value: stats.review, href: "/neander/dev/board?status=review" },
+    { key: "done_week", label: "이번주 완료", icon: CircleCheck, tone: "success", value: stats.doneThisWeek, href: "/neander/dev/board?status=done" },
+    { key: "urgent", label: "긴급 미완료", icon: CircleAlert, tone: "danger", value: stats.urgentOpen, href: "/neander/dev/board?priority=urgent" },
   ];
 
   return (
     <section>
-      <h2 className="text-xl font-bold tracking-tight text-zinc-900">
-        안녕하세요{memberName ? `, ${memberName}님` : ""} 👋
+      <h2 className="text-nd-title text-nd-fg">
+        안녕하세요{memberName ? `, ${memberName}님` : ""}
       </h2>
-      <p className="mt-1 text-sm text-zinc-500">
+      <p className="mt-1 text-nd-body text-nd-fg-2">
         지금 진행중{" "}
-        <b className="font-semibold tabular-nums text-sky-600">{stats.inProgress}건</b>
+        <b className="nd-num font-semibold text-nd-info-text">{stats.inProgress}건</b>
         {" · "}오늘 마감{" "}
-        <b className="font-semibold tabular-nums text-orange-600">{stats.dueToday}건</b>
+        <b className="nd-num font-semibold text-nd-warning-text">{stats.dueToday}건</b>
         {" · "}리뷰 대기{" "}
-        <b className="font-semibold tabular-nums text-amber-600">{stats.review}건</b>
+        <b className="nd-num font-semibold text-nd-warning-text">{stats.review}건</b>
         이에요.
       </p>
 
@@ -81,22 +79,20 @@ export function HomeGreeting({
             key={t.key}
             href={t.href}
             aria-label={`${t.label} ${t.value}건 — 보드에서 보기`}
-            className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50/40 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+            className="nd-surface flex items-center gap-3 rounded-nd-lg p-4 transition-colors duration-nd-fast hover:bg-nd-sunken focus:outline-none focus-visible:shadow-nd-focus"
           >
             <span
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl"
-              style={{ backgroundColor: `${t.color}1a` }}
+              className={cn(
+                "flex h-11 w-11 shrink-0 items-center justify-center rounded-nd-md",
+                toneCls[t.tone].soft,
+                toneCls[t.tone].text,
+              )}
             >
-              {t.icon}
+              <Icon icon={t.icon} size={20} />
             </span>
             <div className="min-w-0">
-              <div
-                className="text-2xl font-bold leading-none tabular-nums"
-                style={{ color: t.color }}
-              >
-                {t.value}
-              </div>
-              <div className="mt-1 truncate text-xs font-medium text-zinc-500">{t.label}</div>
+              <div className="nd-num text-[22px] font-bold leading-none tracking-[-0.02em] text-nd-fg">{t.value}</div>
+              <div className="mt-1 truncate text-nd-caption font-medium text-nd-fg-2">{t.label}</div>
             </div>
           </Link>
         ))}

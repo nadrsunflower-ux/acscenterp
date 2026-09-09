@@ -12,6 +12,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { ArrowRight, Blocks, ChevronLeft, ChevronRight, Pencil, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useDevData } from "@/components/neander/dev/dev-data";
 import { addFeature, updateFeature, deleteFeature } from "@/lib/neander/dev/features";
@@ -20,24 +21,34 @@ import {
   Button,
   Card,
   Field,
+  IconButton,
   Input,
+  SectionHeader,
   Select,
   Textarea,
   Badge,
   EmptyState,
   cn,
+  useConfirm,
+  type Tone,
 } from "@/components/neander/ui";
 import {
   FEATURE_COLORS,
   FEATURE_STATUSES,
   featureStatusLabel,
-  featureStatusColor,
   featureColorFor,
   type DevFeature,
   type DevFeatureInput,
   type FeatureStatus,
 } from "@/lib/neander/dev/types";
 import type { Member } from "@/lib/neander/types";
+
+/** 프로젝트 상태 → 의미 톤 (진행중 info · 출시됨 success · 보류 warning) */
+export const FEATURE_STATUS_TONE: Record<FeatureStatus, Tone> = {
+  active: "info",
+  shipped: "success",
+  paused: "warning",
+};
 
 // ---- 색 스와치 (FEATURE_COLORS 8색 + 자동) ------------------
 function ColorSwatches({
@@ -57,10 +68,10 @@ function ColorSwatches({
         aria-pressed={!value}
         title="자동"
         className={cn(
-          "flex h-6 items-center rounded-full border px-2 text-[11px] font-medium transition",
+          "flex h-6 items-center rounded-full border px-2 text-nd-micro transition-colors duration-nd-fast",
           !value
-            ? "border-indigo-500 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-100"
-            : "border-zinc-200 bg-white text-zinc-500 hover:bg-zinc-50",
+            ? "border-nd-accent bg-nd-accent-soft text-nd-accent-strong shadow-nd-focus"
+            : "border-nd-border bg-nd-content text-nd-fg-2 hover:bg-nd-sunken",
         )}
       >
         자동
@@ -76,8 +87,8 @@ function ColorSwatches({
             aria-pressed={active}
             title={c}
             className={cn(
-              "h-6 w-6 rounded-full transition",
-              active ? "ring-2 ring-offset-1 ring-zinc-400" : "hover:scale-110",
+              "h-6 w-6 rounded-full transition-transform duration-nd-fast",
+              active ? "ring-2 ring-nd-fg-3 ring-offset-1 ring-offset-nd-content" : "hover:scale-110",
             )}
             style={{ backgroundColor: c }}
           />
@@ -121,8 +132,8 @@ function AddFeatureForm({ nextOrder, onDone }: { nextOrder: number; onDone?: () 
   }
 
   return (
-    <Card className="!rounded-2xl self-start">
-      <h2 className="mb-3 text-sm font-semibold text-zinc-900">새 프로젝트</h2>
+    <Card className="self-start">
+      <SectionHeader title="새 프로젝트" />
       <div className="flex flex-col gap-3">
         <Field label="이름" required>
           <Input
@@ -167,7 +178,7 @@ function AddFeatureForm({ nextOrder, onDone }: { nextOrder: number; onDone?: () 
           <FeatureChip
             feature={{ id: "preview", color, name: name.trim() || "미리보기" }}
           />
-          <Button onClick={submit} disabled={!canSubmit}>
+          <Button onClick={submit} disabled={!canSubmit} loading={busy}>
             {busy ? "추가 중…" : "프로젝트 추가"}
           </Button>
         </div>
@@ -189,10 +200,10 @@ export function FeatureCreatePanel({
 
   if (!currentMember) {
     return (
-      <Card className="!rounded-2xl self-start">
-        <p className="text-sm text-zinc-500">
+      <Card className="self-start">
+        <p className="text-nd-body text-nd-fg-2">
           프로젝트를 추가·수정하려면{" "}
-          <span className="font-medium text-zinc-700">팀원 계정</span>으로 로그인하세요.
+          <span className="font-medium text-nd-fg">팀원 계정</span>으로 로그인하세요.
         </p>
       </Card>
     );
@@ -221,6 +232,7 @@ function FeatureCard({
   onMove: (dir: -1 | 1) => void;
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(feature.name);
   const [description, setDescription] = useState(feature.description ?? "");
@@ -258,11 +270,13 @@ function FeatureCard({
 
   async function remove() {
     if (busy) return;
-    const msg =
-      total > 0
-        ? `"${feature.name}" 프로젝트를 삭제할까요?\n연결된 작업 ${total}개의 프로젝트 표시가 사라집니다(작업은 유지).`
-        : `"${feature.name}" 프로젝트를 삭제할까요?`;
-    if (!window.confirm(msg)) return;
+    const ok = await confirm({
+      title: `"${feature.name}" 프로젝트를 삭제할까요?`,
+      message: total > 0 ? `연결된 작업 ${total}개의 프로젝트 표시가 사라집니다(작업은 유지).` : undefined,
+      confirmLabel: "삭제",
+      tone: "danger",
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       await deleteFeature(feature.id);
@@ -270,9 +284,6 @@ function FeatureCard({
       setBusy(false);
     }
   }
-
-  const arrowCls =
-    "flex h-6 w-6 items-center justify-center rounded text-[10px] text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-30 disabled:hover:bg-transparent";
 
   return (
     // 카드 전체 클릭 → 보드 필터 딥링크. 키보드/스크린리더 경로는 하단 실제 Link.
@@ -283,16 +294,14 @@ function FeatureCard({
       className={cn("h-full", !editing && "cursor-pointer")}
     >
       <Card
-        className={cn(
-          "!rounded-2xl flex h-full flex-col gap-3 !p-4 transition-shadow",
-          !editing && "hover:shadow-md",
-        )}
+        padding="sm"
+        className={cn("flex h-full flex-col gap-3 transition-shadow duration-nd-fast", !editing && "hover:shadow-nd-pop")}
       >
         {/* 상단: 칩 + 상태 배지 + 관리 버튼 */}
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <FeatureChip feature={feature} />
-            <Badge color={featureStatusColor(feature.status)}>
+            <Badge tone={FEATURE_STATUS_TONE[feature.status]} dot>
               {featureStatusLabel(feature.status)}
             </Badge>
           </div>
@@ -301,24 +310,23 @@ function FeatureCard({
               className="flex shrink-0 items-center gap-0.5"
               onClick={(e) => e.stopPropagation()}
             >
-              <button type="button" onClick={() => onMove(-1)} disabled={isFirst || busy} aria-label="앞으로 이동" className={arrowCls}>
-                ◀
-              </button>
-              <button type="button" onClick={() => onMove(1)} disabled={isLast || busy} aria-label="뒤로 이동" className={arrowCls}>
-                ▶
-              </button>
-              <Button variant="ghost" onClick={startEdit} className="!px-2 !py-1 !text-xs" aria-label={`${feature.name} 수정`}>
-                수정
-              </Button>
-              <Button variant="danger" onClick={remove} disabled={busy} className="!px-2 !py-1 !text-xs" aria-label={`${feature.name} 삭제`}>
-                삭제
-              </Button>
+              <IconButton icon={ChevronLeft} label="앞으로 이동" size="sm" onClick={() => onMove(-1)} disabled={isFirst || busy} className="disabled:opacity-30" />
+              <IconButton icon={ChevronRight} label="뒤로 이동" size="sm" onClick={() => onMove(1)} disabled={isLast || busy} className="disabled:opacity-30" />
+              <IconButton icon={Pencil} label={`${feature.name} 수정`} size="sm" onClick={startEdit} />
+              <IconButton
+                icon={Trash2}
+                label={`${feature.name} 삭제`}
+                size="sm"
+                onClick={remove}
+                disabled={busy}
+                className="hover:text-nd-danger"
+              />
             </div>
           )}
         </div>
 
         {feature.description && !editing && (
-          <p className="line-clamp-2 whitespace-pre-wrap text-sm text-zinc-500">
+          <p className="line-clamp-2 whitespace-pre-wrap text-nd-body text-nd-fg-2" title={feature.description}>
             {feature.description}
           </p>
         )}
@@ -326,31 +334,32 @@ function FeatureCard({
         {/* 진행률 — 연결 작업 done/전체 (카드 하단 고정) */}
         {!editing && (
           <div className="mt-auto flex flex-col gap-1.5 pt-1">
-            <div className="flex items-center justify-between gap-2 text-xs">
-              <span className="text-zinc-400">
+            <div className="flex items-center justify-between gap-2 text-nd-caption">
+              <span className="nd-num text-nd-fg-3">
                 연결 작업 {total}개 · 완료 {done}개
               </span>
-              <span className="font-semibold tabular-nums text-zinc-600">
+              <span className="nd-num font-semibold text-nd-fg-2">
                 {total > 0 ? `${pct}%` : "—"}
               </span>
             </div>
             <div
-              className="h-2 w-full overflow-hidden rounded-full bg-zinc-100"
+              className="h-2 w-full overflow-hidden rounded-full bg-nd-fg/[.07]"
               role="progressbar"
               aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}
               aria-label={`${feature.name} 진행률 ${done}/${total}`}
             >
               <div
-                className="h-full rounded-full transition-all"
+                className="h-full rounded-full transition-all duration-nd"
                 style={{ width: `${pct}%`, backgroundColor: barColor }}
               />
             </div>
             <Link
               href={boardHref}
               onClick={(e) => e.stopPropagation()}
-              className="mt-0.5 self-start text-xs font-medium text-indigo-600 hover:underline"
+              className="mt-0.5 inline-flex items-center gap-1 self-start text-nd-caption font-medium text-nd-accent-strong hover:underline"
             >
-              보드에서 작업 보기 →
+              보드에서 작업 보기
+              <ArrowRight size={12} aria-hidden />
             </Link>
           </div>
         )}
@@ -358,7 +367,7 @@ function FeatureCard({
         {/* 인라인 수정 패널 */}
         {editing && (
           <div
-            className="flex flex-col gap-3 border-t border-zinc-100 pt-3"
+            className="flex flex-col gap-3 border-t border-nd-line pt-3"
             onClick={(e) => e.stopPropagation()}
           >
             <Field label="이름" required>
@@ -392,10 +401,10 @@ function FeatureCard({
               />
             </Field>
             <div className="flex items-center justify-end gap-2">
-              <Button variant="secondary" onClick={() => setEditing(false)} disabled={busy} className="!px-3 !py-1.5 !text-xs">
+              <Button variant="secondary" size="sm" onClick={() => setEditing(false)} disabled={busy}>
                 취소
               </Button>
-              <Button onClick={save} disabled={busy || name.trim().length === 0} className="!px-4 !py-1.5 !text-xs">
+              <Button size="sm" onClick={save} disabled={busy || name.trim().length === 0} loading={busy}>
                 {busy ? "저장 중…" : "저장"}
               </Button>
             </div>
@@ -454,7 +463,7 @@ export function FeatureCardGrid({
   if (sorted.length === 0) {
     return (
       <EmptyState
-        icon="🧩"
+        icon={Blocks}
         title="아직 프로젝트가 없어요"
         description={
           canEdit

@@ -2,20 +2,24 @@
    원장 시트 — react-datasheet-grid 기본 스타일 위에 얹는 조정
    ------------------------------------------------------------
    기본 CSS 는 LedgerSheet.tsx 에서 함께 import 한다. 여기서는
-   글꼴·크기를 ERP 표 톤(text-sm, zinc)에 맞추고, 초안 상태
+   글꼴·크기를 ERP 표 톤(13px, nd 토큰)에 맞추고, 초안 상태
    (수정됨·새 행·오류)를 셀 배경으로 드러낸다. 색만으로 구분하지
    않도록 행 번호 옆에 점을 같이 찍는다.
+
+   색은 전부 app/neander/neander.css 의 토큰을 본다. 시트는 불투명
+   콘텐츠 표면이다 — 유리를 쓰지 않는다.
    ============================================================ */
 
 .ledger-sheet {
-  --dsg-border-color: #e4e4e7; /* zinc-200 */
-  --dsg-selection-border-color: #4f46e5; /* indigo-600 */
-  --dsg-selection-background-color: rgba(79, 70, 229, 0.06);
-  --dsg-header-text-color: #71717a; /* zinc-500 */
-  --dsg-header-active-text-color: #18181b;
-  --dsg-cell-disabled-background-color: #fafafa;
+  --dsg-border-color: var(--nd-line);
+  --dsg-selection-border-color: rgb(var(--nd-accent));
+  --dsg-selection-background-color: rgb(var(--nd-accent) / 0.08);
+  --dsg-header-text-color: rgb(var(--nd-fg-2));
+  --dsg-header-active-text-color: rgb(var(--nd-fg));
+  --dsg-cell-disabled-background-color: rgb(var(--nd-bg-sunken));
   font-size: 13px;
-  color: #18181b;
+  color: rgb(var(--nd-fg));
+  background-color: rgb(var(--nd-bg-content));
 }
 
 .ledger-sheet .dsg-container {
@@ -58,7 +62,7 @@
   cursor: pointer;
 }
 .ledger-sheet .dsg-head-label:hover {
-  color: #4338ca;
+  color: rgb(var(--nd-accent-strong));
 }
 .ledger-sheet .dsg-head-text {
   overflow: hidden;
@@ -66,9 +70,9 @@
 }
 .ledger-sheet .dsg-head-arrow {
   flex: none;
-  font-size: 8px;
+  display: inline-flex;
   opacity: 0;
-  transition: opacity 0.1s;
+  transition: opacity var(--nd-dur-fast);
 }
 .ledger-sheet .dsg-head-label:hover .dsg-head-arrow {
   opacity: 0.45;
@@ -76,7 +80,7 @@
 .ledger-sheet .dsg-head-arrow-on,
 .ledger-sheet .dsg-head-label:hover .dsg-head-arrow-on {
   opacity: 1;
-  color: #4338ca;
+  color: rgb(var(--nd-accent-strong));
 }
 .ledger-sheet .dsg-head-menu {
   display: flex;
@@ -92,7 +96,7 @@
   color: inherit;
   opacity: 0;
   cursor: pointer;
-  transition: opacity 0.1s;
+  transition: opacity var(--nd-dur-fast);
 }
 /* 머리글 칸 어디에 마우스를 올려도 메뉴 버튼이 나타나게 */
 .ledger-sheet .dsg-cell-header:hover .dsg-head-menu {
@@ -100,14 +104,14 @@
 }
 .ledger-sheet .dsg-head-menu:hover {
   opacity: 1;
-  background: #eef2ff;
-  color: #4338ca;
+  background: rgb(var(--nd-accent-soft));
+  color: rgb(var(--nd-accent-strong));
 }
 /* 필터가 걸린 열은 항상 보이게 + 강조 */
 .ledger-sheet .dsg-head-menu-on,
 .ledger-sheet .dsg-cell-header:hover .dsg-head-menu-on {
   opacity: 1;
-  color: #4338ca;
+  color: rgb(var(--nd-accent-strong));
 }
 
 .ledger-sheet .dsg-cell-gutter {
@@ -116,7 +120,7 @@
 }
 
 /* ---- 크기 조절 손잡이 --------------------------------------
-   경계 위에 얹되 평소엔 보이지 않는다. 커서를 가져가면 파란 선이
+   경계 위에 얹되 평소엔 보이지 않는다. 커서를 가져가면 강조색 선이
    나타나 "여기를 끌 수 있다"를 알린다 — 엑셀·구글 시트와 같다.
    머리글 칸은 overflow:hidden 이라 손잡이를 칸 안쪽에 붙인다. */
 .ledger-sheet .dsg-col-grip {
@@ -138,11 +142,11 @@
   width: 2px;
   border-radius: 1px;
   background: transparent;
-  transition: background-color 120ms;
+  transition: background-color var(--nd-dur-fast);
 }
 .ledger-sheet .dsg-col-grip:hover::after,
 .ledger-sheet .dsg-col-grip.dsg-grip-on::after {
-  background: #6366f1; /* indigo-500 */
+  background: rgb(var(--nd-accent));
 }
 
 /* 행 번호 칸: 번호 + 아래 경계의 높이 손잡이 */
@@ -175,11 +179,11 @@
   height: 2px;
   border-radius: 1px;
   background: transparent;
-  transition: background-color 120ms;
+  transition: background-color var(--nd-dur-fast);
 }
 .ledger-sheet .dsg-row-grip:hover::after,
 .ledger-sheet .dsg-row-grip.dsg-grip-on::after {
-  background: #6366f1;
+  background: rgb(var(--nd-accent));
 }
 
 /* 드래그하는 동안은 화면 전체가 같은 커서를 쓴다 — 손잡이를 벗어나도
@@ -196,14 +200,14 @@ body.dsg-resizing-row * {
 }
 
 /* 끄는 동안 뜨는 안내선과 수치.
-   시트 밖(body)에 그린다 — 머리글 칸이 overflow:hidden 이라 안에 그리면
+   시트 밖(포탈)에 그린다 — 머리글 칸이 overflow:hidden 이라 안에 그리면
    잘린다. pointer-events 는 꺼 둔다: 커서 밑에 깔려서 드래그를 가로채면
-   안 된다. */
+   안 된다. 포탈 뿌리에도 data-app 이 있어 토큰이 닿는다. */
 .dsg-guide-v,
 .dsg-guide-h {
   position: fixed;
   z-index: 60;
-  background: #6366f1; /* indigo-500 */
+  background: rgb(var(--nd-accent));
   pointer-events: none;
 }
 .dsg-guide-v {
@@ -220,14 +224,14 @@ body.dsg-resizing-row * {
   z-index: 61;
   transform: translate(12px, 12px);
   padding: 3px 7px;
-  border-radius: 5px;
-  background: #4f46e5; /* indigo-600 */
+  border-radius: 6px;
+  background: rgb(var(--nd-accent));
   color: #fff;
   font-size: 11px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  box-shadow: 0 2px 6px rgb(0 0 0 / 0.25);
+  box-shadow: var(--nd-shadow-pop);
   pointer-events: none;
 }
 
@@ -238,14 +242,14 @@ body.dsg-resizing-row * {
   justify-content: center;
   width: 100%;
   height: 100%;
-  color: #a1a1aa; /* zinc-400 */
-  transition: color 120ms;
+  color: rgb(var(--nd-fg-3));
+  transition: color var(--nd-dur-fast);
 }
 .ledger-sheet .dsg-layout-reset:hover:not(:disabled) {
-  color: #4f46e5; /* indigo-600 */
+  color: rgb(var(--nd-accent));
 }
 .ledger-sheet .dsg-layout-reset:disabled {
-  color: #e4e4e7; /* zinc-200 */
+  color: rgb(var(--nd-fg-4));
   cursor: default;
 }
 
@@ -276,28 +280,32 @@ body.dsg-resizing-row * {
 }
 
 .ledger-sheet .dsg-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   margin: auto;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
   border: 0;
   background: transparent;
-  color: #71717a;
+  color: rgb(var(--nd-fg-2));
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
+  transition: background-color var(--nd-dur-fast), color var(--nd-dur-fast);
 }
 .ledger-sheet .dsg-action-btn:hover {
-  background: #eef2ff;
-  color: #4338ca;
+  background: rgb(var(--nd-accent-soft));
+  color: rgb(var(--nd-accent-strong));
 }
 
 /* ---- 초안 상태 ---- */
 .ledger-sheet .ledger-row-dirty {
-  --dsg-cell-background-color: #fffbeb; /* amber-50 */
+  --dsg-cell-background-color: rgb(var(--nd-warning-soft));
 }
 .ledger-sheet .ledger-row-new {
-  --dsg-cell-background-color: #f0fdf4; /* green-50 */
+  --dsg-cell-background-color: rgb(var(--nd-success-soft));
 }
 .ledger-sheet .ledger-row-dirty .dsg-cell-gutter::before,
 .ledger-sheet .ledger-row-new .dsg-cell-gutter::before {
@@ -307,40 +315,53 @@ body.dsg-resizing-row * {
   top: 0;
   bottom: 0;
   width: 3px;
-  background: #f59e0b;
+  background: rgb(var(--nd-warning));
 }
 .ledger-sheet .ledger-row-new .dsg-cell-gutter::before {
-  background: #16a34a;
+  background: rgb(var(--nd-success));
 }
 .ledger-sheet .ledger-cell-invalid {
-  --dsg-cell-background-color: #fff1f2; /* rose-50 */
+  --dsg-cell-background-color: rgb(var(--nd-danger-soft));
   box-shadow:
-    inset 0 0 0 1px #fda4af,
+    inset 0 0 0 1px rgb(var(--nd-danger) / 0.45),
     1px 1px var(--dsg-border-color);
 }
 
 /* ---- 하단 행 추가 바 / 컨텍스트 메뉴 ---- */
 .ledger-sheet .dsg-add-row {
-  background: #fafafa;
+  background: rgb(var(--nd-bg-sunken));
+  border-top: 1px solid var(--nd-line);
   font-size: 13px;
 }
 .ledger-sheet .dsg-add-row-btn,
 .ledger-sheet .dsg-add-row-input {
-  border-radius: 6px;
+  border-radius: 8px;
+  border: 1px solid var(--nd-border);
+  background: rgb(var(--nd-bg-content));
+  color: rgb(var(--nd-fg));
   padding: 5px 10px;
   font-family: inherit;
   font-size: 13px;
 }
+.ledger-sheet .dsg-add-row-btn:hover {
+  background: rgb(var(--nd-bg-sunken));
+}
 .dsg-context-menu {
   font-size: 13px;
-  border: 1px solid #e4e4e7;
+  border: 1px solid var(--nd-border);
+  border-radius: 10px;
+  background: rgb(var(--nd-bg-content));
+  color: rgb(var(--nd-fg));
+  box-shadow: var(--nd-shadow-pop);
+  overflow: hidden;
 }
 .dsg-context-menu-item {
   padding: 6px 16px;
   cursor: pointer;
 }
 .dsg-context-menu-item:hover {
-  background: #eef2ff;
+  background: rgb(var(--nd-accent-soft));
+  color: rgb(var(--nd-accent-strong));
 }
 
 /* ---- 프로젝트 체크리스트 ------------------------------------
@@ -348,10 +369,10 @@ body.dsg-resizing-row * {
    색만으로 뜻을 나르지 않는다 — 준비는 체크박스가, 실제금액은 그 칸의
    숫자가 이미 보이고, 배경은 표를 훑을 때의 보조 신호일 뿐이다. */
 .ledger-sheet .checklist-row-done {
-  --dsg-cell-background-color: #f0fdf4; /* green-50 */
+  --dsg-cell-background-color: rgb(var(--nd-success-soft));
 }
 .ledger-sheet .checklist-row-actual {
-  --dsg-cell-background-color: #f0f9ff; /* sky-50 */
+  --dsg-cell-background-color: rgb(var(--nd-info-soft));
 }
 .ledger-sheet .checklist-row-done .dsg-cell-gutter::before {
   content: "";
@@ -360,7 +381,7 @@ body.dsg-resizing-row * {
   top: 0;
   bottom: 0;
   width: 3px;
-  background: #16a34a;
+  background: rgb(var(--nd-success));
 }
 .ledger-sheet .dsg-check {
   display: flex;
@@ -370,7 +391,7 @@ body.dsg-resizing-row * {
   height: 100%;
 }
 .ledger-sheet .dsg-check input {
-  accent-color: #16a34a;
+  accent-color: rgb(var(--nd-success));
   width: 15px;
   height: 15px;
   cursor: pointer;
@@ -391,16 +412,16 @@ body.dsg-resizing-row * {
   padding: 2px 4px;
   font: inherit;
   font-weight: 600;
-  color: #3730a3; /* indigo-800 — 고정 열과 구분되는 사용자 열 */
+  color: rgb(var(--nd-accent-strong)); /* 고정 열과 구분되는 사용자 열 */
   outline: none;
 }
 .ledger-sheet .dsg-head-input:hover {
-  border-color: #c7d2fe;
-  background: #fff;
+  border-color: rgb(var(--nd-accent) / 0.4);
+  background: rgb(var(--nd-bg-content));
 }
 .ledger-sheet .dsg-head-input:focus {
-  border-color: #6366f1;
-  background: #fff;
+  border-color: rgb(var(--nd-accent));
+  background: rgb(var(--nd-bg-content));
 }
 .ledger-sheet .dsg-head-sort,
 .ledger-sheet .dsg-head-remove {
@@ -411,15 +432,15 @@ body.dsg-resizing-row * {
   width: 16px;
   height: 18px;
   border-radius: 3px;
-  color: #a1a1aa;
+  color: rgb(var(--nd-fg-3));
 }
 .ledger-sheet .dsg-head-sort:hover,
 .ledger-sheet .dsg-head-remove:hover {
-  background: #f4f4f5;
-  color: #52525b;
+  background: var(--nd-hover);
+  color: rgb(var(--nd-fg-2));
 }
 .ledger-sheet .dsg-head-remove:hover {
-  color: #e11d48;
+  color: rgb(var(--nd-danger));
 }
 
 /* 선택만 된 칸 — 커서와 선택 표시를 감춘다.

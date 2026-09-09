@@ -16,17 +16,28 @@
 // ============================================================
 
 import { useEffect, useMemo, useState } from "react";
+import { Megaphone, Send, StickyNote } from "lucide-react";
 import { useAppData } from "@/components/neander/app-data";
 import { useDevData } from "@/components/neander/dev/dev-data";
 import { addActivity } from "@/lib/neander/dev/activity";
 import { ScreenshotUploader } from "@/components/neander/dev/ScreenshotUploader";
-import { Button, Card, Input, Select, Textarea, MemberAvatar, cn } from "@/components/neander/ui";
+import {
+  Button,
+  Card,
+  Icon,
+  Input,
+  SegmentedControl,
+  Select,
+  Textarea,
+  MemberAvatar,
+  type SegmentOption,
+} from "@/components/neander/ui";
 import { emptyToUndef } from "@/lib/neander/db/helpers";
 import type { ActivityType, DevAttachment } from "@/lib/neander/dev/types";
 
-const TYPE_TABS: { value: ActivityType; label: string; icon: string }[] = [
-  { value: "update", label: "진행 업데이트", icon: "📣" },
-  { value: "note", label: "메모", icon: "🗒️" },
+const TYPE_TABS: SegmentOption<ActivityType>[] = [
+  { value: "update", label: "진행 업데이트", icon: Megaphone },
+  { value: "note", label: "메모", icon: StickyNote },
 ];
 
 export function ActivityComposer({
@@ -112,17 +123,17 @@ export function ActivityComposer({
 
   if (!currentMember) {
     return (
-      <Card className="!rounded-2xl">
-        <p className="text-sm text-zinc-500">
-          진행 상황을 올리려면 <span className="font-medium text-zinc-700">팀원 계정</span>으로
+      <Card>
+        <p className="text-nd-body text-nd-fg-2">
+          진행 상황을 올리려면 <span className="font-medium text-nd-fg">팀원 계정</span>으로
           로그인하세요.
         </p>
       </Card>
     );
   }
 
-  return (
-    <Card className={cn("!rounded-2xl", compact && "!p-3 !shadow-none")}>
+  // compact(작업 상세 안)는 카드 위에 카드를 겹치지 않도록 얇은 선 상자로
+  const inner = (
       <div className="flex items-start gap-3">
         <MemberAvatar
           name={currentMember.name}
@@ -131,23 +142,9 @@ export function ActivityComposer({
           className={compact ? "h-8 w-8 text-xs" : "h-9 w-9 text-sm"}
         />
         <div className="min-w-0 flex-1">
-          {/* 종류 세그먼트 */}
-          <div className="mb-2 flex gap-1">
-            {TYPE_TABS.map((t) => (
-              <button
-                key={t.value}
-                type="button"
-                onClick={() => setType(t.value)}
-                className={cn(
-                  "rounded-full px-2.5 py-1 text-xs font-medium transition",
-                  type === t.value
-                    ? "bg-indigo-600 text-white"
-                    : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200",
-                )}
-              >
-                {t.icon} {t.label}
-              </button>
-            ))}
+          {/* 종류 세그먼트 — 같은 작성기의 보기 전환 */}
+          <div className="mb-2">
+            <SegmentedControl options={TYPE_TABS} value={type} onChange={setType} size="sm" ariaLabel="소식 종류" />
           </div>
 
           <Input
@@ -155,7 +152,8 @@ export function ActivityComposer({
             onChange={(e) => setTitle(e.target.value)}
             onFocus={() => setExpanded(true)}
             placeholder={type === "note" ? "메모 한 줄…" : "무엇을 진행했나요? (예: 결제 웹훅 연동 완료)"}
-            className="!border-zinc-200 !bg-zinc-50 font-medium"
+            className="bg-nd-sunken font-medium"
+            aria-label="소식 제목"
           />
 
           {expanded && (
@@ -173,7 +171,6 @@ export function ActivityComposer({
                   <Select
                     value={featureId}
                     onChange={(e) => setFeatureId(e.target.value)}
-                    className="!text-sm"
                     aria-label="프로젝트 연결"
                   >
                     <option value="">프로젝트 연결 (선택)</option>
@@ -187,16 +184,15 @@ export function ActivityComposer({
                   {/* 작업 검색 인풋 + 필터된 목록 (전체 작업 연결 가능) */}
                   <div className="flex flex-col gap-1.5">
                     <Input
+                      size="sm"
                       value={taskSearch}
                       onChange={(e) => setTaskSearch(e.target.value)}
                       placeholder="작업 검색 (제목)…"
-                      className="!py-1.5 !text-sm"
                       aria-label="연결 작업 검색"
                     />
                     <Select
                       value={taskId}
                       onChange={(e) => setTaskId(e.target.value)}
-                      className="!text-sm"
                       aria-label="작업 연결"
                     >
                       <option value="">작업 연결 (선택)</option>
@@ -215,15 +211,16 @@ export function ActivityComposer({
               <div className="flex items-center gap-2">
                 {/* 진행 업데이트만 팀 메신저로 전달됨을 안내 (메모는 미전달) */}
                 {type === "update" && (
-                  <p className="min-w-0 flex-1 truncate text-[11px] text-zinc-400">
-                    📨 게시하면 팀 메신저에도 소식이 전달됩니다
+                  <p className="flex min-w-0 flex-1 items-center gap-1 truncate text-nd-micro font-normal text-nd-fg-3">
+                    <Icon icon={Send} size={12} />
+                    게시하면 팀 메신저에도 소식이 전달됩니다
                   </p>
                 )}
                 <div className="ml-auto flex shrink-0 items-center gap-2">
                   {!compact && (
                     <Button
                       variant="secondary"
-                      className="!px-3 !py-1.5 !text-xs"
+                      size="sm"
                       onClick={() => {
                         setExpanded(false);
                         setBody("");
@@ -234,7 +231,7 @@ export function ActivityComposer({
                       접기
                     </Button>
                   )}
-                  <Button className="!px-4 !py-1.5 !text-xs" onClick={submit} disabled={busy || !canSubmit}>
+                  <Button size="sm" onClick={submit} disabled={busy || !canSubmit} loading={busy}>
                     {busy ? "올리는 중…" : "소식 올리기"}
                   </Button>
                 </div>
@@ -243,6 +240,7 @@ export function ActivityComposer({
           )}
         </div>
       </div>
-    </Card>
   );
+  if (compact) return <div className="rounded-nd-md border border-nd-line p-3">{inner}</div>;
+  return <Card>{inner}</Card>;
 }

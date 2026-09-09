@@ -10,12 +10,13 @@
 // ============================================================
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CalendarSync, Trash2 } from "lucide-react";
 import { useAppData } from "@/components/neander/app-data";
 import { updateDevTask, setDevTaskStatus, deleteDevTask } from "@/lib/neander/dev/tasks";
 import { addActivity } from "@/lib/neander/dev/activity";
 import { emptyToUndef } from "@/lib/neander/db/helpers";
 import { FeatureChip } from "@/components/neander/dev/atoms";
-import { Input, Select, MemberAvatar, cn } from "@/components/neander/ui";
+import { Badge, Button, Icon, Input, Select, MemberAvatar, cn, useConfirm, type Tone } from "@/components/neander/ui";
 import {
   DEV_STATUSES,
   DEV_PRIORITIES,
@@ -29,12 +30,12 @@ import {
 } from "@/lib/neander/dev/types";
 import { taskStatusLabel, type Member, type TaskStatus } from "@/lib/neander/types";
 
-/** 일일업무 상태별 배지 색 (예정/완료/연장/보류) */
-const MIRROR_BADGE: Record<TaskStatus, string> = {
-  todo: "bg-indigo-50 text-indigo-600",
-  done: "bg-emerald-50 text-emerald-600",
-  extended: "bg-amber-50 text-amber-600",
-  on_hold: "bg-zinc-100 text-zinc-500",
+/** 일일업무 상태별 배지 톤 (예정/완료/연장/보류) */
+const MIRROR_TONE: Record<TaskStatus, Tone> = {
+  todo: "accent",
+  done: "success",
+  extended: "warning",
+  on_hold: "neutral",
 };
 
 export function TaskDetailSidebar({
@@ -49,6 +50,7 @@ export function TaskDetailSidebar({
   features: DevFeature[];
 }) {
   const { currentMember, tasks: dailyTasks } = useAppData();
+  const confirm = useConfirm();
   const canEdit = !!currentMember;
 
   const feature = task.featureId ? features.find((f) => f.id === task.featureId) : undefined;
@@ -124,7 +126,7 @@ export function TaskDetailSidebar({
   }
 
   return (
-    <aside className="flex flex-col gap-3 lg:border-l lg:border-zinc-100 lg:pl-5">
+    <aside className="flex flex-col gap-3 lg:border-l lg:border-nd-line lg:pl-5">
       <EnumSelectRow
         label="상태"
         value={task.status}
@@ -152,7 +154,7 @@ export function TaskDetailSidebar({
           value={task.featureId ?? ""}
           disabled={!canEdit}
           onChange={(e) => setFeature(e.target.value)}
-          className="!py-1.5 !text-sm"
+          size="sm"
           aria-label="프로젝트"
         >
           <option value="">연결 안 함</option>
@@ -175,14 +177,14 @@ export function TaskDetailSidebar({
           value={task.dueDate ?? ""}
           disabled={!canEdit}
           onChange={(e) => updateDevTask(task.id, { dueDate: emptyToUndef(e.target.value) }, currentMember)}
-          className="!py-1.5 !text-sm"
+          size="sm"
           aria-label="마감일"
         />
       </SideRow>
 
       <SideRow label="담당자">
         {members.length === 0 ? (
-          <p className="text-xs text-zinc-400">팀원 없음</p>
+          <p className="text-nd-caption text-nd-fg-3">팀원 없음</p>
         ) : (
           <div className="flex flex-wrap gap-1.5">
             {members.map((m) => {
@@ -196,10 +198,10 @@ export function TaskDetailSidebar({
                   aria-label={`${active ? "담당 해제" : "담당 지정"}: ${m.name}`}
                   aria-pressed={active}
                   className={cn(
-                    "inline-flex items-center gap-1 rounded-full border py-0.5 pl-0.5 pr-2 text-[11px] font-medium transition disabled:opacity-60",
+                    "inline-flex items-center gap-1 rounded-full border py-0.5 pl-0.5 pr-2 text-nd-micro transition-colors duration-nd-fast disabled:opacity-60",
                     active
-                      ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                      : "border-zinc-200 bg-white text-zinc-500 hover:bg-zinc-50",
+                      ? "border-nd-accent bg-nd-accent-soft text-nd-accent-strong"
+                      : "border-nd-border bg-nd-content text-nd-fg-2 hover:bg-nd-sunken",
                   )}
                 >
                   <MemberAvatar
@@ -217,30 +219,31 @@ export function TaskDetailSidebar({
       </SideRow>
 
       {/* 일일업무 연동 현황 — dailyTaskIds 는 브릿지가 관리(읽기 전용 표시) */}
-      <SideRow label="📅 일일업무 연동">
+      <SideRow
+        label={
+          <span className="inline-flex items-center gap-1">
+            <Icon icon={CalendarSync} size={12} />
+            일일업무 연동
+          </span>
+        }
+      >
         {mirrors.length === 0 ? (
-          <p className="text-xs leading-relaxed text-zinc-400">
+          <p className="text-nd-caption leading-relaxed text-nd-fg-3">
             담당자 배정 시 일일업무·캘린더에 자동 등록됩니다.
           </p>
         ) : (
-          <ul className="flex flex-col gap-1">
+          <ul className="flex flex-col divide-y divide-nd-line rounded-nd-md border border-nd-line bg-nd-sunken">
             {mirrors.map((m) => (
-              <li
-                key={m.memberId}
-                className="flex items-center gap-2 rounded-lg border border-zinc-100 bg-zinc-50/60 px-2 py-1.5"
-              >
-                <span className="min-w-0 flex-1 truncate text-xs text-zinc-600">{m.name}</span>
-                {m.daily?.date && (
-                  <span className="shrink-0 text-[10px] tabular-nums text-zinc-400">{m.daily.date}</span>
-                )}
-                <span
-                  className={cn(
-                    "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
-                    m.daily ? MIRROR_BADGE[m.daily.status] : "bg-zinc-100 text-zinc-500",
-                  )}
-                >
-                  {m.daily ? taskStatusLabel(m.daily.status) : "등록됨"}
+              <li key={m.memberId} className="flex items-center gap-2 px-2 py-1.5">
+                <span className="min-w-0 flex-1 truncate text-nd-caption text-nd-fg-2" title={m.name}>
+                  {m.name}
                 </span>
+                {m.daily?.date && (
+                  <span className="nd-num shrink-0 text-nd-micro font-normal text-nd-fg-3">{m.daily.date}</span>
+                )}
+                <Badge size="sm" tone={m.daily ? MIRROR_TONE[m.daily.status] : "neutral"} className="font-semibold">
+                  {m.daily ? taskStatusLabel(m.daily.status) : "등록됨"}
+                </Badge>
               </li>
             ))}
           </ul>
@@ -248,27 +251,37 @@ export function TaskDetailSidebar({
       </SideRow>
 
       {canEdit && (
-        <button
-          onClick={() => {
-            if (confirm("이 작업을 삭제할까요?")) {
+        <Button
+          variant="danger"
+          size="sm"
+          icon={Trash2}
+          onClick={async () => {
+            if (
+              await confirm({
+                title: "이 작업을 삭제할까요?",
+                message: "삭제한 작업은 되돌릴 수 없습니다.",
+                confirmLabel: "삭제",
+                tone: "danger",
+              })
+            ) {
               deleteDevTask(task.id);
               onClose();
             }
           }}
           aria-label="작업 삭제"
-          className="mt-2 rounded-lg border border-red-200 px-3 py-2 text-xs font-medium text-red-600 transition hover:bg-red-50"
+          className="mt-2 self-start"
         >
           작업 삭제
-        </button>
+        </Button>
       )}
     </aside>
   );
 }
 
-function SideRow({ label, children }: { label: string; children: React.ReactNode }) {
+function SideRow({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   return (
     <div>
-      <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+      <span className="mb-1 block text-nd-micro font-semibold uppercase tracking-wide text-nd-fg-3">
         {label}
       </span>
       {children}
@@ -296,7 +309,7 @@ function EnumSelectRow({
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
-        className="!py-1.5 !text-sm"
+        size="sm"
         aria-label={label}
       >
         {options.map((o) => (

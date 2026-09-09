@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Bell, CalendarPlus, Check, Mail, Pencil, UserX } from "lucide-react";
 import { useAppData } from "@/components/neander/app-data";
 import { useChat } from "@/components/neander/chat";
 import { dmConversationId } from "@/lib/neander/db/chat";
@@ -19,7 +20,9 @@ import { emptyToUndef } from "@/lib/neander/db/helpers";
 import {
   Button,
   Card,
+  CountBadge,
   Field,
+  Icon,
   Input,
   Textarea,
   PageHeader,
@@ -27,7 +30,11 @@ import {
   EmptyState,
   MemberAvatar,
   CategoryPicker,
+  SegmentedControl,
+  useConfirm,
+  useToast,
   cn,
+  type Tone,
 } from "@/components/neander/ui";
 import {
   RECEIVED_STATUS_ACTIONS,
@@ -47,12 +54,14 @@ import {
   weekRangeLabel,
 } from "@/lib/neander/format";
 
-const STATUS_COLOR: Record<RequestStatus, string> = {
-  requested: "#ea580c",
-  in_progress: "#2563eb",
-  done: "#16a34a",
-  on_hold: "#ca8a04",
+const STATUS_TONE: Record<RequestStatus, Tone> = {
+  requested: "accent",
+  in_progress: "info",
+  done: "success",
+  on_hold: "warning",
 };
+
+type MemberLite = { id: string; name: string; color?: string; avatar?: string };
 
 // 요청 목록을 주(week)별로 묶어 최신 주가 위로 오도록 정렬
 function groupByWeek(list: WorkRequest[]) {
@@ -72,6 +81,45 @@ function groupByWeek(list: WorkRequest[]) {
     }));
 }
 
+/** 받는 사람 선택 — 아바타 칸 (등록·수정 폼 공용) */
+function RecipientPicker({
+  members,
+  value,
+  onChange,
+}: {
+  members: MemberLite[];
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  if (members.length === 0) {
+    return <p className="text-nd-caption text-nd-fg-3">등록된 다른 팀원이 없습니다.</p>;
+  }
+  return (
+    <div className="flex flex-wrap gap-2" role="group" aria-label="받는 사람">
+      {members.map((m) => {
+        const selected = value === m.id;
+        return (
+          <button
+            type="button"
+            key={m.id}
+            onClick={() => onChange(m.id)}
+            aria-pressed={selected}
+            className={cn(
+              "flex w-16 flex-col items-center gap-1 rounded-nd-md border p-2 transition-colors duration-nd-fast",
+              selected ? "border-nd-accent bg-nd-accent-soft" : "border-nd-line hover:bg-nd-sunken",
+            )}
+          >
+            <MemberAvatar name={m.name} color={m.color} avatar={m.avatar} className="h-9 w-9 text-base" />
+            <span className="w-full truncate text-center text-nd-caption text-nd-fg-2" title={m.name}>
+              {m.name}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function RequestsPage() {
   const { requests, members, currentMember } = useAppData();
   const [tab, setTab] = useState<"received" | "sent">("received");
@@ -87,13 +135,14 @@ export default function RequestsPage() {
 
   const list = tab === "received" ? received : sent;
   const grouped = useMemo(() => groupByWeek(list), [list]);
+  const unacked = received.filter((r) => !r.acknowledged).length;
 
   if (!currentMember) {
     return (
       <div>
         <PageHeader title="업무요청" description="구성원에게 업무를 요청하고 진행 상태를 추적합니다." />
         <EmptyState
-          icon="👤"
+          icon={UserX}
           title="로그인 계정이 팀원과 연결되어야 합니다"
           description="팀원 관리에서 본인 Google 이메일을 등록하면 요청을 주고받을 수 있습니다."
         />
@@ -109,24 +158,29 @@ export default function RequestsPage() {
         <RequestForm members={members} me={currentMember} />
 
         <div className="flex flex-col gap-4">
-          {/* 탭 */}
-          <div className="flex gap-1 rounded-lg border border-zinc-200 bg-white p-1">
-            <TabBtn active={tab === "received"} onClick={() => setTab("received")}>
-              받은 요청
-              {received.filter((r) => !r.acknowledged).length > 0 && (
-                <span className="ml-1.5 rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
-                  {received.filter((r) => !r.acknowledged).length}
-                </span>
-              )}
-            </TabBtn>
-            <TabBtn active={tab === "sent"} onClick={() => setTab("sent")}>
-              보낸 요청 ({sent.length})
-            </TabBtn>
-          </div>
+          {/* 받은/보낸 전환 */}
+          <SegmentedControl<"received" | "sent">
+            fill
+            ariaLabel="요청 구분"
+            value={tab}
+            onChange={setTab}
+            options={[
+              {
+                value: "received",
+                label: (
+                  <>
+                    받은 요청
+                    {unacked > 0 && <CountBadge count={unacked} label={`미확인 ${unacked}건`} />}
+                  </>
+                ),
+              },
+              { value: "sent", label: "보낸 요청", hint: `${sent.length}` },
+            ]}
+          />
 
           {list.length === 0 ? (
             <EmptyState
-              icon="✉️"
+              icon={Mail}
               title={tab === "received" ? "받은 요청이 없습니다" : "보낸 요청이 없습니다"}
             />
           ) : (
@@ -134,9 +188,9 @@ export default function RequestsPage() {
               {grouped.map((week) => (
                 <div key={week.key} className="flex flex-col gap-3">
                   <div className="flex items-center gap-2">
-                    <h3 className="text-xs font-semibold text-zinc-500">{week.label}</h3>
-                    <span className="text-[10px] text-zinc-400">· {week.items.length}건</span>
-                    <div className="h-px flex-1 bg-zinc-100" />
+                    <h3 className="text-nd-caption font-semibold text-nd-fg-2">{week.label}</h3>
+                    <span className="nd-num text-nd-micro text-nd-fg-3">· {week.items.length}건</span>
+                    <div className="h-px flex-1 bg-nd-line" />
                   </div>
                   {week.items.map((r) => (
                     <RequestCard key={r.id} req={r} mode={tab} members={members} />
@@ -151,28 +205,6 @@ export default function RequestsPage() {
   );
 }
 
-function TabBtn({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={
-        "flex flex-1 items-center justify-center rounded-md px-3 py-1.5 text-sm font-medium transition " +
-        (active ? "bg-indigo-50 text-indigo-700" : "text-zinc-500 hover:bg-zinc-50")
-      }
-    >
-      {children}
-    </button>
-  );
-}
-
 function RequestCard({
   req,
   mode,
@@ -180,9 +212,11 @@ function RequestCard({
 }: {
   req: WorkRequest;
   mode: "received" | "sent";
-  members: { id: string; name: string; color?: string; avatar?: string }[];
+  members: MemberLite[];
 }) {
   const { send } = useChat();
+  const toast = useToast();
+  const confirm = useConfirm();
   const done = req.status === "done";
   const overdue = !done && isOverdue(req.dueDate);
   const [reply, setReply] = useState(req.replyMessage ?? "");
@@ -234,13 +268,18 @@ function RequestCard({
         `${req.fromName}님이 '${req.title}'에 압박을 주고 있습니다. 빠르게 처리해주세요.`,
       );
       if (!sent) {
-        alert("메시지를 보낼 수 없습니다. 로그인 상태를 확인하고 다시 시도해주세요.");
+        toast.error("메시지를 보낼 수 없습니다. 로그인 상태를 확인하고 다시 시도해주세요.");
         return;
       }
       await nudgeRequest(req.id);
     } finally {
       setNudging(false);
     }
+  }
+
+  async function remove() {
+    if (!(await confirm({ title: "이 요청을 삭제할까요?", confirmLabel: "삭제", tone: "danger" }))) return;
+    deleteRequest(req.id);
   }
 
   // 보낸 요청 수정 모드
@@ -255,24 +294,26 @@ function RequestCard({
   }
 
   return (
-    <Card className={done ? "!border-green-400 !bg-green-50" : ""}>
+    <Card className={cn(done && "ring-1 ring-nd-success/40")}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge color={STATUS_COLOR[req.status]}>{requestStatusLabel(req.status)}</Badge>
+            <Badge tone={STATUS_TONE[req.status]} dot>
+              {requestStatusLabel(req.status)}
+            </Badge>
             {req.category && (
               <Badge color={taskCategoryColor(req.category)}>{taskCategoryLabel(req.category)}</Badge>
             )}
-            {overdue && <Badge color="#dc2626">마감 지남</Badge>}
+            {overdue && <Badge tone="danger">마감 지남</Badge>}
           </div>
-          <div className={cn("mt-2 text-sm font-semibold", done ? "text-green-700" : "text-zinc-900")}>
+          <div className={cn("mt-2 text-nd-body font-semibold", done ? "text-nd-success-text" : "text-nd-fg")}>
             {req.title}
           </div>
-          {req.detail && <p className="mt-1 text-sm text-zinc-600">{req.detail}</p>}
-          <div className="mt-2 flex flex-wrap gap-2 text-xs text-zinc-400">
+          {req.detail && <p className="mt-1 text-nd-body text-nd-fg-2">{req.detail}</p>}
+          <div className="mt-2 flex flex-wrap gap-2 text-nd-caption text-nd-fg-3">
             <span>{mode === "received" ? `${req.fromName} → 나` : `나 → ${req.toName}`}</span>
-            <span>· {formatTimestamp(req.createdAt)}</span>
-            {req.dueDate && <span>· 마감 {formatDateKo(req.dueDate)}</span>}
+            <span className="nd-num">· {formatTimestamp(req.createdAt)}</span>
+            {req.dueDate && <span className="nd-num">· 마감 {formatDateKo(req.dueDate)}</span>}
           </div>
         </div>
 
@@ -280,30 +321,20 @@ function RequestCard({
         <div className="flex shrink-0 items-center gap-1.5">
           {mode === "received" ? (
             req.acknowledged ? (
-              <span className="text-xs font-medium text-green-600">✓ 확인완료</span>
+              <Badge tone="success">
+                <Icon icon={Check} size={12} /> 확인완료
+              </Badge>
             ) : (
-              <Button
-                className="!px-2.5 !py-1 !text-xs"
-                onClick={() => acknowledgeRequest(req.id)}
-              >
+              <Button size="sm" onClick={() => acknowledgeRequest(req.id)}>
                 확인완료
               </Button>
             )
           ) : (
             <>
-              <Button
-                variant="secondary"
-                className="!px-2.5 !py-1 !text-xs"
-                onClick={nudge}
-                disabled={nudging}
-              >
-                🔔 압박 주기
+              <Button variant="secondary" size="sm" icon={Bell} onClick={nudge} loading={nudging}>
+                압박 주기
               </Button>
-              {nudgeCount > 0 && (
-                <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                  {nudgeCount}
-                </span>
-              )}
+              {nudgeCount > 0 && <CountBadge count={nudgeCount} label={`압박 ${nudgeCount}회`} />}
             </>
           )}
         </div>
@@ -311,16 +342,17 @@ function RequestCard({
 
       {/* 받은 사람: 상태 변경 + 답장 메시지 */}
       {mode === "received" ? (
-        <div className="mt-3 flex flex-col gap-3 border-t border-zinc-100 pt-3">
+        <div className="mt-3 flex flex-col gap-3 border-t border-nd-line pt-3">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-zinc-400">상태 변경:</span>
+            <span className="text-nd-caption text-nd-fg-3">상태 변경:</span>
             {RECEIVED_STATUS_ACTIONS.map((s) => (
               <Button
                 key={s.value}
                 variant={req.status === s.value ? "primary" : "secondary"}
-                className="!px-2.5 !py-1 !text-xs"
+                size="sm"
                 onClick={() => setRequestStatus(req.id, s.value)}
                 disabled={req.status === s.value}
+                aria-pressed={req.status === s.value}
               >
                 {s.label}
               </Button>
@@ -330,38 +362,43 @@ function RequestCard({
           {/* 일일업무 추가 */}
           <div className="flex flex-wrap items-center gap-2">
             {req.taskId ? (
-              <span className="text-xs font-medium text-emerald-600">
-                ✓ 일일업무 추가됨{req.dueDate ? ` · ${formatDateKo(req.dueDate)}` : " · 오늘"}
+              <span className="inline-flex items-center gap-1 text-nd-caption font-medium text-nd-success-text">
+                <Icon icon={Check} size={13} />
+                일일업무 추가됨{req.dueDate ? ` · ${formatDateKo(req.dueDate)}` : " · 오늘"}
               </span>
             ) : (
               <Button
                 variant="secondary"
-                className="!px-2.5 !py-1 !text-xs"
+                size="sm"
+                icon={CalendarPlus}
                 onClick={addToDailyTasks}
-                disabled={addingTask}
+                loading={addingTask}
               >
                 {addingTask
                   ? "추가 중…"
-                  : `📅 ${req.dueDate ? `${formatDateKo(req.dueDate)} ` : "오늘 "}일일업무에 추가`}
+                  : `${req.dueDate ? `${formatDateKo(req.dueDate)} ` : "오늘 "}일일업무에 추가`}
               </Button>
             )}
           </div>
 
           <div className="flex flex-col gap-2">
-            <span className="text-xs text-zinc-400">요청자에게 남길 메시지</span>
-            <div className="flex items-start gap-2">
+            <span className="text-nd-caption text-nd-fg-3">요청자에게 남길 메시지</span>
+            <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-start">
               <Textarea
                 rows={2}
                 value={reply}
                 onChange={(e) => setReply(e.target.value)}
                 placeholder="예: 오늘 중으로 처리하겠습니다 / 자료가 더 필요해요"
                 className="flex-1"
+                aria-label="요청자에게 남길 메시지"
               />
               <Button
                 variant="secondary"
-                className="!px-3 !py-2 !text-xs"
+                size="sm"
                 onClick={saveReply}
-                disabled={!replyDirty || savingReply}
+                loading={savingReply}
+                disabled={!replyDirty}
+                className="self-end sm:self-start"
               >
                 {savingReply ? "저장 중…" : "메시지 저장"}
               </Button>
@@ -370,28 +407,18 @@ function RequestCard({
         </div>
       ) : (
         /* 보낸 사람: 상대 답장 표시 + 삭제 */
-        <div className="mt-3 flex flex-col gap-3 border-t border-zinc-100 pt-3">
+        <div className="mt-3 flex flex-col gap-3 border-t border-nd-line pt-3">
           {req.replyMessage && (
-            <div className="rounded-lg bg-white/70 px-3 py-2 ring-1 ring-zinc-100">
-              <div className="text-[11px] font-medium text-zinc-400">{req.toName}님의 답장</div>
-              <p className="mt-0.5 whitespace-pre-wrap text-sm text-zinc-700">{req.replyMessage}</p>
+            <div className="rounded-nd-md bg-nd-sunken px-3 py-2">
+              <div className="text-nd-micro font-medium text-nd-fg-3">{req.toName}님의 답장</div>
+              <p className="mt-0.5 whitespace-pre-wrap text-nd-body text-nd-fg-2">{req.replyMessage}</p>
             </div>
           )}
           <div className="flex gap-1.5">
-            <Button
-              variant="secondary"
-              className="!px-2.5 !py-1 !text-xs"
-              onClick={() => setEditing(true)}
-            >
-              ✏️ 수정
+            <Button variant="secondary" size="sm" icon={Pencil} onClick={() => setEditing(true)}>
+              수정
             </Button>
-            <Button
-              variant="danger"
-              className="!px-2.5 !py-1 !text-xs"
-              onClick={() => {
-                if (confirm("이 요청을 삭제할까요?")) deleteRequest(req.id);
-              }}
-            >
+            <Button variant="danger" size="sm" onClick={remove}>
               요청 삭제
             </Button>
           </div>
@@ -407,9 +434,10 @@ function RequestEditForm({
   onClose,
 }: {
   req: WorkRequest;
-  members: { id: string; name: string; color?: string; avatar?: string }[];
+  members: MemberLite[];
   onClose: () => void;
 }) {
+  const toast = useToast();
   const others = members.filter((m) => m.id !== req.fromId);
   const [toId, setToId] = useState(req.toId);
   // 원래 분류가 없던(레거시) 요청은 빈 상태를 유지 — 임의로 '아이디'를 강제하지 않음
@@ -420,9 +448,15 @@ function RequestEditForm({
   const [saving, setSaving] = useState(false);
 
   async function save() {
-    if (!title.trim()) return alert("제목을 입력하세요.");
+    if (!title.trim()) {
+      toast.error("제목을 입력하세요.");
+      return;
+    }
     const to = members.find((m) => m.id === toId);
-    if (!to) return alert("받는 사람을 선택하세요.");
+    if (!to) {
+      toast.error("받는 사람을 선택하세요.");
+      return;
+    }
     setSaving(true);
     try {
       await updateRequest(req.id, {
@@ -440,33 +474,11 @@ function RequestEditForm({
   }
 
   return (
-    <Card className="!border-indigo-300">
-      <h3 className="mb-3 text-sm font-semibold text-zinc-800">요청 수정</h3>
+    <Card className="ring-2 ring-nd-accent/60">
+      <h3 className="mb-3 text-nd-section text-nd-fg">요청 수정</h3>
       <div className="flex flex-col gap-4">
         <Field label="받는 사람" required>
-          {others.length === 0 ? (
-            <p className="text-xs text-zinc-400">등록된 다른 팀원이 없습니다.</p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {others.map((m) => {
-                const selected = toId === m.id;
-                return (
-                  <button
-                    type="button"
-                    key={m.id}
-                    onClick={() => setToId(m.id)}
-                    className={cn(
-                      "flex w-16 flex-col items-center gap-1 rounded-xl border p-2 transition",
-                      selected ? "border-indigo-500 bg-indigo-50" : "border-zinc-200 hover:bg-zinc-50",
-                    )}
-                  >
-                    <MemberAvatar name={m.name} color={m.color} avatar={m.avatar} className="h-9 w-9 text-base" />
-                    <span className="w-full truncate text-center text-xs text-zinc-700">{m.name}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          <RecipientPicker members={others} value={toId} onChange={setToId} />
         </Field>
         <Field label="분류" hint="비워두면 분류 없음">
           <CategoryPicker value={category} onChange={setCategory} />
@@ -481,7 +493,7 @@ function RequestEditForm({
           <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
         </Field>
         <div className="flex gap-2">
-          <Button onClick={save} disabled={saving || !title.trim()}>
+          <Button onClick={save} loading={saving} disabled={!title.trim()}>
             {saving ? "저장 중…" : "저장"}
           </Button>
           <Button variant="secondary" onClick={onClose} disabled={saving}>
@@ -497,9 +509,10 @@ function RequestForm({
   members,
   me,
 }: {
-  members: { id: string; name: string; color?: string; avatar?: string }[];
+  members: MemberLite[];
   me: { id: string; name: string };
 }) {
+  const toast = useToast();
   const others = members.filter((m) => m.id !== me.id);
   const [toId, setToId] = useState("");
   const [category, setCategory] = useState<TaskCategory>("id");
@@ -512,7 +525,10 @@ function RequestForm({
     e.preventDefault();
     if (!title.trim()) return;
     const to = members.find((m) => m.id === toId);
-    if (!to) return alert("받는 사람을 선택하세요.");
+    if (!to) {
+      toast.error("받는 사람을 선택하세요.");
+      return;
+    }
     setSaving(true);
     try {
       await addRequest({
@@ -535,34 +551,12 @@ function RequestForm({
   }
 
   return (
-    <Card>
-      <h2 className="mb-1 text-sm font-semibold text-zinc-800">업무 요청 보내기</h2>
-      <p className="mb-4 text-xs text-zinc-400">보내는 사람: {me.name}</p>
+    <Card className="self-start">
+      <h2 className="mb-1 text-nd-section text-nd-fg">업무 요청 보내기</h2>
+      <p className="mb-4 text-nd-caption text-nd-fg-3">보내는 사람: {me.name}</p>
       <form onSubmit={submit} className="flex flex-col gap-4">
         <Field label="받는 사람" required>
-          {others.length === 0 ? (
-            <p className="text-xs text-zinc-400">등록된 다른 팀원이 없습니다.</p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {others.map((m) => {
-                const selected = toId === m.id;
-                return (
-                  <button
-                    type="button"
-                    key={m.id}
-                    onClick={() => setToId(m.id)}
-                    className={cn(
-                      "flex w-16 flex-col items-center gap-1 rounded-xl border p-2 transition",
-                      selected ? "border-indigo-500 bg-indigo-50" : "border-zinc-200 hover:bg-zinc-50",
-                    )}
-                  >
-                    <MemberAvatar name={m.name} color={m.color} avatar={m.avatar} className="h-9 w-9 text-base" />
-                    <span className="w-full truncate text-center text-xs text-zinc-700">{m.name}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          <RecipientPicker members={others} value={toId} onChange={setToId} />
         </Field>
         <Field label="분류" required>
           <CategoryPicker value={category} onChange={setCategory} />
@@ -576,7 +570,7 @@ function RequestForm({
         <Field label="마감일" hint="선택">
           <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
         </Field>
-        <Button type="submit" disabled={saving || !title.trim() || others.length === 0}>
+        <Button type="submit" loading={saving} disabled={!title.trim() || others.length === 0}>
           {saving ? "전송 중…" : "요청 보내기"}
         </Button>
       </form>

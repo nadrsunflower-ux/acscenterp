@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Copy } from "lucide-react";
+import { Button, ErrorState, useToast } from "@/components/neander/ui";
 import { describeFinanceError } from "@/lib/neander/finance/errors";
 import { useFinance } from "./FinanceProvider";
 
@@ -10,39 +11,40 @@ import { useFinance } from "./FinanceProvider";
  */
 export function ErrorBanner() {
   const { error } = useFinance();
-  const [copied, setCopied] = useState(false);
+  const toast = useToast();
   if (!error) return null;
 
   const { title, detail, command } = describeFinanceError(error);
 
   return (
-    <div className="border-b border-rose-200 bg-rose-50">
-      <div className="mx-auto w-full max-w-7xl px-5 py-4">
-        <div className="flex gap-3">
-          <span className="text-lg leading-none">⚠️</span>
-          <div className="min-w-0">
-            <p className="font-semibold text-rose-900">{title}</p>
-            <p className="mt-1 text-sm leading-relaxed text-rose-800">{detail}</p>
-            {command && (
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <code className="rounded bg-white px-2 py-1 font-mono text-sm text-rose-900 ring-1 ring-rose-200">
-                  {command}
-                </code>
-                <button
-                  onClick={() => {
-                    navigator.clipboard?.writeText(command);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 1500);
-                  }}
-                  className="rounded-md px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100"
-                >
-                  {copied ? "복사됨" : "복사"}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+    <ErrorState
+      className="mb-5"
+      title={title}
+      description={
+        <>
+          <p>{detail}</p>
+          {command && (
+            <code className="mt-2 inline-block rounded-[8px] bg-nd-content px-2 py-1 font-mono text-nd-table text-nd-fg ring-1 ring-nd-danger/25">
+              {command}
+            </code>
+          )}
+        </>
+      }
+      action={
+        command ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={Copy}
+            onClick={() => {
+              navigator.clipboard?.writeText(command);
+              toast.success("명령을 복사했습니다");
+            }}
+          >
+            복사
+          </Button>
+        ) : undefined
+      }
+    />
   );
 }

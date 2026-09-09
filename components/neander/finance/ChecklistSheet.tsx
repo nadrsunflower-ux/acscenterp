@@ -38,6 +38,8 @@ import {
   type Column,
   type DataSheetGridRef,
 } from "react-datasheet-grid";
+import { Columns3, Minus, Plus, RotateCcw } from "lucide-react";
+import { Badge, Button, Divider, useConfirm } from "@/components/neander/ui";
 import {
   KoAddRows,
   KoContextMenu,
@@ -236,6 +238,7 @@ export function ChecklistSheet({
 }) {
   const { layout, setWidth, clearWidth, setRowHeight, reset, customized } = sheet;
   const gridRef = useRef<DataSheetGridRef>(null);
+  const confirm = useConfirm();
 
   // 정렬·필터는 보는 사람의 상태다 (문서에 저장하지 않는다)
   const [sort, setSort] = useState<ChecklistSort | null>(null);
@@ -294,7 +297,7 @@ export function ChecklistSheet({
   }, [picked, view, lines, createRow, onChange, transformed]);
 
   /** 고른 줄을 지운다. 여러 줄을 골랐으면 그 범위 전체. */
-  const removeRows = useCallback(() => {
+  const removeRows = useCallback(async () => {
     if (!picked) return;
     const targets = view.slice(picked.rowMin, picked.rowMax + 1);
     if (targets.length === 0) return;
@@ -309,14 +312,17 @@ export function ChecklistSheet({
         .slice(0, 3)
         .map((l) => l.item || l.category || "(이름 없음)")
         .join(", ");
-      const ok = window.confirm(
-        `${targets.length}줄을 지웁니다.\n${head}${filled.length > 3 ? ` 외 ${filled.length - 3}줄` : ""}`,
-      );
+      const ok = await confirm({
+        title: `${targets.length}줄을 지울까요?`,
+        message: `${head}${filled.length > 3 ? ` 외 ${filled.length - 3}줄` : ""}`,
+        confirmLabel: "삭제",
+        tone: "danger",
+      });
       if (!ok) return;
     }
     onChange(lines.filter((l) => !ids.has(l.id)));
     setPicked(null);
-  }, [picked, view, lines, onChange]);
+  }, [picked, view, lines, onChange, confirm]);
 
   /** 고른 열 **바로 오른쪽**에 새 열을 만든다 */
   const addColumnRight = useCallback(() => {
@@ -336,14 +342,15 @@ export function ChecklistSheet({
   );
 
   const removeColumn = useCallback(
-    (id: string) => {
+    async (id: string) => {
       const col = userColumns.find((c) => c.id === id);
       const used = lines.filter((l) => l.extra?.[id]).length;
-      const ok = window.confirm(
-        used > 0
-          ? `「${col?.label ?? "새 열"}」 열을 지웁니다. 이 열에 적힌 ${used}줄의 값도 함께 사라집니다.`
-          : `「${col?.label ?? "새 열"}」 열을 지웁니다.`,
-      );
+      const ok = await confirm({
+        title: `「${col?.label ?? "새 열"}」 열을 지울까요?`,
+        message: used > 0 ? `이 열에 적힌 ${used}줄의 값도 함께 사라집니다.` : undefined,
+        confirmLabel: "삭제",
+        tone: "danger",
+      });
       if (!ok) return;
       // 이 열 뒤에 붙어 있던 열은 이 열의 앵커를 물려받는다 (자리 유지)
       onColumnsChange(
@@ -358,7 +365,7 @@ export function ChecklistSheet({
       });
       setSort((s) => (s?.colId === extraKey(id) ? null : s));
     },
-    [userColumns, lines, onColumnsChange],
+    [userColumns, lines, onColumnsChange, confirm],
   );
 
   const cycleSort = useCallback(
@@ -417,7 +424,7 @@ export function ChecklistSheet({
             ...createDerivedColumn<SheetLine>({
               render: (l) => {
                 const v = lineEstimate(l);
-                return v === 0 ? <span className="text-zinc-300">—</span> : <span>{fmt(v)}</span>;
+                return v === 0 ? <span className="text-nd-fg-4">—</span> : <span>{fmt(v)}</span>;
               },
               copy: (l) => lineEstimate(l),
               alignRight: true,
@@ -510,53 +517,57 @@ export function ChecklistSheet({
   return (
     <div>
       {/* ---- 툴바 ---- */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-4 py-2 text-xs">
-        <button
-          type="button"
+      <div className="flex flex-wrap items-center gap-2 border-b border-nd-line px-5 py-2 text-nd-caption">
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={Plus}
           onClick={addRowBelow}
-          className="rounded border border-zinc-300 px-2 py-1 font-medium text-zinc-700 hover:bg-zinc-50"
           title="고른 줄 바로 아래에 새 줄을 넣습니다 (고른 줄이 없으면 맨 끝)"
         >
-          + 행 추가
-          <span className="ml-1 font-normal text-zinc-400">
+          행 추가
+          <span className="ml-1 font-normal text-nd-fg-3">
             {picked ? `${picked.rowMax + 1}행 아래` : "맨 끝"}
           </span>
-        </button>
-        <button
-          type="button"
-          onClick={removeRows}
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={Minus}
+          onClick={() => void removeRows()}
           disabled={!picked}
-          className="rounded border border-zinc-300 px-2 py-1 font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40"
           title={picked ? "고른 줄을 지웁니다" : "지울 줄을 먼저 고르세요"}
         >
-          − 행 삭제
-          <span className="ml-1 font-normal text-zinc-400">
+          행 삭제
+          <span className="ml-1 font-normal text-nd-fg-3">
             {picked
               ? picked.rowMax > picked.rowMin
                 ? `${picked.rowMin + 1}~${picked.rowMax + 1}행`
                 : `${picked.rowMax + 1}행`
               : "줄 선택"}
           </span>
-        </button>
+        </Button>
 
-        <span className="mx-1 h-4 w-px bg-zinc-200" aria-hidden />
+        <Divider vertical className="mx-1" />
 
-        <button
-          type="button"
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={Columns3}
           onClick={addColumnRight}
-          className="rounded border border-zinc-300 px-2 py-1 font-medium text-zinc-700 hover:bg-zinc-50"
           title="고른 열 바로 오른쪽에 새 열을 만듭니다 (고른 열이 없으면 맨 오른쪽)"
         >
-          + 열 추가
-          <span className="ml-1 font-normal text-zinc-400">
+          열 추가
+          <span className="ml-1 font-normal text-nd-fg-3">
             {pickedCol ? `${pickedCol} 오른쪽` : "맨 오른쪽"}
           </span>
-        </button>
-        <button
-          type="button"
-          onClick={() => picked?.colId && removeColumn(picked.colId.slice(2))}
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={Minus}
+          onClick={() => picked?.colId && void removeColumn(picked.colId.slice(2))}
           disabled={!canRemoveCol}
-          className="rounded border border-zinc-300 px-2 py-1 font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40"
           title={
             canRemoveCol
               ? `${pickedCol} 열을 지웁니다`
@@ -565,26 +576,27 @@ export function ChecklistSheet({
                 : "지울 열을 먼저 고르세요"
           }
         >
-          − 열 삭제
-          <span className="ml-1 font-normal text-zinc-400">{canRemoveCol ? pickedCol : "내가 만든 열"}</span>
-        </button>
+          열 삭제
+          <span className="ml-1 font-normal text-nd-fg-3">{canRemoveCol ? pickedCol : "내가 만든 열"}</span>
+        </Button>
 
-        <span className="ml-1 text-zinc-400">머리글을 누르면 정렬, 옆 화살표를 누르면 필터입니다.</span>
+        <span className="ml-1 hidden text-nd-fg-3 md:inline">머리글을 누르면 정렬, 옆 화살표를 누르면 필터입니다.</span>
 
         <div className="ml-auto flex items-center gap-2">
           {filterCount > 0 && (
-            <span className="rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-800">
+            <Badge tone="warning">
               {view.length} / {lines.length}줄 보임
-            </span>
+            </Badge>
           )}
           {(filterCount > 0 || sort) && (
-            <button
-              type="button"
+            <Button
+              variant="soft"
+              size="sm"
+              icon={RotateCcw}
               onClick={() => {
                 setFilters({});
                 setSort(null);
               }}
-              className="rounded border border-indigo-200 bg-indigo-50 px-2 py-1 font-medium text-indigo-700 hover:bg-indigo-100"
             >
               보기 초기화
               <span className="ml-1 font-normal">
@@ -592,7 +604,7 @@ export function ChecklistSheet({
                 {filterCount > 0 && sort ? " · " : ""}
                 {sort ? `정렬 ${labelOf(sort.colId)}` : ""}
               </span>
-            </button>
+            </Button>
           )}
         </div>
       </div>

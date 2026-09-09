@@ -8,6 +8,7 @@
 // ============================================================
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, GitBranch, GitPullRequest, Megaphone, Plus, RefreshCw, StickyNote, X, type LucideIcon } from "lucide-react";
 import { useAppData } from "@/components/neander/app-data";
 import { useDevData } from "@/components/neander/dev/dev-data";
 import { updateDevTask } from "@/lib/neander/dev/tasks";
@@ -16,7 +17,7 @@ import { CommentThread } from "@/components/neander/dev/CommentThread";
 import { ActivityComposer } from "@/components/neander/dev/ActivityComposer";
 import { TaskDetailSidebar } from "@/components/neander/dev/TaskDetailSidebar";
 import { KindTag } from "@/components/neander/dev/atoms";
-import { Button, Input, Textarea, cn } from "@/components/neander/ui";
+import { Badge, Button, Dialog, Icon, IconButton, Input, Textarea, cn } from "@/components/neander/ui";
 import { formatTimestamp } from "@/lib/neander/format";
 import {
   devId,
@@ -26,13 +27,22 @@ import {
 } from "@/lib/neander/dev/types";
 import type { Member } from "@/lib/neander/types";
 
-const TYPE_ICON: Record<string, string> = {
-  update: "📣",
-  note: "🗒️",
-  commit: "🔀",
-  pr: "🔃",
-  status: "🔁",
+const TYPE_ICON: Record<string, LucideIcon> = {
+  update: Megaphone,
+  note: StickyNote,
+  commit: GitBranch,
+  pr: GitPullRequest,
+  status: RefreshCw,
 };
+
+/** 섹션 소제목 — 대문자 캡션 */
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 className="mb-1.5 flex items-center gap-2 text-nd-micro font-semibold uppercase tracking-wide text-nd-fg-3">
+      {children}
+    </h3>
+  );
+}
 
 export function TaskDetailModal({
   task,
@@ -45,31 +55,11 @@ export function TaskDetailModal({
   members: Member[];
   features: DevFeature[];
 }) {
-  useEffect(() => {
-    if (!task) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [task, onClose]);
-
+  // ESC 닫기·포커스 가두기·스크롤 잠금은 Dialog 가 담당한다.
   if (!task) return null;
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-      role="dialog"
-      aria-modal="true"
-      aria-label={`작업 상세: ${task.title}`}
-    >
-      {/* task.id 로 키를 주어 다른 작업 선택 시 로컬 편집 상태 초기화 */}
-      <DetailBody key={task.id} task={task} onClose={onClose} members={members} features={features} />
-    </div>
-  );
+  // task.id 로 키를 주어 다른 작업 선택 시 로컬 편집 상태 초기화
+  return <DetailBody key={task.id} task={task} onClose={onClose} members={members} features={features} />;
 }
 
 function DetailBody({
@@ -165,250 +155,250 @@ function DetailBody({
 
   const doneCount = checklist.filter((i) => i.done).length;
 
-  return (
-    <div className="my-auto flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
-      {/* 헤더 (고정) — 본문만 내부 스크롤 */}
-      <div className="flex shrink-0 items-start gap-2 border-b border-zinc-100 p-5 sm:p-6">
-        <span className="mt-1">
-          <KindTag kind={task.kind} iconOnly />
-        </span>
-        <div className="min-w-0 flex-1">
-          {titleEdit && canEdit ? (
-            <div className="flex items-center gap-2">
-              <Input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") saveTitle();
-                }}
-                autoFocus
-                className="font-semibold"
-              />
-              <Button className="!px-3 !py-1.5 !text-xs" onClick={saveTitle}>
-                저장
-              </Button>
-            </div>
-          ) : (
-            <h2
-              className={cn(
-                "text-lg font-bold leading-snug tracking-tight text-zinc-900",
-                canEdit && "cursor-text rounded hover:bg-zinc-50",
-              )}
-              onClick={() => canEdit && (setTitle(task.title), setTitleEdit(true))}
-              title={canEdit ? "클릭해서 제목 수정" : undefined}
-            >
-              {task.title}
-            </h2>
-          )}
-          {task.reporterName && (
-            <p className="mt-1 text-xs text-zinc-400">배정: {task.reporterName}</p>
-          )}
-        </div>
-        <button
-          onClick={onClose}
-          className="shrink-0 rounded-lg px-2 py-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
-          aria-label="닫기"
-        >
-          ✕
-        </button>
+  // 헤더: 종류 아이콘 + (인라인 편집 가능한) 제목 + 배정자
+  const header = (
+    <div className="flex items-start gap-2">
+      <span className="mt-1">
+        <KindTag kind={task.kind} iconOnly />
+      </span>
+      <div className="min-w-0 flex-1">
+        {titleEdit && canEdit ? (
+          <div className="flex items-center gap-2">
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveTitle();
+              }}
+              autoFocus
+              className="font-semibold"
+              aria-label="제목"
+            />
+            <Button size="sm" onClick={saveTitle}>
+              저장
+            </Button>
+          </div>
+        ) : (
+          <span
+            className={cn(
+              "block text-nd-title leading-snug text-nd-fg",
+              canEdit && "cursor-text rounded-[6px] hover:bg-nd-sunken",
+            )}
+            onClick={() => canEdit && (setTitle(task.title), setTitleEdit(true))}
+            title={canEdit ? "클릭해서 제목 수정" : undefined}
+          >
+            {task.title}
+          </span>
+        )}
+        {task.reporterName && (
+          <p className="mt-1 text-nd-caption font-normal text-nd-fg-3">배정: {task.reporterName}</p>
+        )}
       </div>
+    </div>
+  );
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="grid grid-cols-1 gap-6 p-5 sm:p-6 lg:grid-cols-[1fr_300px]">
-          {/* ---- 좌: 본문 ---- */}
-          <div className="flex min-w-0 flex-col gap-5">
-            {/* 설명 */}
-            <section>
-              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-400">설명</h3>
-              {descEdit && canEdit ? (
-                <div className="flex flex-col gap-2">
-                  <Textarea rows={4} value={desc} onChange={(e) => setDesc(e.target.value)} autoFocus />
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      variant="secondary"
-                      className="!px-3 !py-1.5 !text-xs"
-                      onClick={() => {
-                        setDesc(task.description ?? "");
-                        setDescEdit(false);
-                      }}
-                    >
-                      취소
-                    </Button>
-                    <Button className="!px-3 !py-1.5 !text-xs" onClick={saveDesc}>
-                      저장
-                    </Button>
-                  </div>
+  return (
+    <Dialog open onClose={onClose} size="xl" title={header}>
+      {/* 머리글 아래 구분선은 본문 여백 밖까지(-mx) 그린다 */}
+      <div className="-mx-5 grid grid-cols-1 gap-6 border-t border-nd-line px-5 pt-5 sm:-mx-6 sm:px-6 lg:grid-cols-[1fr_300px]">
+        {/* ---- 좌: 본문 ---- */}
+        <div className="flex min-w-0 flex-col gap-5">
+          {/* 설명 */}
+          <section>
+            <SectionLabel>설명</SectionLabel>
+            {descEdit && canEdit ? (
+              <div className="flex flex-col gap-2">
+                <Textarea rows={4} value={desc} onChange={(e) => setDesc(e.target.value)} autoFocus />
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      setDesc(task.description ?? "");
+                      setDescEdit(false);
+                    }}
+                  >
+                    취소
+                  </Button>
+                  <Button size="sm" onClick={saveDesc}>
+                    저장
+                  </Button>
                 </div>
-              ) : task.description ? (
-                <p
-                  className={cn(
-                    "whitespace-pre-wrap break-words rounded-lg text-sm leading-relaxed text-zinc-700",
-                    canEdit && "cursor-text hover:bg-zinc-50",
-                  )}
-                  onClick={() => canEdit && (setDesc(task.description ?? ""), setDescEdit(true))}
-                >
-                  {task.description}
-                </p>
-              ) : (
-                <button
-                  onClick={() => canEdit && setDescEdit(true)}
-                  disabled={!canEdit}
-                  className="text-sm text-zinc-400 hover:text-indigo-600 disabled:hover:text-zinc-400"
-                >
-                  {canEdit ? "＋ 설명 추가" : "설명 없음"}
-                </button>
-              )}
-            </section>
-
-            {/* 체크리스트 */}
-            <section>
-              <h3 className="mb-1.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
-                체크리스트
-                {checklist.length > 0 && (
-                  <span className="tabular-nums text-zinc-500">
-                    {doneCount}/{checklist.length}
-                  </span>
+              </div>
+            ) : task.description ? (
+              <p
+                className={cn(
+                  "whitespace-pre-wrap break-words rounded-nd-md text-nd-body leading-relaxed text-nd-fg-2",
+                  canEdit && "cursor-text hover:bg-nd-sunken",
                 )}
-              </h3>
+                onClick={() => canEdit && (setDesc(task.description ?? ""), setDescEdit(true))}
+              >
+                {task.description}
+              </p>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={canEdit ? Plus : undefined}
+                onClick={() => canEdit && setDescEdit(true)}
+                disabled={!canEdit}
+                className="-ml-2.5 text-nd-fg-3"
+              >
+                {canEdit ? "설명 추가" : "설명 없음"}
+              </Button>
+            )}
+          </section>
+
+          {/* 체크리스트 */}
+          <section>
+            <SectionLabel>
+              체크리스트
               {checklist.length > 0 && (
-                <ul className="mb-2 flex flex-col gap-1">
-                  {checklist.map((i) => (
-                    <li key={i.id} className="group flex items-center gap-2">
-                      <button
-                        onClick={() => canEdit && toggleItem(i.id)}
-                        disabled={!canEdit}
-                        className={cn(
-                          "flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] transition",
-                          i.done
-                            ? "border-emerald-500 bg-emerald-500 text-white"
-                            : "border-zinc-300 hover:border-zinc-500",
-                        )}
-                        aria-label="완료 토글"
-                      >
-                        {i.done && "✓"}
-                      </button>
-                      <span
-                        className={cn(
-                          "min-w-0 flex-1 text-sm",
-                          i.done ? "text-zinc-400 line-through" : "text-zinc-700",
-                        )}
-                      >
-                        {i.text}
-                      </span>
-                      {canEdit && (
-                        <button
-                          onClick={() => removeItem(i.id)}
-                          className="shrink-0 text-xs text-zinc-300 opacity-0 transition hover:text-red-500 group-hover:opacity-100"
-                          aria-label="항목 삭제"
-                        >
-                          ✕
-                        </button>
+                <span className="nd-num text-nd-fg-2">
+                  {doneCount}/{checklist.length}
+                </span>
+              )}
+            </SectionLabel>
+            {checklist.length > 0 && (
+              <ul className="mb-2 flex flex-col gap-1">
+                {checklist.map((i) => (
+                  <li key={i.id} className="group flex items-center gap-2">
+                    <button
+                      onClick={() => canEdit && toggleItem(i.id)}
+                      disabled={!canEdit}
+                      className={cn(
+                        "flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors duration-nd-fast",
+                        i.done
+                          ? "border-nd-success bg-nd-success text-white"
+                          : "border-nd-strong hover:border-nd-fg-2",
                       )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {canEdit && (
-                <Input
-                  value={newItem}
-                  onChange={(e) => setNewItem(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") addChecklistItem();
-                  }}
-                  placeholder="+ 항목 추가 후 Enter"
-                  className="!py-1.5 !text-sm"
-                />
-              )}
-            </section>
-
-            {/* 라벨 */}
-            <section>
-              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-400">라벨</h3>
-              {labels.length > 0 && (
-                <div className="mb-2 flex flex-wrap gap-1.5">
-                  {labels.map((l) => (
+                      aria-label="완료 토글"
+                      aria-pressed={i.done}
+                    >
+                      {i.done && <Icon icon={Check} size={11} strokeWidth={3} />}
+                    </button>
                     <span
-                      key={l}
-                      className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600"
-                    >
-                      #{l}
-                      {canEdit && (
-                        <button
-                          onClick={() => removeLabel(l)}
-                          className="text-zinc-400 transition hover:text-red-500"
-                          aria-label={`라벨 삭제: ${l}`}
-                        >
-                          ✕
-                        </button>
+                      className={cn(
+                        "min-w-0 flex-1 text-nd-body",
+                        i.done ? "text-nd-fg-3 line-through" : "text-nd-fg-2",
                       )}
-                    </span>
-                  ))}
-                </div>
-              )}
-              {canEdit ? (
-                <Input
-                  value={newLabel}
-                  onChange={(e) => setNewLabel(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      addLabel();
-                    }
-                  }}
-                  placeholder="+ 라벨 추가 후 Enter"
-                  className="!py-1.5 !text-sm"
-                />
-              ) : (
-                labels.length === 0 && <p className="text-sm text-zinc-400">라벨 없음</p>
-              )}
-            </section>
-
-            {/* 연결된 타임라인 */}
-            <section>
-              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-400">
-                연결된 타임라인{" "}
-                {linkedActivity.length > 0 && <span className="text-zinc-500">{linkedActivity.length}</span>}
-              </h3>
-              {linkedActivity.length === 0 ? (
-                <p className="text-sm text-zinc-400">이 작업에 연결된 진행 기록이 없습니다.</p>
-              ) : (
-                <ul className="flex flex-col gap-1.5">
-                  {linkedActivity.map((a) => (
-                    <li
-                      key={a.id}
-                      className="flex items-start gap-2 rounded-lg border border-zinc-100 bg-zinc-50/60 px-2.5 py-1.5"
                     >
-                      <span className="text-sm leading-tight">{TYPE_ICON[a.type] ?? "•"}</span>
+                      {i.text}
+                    </span>
+                    {canEdit && (
+                      <IconButton
+                        icon={X}
+                        label="항목 삭제"
+                        size="sm"
+                        onClick={() => removeItem(i.id)}
+                        className="shrink-0 text-nd-fg-4 opacity-0 hover:text-nd-danger focus-visible:opacity-100 group-hover:opacity-100"
+                      />
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {canEdit && (
+              <Input
+                size="sm"
+                value={newItem}
+                onChange={(e) => setNewItem(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") addChecklistItem();
+                }}
+                placeholder="+ 항목 추가 후 Enter"
+                aria-label="체크리스트 항목 추가"
+              />
+            )}
+          </section>
+
+          {/* 라벨 */}
+          <section>
+            <SectionLabel>라벨</SectionLabel>
+            {labels.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {labels.map((l) => (
+                  <Badge key={l} tone="neutral" size="sm">
+                    #{l}
+                    {canEdit && (
+                      <button
+                        onClick={() => removeLabel(l)}
+                        className="-mr-0.5 inline-flex text-nd-fg-3 transition-colors duration-nd-fast hover:text-nd-danger"
+                        aria-label={`라벨 삭제: ${l}`}
+                      >
+                        <Icon icon={X} size={11} />
+                      </button>
+                    )}
+                  </Badge>
+                ))}
+              </div>
+            )}
+            {canEdit ? (
+              <Input
+                size="sm"
+                value={newLabel}
+                onChange={(e) => setNewLabel(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addLabel();
+                  }
+                }}
+                placeholder="+ 라벨 추가 후 Enter"
+                aria-label="라벨 추가"
+              />
+            ) : (
+              labels.length === 0 && <p className="text-nd-body text-nd-fg-3">라벨 없음</p>
+            )}
+          </section>
+
+          {/* 연결된 타임라인 */}
+          <section>
+            <SectionLabel>
+              연결된 타임라인
+              {linkedActivity.length > 0 && <span className="nd-num text-nd-fg-2">{linkedActivity.length}</span>}
+            </SectionLabel>
+            {linkedActivity.length === 0 ? (
+              <p className="text-nd-body text-nd-fg-3">이 작업에 연결된 진행 기록이 없습니다.</p>
+            ) : (
+              <ul className="flex flex-col divide-y divide-nd-line rounded-nd-md border border-nd-line bg-nd-sunken">
+                {linkedActivity.map((a) => {
+                  const I = TYPE_ICON[a.type];
+                  return (
+                    <li key={a.id} className="flex items-start gap-2 px-2.5 py-1.5">
+                      <span className="mt-0.5 text-nd-fg-3">
+                        {I ? <Icon icon={I} size={14} /> : <span aria-hidden>•</span>}
+                      </span>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm text-zinc-700">{a.title}</p>
-                        <p className="text-[11px] text-zinc-400">
+                        <p className="truncate text-nd-body text-nd-fg-2" title={a.title}>
+                          {a.title}
+                        </p>
+                        <p className="text-nd-micro font-normal text-nd-fg-3">
                           {a.authorName} · {formatTimestamp(a.createdAt)}
                         </p>
                       </div>
                     </li>
-                  ))}
-                </ul>
-              )}
-            </section>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
 
-            {/* 진행 업데이트 올리기 (타임라인 작성기 프리필) */}
-            <section>
-              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-400">
-                이 작업에 진행 업데이트 올리기
-              </h3>
-              <ActivityComposer defaultTaskId={task.id} defaultFeatureId={task.featureId} compact />
-            </section>
-          </div>
-
-          {/* ---- 우: 속성 사이드바 ---- */}
-          <TaskDetailSidebar task={task} onClose={onClose} members={members} features={features} />
+          {/* 진행 업데이트 올리기 (타임라인 작성기 프리필) */}
+          <section>
+            <SectionLabel>이 작업에 진행 업데이트 올리기</SectionLabel>
+            <ActivityComposer defaultTaskId={task.id} defaultFeatureId={task.featureId} compact />
+          </section>
         </div>
 
-        {/* 하단: 댓글 */}
-        <div className="border-t border-zinc-100 bg-zinc-50/50 p-5 sm:p-6">
-          <CommentThread targetType="task" targetId={task.id} />
-        </div>
+        {/* ---- 우: 속성 사이드바 ---- */}
+        <TaskDetailSidebar task={task} onClose={onClose} members={members} features={features} />
       </div>
-    </div>
+
+      {/* 하단: 댓글 — 본문 여백을 채워 바닥까지 */}
+      <div className="-mx-5 -mb-5 mt-5 border-t border-nd-line bg-nd-sunken px-5 py-5 sm:-mx-6 sm:px-6">
+        <CommentThread targetType="task" targetId={task.id} />
+      </div>
+    </Dialog>
   );
 }

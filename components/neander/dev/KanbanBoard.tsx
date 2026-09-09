@@ -8,9 +8,11 @@
 // ============================================================
 
 import { useMemo, useState } from "react";
+import { Plus } from "lucide-react";
 import { TaskCard } from "@/components/neander/dev/TaskCard";
+import { devStatusTone } from "@/components/neander/dev/atoms";
 import { reorderDevTask } from "@/lib/neander/dev/tasks";
-import { cn } from "@/components/neander/ui";
+import { Icon, StatusDot, cn } from "@/components/neander/ui";
 import {
   DEV_STATUSES,
   devPriorityRank,
@@ -98,7 +100,7 @@ export function KanbanBoard({
   }
 
   return (
-    <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2">
+    <div className="nd-scroll -mx-1 flex gap-3 overflow-x-auto px-1 pb-2">
       {DEV_STATUSES.map((s) => {
         const list = columns.get(s.value) ?? [];
         const active = dragOver === s.value;
@@ -117,10 +119,10 @@ export function KanbanBoard({
             onDrop={(e) => handleDrop(e, s.value)}
             className={cn(
               // 넓은 화면: flex-1 로 5컬럼이 가용폭을 채움 / 좁은 화면: min-w 유지 + 가로 스크롤
-              "flex min-w-[300px] flex-1 basis-[300px] flex-col rounded-2xl border p-2 transition-colors",
+              "flex min-w-[300px] flex-1 basis-[300px] flex-col rounded-nd-lg border p-2 transition-colors duration-nd-fast",
               active
-                ? "border-indigo-400 bg-indigo-50 ring-2 ring-indigo-200"
-                : "border-zinc-200 bg-zinc-100/60",
+                ? "border-nd-accent bg-nd-accent-soft shadow-nd-focus"
+                : "border-nd-line bg-nd-sunken",
             )}
           >
             {/* 컬럼 헤더 — title 로 상태 설명 tooltip 제공 */}
@@ -128,12 +130,10 @@ export function KanbanBoard({
               className="flex cursor-help items-center gap-2 px-1.5 py-1.5"
               title={STATUS_HINTS[s.value]}
             >
-              <span
-                className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: s.color }}
-              />
-              <h3 className="text-sm font-semibold text-zinc-700">{s.label}</h3>
-              <span className="rounded-full bg-white px-1.5 text-xs font-medium tabular-nums text-zinc-500 ring-1 ring-zinc-200">
+              <StatusDot tone={devStatusTone(s.value)} size={10}>
+                <h3 className="text-nd-body font-semibold text-nd-fg">{s.label}</h3>
+              </StatusDot>
+              <span className="nd-num rounded-full bg-nd-content px-1.5 text-nd-caption font-medium text-nd-fg-2 ring-1 ring-nd-line">
                 {list.length}
               </span>
             </div>
@@ -142,15 +142,15 @@ export function KanbanBoard({
             <div className="flex flex-1 flex-col gap-2 py-1">
               {/* 드롭 위치 안내선 — 드롭하면 컬럼 최상단에 놓인다 */}
               {active && list.length > 0 && (
-                <div className="h-1 shrink-0 rounded-full bg-indigo-400/70" aria-hidden />
+                <div className="h-1 shrink-0 rounded-full bg-nd-accent/60" aria-hidden />
               )}
               {list.length === 0 ? (
                 <div
                   className={cn(
-                    "rounded-xl border border-dashed px-2 py-6 text-center text-[11px] transition-colors",
+                    "rounded-nd-md border border-dashed px-2 py-6 text-center text-nd-micro transition-colors duration-nd-fast",
                     active
-                      ? "border-indigo-400 bg-indigo-100/60 font-medium text-indigo-600"
-                      : "border-zinc-300 text-zinc-400",
+                      ? "border-nd-accent bg-nd-accent/10 font-medium text-nd-accent-strong"
+                      : "border-nd-strong text-nd-fg-3",
                   )}
                 >
                   {active ? "여기에 놓기" : "작업 없음"}
@@ -175,10 +175,11 @@ export function KanbanBoard({
               <button
                 type="button"
                 onClick={() => onAdd(s.value)}
-                className="mt-1 rounded-lg px-2 py-1.5 text-left text-xs font-medium text-zinc-400 transition hover:bg-white hover:text-indigo-600"
+                className="mt-1 inline-flex h-ctl-sm items-center gap-1 rounded-[8px] px-2 text-left text-[13px] font-medium text-nd-fg-3 transition-colors duration-nd-fast hover:bg-nd-content hover:text-nd-accent-strong"
                 aria-label={`${s.label}에 작업 추가`}
               >
-                ＋ 여기에 작업 추가
+                <Icon icon={Plus} size={14} />
+                여기에 작업 추가
               </button>
             )}
           </section>

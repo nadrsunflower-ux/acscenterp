@@ -15,7 +15,17 @@
 // ============================================================
 
 import { useMemo, useState } from "react";
-import { Button } from "@/components/neander/ui";
+import { Trash2 } from "lucide-react";
+import {
+  Button,
+  Dialog,
+  Field,
+  InlineNotice,
+  Input,
+  Select,
+  Textarea,
+  useConfirm,
+} from "@/components/neander/ui";
 import { Money } from "@/components/neander/finance/ui";
 import { DocFilesField } from "@/components/neander/finance/DocFiles";
 import { deleteFinDoc, saveFinDoc, uploadFinDocFiles } from "@/lib/neander/finance/client";
@@ -27,11 +37,6 @@ import {
   type FinDocFile,
 } from "@/lib/neander/finance/docs";
 import { VAT_HINT, VAT_LABEL, VAT_MODES, splitVat, type VatMode } from "@/lib/neander/finance/project";
-
-const cell =
-  "h-8 w-full rounded border border-zinc-200 bg-white px-2 text-sm outline-none focus:border-indigo-500 focus:bg-indigo-50/30";
-const numCell = `${cell} text-right tabular-nums`;
-const lbl = "flex flex-col gap-1 text-xs text-zinc-500";
 
 export function ContractEditor({
   id: initialId,
@@ -51,6 +56,7 @@ export function ContractEditor({
   /** 프로젝트 초안의 계약금액·부가세 기준에 이 값을 넣는다 */
   onApplyAmount?: (amount: number, vatMode: VatMode) => void;
 }) {
+  const confirm = useConfirm();
   const [docId, setDocId] = useState<string | undefined>(initialId);
   const [form, setForm] = useState<FinContractInput>(initial);
   const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(initial));
@@ -65,8 +71,17 @@ export function ContractEditor({
 
   const set = <K extends keyof FinContractInput>(k: K, v: FinContractInput[K]) => setForm((f) => ({ ...f, [k]: v }));
 
-  const close = () => {
-    if (dirty && !window.confirm("저장하지 않은 변경이 있습니다. 닫을까요?")) return;
+  const close = async () => {
+    if (
+      dirty &&
+      !(await confirm({
+        title: "저장하지 않은 변경이 있습니다",
+        message: "닫으면 고친 내용이 사라집니다. 닫을까요?",
+        confirmLabel: "닫기",
+        tone: "danger",
+      }))
+    )
+      return;
     onClose();
   };
 
@@ -100,7 +115,13 @@ export function ContractEditor({
 
   const remove = async () => {
     if (!docId || !onDeleted) return;
-    if (!window.confirm(`계약서 「${form.title}」 를 지웁니다. 붙은 파일 ${files.length}개도 함께 사라집니다.`)) return;
+    const ok = await confirm({
+      title: `계약서 「${form.title}」 를 지울까요?`,
+      message: `붙은 파일 ${files.length}개도 함께 사라집니다.`,
+      confirmLabel: "삭제",
+      tone: "danger",
+    });
+    if (!ok) return;
     setSaving(true);
     try {
       await deleteFinDoc(docId);
@@ -113,97 +134,24 @@ export function ContractEditor({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-zinc-900/40 p-4 sm:p-8" onClick={close}>
-      <div role="dialog" aria-modal="true" className="w-full max-w-3xl rounded-2xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
-          <h2 className="text-lg font-bold text-zinc-900">{docId ? "계약서" : "계약서 등록"}</h2>
-          <button type="button" onClick={close} className="rounded-lg px-2 py-1 text-zinc-400 hover:bg-zinc-100" aria-label="닫기">✕</button>
-        </div>
-
-        {(error || okMsg) && (
-          <p className={`mx-6 mt-4 rounded-lg border px-3 py-2 text-xs ${error ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>
-            {error ?? okMsg}
-          </p>
-        )}
-
-        <div className="space-y-4 px-6 py-5">
-          <div className={lbl}>
-            파일 <span className="text-[10px] text-zinc-400">도장 찍힌 PDF 가 원본. 초안·수정본도 함께 두면 흐름이 남습니다</span>
-            <DocFilesField docId={docId} files={files} onFilesChange={setFiles} pending={pending} onPendingChange={setPending} disabled={saving} onError={setError} />
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-            <label className={lbl}>
-              계약명
-              <input value={form.title} onChange={(e) => set("title", e.target.value)} className={cell} placeholder="OST페어 관객체험프로그램 개발 및 운영 용역 계약" />
-            </label>
-            <label className={lbl}>
-              상대방 <span className="text-[10px] text-zinc-400">주최사 · 발주처</span>
-              <input value={form.counterparty} onChange={(e) => set("counterparty", e.target.value)} className={cell} placeholder="사단법인 제천국제음악영화제" />
-            </label>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <label className={lbl}>
-              계약금액 <span className="text-[10px] text-zinc-400">적힌 그대로</span>
-              <input type="number" inputMode="numeric" value={form.amount || ""} placeholder="0" onChange={(e) => set("amount", Number(e.target.value) || 0)} className={`${numCell} font-semibold`} />
-            </label>
-            <label className={lbl}>
-              부가세
-              <select value={form.vatMode} onChange={(e) => set("vatMode", e.target.value as VatMode)} className={`${cell} cursor-pointer`} title={VAT_HINT[form.vatMode]}>
-                {VAT_MODES.map((m) => (
-                  <option key={m} value={m}>{VAT_LABEL[m]}</option>
-                ))}
-              </select>
-            </label>
-            <label className={lbl}>
-              상태
-              <select value={form.status} onChange={(e) => set("status", e.target.value as ContractStatus)} className={`${cell} cursor-pointer`}>
-                {CONTRACT_STATUSES.map((s) => (
-                  <option key={s} value={s}>{CONTRACT_STATUS_LABEL[s]}</option>
-                ))}
-              </select>
-            </label>
-            <label className={lbl}>
-              체결일 <span className="text-[10px] text-zinc-400">날인한 날</span>
-              <input type="date" value={form.signedDate ?? ""} onChange={(e) => set("signedDate", e.target.value || undefined)} className={cell} />
-            </label>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-[repeat(2,minmax(0,12rem))_1fr]">
-            <label className={lbl}>
-              계약기간 시작
-              <input type="date" value={form.startDate ?? ""} onChange={(e) => set("startDate", e.target.value || undefined)} className={cell} />
-            </label>
-            <label className={lbl}>
-              계약기간 끝
-              <input type="date" value={form.endDate ?? ""} onChange={(e) => set("endDate", e.target.value || undefined)} className={cell} />
-            </label>
-            <dl className="grid grid-cols-[auto_auto] items-center gap-x-4 gap-y-0.5 self-end rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs">
-              <dt className="text-zinc-500">공급가액</dt>
-              <dd className="text-right"><Money value={split.supply} unit={false} /></dd>
-              <dt className="text-zinc-500">부가세</dt>
-              <dd className="text-right"><Money value={split.vat} unit={false} muted /></dd>
-              <dt className="font-semibold">총액</dt>
-              <dd className="text-right font-semibold"><Money value={split.total} unit={false} /></dd>
-            </dl>
-          </div>
-
-          <label className={lbl}>
-            메모 <span className="text-[10px] text-zinc-400">지급 조건 · 보증보험 · 지체상금 같은, 나중에 찾게 될 조항</span>
-            <textarea rows={3} value={form.note ?? ""} onChange={(e) => set("note", e.target.value || undefined)} className={`${cell} h-auto resize-y py-1.5`} placeholder="검수 완료일로부터 21일 이내 전액 · 계약이행보증보험 10% · 지체상금 1/1000" />
-          </label>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200 px-6 py-4">
+    <Dialog
+      open
+      onClose={() => void close()}
+      size="xl"
+      closeOnOverlay={false}
+      title={docId ? "계약서" : "계약서 등록"}
+      footer={
+        <div className="flex flex-1 flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             {docId && onDeleted && (
-              <Button variant="danger" className="h-8 px-3 text-xs" onClick={remove} disabled={saving}>삭제</Button>
+              <Button variant="danger" size="sm" icon={Trash2} onClick={remove} disabled={saving}>
+                삭제
+              </Button>
             )}
             {onApplyAmount && (
               <Button
                 variant="secondary"
-                className="h-8 px-3 text-xs"
+                size="sm"
                 disabled={saving || form.amount === 0}
                 onClick={() => {
                   onApplyAmount(form.amount, form.vatMode);
@@ -216,14 +164,94 @@ export function ContractEditor({
             )}
           </div>
           <div className="flex items-center gap-2">
-            {dirty && <span className="text-xs text-amber-700">저장 안 됨</span>}
-            <Button variant="ghost" className="h-8 px-3 text-xs" onClick={close} disabled={saving}>닫기</Button>
-            <Button className="h-8 px-3 text-xs" onClick={save} disabled={saving || !dirty}>
-              {saving ? "저장 중…" : "저장"}
+            {dirty && <span className="text-nd-caption text-nd-warning-text">저장 안 됨</span>}
+            <Button variant="ghost" onClick={() => void close()} disabled={saving}>
+              닫기
+            </Button>
+            <Button onClick={save} disabled={!dirty} loading={saving}>
+              저장
             </Button>
           </div>
         </div>
+      }
+    >
+      <div className="space-y-4">
+        {(error || okMsg) && (
+          <InlineNotice tone={error ? "danger" : "success"}>{error ?? okMsg}</InlineNotice>
+        )}
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-nd-caption font-medium text-nd-fg-2">
+            파일 <span className="ml-1 font-normal text-nd-fg-3">도장 찍힌 PDF 가 원본. 초안·수정본도 함께 두면 흐름이 남습니다</span>
+          </span>
+          <DocFilesField docId={docId} files={files} onFilesChange={setFiles} pending={pending} onPendingChange={setPending} disabled={saving} onError={setError} />
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+          <Field label="계약명">
+            <Input value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="OST페어 관객체험프로그램 개발 및 운영 용역 계약" />
+          </Field>
+          <Field label="상대방" hint="주최사 · 발주처">
+            <Input value={form.counterparty} onChange={(e) => set("counterparty", e.target.value)} placeholder="사단법인 제천국제음악영화제" />
+          </Field>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Field label="계약금액" hint="적힌 그대로">
+            <Input
+              type="number"
+              inputMode="numeric"
+              value={form.amount || ""}
+              placeholder="0"
+              onChange={(e) => set("amount", Number(e.target.value) || 0)}
+              className="nd-num text-right font-semibold"
+            />
+          </Field>
+          <Field label="부가세">
+            <Select value={form.vatMode} onChange={(e) => set("vatMode", e.target.value as VatMode)} title={VAT_HINT[form.vatMode]}>
+              {VAT_MODES.map((m) => (
+                <option key={m} value={m}>{VAT_LABEL[m]}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="상태">
+            <Select value={form.status} onChange={(e) => set("status", e.target.value as ContractStatus)}>
+              {CONTRACT_STATUSES.map((s) => (
+                <option key={s} value={s}>{CONTRACT_STATUS_LABEL[s]}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="체결일" hint="날인한 날">
+            <Input type="date" value={form.signedDate ?? ""} onChange={(e) => set("signedDate", e.target.value || undefined)} />
+          </Field>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-[repeat(2,minmax(0,12rem))_1fr]">
+          <Field label="계약기간 시작">
+            <Input type="date" value={form.startDate ?? ""} onChange={(e) => set("startDate", e.target.value || undefined)} />
+          </Field>
+          <Field label="계약기간 끝">
+            <Input type="date" value={form.endDate ?? ""} onChange={(e) => set("endDate", e.target.value || undefined)} />
+          </Field>
+          <dl className="grid grid-cols-[auto_auto] items-center gap-x-4 gap-y-0.5 self-end rounded-nd-md bg-nd-sunken px-3.5 py-2 text-nd-caption">
+            <dt className="text-nd-fg-2">공급가액</dt>
+            <dd className="text-right"><Money value={split.supply} unit={false} /></dd>
+            <dt className="text-nd-fg-2">부가세</dt>
+            <dd className="text-right"><Money value={split.vat} unit={false} muted /></dd>
+            <dt className="font-semibold text-nd-fg">총액</dt>
+            <dd className="text-right font-semibold"><Money value={split.total} unit={false} /></dd>
+          </dl>
+        </div>
+
+        <Field label="메모" hint="지급 조건 · 보증보험 · 지체상금 같은, 나중에 찾게 될 조항">
+          <Textarea
+            rows={3}
+            value={form.note ?? ""}
+            onChange={(e) => set("note", e.target.value || undefined)}
+            placeholder="검수 완료일로부터 21일 이내 전액 · 계약이행보증보험 10% · 지체상금 1/1000"
+          />
+        </Field>
       </div>
-    </div>
+    </Dialog>
   );
 }

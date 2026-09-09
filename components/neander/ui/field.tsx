@@ -6,19 +6,20 @@
 //  높이는 컨트롤 토큰(28/36/44)을 따른다. 필터바처럼 작아야 하면
 //  size="sm" 을 쓴다 — !py-1.5 같은 강제 오버라이드는 쓰지 않는다.
 // ============================================================
-import type {
-  InputHTMLAttributes,
-  SelectHTMLAttributes,
-  TextareaHTMLAttributes,
-  ButtonHTMLAttributes,
-  ReactNode,
+import {
+  forwardRef,
+  type InputHTMLAttributes,
+  type SelectHTMLAttributes,
+  type TextareaHTMLAttributes,
+  type ButtonHTMLAttributes,
+  type ReactNode,
 } from "react";
 import { cn } from "./cn";
 
 export type ControlSize = "sm" | "md" | "lg";
 
 const base =
-  "w-full border border-nd-border bg-nd-content text-nd-fg placeholder:text-nd-fg-3 transition-colors duration-nd-fast ease-nd focus:border-nd-accent disabled:cursor-not-allowed disabled:bg-nd-sunken disabled:text-nd-fg-3 aria-[invalid=true]:border-nd-danger";
+  "border border-nd-border bg-nd-content text-nd-fg placeholder:text-nd-fg-3 transition-colors duration-nd-fast ease-nd focus:border-nd-accent disabled:cursor-not-allowed disabled:bg-nd-sunken disabled:text-nd-fg-3 aria-[invalid=true]:border-nd-danger";
 
 const sizeCls: Record<ControlSize, string> = {
   sm: "h-ctl-sm rounded-[8px] px-2.5 text-[13px]",
@@ -26,8 +27,11 @@ const sizeCls: Record<ControlSize, string> = {
   lg: "h-ctl-lg rounded-nd-md px-3.5 text-[15px]",
 };
 
+/** className 에 w-* 가 있으면 기본 w-full 을 겹치지 않는다 (필터바의 w-48, w-auto) */
+const hasWidth = (cls?: string) => !!cls && /(^|\s)!?w-/.test(cls);
+
 export function controlClass(size: ControlSize = "md", className?: string) {
-  return cn(base, sizeCls[size], className);
+  return cn(!hasWidth(className) && "w-full", base, sizeCls[size], className);
 }
 
 // ---- Field (label + control) -------------------------------
@@ -69,22 +73,20 @@ export function Field({
 }
 
 // ---- Input ---------------------------------------------------
-export function Input({
-  className,
-  size = "md",
-  ...props
-}: Omit<InputHTMLAttributes<HTMLInputElement>, "size"> & { size?: ControlSize }) {
-  return <input className={controlClass(size, className)} {...props} />;
-}
+export type InputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "size"> & { size?: ControlSize };
+export const Input = forwardRef<HTMLInputElement, InputProps>(function Input({ className, size = "md", ...props }, ref) {
+  return <input ref={ref} className={controlClass(size, className)} {...props} />;
+});
 
 // ---- Textarea ------------------------------------------------
-export function Textarea({
-  className,
-  size = "md",
-  ...props
-}: TextareaHTMLAttributes<HTMLTextAreaElement> & { size?: ControlSize }) {
+export type TextareaProps = TextareaHTMLAttributes<HTMLTextAreaElement> & { size?: ControlSize };
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea(
+  { className, size = "md", ...props },
+  ref,
+) {
   return (
     <textarea
+      ref={ref}
       className={cn(
         base,
         "min-h-[5.5rem] resize-y py-2 leading-relaxed",
@@ -94,22 +96,21 @@ export function Textarea({
       {...props}
     />
   );
-}
+});
 
 // ---- Select --------------------------------------------------
 // 화살표는 배경 이미지로 그린다 — 래퍼 없이 className 이 그대로 select 에 붙는다.
 const chevron =
   "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>\")";
 
-export function Select({
-  className,
-  size = "md",
-  children,
-  style,
-  ...props
-}: Omit<SelectHTMLAttributes<HTMLSelectElement>, "size"> & { size?: ControlSize }) {
+export type SelectProps = Omit<SelectHTMLAttributes<HTMLSelectElement>, "size"> & { size?: ControlSize };
+export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
+  { className, size = "md", children, style, ...props },
+  ref,
+) {
   return (
     <select
+      ref={ref}
       className={cn(
         controlClass(size, className),
         "cursor-pointer appearance-none bg-no-repeat pr-8",
@@ -125,7 +126,7 @@ export function Select({
       {children}
     </select>
   );
-}
+});
 
 // ---- Checkbox ------------------------------------------------
 export function Checkbox({

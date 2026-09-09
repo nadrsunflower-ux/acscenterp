@@ -22,7 +22,7 @@
 //  ⚠️ 현장에서 계산대 앞에 서서 쓰는 화면이다. 한 손으로, 30초 안에
 //     끝나야 한다. 그래서 —
 //       · 한 줄에 한 칸. 두 칸을 나란히 놓지 않는다.
-//       · 손가락에 맞는 큰 입력칸(h-12)과 큰 버튼.
+//       · 손가락에 맞는 큰 입력칸(44px)과 큰 버튼.
 //       · 금액은 숫자 키패드가 뜨게 inputMode=numeric.
 //       · 날짜는 오늘로 채워 둔다. 대부분 오늘 쓴 것이다.
 //       · 카드는 마지막에 고른 것을 기억한다. 보통 같은 카드를 계속 쓴다.
@@ -30,8 +30,24 @@
 //         모르면 못 적게 만들면 아예 안 적는다.
 // ============================================================
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Card, EmptyState, Select } from "@/components/neander/ui";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Camera, CreditCard, Images, TriangleAlert } from "lucide-react";
+import {
+  Button,
+  Card,
+  EmptyState,
+  Icon,
+  InlineNotice,
+  Input,
+  LoadingState,
+  PageHeader,
+  SectionHeader,
+  Select,
+  StatusDot,
+  controlClass,
+  useConfirm,
+  useToast,
+} from "@/components/neander/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { Money } from "@/components/neander/finance/ui";
 import {
@@ -55,13 +71,22 @@ const commafy = (raw: string) => {
 
 /** 모델이 채운 칸임을 알린다 — 사람이 어디를 확인해야 하는지 알아야 한다 */
 const filled = (v: unknown) =>
-  v ? <span className="ml-1 font-normal text-indigo-500">· 캡처에서 읽음</span> : null;
+  v ? <span className="ml-1 font-normal text-nd-accent-strong">· 캡처에서 읽음</span> : null;
 
-const field =
-  "h-12 w-full rounded-xl border border-zinc-300 bg-white px-3.5 text-base text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
+/** 한 줄에 한 칸 — 라벨은 ReactNode(「캡처에서 읽음」 표시)라 Field 대신 지역 부품 */
+function Row({ label, children }: { label: ReactNode; children: ReactNode }) {
+  return (
+    <label className="block">
+      <span className="text-nd-caption font-medium text-nd-fg-2">{label}</span>
+      <div className="mt-1">{children}</div>
+    </label>
+  );
+}
 
 export default function CardMemoPage() {
   const { paymentMethods, loading } = useFinance();
+  const toast = useToast();
+  const confirm = useConfirm();
   const cards = useMemo(
     () => paymentMethods.filter((p) => p.kind === "card").sort((a, b) => a.alias.localeCompare(b.alias, "ko")),
     [paymentMethods],
@@ -80,7 +105,6 @@ export default function CardMemoPage() {
   const [read, setRead] = useState<ReceiptRead | null>(null);
   const [saving, setSaving] = useState(false);
   const [matching, setMatching] = useState(false);
-  const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const amountRef = useRef<HTMLInputElement>(null);
 
@@ -126,7 +150,6 @@ export default function CardMemoPage() {
       setRead(null);
       if (files.length === 0) return;
       setReading(true);
-      setNotice(null);
       try {
         const r = await readCardReceipt(files);
         setRead(r);
@@ -136,27 +159,24 @@ export default function CardMemoPage() {
         if (r.date) setDate(r.date);
         if (r.last4 && cards.some((c) => c.last4 === r.last4)) setLast4(r.last4);
         if (!r.amount && !r.vendor) {
-          setNotice({ kind: "error", text: "캡처에서 읽어내지 못했습니다. 직접 입력해 주세요." });
+          toast.error("캡처에서 읽어내지 못했습니다. 직접 입력해 주세요.");
         }
       } catch (e) {
-        setNotice({
-          kind: "error",
-          text: (e instanceof Error ? e.message : "사진을 읽지 못했습니다.") + " 직접 입력할 수 있습니다.",
-        });
+        toast.error((e instanceof Error ? e.message : "사진을 읽지 못했습니다.") + " 직접 입력할 수 있습니다.");
       } finally {
         setReading(false);
       }
     },
-    [amount, note, vendor, cards],
+    [amount, note, vendor, cards, toast],
   );
 
   const reload = useCallback(async () => {
     try {
       setMemos(await fetchCardMemos());
     } catch (e) {
-      setNotice({ kind: "error", text: e instanceof Error ? e.message : "불러오지 못했습니다." });
+      toast.error(e instanceof Error ? e.message : "불러오지 못했습니다.");
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     if (loading) return;
@@ -177,7 +197,6 @@ export default function CardMemoPage() {
   const save = async () => {
     if (!canSave) return;
     setSaving(true);
-    setNotice(null);
     try {
       const form = new FormData();
       form.set("date", date);
@@ -199,12 +218,11 @@ export default function CardMemoPage() {
       setPhotos([]);
       setRead(null);
       if (fileRef.current) fileRef.current.value = "";
-      setNotice(
-        r.warning ? { kind: "error", text: r.warning } : { kind: "ok", text: "기록했습니다." },
-      );
+      if (r.warning) toast.error(r.warning);
+      else toast.success("기록했습니다.");
       await reload();
     } catch (e) {
-      setNotice({ kind: "error", text: e instanceof Error ? e.message : "저장에 실패했습니다." });
+      toast.error(e instanceof Error ? e.message : "저장에 실패했습니다.");
     } finally {
       setSaving(false);
     }
@@ -212,34 +230,37 @@ export default function CardMemoPage() {
 
   const runMatch = async () => {
     setMatching(true);
-    setNotice(null);
     try {
       const r = await matchCardMemos();
-      setNotice({
-        kind: "ok",
-        text:
-          r.matched > 0
-            ? `${r.matched}건을 카드 명세서에 붙였습니다.` +
+      toast.success(
+        r.matched > 0
+          ? `${r.matched}건을 카드 명세서에 붙였습니다.` +
               (r.ambiguous > 0 ? ` ${r.ambiguous}건은 후보가 여럿이라 남겼습니다.` : "")
-            : r.ambiguous > 0
-              ? `붙일 수 있는 건 없고, ${r.ambiguous}건은 후보가 여럿입니다.`
-              : "아직 붙일 명세서가 없습니다.",
-      });
+          : r.ambiguous > 0
+            ? `붙일 수 있는 건 없고, ${r.ambiguous}건은 후보가 여럿입니다.`
+            : "아직 붙일 명세서가 없습니다.",
+      );
       await reload();
     } catch (e) {
-      setNotice({ kind: "error", text: e instanceof Error ? e.message : "대조에 실패했습니다." });
+      toast.error(e instanceof Error ? e.message : "대조에 실패했습니다.");
     } finally {
       setMatching(false);
     }
   };
 
   const remove = async (id: string) => {
-    if (!confirm("이 기록을 지울까요? 사진도 함께 지워집니다.")) return;
+    const ok = await confirm({
+      title: "이 기록을 지울까요?",
+      message: "사진도 함께 지워집니다.",
+      confirmLabel: "지우기",
+      tone: "danger",
+    });
+    if (!ok) return;
     try {
       await deleteCardMemo(id);
       await reload();
     } catch (e) {
-      setNotice({ kind: "error", text: e instanceof Error ? e.message : "삭제에 실패했습니다." });
+      toast.error(e instanceof Error ? e.message : "삭제에 실패했습니다.");
     }
   };
 
@@ -248,42 +269,28 @@ export default function CardMemoPage() {
     [paymentMethods],
   );
 
-  if (loading) return <p className="p-6 text-center text-sm text-zinc-400">불러오는 중…</p>;
+  if (loading) return <LoadingState label="불러오는 중…" />;
 
   const waiting = memos?.filter((m) => !m.matchedTxId).length ?? 0;
 
   return (
     // 휴대폰 폭에 맞춘 한 줄 배치. 큰 화면에서도 가운데 좁게 둔다 —
     // 넓게 펴면 칸이 옆으로 늘어져 오히려 누르기 어렵다.
-    <div className="mx-auto w-full max-w-lg px-4 py-5">
-      <h1 className="text-xl font-bold tracking-tight text-zinc-900">법인카드 사용 기록</h1>
-      <p className="mt-1 text-sm leading-relaxed text-zinc-500">
-        결제 화면을 캡처해서 올리면 <b className="text-zinc-700">칸이 알아서 채워집니다.</b>{" "}
+    <div className="mx-auto max-w-lg">
+      <PageHeader compact title="법인카드 사용 기록" />
+      <p className="-mt-2 mb-4 text-nd-body leading-relaxed text-nd-fg-2">
+        결제 화면을 캡처해서 올리면 <b className="font-semibold text-nd-fg">칸이 알아서 채워집니다.</b>{" "}
         확인만 하고 저장하세요. 나중에 카드 명세서를 올리면 뒷 4자리·금액·날짜로 자동으로 붙습니다.
       </p>
 
-      {notice && (
-        <p
-          className={`mt-3 rounded-xl px-3.5 py-2.5 text-sm ${
-            notice.kind === "ok"
-              ? "bg-emerald-50 text-emerald-800"
-              : "bg-rose-50 text-rose-700"
-          }`}
-        >
-          {notice.text}
-        </p>
-      )}
-
       {cards.length === 0 ? (
-        <div className="mt-4">
-          <EmptyState
-            icon="💳"
-            title="등록된 법인카드가 없습니다"
-            description="마스터 탭에서 결제수단을 먼저 적재하세요."
-          />
-        </div>
+        <EmptyState
+          icon={CreditCard}
+          title="등록된 법인카드가 없습니다"
+          description="마스터 탭에서 결제수단을 먼저 적재하세요."
+        />
       ) : (
-        <Card className="mt-4 space-y-3 rounded-2xl">
+        <Card className="space-y-3">
           {/* 사진이 먼저다 — 이걸 올리면 아래 칸이 채워진다 */}
           <div>
             <input
@@ -298,45 +305,43 @@ export default function CardMemoPage() {
               type="button"
               onClick={() => fileRef.current?.click()}
               disabled={reading}
-              className="flex h-24 w-full flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-indigo-300 bg-indigo-50/50 text-indigo-700 transition active:bg-indigo-100 disabled:opacity-60"
+              aria-busy={reading || undefined}
+              className="flex min-h-[6rem] w-full flex-col items-center justify-center gap-1 rounded-nd-lg border-2 border-dashed border-nd-accent/40 bg-nd-accent-soft/60 px-4 py-3 text-nd-accent-strong transition-colors duration-nd-fast active:bg-nd-accent-soft disabled:opacity-60"
             >
               {reading ? (
                 <>
-                  <span className="text-sm font-semibold">캡처를 읽는 중…</span>
-                  <span className="text-xs text-indigo-500">2~3초 걸립니다</span>
+                  <span className="text-nd-body font-semibold">캡처를 읽는 중…</span>
+                  <span className="text-nd-caption text-nd-accent">2~3초 걸립니다</span>
                 </>
               ) : photos.length > 0 ? (
                 <>
-                  <span className="text-sm font-semibold">사진 {photos.length}장 · 다시 고르기</span>
-                  <span className="text-xs text-indigo-500">아래 칸을 확인하세요</span>
+                  <Icon icon={Images} size={24} />
+                  <span className="text-nd-body font-semibold">사진 {photos.length}장 · 다시 고르기</span>
+                  <span className="text-nd-caption text-nd-accent">아래 칸을 확인하세요</span>
                 </>
               ) : (
                 <>
-                  <span className="text-2xl leading-none">📷</span>
-                  <span className="text-sm font-semibold">결제 화면 캡처 올리기</span>
-                  <span className="text-xs text-indigo-500">칸이 알아서 채워집니다 · 없어도 직접 입력 가능</span>
+                  <Icon icon={Camera} size={28} />
+                  <span className="text-nd-body font-semibold">결제 화면 캡처 올리기</span>
+                  <span className="text-nd-caption text-nd-accent">칸이 알아서 채워집니다 · 없어도 직접 입력 가능</span>
                 </>
               )}
             </button>
 
             {read && read.confidence !== "high" && (
-              <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+              <InlineNotice tone="warning" icon={TriangleAlert} className="mt-2 text-nd-caption">
                 <b>또렷하게 읽지 못했습니다.</b> 금액과 가맹점을 꼭 확인해 주세요.
-                {read.uncertain && <span className="mt-0.5 block text-amber-700">{read.uncertain}</span>}
-              </p>
+                {read.uncertain && <span className="mt-0.5 block">{read.uncertain}</span>}
+              </InlineNotice>
             )}
           </div>
 
-          <label className="block">
-            <span className="text-xs font-medium text-zinc-500">
-              사용일{filled(read?.date)}
-            </span>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={`mt-1 ${field}`} />
-          </label>
+          <Row label={<>사용일{filled(read?.date)}</>}>
+            <Input size="lg" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </Row>
 
-          <label className="block">
-            <span className="text-xs font-medium text-zinc-500">카드{filled(read?.last4)}</span>
-            <Select value={last4} onChange={(e) => setLast4(e.target.value)} className={`mt-1 ${field}`}>
+          <Row label={<>카드{filled(read?.last4)}</>}>
+            <Select size="lg" value={last4} onChange={(e) => setLast4(e.target.value)}>
               <option value="">카드를 고르세요</option>
               {cards.map((c) => (
                 <option key={c.last4} value={c.last4}>
@@ -344,10 +349,10 @@ export default function CardMemoPage() {
                 </option>
               ))}
             </Select>
-          </label>
+          </Row>
 
-          <label className="block">
-            <span className="text-xs font-medium text-zinc-500">금액{filled(read?.amount)}</span>
+          <Row label={<>금액{filled(read?.amount)}</>}>
+            {/* 커서 위치 복원에 ref 가 필요해 원소를 직접 쓴다 (Input 은 ref 를 넘기지 않는다) */}
             <input
               ref={amountRef}
               value={amount}
@@ -355,97 +360,103 @@ export default function CardMemoPage() {
               // 휴대폰에서 숫자 키패드가 뜨게 한다
               inputMode="numeric"
               placeholder="20,290"
-              className={`mt-1 ${field} text-right tabular-nums`}
+              className={controlClass("lg", "nd-num text-right")}
             />
-          </label>
+          </Row>
 
-          <label className="block">
-            <span className="text-xs font-medium text-zinc-500">무엇에 썼나요{filled(read?.items)}</span>
-            <input
+          <Row label={<>무엇에 썼나요{filled(read?.items)}</>}>
+            <Input
+              size="lg"
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="예: JIMFF 러너 조이스틱"
-              className={`mt-1 ${field}`}
             />
-          </label>
+          </Row>
 
-          <label className="block">
-            <span className="text-xs font-medium text-zinc-500">
-              가맹점 <span className="font-normal text-zinc-400">(선택)</span>{filled(read?.vendor)}
-            </span>
-            <input
+          <Row
+            label={
+              <>
+                가맹점 <span className="font-normal text-nd-fg-3">(선택)</span>
+                {filled(read?.vendor)}
+              </>
+            }
+          >
+            <Input
+              size="lg"
               value={vendor}
               onChange={(e) => setVendor(e.target.value)}
               placeholder="예: 쿠팡"
-              className={`mt-1 ${field}`}
             />
-          </label>
+          </Row>
 
-          <Button onClick={save} disabled={!canSave || saving} className="h-12 w-full rounded-xl text-base">
-            {saving ? "저장 중…" : "기록하기"}
+          <Button size="lg" onClick={save} disabled={!canSave} loading={saving} className="w-full">
+            기록하기
           </Button>
         </Card>
       )}
 
-      <div className="mt-6 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-zinc-700">
-          최근 기록
-          {waiting > 0 && (
-            <span className="ml-1.5 font-normal text-zinc-400">명세서 대기 {waiting}건</span>
-          )}
-        </h2>
-        <Button variant="secondary" onClick={runMatch} disabled={matching} className="h-9 px-3 text-xs">
-          {matching ? "대조 중…" : "명세서와 대조"}
-        </Button>
-      </div>
+      <SectionHeader
+        as="h2"
+        className="mt-6"
+        title="최근 기록"
+        hint={waiting > 0 ? `명세서 대기 ${waiting}건` : undefined}
+        action={
+          <Button variant="secondary" size="sm" onClick={runMatch} loading={matching}>
+            명세서와 대조
+          </Button>
+        }
+      />
 
-      <div className="mt-2 space-y-2 pb-10">
+      <div className="pb-10">
         {memos === null ? (
-          <p className="py-6 text-center text-sm text-zinc-400">불러오는 중…</p>
+          <LoadingState size="block" />
         ) : memos.length === 0 ? (
-          <p className="py-6 text-center text-sm text-zinc-400">아직 기록이 없습니다.</p>
+          <p className="py-6 text-center text-nd-body text-nd-fg-3">아직 기록이 없습니다.</p>
         ) : (
-          memos.slice(0, 50).map((m) => (
-            <div key={m.id} className="rounded-xl border border-zinc-200 bg-white p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-zinc-900">{m.note}</p>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    {m.date} · {aliasOf(m.last4)}
-                    {m.vendor && ` · ${m.vendor}`}
-                  </p>
+          <ul className="divide-y divide-nd-line">
+            {memos.slice(0, 50).map((m) => (
+              <li key={m.id} className="py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-nd-body font-medium text-nd-fg" title={m.note}>{m.note}</p>
+                    <p className="mt-0.5 text-nd-caption text-nd-fg-3">
+                      <span className="nd-num">{m.date}</span> · {aliasOf(m.last4)}
+                      {m.vendor && ` · ${m.vendor}`}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <Money value={m.amount} className="text-nd-body font-semibold" />
+                    <p className="mt-0.5">
+                      {m.matchedTxId ? (
+                        <StatusDot tone="success" className="text-nd-success-text">장부에 반영됨</StatusDot>
+                      ) : (
+                        <StatusDot tone="neutral" className="text-nd-fg-3">명세서 대기</StatusDot>
+                      )}
+                    </p>
+                  </div>
                 </div>
-                <div className="shrink-0 text-right">
-                  <Money value={m.amount} className="text-sm font-semibold" />
-                  <p className="mt-0.5 text-xs">
-                    {m.matchedTxId ? (
-                      <span className="text-emerald-600">장부에 반영됨</span>
-                    ) : (
-                      <span className="text-zinc-400">명세서 대기</span>
-                    )}
-                  </p>
-                </div>
-              </div>
-              {m.photos && m.photos.length > 0 && (
-                <div className="mt-2 flex gap-2 overflow-x-auto">
-                  {m.photos.map((p) => (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <a key={p.path} href={p.url} target="_blank" rel="noreferrer" className="shrink-0">
-                      <img src={p.url} alt="" className="h-20 w-20 rounded-lg object-cover" />
-                    </a>
-                  ))}
-                </div>
-              )}
-              {!m.matchedTxId && (
-                <button
-                  onClick={() => remove(m.id)}
-                  className="mt-2 text-xs text-zinc-400 underline hover:text-rose-600"
-                >
-                  지우기
-                </button>
-              )}
-            </div>
-          ))
+                {m.photos && m.photos.length > 0 && (
+                  <div className="nd-scroll mt-2 flex gap-2 overflow-x-auto">
+                    {m.photos.map((p) => (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <a key={p.path} href={p.url} target="_blank" rel="noreferrer" className="shrink-0 rounded-nd-md">
+                        <img src={p.url} alt="" className="h-20 w-20 rounded-nd-md object-cover" />
+                      </a>
+                    ))}
+                  </div>
+                )}
+                {!m.matchedTxId && (
+                  <button
+                    type="button"
+                    onClick={() => remove(m.id)}
+                    className="mt-2 min-h-[28px] text-nd-caption text-nd-fg-3 underline hover:text-nd-danger-text"
+                  >
+                    지우기
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
         )}
       </div>
     </div>

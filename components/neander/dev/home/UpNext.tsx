@@ -8,7 +8,8 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { Card, EmptyState } from "@/components/neander/ui";
+import { AlarmClock, ArrowRight, CalendarDays, Eye } from "lucide-react";
+import { Badge, Card, EmptyState, Icon } from "@/components/neander/ui";
 import { FeatureChip } from "@/components/neander/dev/atoms";
 import { devPriorityRank, type DevFeature, type DevTask } from "@/lib/neander/dev/types";
 import { SectionHeader } from "./SectionHeader";
@@ -50,27 +51,30 @@ export function UpNext({
   return (
     <section>
       <SectionHeader
-        icon="⏰"
+        icon={AlarmClock}
         title="다음 할 일"
         description="이번 주 마감과 리뷰 대기 — 지금 챙겨야 할 것들이에요."
       />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* 이번 주 마감 */}
-        <Card className="!rounded-2xl">
+        <Card>
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-zinc-800">📅 이번 주 마감</h3>
-            <span className="text-xs tabular-nums text-zinc-400">{dueSoon.length}건</span>
+            <h3 className="inline-flex items-center gap-1.5 text-nd-section text-nd-fg">
+              <Icon icon={CalendarDays} size={15} className="text-nd-fg-3" />
+              이번 주 마감
+            </h3>
+            <span className="nd-num text-nd-caption text-nd-fg-3">{dueSoon.length}건</span>
           </div>
           {dueSoon.length === 0 ? (
             <EmptyState
-              icon="📅"
+              icon={CalendarDays}
               title="이번 주 마감 예정 작업이 없어요"
               description="작업에 마감일을 정해두면 지연·오늘·내일 순으로 여기서 미리 챙겨드려요."
             />
           ) : (
             <>
-              <ul className="flex flex-col divide-y divide-zinc-100">
+              <ul className="flex flex-col divide-y divide-nd-line">
                 {dueSoon.slice(0, MAX_ROWS).map((t) => (
                   <DueRow key={t.id} task={t} feature={featureById(t.featureId)} />
                 ))}
@@ -78,9 +82,10 @@ export function UpNext({
               {dueSoon.length > MAX_ROWS && (
                 <Link
                   href="/neander/dev/board"
-                  className="mt-2 block text-xs font-medium text-indigo-600 hover:underline"
+                  className="mt-2 inline-flex items-center gap-1 text-nd-caption font-medium text-nd-accent-strong hover:underline"
                 >
-                  +{dueSoon.length - MAX_ROWS}건 더 — 보드에서 보기 →
+                  +{dueSoon.length - MAX_ROWS}건 더 — 보드에서 보기
+                  <ArrowRight size={12} aria-hidden />
                 </Link>
               )}
             </>
@@ -88,20 +93,23 @@ export function UpNext({
         </Card>
 
         {/* 리뷰 대기 */}
-        <Card className="!rounded-2xl">
+        <Card>
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-zinc-800">👀 리뷰 대기</h3>
-            <span className="text-xs tabular-nums text-zinc-400">{inReview.length}건</span>
+            <h3 className="inline-flex items-center gap-1.5 text-nd-section text-nd-fg">
+              <Icon icon={Eye} size={15} className="text-nd-fg-3" />
+              리뷰 대기
+            </h3>
+            <span className="nd-num text-nd-caption text-nd-fg-3">{inReview.length}건</span>
           </div>
           {inReview.length === 0 ? (
             <EmptyState
-              icon="👀"
+              icon={Eye}
               title="리뷰를 기다리는 작업이 없어요"
               description="작업 보드에서 카드를 '리뷰'로 옮기면 확인이 필요한 작업이 여기 나타납니다."
             />
           ) : (
             <>
-              <ul className="flex flex-col divide-y divide-zinc-100">
+              <ul className="flex flex-col divide-y divide-nd-line">
                 {inReview.slice(0, MAX_ROWS).map((t) => (
                   <ReviewRow key={t.id} task={t} feature={featureById(t.featureId)} />
                 ))}
@@ -109,9 +117,10 @@ export function UpNext({
               {inReview.length > MAX_ROWS && (
                 <Link
                   href="/neander/dev/board?status=review"
-                  className="mt-2 block text-xs font-medium text-indigo-600 hover:underline"
+                  className="mt-2 inline-flex items-center gap-1 text-nd-caption font-medium text-nd-accent-strong hover:underline"
                 >
-                  +{inReview.length - MAX_ROWS}건 더 — 보드에서 보기 →
+                  +{inReview.length - MAX_ROWS}건 더 — 보드에서 보기
+                  <ArrowRight size={12} aria-hidden />
                 </Link>
               )}
             </>
@@ -130,21 +139,21 @@ function DueRow({ task: t, feature }: { task: DevTask; feature?: DevFeature }) {
       <Link
         href={`/neander/dev/board?task=${t.id}`}
         aria-label={`${t.title} — 작업 상세 보기 (${due.label})`}
-        className="-mx-2 flex items-center gap-2.5 rounded-lg px-2 py-2.5 transition-colors hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+        className="-mx-2 flex items-center gap-2.5 rounded-nd-md px-2 py-2.5 transition-colors duration-nd-fast hover:bg-nd-sunken focus:outline-none focus-visible:shadow-nd-focus"
       >
         <span
-          className={`inline-flex w-24 shrink-0 items-center justify-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${due.cls}`}
+          className={`nd-num inline-flex h-5 w-24 shrink-0 items-center justify-center rounded-full px-2 text-nd-micro font-semibold ${due.cls}`}
         >
           {due.label}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-zinc-800">{t.title}</p>
+          <p className="truncate text-nd-body font-medium text-nd-fg" title={t.title}>
+            {t.title}
+          </p>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-            {(feature || t.featureName) && (
-              <FeatureChip feature={feature} name={t.featureName} className="!py-0" />
-            )}
+            {(feature || t.featureName) && <FeatureChip feature={feature} name={t.featureName} />}
             {t.assigneeNames.length > 0 && (
-              <span className="text-[11px] text-zinc-400">
+              <span className="text-nd-micro font-normal text-nd-fg-3">
                 담당 {t.assigneeNames.join(", ")}
               </span>
             )}
@@ -162,24 +171,24 @@ function ReviewRow({ task: t, feature }: { task: DevTask; feature?: DevFeature }
       <Link
         href={`/neander/dev/board?task=${t.id}`}
         aria-label={`${t.title} — 작업 상세 보기 (리뷰 대기)`}
-        className="-mx-2 flex items-center gap-2.5 rounded-lg px-2 py-2.5 transition-colors hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+        className="-mx-2 flex items-center gap-2.5 rounded-nd-md px-2 py-2.5 transition-colors duration-nd-fast hover:bg-nd-sunken focus:outline-none focus-visible:shadow-nd-focus"
       >
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-zinc-800">{t.title}</p>
+          <p className="truncate text-nd-body font-medium text-nd-fg" title={t.title}>
+            {t.title}
+          </p>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-            {(feature || t.featureName) && (
-              <FeatureChip feature={feature} name={t.featureName} className="!py-0" />
-            )}
+            {(feature || t.featureName) && <FeatureChip feature={feature} name={t.featureName} />}
             {t.assigneeNames.length > 0 && (
-              <span className="text-[11px] text-zinc-400">
+              <span className="text-nd-micro font-normal text-nd-fg-3">
                 담당 {t.assigneeNames.join(", ")}
               </span>
             )}
           </div>
         </div>
-        <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-600">
+        <Badge tone="warning" size="sm" className="shrink-0 font-semibold">
           리뷰 대기
-        </span>
+        </Badge>
       </Link>
     </li>
   );

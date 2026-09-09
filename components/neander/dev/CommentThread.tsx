@@ -7,10 +7,11 @@
 // ============================================================
 
 import { useEffect, useState } from "react";
+import { Image as ImageIcon } from "lucide-react";
 import { useAppData } from "@/components/neander/app-data";
 import { subscribeComments, addComment, deleteComment } from "@/lib/neander/dev/comments";
 import { ScreenshotUploader, AttachmentGallery } from "@/components/neander/dev/ScreenshotUploader";
-import { Button, MemberAvatar, cn } from "@/components/neander/ui";
+import { Button, MemberAvatar, cn, useConfirm } from "@/components/neander/ui";
 import { formatTimestamp } from "@/lib/neander/format";
 import type { CommentTarget, DevComment, DevAttachment } from "@/lib/neander/dev/types";
 
@@ -24,6 +25,7 @@ export function CommentThread({
   className?: string;
 }) {
   const { currentMember, members } = useAppData();
+  const confirm = useConfirm();
   const [comments, setComments] = useState<DevComment[]>([]);
   const [body, setBody] = useState("");
   const [atts, setAtts] = useState<DevAttachment[]>([]);
@@ -61,8 +63,8 @@ export function CommentThread({
   return (
     <div className={cn("flex flex-col gap-3", className)}>
       <div className="flex items-center gap-2">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
-          댓글 {comments.length > 0 && <span className="text-zinc-500">{comments.length}</span>}
+        <h4 className="text-nd-micro font-semibold uppercase tracking-wide text-nd-fg-3">
+          댓글 {comments.length > 0 && <span className="nd-num text-nd-fg-2">{comments.length}</span>}
         </h4>
       </div>
 
@@ -79,14 +81,15 @@ export function CommentThread({
               />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-zinc-800">{c.authorName}</span>
-                  <span className="text-[11px] text-zinc-400">{formatTimestamp(c.createdAt)}</span>
+                  <span className="text-nd-body font-semibold text-nd-fg">{c.authorName}</span>
+                  <span className="text-nd-micro font-normal text-nd-fg-3">{formatTimestamp(c.createdAt)}</span>
                   {currentMember?.id === c.authorId && (
                     <button
-                      onClick={() => {
-                        if (confirm("댓글을 삭제할까요?")) deleteComment(c.id);
+                      onClick={async () => {
+                        if (await confirm({ title: "댓글을 삭제할까요?", confirmLabel: "삭제", tone: "danger" }))
+                          deleteComment(c.id);
                       }}
-                      className="ml-auto text-[11px] text-zinc-300 hover:text-red-500"
+                      className="ml-auto text-nd-micro text-nd-fg-3 transition-colors duration-nd-fast hover:text-nd-danger"
                       aria-label="댓글 삭제"
                     >
                       삭제
@@ -94,7 +97,7 @@ export function CommentThread({
                   )}
                 </div>
                 {c.body && (
-                  <p className="whitespace-pre-wrap break-words text-sm text-zinc-700">{c.body}</p>
+                  <p className="whitespace-pre-wrap break-words text-nd-body text-nd-fg-2">{c.body}</p>
                 )}
                 {c.attachments && (
                   <div className="mt-1.5">
@@ -109,7 +112,7 @@ export function CommentThread({
 
       {/* 입력 */}
       {currentMember ? (
-        <div className="flex flex-col gap-2 rounded-lg border border-zinc-200 bg-white p-2.5">
+        <div className="flex flex-col gap-2 rounded-nd-md border border-nd-border bg-nd-content p-2.5 transition-colors duration-nd-fast focus-within:border-nd-accent">
           <textarea
             value={body}
             onChange={(e) => setBody(e.target.value)}
@@ -118,33 +121,34 @@ export function CommentThread({
             }}
             rows={2}
             placeholder="댓글 남기기… (Ctrl+Enter 전송, 이미지 붙여넣기 가능)"
-            className="w-full resize-y rounded-md border-0 bg-transparent px-1 py-0.5 text-sm text-zinc-800 outline-none placeholder:text-zinc-400"
+            aria-label="댓글"
+            className="w-full resize-y rounded-[6px] border-0 bg-transparent px-1 py-0.5 text-nd-body text-nd-fg outline-none placeholder:text-nd-fg-3"
           />
           {showUploader && (
             <ScreenshotUploader scope="comment" attachments={atts} onChange={setAtts} compact />
           )}
           <div className="flex items-center justify-between">
-            <button
-              type="button"
-              onClick={() => setShowUploader((v) => !v)}
-              className={cn(
-                "rounded-md px-2 py-1 text-xs font-medium transition",
-                showUploader ? "bg-indigo-50 text-indigo-600" : "text-zinc-500 hover:bg-zinc-100",
-              )}
-            >
-              🖼️ 스크린샷 {atts.length > 0 && `(${atts.length})`}
-            </button>
             <Button
-              className="!px-3 !py-1.5 !text-xs"
+              variant={showUploader ? "soft" : "ghost"}
+              size="sm"
+              icon={ImageIcon}
+              onClick={() => setShowUploader((v) => !v)}
+              aria-pressed={showUploader}
+            >
+              스크린샷 {atts.length > 0 && `(${atts.length})`}
+            </Button>
+            <Button
+              size="sm"
               onClick={submit}
               disabled={busy || (!body.trim() && atts.length === 0)}
+              loading={busy}
             >
               {busy ? "등록 중…" : "댓글 등록"}
             </Button>
           </div>
         </div>
       ) : (
-        <p className="text-xs text-zinc-400">댓글을 남기려면 팀원 계정으로 로그인하세요.</p>
+        <p className="text-nd-caption text-nd-fg-3">댓글을 남기려면 팀원 계정으로 로그인하세요.</p>
       )}
     </div>
   );

@@ -10,7 +10,7 @@
 import { useEffect, useState } from "react";
 import { addDevTask } from "@/lib/neander/dev/tasks";
 import { emptyToUndef } from "@/lib/neander/db/helpers";
-import { Button, Field, Input, Select, Textarea, MemberAvatar, cn } from "@/components/neander/ui";
+import { Button, Dialog, Field, Input, Select, Textarea, MemberAvatar, cn } from "@/components/neander/ui";
 import {
   DEV_KINDS,
   DEV_PRIORITIES,
@@ -56,17 +56,7 @@ export function TaskComposer({
     if (open) setStatus(initialStatus ?? "todo");
   }, [open, initialStatus]);
 
-  // ESC 닫기
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
-  if (!open) return null;
+  // ESC 닫기·포커스 가두기·스크롤 잠금은 Dialog 가 담당한다.
 
   function reset() {
     setTitle("");
@@ -115,30 +105,28 @@ export function TaskComposer({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-      role="dialog"
-      aria-modal="true"
-      aria-label="새 작업 만들기"
+    <Dialog
+      open={open}
+      onClose={onClose}
+      size="lg"
+      title="새 작업 만들기"
+      footer={
+        currentMember ? (
+          <>
+            <Button variant="secondary" onClick={onClose} disabled={busy}>
+              취소
+            </Button>
+            <Button onClick={submit} disabled={!canSubmit} loading={busy}>
+              {busy ? "만드는 중…" : "작업 만들기"}
+            </Button>
+          </>
+        ) : undefined
+      }
     >
-      <div className="my-auto w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl sm:p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold tracking-tight text-zinc-900">새 작업 만들기</h2>
-          <button
-            onClick={onClose}
-            className="rounded-lg px-2 py-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
-            aria-label="닫기"
-          >
-            ✕
-          </button>
-        </div>
-
+      <div>
         {!currentMember ? (
-          <p className="rounded-lg bg-zinc-50 px-4 py-6 text-center text-sm text-zinc-500">
-            작업을 만들려면 <span className="font-medium text-zinc-700">팀원 계정</span>으로 로그인하세요.
+          <p className="rounded-nd-md bg-nd-sunken px-4 py-6 text-center text-nd-body text-nd-fg-2">
+            작업을 만들려면 <span className="font-medium text-nd-fg">팀원 계정</span>으로 로그인하세요.
           </p>
         ) : (
           <div className="flex flex-col gap-4">
@@ -147,7 +135,7 @@ export function TaskComposer({
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="예: 결제 실패 시 재시도 로직 추가"
-                autoFocus
+                data-autofocus
               />
             </Field>
 
@@ -162,9 +150,10 @@ export function TaskComposer({
                         key={k.value}
                         type="button"
                         onClick={() => setKind(k.value)}
+                        aria-pressed={active}
                         className={cn(
-                          "inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition",
-                          active ? "text-white" : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50",
+                          "inline-flex h-ctl-sm items-center gap-1 rounded-[8px] border px-2.5 text-[13px] font-medium transition-colors duration-nd-fast",
+                          active ? "text-white" : "border-nd-border bg-nd-content text-nd-fg-2 hover:bg-nd-sunken",
                         )}
                         style={active ? { backgroundColor: devKindColor(k.value), borderColor: devKindColor(k.value) } : undefined}
                       >
@@ -185,9 +174,10 @@ export function TaskComposer({
                         key={p.value}
                         type="button"
                         onClick={() => setPriority(p.value)}
+                        aria-pressed={active}
                         className={cn(
-                          "inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition",
-                          active ? "text-white" : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50",
+                          "inline-flex h-ctl-sm items-center gap-1 rounded-[8px] border px-2.5 text-[13px] font-medium transition-colors duration-nd-fast",
+                          active ? "text-white" : "border-nd-border bg-nd-content text-nd-fg-2 hover:bg-nd-sunken",
                         )}
                         style={active ? { backgroundColor: devPriorityColor(p.value), borderColor: devPriorityColor(p.value) } : undefined}
                       >
@@ -235,7 +225,7 @@ export function TaskComposer({
               }
             >
               {members.length === 0 ? (
-                <p className="text-xs text-zinc-400">등록된 팀원이 없습니다.</p>
+                <p className="text-nd-caption text-nd-fg-3">등록된 팀원이 없습니다.</p>
               ) : (
                 <div className="flex flex-wrap gap-1.5">
                   {members.map((m) => {
@@ -245,11 +235,12 @@ export function TaskComposer({
                         key={m.id}
                         type="button"
                         onClick={() => toggleAssignee(m.id)}
+                        aria-pressed={active}
                         className={cn(
-                          "inline-flex items-center gap-1.5 rounded-full border py-1 pl-1 pr-2.5 text-xs font-medium transition",
+                          "inline-flex items-center gap-1.5 rounded-full border py-1 pl-1 pr-2.5 text-nd-caption font-medium transition-colors duration-nd-fast",
                           active
-                            ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                            : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50",
+                            ? "border-nd-accent bg-nd-accent-soft text-nd-accent-strong"
+                            : "border-nd-border bg-nd-content text-nd-fg-2 hover:bg-nd-sunken",
                         )}
                       >
                         <MemberAvatar
@@ -274,18 +265,9 @@ export function TaskComposer({
                 placeholder="배경, 요구사항, 완료 조건 등"
               />
             </Field>
-
-            <div className="flex items-center justify-end gap-2 border-t border-zinc-100 pt-4">
-              <Button variant="secondary" onClick={onClose} disabled={busy}>
-                취소
-              </Button>
-              <Button onClick={submit} disabled={!canSubmit}>
-                {busy ? "만드는 중…" : "작업 만들기"}
-              </Button>
-            </div>
           </div>
         )}
       </div>
-    </div>
+    </Dialog>
   );
 }

@@ -13,6 +13,7 @@ import {
   FeatureCreatePanel,
   FeatureCardGrid,
 } from "@/components/neander/dev/FeatureManager";
+import { Skeleton } from "@/components/neander/ui";
 
 export default function FeaturesPage() {
   const { currentMember } = useAppData();
@@ -20,18 +21,18 @@ export default function FeaturesPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-sm text-zinc-500">
+      <p className="text-nd-body text-nd-fg-2">
         프로젝트 — 작업을 묶는 단위예요. 카드를 누르면 작업 보드에서 해당 프로젝트의
         작업만 모아 볼 수 있어요.
       </p>
 
       {loading ? (
         <div className="grid gap-4 lg:grid-cols-[360px_1fr] lg:gap-6">
-          <div className="h-72 animate-pulse rounded-2xl bg-zinc-100" />
+          <Skeleton className="h-72 rounded-nd-lg" />
           <div className="grid content-start gap-3 sm:grid-cols-2 2xl:grid-cols-3">
-            <div className="h-40 animate-pulse rounded-2xl bg-zinc-100" />
-            <div className="h-40 animate-pulse rounded-2xl bg-zinc-100" />
-            <div className="h-40 animate-pulse rounded-2xl bg-zinc-100" />
+            <Skeleton className="h-40 rounded-nd-lg" />
+            <Skeleton className="h-40 rounded-nd-lg" />
+            <Skeleton className="h-40 rounded-nd-lg" />
           </div>
         </div>
       ) : (

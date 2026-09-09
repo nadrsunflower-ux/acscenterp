@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { ArrowRight, Megaphone } from "lucide-react";
 import { Card, MemberAvatar, EmptyState } from "@/components/neander/ui";
 import { FeatureChip } from "@/components/neander/dev/atoms";
 import { formatTimestamp, sameDay, weekKey } from "@/lib/neander/format";
@@ -99,7 +100,7 @@ export function RecentDigest({
   return (
     <section>
       <SectionHeader
-        icon="📣"
+        icon={Megaphone}
         title="최근 변화"
         description="오늘·어제·이번 주에 올라온 진행 소식을 간추렸어요."
         action={
@@ -109,11 +110,11 @@ export function RecentDigest({
                 type="button"
                 onClick={markSeen}
                 aria-label={`새 소식 ${newCount}개 읽음 처리`}
-                className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700 transition-colors hover:bg-indigo-100"
+                className="nd-num inline-flex h-6 items-center gap-1.5 rounded-full border border-nd-accent/40 bg-nd-accent-soft px-2.5 text-nd-micro font-semibold text-nd-accent-strong transition-colors duration-nd-fast hover:bg-nd-accent/20"
               >
                 <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400 opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-indigo-500" />
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-nd-accent opacity-75 motion-reduce:hidden" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-nd-accent" />
                 </span>
                 새 소식 {newCount}개
               </button>
@@ -121,18 +122,19 @@ export function RecentDigest({
             <Link
               href="/neander/dev/timeline"
               onClick={markSeen}
-              className="text-xs font-medium text-indigo-600 hover:underline"
+              className="inline-flex items-center gap-1 text-nd-caption font-medium text-nd-accent-strong hover:underline"
             >
-              전체 보기 →
+              전체 보기
+              <ArrowRight size={12} aria-hidden />
             </Link>
           </div>
         }
       />
 
-      <Card className="!rounded-2xl">
+      <Card>
         {buckets.length === 0 ? (
           <EmptyState
-            icon="📣"
+            icon={Megaphone}
             title="아직 올라온 진행 소식이 없어요"
             description="'진행 소식' 탭에서 첫 업데이트를 올리면 팀 전체가 여기서 볼 수 있어요."
           />
@@ -140,10 +142,10 @@ export function RecentDigest({
           <div className="flex flex-col gap-1">
             {buckets.map((b) => (
               <div key={b.key}>
-                <div className="px-1 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                <div className="px-1 pb-1 pt-2 text-nd-micro font-semibold uppercase tracking-wide text-nd-fg-3">
                   {b.label}
                 </div>
-                <ul className="flex flex-col divide-y divide-zinc-100">
+                <ul className="flex flex-col divide-y divide-nd-line">
                   {b.items.map((a) => (
                     <ActivityRow
                       key={a.id}
@@ -179,7 +181,7 @@ function ActivityRow({
       <Link
         href={href}
         aria-label={`${a.title} — ${a.taskId ? "작업 보기" : "진행 소식 보기"}`}
-        className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+        className="-mx-2 flex items-center gap-3 rounded-nd-md px-2 py-2.5 transition-colors duration-nd-fast hover:bg-nd-sunken focus:outline-none focus-visible:shadow-nd-focus"
       >
         <MemberAvatar
           name={a.authorName}
@@ -188,15 +190,15 @@ function ActivityRow({
           className="h-7 w-7 text-[11px]"
         />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-zinc-800">{a.title}</p>
+          <p className="truncate text-nd-body font-medium text-nd-fg" title={a.title}>
+            {a.title}
+          </p>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-            <span className="text-[11px] text-zinc-400">{a.authorName}</span>
-            {featureName && (
-              <FeatureChip feature={feature} name={featureName} className="!py-0" />
-            )}
+            <span className="text-nd-micro font-normal text-nd-fg-3">{a.authorName}</span>
+            {featureName && <FeatureChip feature={feature} name={featureName} />}
           </div>
         </div>
-        <span className="shrink-0 text-[11px] tabular-nums text-zinc-400">
+        <span className="nd-num shrink-0 text-nd-micro font-normal text-nd-fg-3">
           {formatTimestamp(a.createdAt)}
         </span>
       </Link>

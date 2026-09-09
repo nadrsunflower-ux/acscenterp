@@ -13,11 +13,25 @@
 // ============================================================
 
 import { useMemo, useState } from "react";
-import { Card, EmptyState } from "@/components/neander/ui";
+import { BarChart3, Info } from "lucide-react";
+import {
+  Card,
+  Checkbox,
+  EmptyState,
+  InlineNotice,
+  KpiStrip,
+  LoadingState,
+  PageHeader,
+  SectionHeader,
+  SegmentedControl,
+  Select,
+  TableNote,
+} from "@/components/neander/ui";
+import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
-import { ReportTabs } from "@/components/neander/finance/ReportTabs";
+import { MonthStepper, ReportTabs } from "@/components/neander/finance/ReportTabs";
 import { TreeTable, type TreeColumn } from "@/components/neander/finance/TreeTable";
-import { Money, StatTile, SectionTitle } from "@/components/neander/finance/ui";
+import { Money, StatTile, monthLabel } from "@/components/neander/finance/ui";
 import { availableMonths } from "@/lib/neander/finance/aggregate";
 import { ledgerHref } from "@/lib/neander/finance/ledgerLink";
 import {
@@ -64,16 +78,17 @@ export default function ExpenseDetailReport() {
     [transactions, basis, isCard, scope, accounts],
   );
 
-  if (loading) {
-    return <div className="px-5 py-16 text-center text-zinc-400">불러오는 중…</div>;
-  }
+  if (loading) return <LoadingState label="리포트를 만드는 중…" />;
   if (transactions.length === 0) {
     return (
-      <div className="mx-auto w-full max-w-7xl px-5 py-8">
-        <ReportTabs />
-        <div className="mt-6">
-          <EmptyState icon="📊" title="아직 거래가 없습니다" description="임포트 탭에서 장부를 올리면 여기에 계정별 상세가 나타납니다." />
-        </div>
+      <div>
+        <PageHeader title="리포트" description="지출상세 · 사업부 · 구독 · 예산" />
+        <ReportTabs className="mb-6" />
+        <EmptyState
+          icon={BarChart3}
+          title="아직 거래가 없습니다"
+          description="임포트 탭에서 장부를 올리면 여기에 계정별 상세가 나타납니다."
+        />
       </div>
     );
   }
@@ -82,87 +97,72 @@ export default function ExpenseDetailReport() {
   const scopeQuery = { month: activeMonth || undefined, site: site === ALL ? undefined : site };
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-5 py-6">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <ReportTabs />
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={activeMonth}
-            onChange={(e) => setMonth(e.target.value)}
-            className="h-8 cursor-pointer rounded-md border border-zinc-300 bg-white pl-2 pr-6 text-xs text-zinc-800 outline-none focus:border-indigo-500"
-          >
-            {months.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
-          <select
-            value={site}
-            onChange={(e) => setSite(e.target.value)}
-            className="h-8 cursor-pointer rounded-md border border-zinc-300 bg-white pl-2 pr-6 text-xs text-zinc-800 outline-none focus:border-indigo-500"
-          >
-            <option value={ALL}>전체 사업장</option>
-            {sites.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
+    <div>
+      <ToolbarPortal order={0}>
+        <MonthStepper glass months={months} value={activeMonth} onChange={setMonth} />
+      </ToolbarPortal>
 
-          {/* 기준 토글 — 엑셀의 두 시트를 대신한다 */}
-          <div className="flex items-center rounded-md border border-zinc-300 p-0.5" role="group" aria-label="집계 기준">
-            {(["accrual", "cash"] as Basis[]).map((b) => (
-              <button
-                key={b}
-                type="button"
-                onClick={() => setBasis(b)}
-                aria-pressed={basis === b}
-                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                  basis === b ? "bg-indigo-600 text-white" : "text-zinc-600 hover:bg-zinc-100"
-                }`}
-              >
-                {BASIS_LABEL[b]}
-              </button>
-            ))}
-          </div>
-
-          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-zinc-600">
-            <input
-              type="checkbox"
+      <PageHeader
+        title="리포트"
+        description="지출상세 — 계정 3단으로 본 수입·지출"
+        actions={
+          <>
+            <Select size="sm" value={site} onChange={(e) => setSite(e.target.value)} aria-label="사업장">
+              <option value={ALL}>전체 사업장</option>
+              {sites.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </Select>
+            {/* 기준 토글 — 엑셀의 두 시트를 대신한다 */}
+            <SegmentedControl<Basis>
+              size="sm"
+              ariaLabel="집계 기준"
+              value={basis}
+              onChange={setBasis}
+              options={(["accrual", "cash"] as Basis[]).map((b) => ({ value: b, label: BASIS_LABEL[b] }))}
+            />
+            <Checkbox
+              label="0원 계정도 보기"
               checked={showEmpty}
               onChange={(e) => setShowEmpty(e.target.checked)}
-              className="accent-indigo-600"
+              className="text-nd-caption text-nd-fg-2"
             />
-            0원 계정도 보기
-          </label>
-        </div>
-      </div>
+          </>
+        }
+      />
 
-      <p className="mb-4 text-xs text-zinc-500">
-        <b className="font-medium text-zinc-700">{BASIS_LABEL[basis]}</b> · {BASIS_HINT[basis]}
-        <span className="ml-2 text-zinc-400">
-          {activeMonth} 거래 {report.scopedCount.toLocaleString("ko-KR")}건 중 {report.usedCount.toLocaleString("ko-KR")}건 집계
+      <ReportTabs className="mb-5" />
+
+      <p className="mb-4 text-nd-caption text-nd-fg-3">
+        <b className="font-medium text-nd-fg-2">{BASIS_LABEL[basis]}</b> · {BASIS_HINT[basis]}
+        <span className="ml-2">
+          {monthLabel(activeMonth)} 거래 {report.scopedCount.toLocaleString("ko-KR")}건 중 {report.usedCount.toLocaleString("ko-KR")}건 집계
           (자금거래{basis === "accrual" ? "·카드대금결제" : "·카드사용분"} 제외)
         </span>
       </p>
 
-      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <KpiStrip columns={5} className="mb-5">
         <StatTile label="수입금액" value={t.income} hint={`${t.count.toLocaleString("ko-KR")}건 기준`} />
         <StatTile label="지출금액" value={t.expense} hint={BASIS_LABEL[basis]} />
         <StatTile label="지출(순수)" value={t.expensePure} hint="개인사용·환급 차감" />
         <StatTile label="차이" value={t.diff} hint={`개인 ${t.personal.toLocaleString("ko-KR")} · 환급 ${t.refund.toLocaleString("ko-KR")}`} />
         <StatTile label="순금액" value={t.net} hint="수입 − 순수지출" />
-      </div>
+      </KpiStrip>
 
       {t.personal !== 0 && (
-        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        <InlineNotice tone="warning" icon={Info} className="mb-4 text-nd-caption">
           이 표의 <b>순금액</b>은 개인사용분 <Money value={t.personal} unit={false} />원을 지출에서 뺀 값입니다(엑셀 지출상세와 같은 계산).
           대시보드의 <b>순손익</b>은 개인사용을 비용으로 두므로 그만큼 낮게 나옵니다 — 둘 다 맞는 관점이라 어느 쪽도 바꾸지 않았습니다.
-        </p>
+        </InlineNotice>
       )}
 
-      <Card className="overflow-hidden p-0">
-        <div className="border-b border-zinc-200 px-4 py-3">
-          <SectionTitle hint="통합_MAP 순서 · 숫자를 누르면 원장이 그 조건으로 열립니다">
-            계정별 수입·지출
-          </SectionTitle>
+      <Card padding="none" className="overflow-hidden">
+        <div className="px-5 pt-5">
+          <SectionHeader
+            title="계정별 수입·지출"
+            hint="통합_MAP 순서 · 숫자를 누르면 원장이 그 조건으로 열립니다"
+            action={<TableNote>단위: 원</TableNote>}
+          />
         </div>
         <TreeTable
           roots={report.roots}

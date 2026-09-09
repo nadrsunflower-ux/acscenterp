@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Copy, ExternalLink, Eye, EyeOff, Link2, Lock, Pencil, Plus, Trash2 } from "lucide-react";
 import {
   subscribeShortcuts,
   addShortcut,
@@ -8,7 +9,23 @@ import {
   deleteShortcut,
 } from "@/lib/neander/db/shortcuts";
 import { emptyToUndef } from "@/lib/neander/db/helpers";
-import { Button, Field, Input, PageHeader, EmptyState, cn } from "@/components/neander/ui";
+import {
+  Button,
+  Card,
+  Dialog,
+  EmptyState,
+  Field,
+  Icon,
+  IconButton,
+  Input,
+  PageHeader,
+  SegmentedControl,
+  Switch,
+  cn,
+  useConfirm,
+  useToast,
+  type SegmentOption,
+} from "@/components/neander/ui";
 import {
   type Shortcut,
   type ShortcutGroup,
@@ -107,86 +124,47 @@ export default function ShortcutsPage() {
     ? `${shortcutGroupLabel(activeGroup)} · ${shortcutCategoryLabel(activeCat)}`
     : shortcutGroupLabel(activeGroup);
 
+  // 상위 그룹 / 하위 분류 — 같은 목록의 보기 전환
+  const groupOptions: SegmentOption<ShortcutGroup>[] = SHORTCUT_GROUPS.map((g) => {
+    const count = byGroup[g.value].length;
+    return { value: g.value, label: g.label, hint: count > 0 ? String(count) : undefined };
+  });
+  const catOptions: SegmentOption<ShortcutCategory>[] = subCats.map((c) => {
+    const count = catCounts[c.value] ?? 0;
+    return {
+      value: c.value,
+      label: (
+        <span className="inline-flex items-center gap-1.5">
+          {/* 분류 색은 데이터 — 점으로만 */}
+          <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: c.color }} />
+          {c.label}
+        </span>
+      ),
+      hint: count > 0 ? String(count) : undefined,
+    };
+  });
+
   return (
     <div>
       <PageHeader
         title="바로가기"
         description="스모트·아이디·와우별로 자주 쓰는 링크를 모아두고 한 번에 이동하세요. 비밀번호가 필요한 링크는 함께 저장해 팀원과 공유할 수 있습니다."
         actions={
-          <Button onClick={() => setModal("new")}>
-            <span className="text-base leading-none">＋</span> 바로가기 추가
+          <Button icon={Plus} onClick={() => setModal("new")}>
+            바로가기 추가
           </Button>
         }
       />
 
-      {/* 상위 그룹 탭 (스모트 / 아이디 / 와우) */}
-      <div className="flex gap-1.5 rounded-2xl bg-zinc-100 p-1">
-        {SHORTCUT_GROUPS.map((g) => {
-          const active = g.value === activeGroup;
-          const count = byGroup[g.value].length;
-          return (
-            <button
-              key={g.value}
-              type="button"
-              onClick={() => selectGroup(g.value)}
-              className={cn(
-                "flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition",
-                active ? "text-white shadow-sm" : "text-zinc-500 hover:text-zinc-700",
-              )}
-              style={active ? { backgroundColor: g.color } : undefined}
-            >
-              {g.label}
-              {count > 0 && (
-                <span
-                  className={cn(
-                    "min-w-[20px] rounded-full px-1.5 py-px text-[11px] font-bold leading-tight",
-                    active ? "bg-white/25 text-white" : "bg-zinc-200 text-zinc-500",
-                  )}
-                >
-                  {count}
-                </span>
-              )}
-            </button>
-          );
-        })}
+      {/* 상위 그룹 (스모트 / 아이디 / 와우) */}
+      <div className="nd-scroll overflow-x-auto">
+        <SegmentedControl options={groupOptions} value={activeGroup} onChange={selectGroup} ariaLabel="그룹" />
       </div>
 
-      {/* 하위 분류 탭 (그룹별) — 와우 제외 */}
+      {/* 하위 분류 (그룹별) — 와우 제외 */}
       {showSubTabs && (
-        <div className="mt-3 flex gap-1 overflow-x-auto rounded-2xl bg-zinc-100 p-1">
-          {subCats.map((c) => {
-            const active = c.value === activeCat;
-            const count = catCounts[c.value] ?? 0;
-            return (
-              <button
-                key={c.value}
-                type="button"
-                onClick={() => setActiveCat(c.value)}
-                className={cn(
-                  "flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold transition",
-                  active ? "bg-white shadow-sm" : "text-zinc-500 hover:text-zinc-700",
-                )}
-                style={active ? { color: c.color } : undefined}
-              >
-                <span
-                  className="h-1.5 w-1.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: active ? c.color : "#d4d4d8" }}
-                />
-                {c.label}
-                {count > 0 && (
-                  <span
-                    className={cn(
-                      "min-w-[18px] rounded-full px-1.5 py-px text-[11px] font-bold leading-tight",
-                      !active && "bg-zinc-200 text-zinc-500",
-                    )}
-                    style={active ? { backgroundColor: `${c.color}1f`, color: c.color } : undefined}
-                  >
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+        <div className="nd-scroll mt-3 overflow-x-auto">
+          <SegmentedControl options={catOptions} value={activeCat} onChange={setActiveCat} size="sm" ariaLabel="분류" />
         </div>
       )}
 
@@ -194,9 +172,14 @@ export default function ShortcutsPage() {
       <div className="mt-5">
         {list.length === 0 ? (
           <EmptyState
-            icon="🔗"
+            icon={Link2}
             title={`${tabCtxLabel}에 등록된 바로가기가 없습니다`}
             description="‘바로가기 추가’ 버튼으로 이 칸에 첫 링크를 추가해보세요."
+            action={
+              <Button variant="secondary" icon={Plus} onClick={() => setModal("new")}>
+                바로가기 추가
+              </Button>
+            }
           />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -207,142 +190,135 @@ export default function ShortcutsPage() {
         )}
       </div>
 
-      {modal && (
-        <ShortcutModal
-          initial={modal === "new" ? undefined : modal}
-          defaultGroup={activeGroup}
-          defaultCategory={activeCat}
-          onClose={() => setModal(null)}
-        />
-      )}
+      <ShortcutModal
+        key={modal === null ? "closed" : modal === "new" ? "new" : modal.id}
+        open={modal !== null}
+        initial={modal === null || modal === "new" ? undefined : modal}
+        defaultGroup={activeGroup}
+        defaultCategory={activeCat}
+        onClose={() => setModal(null)}
+      />
     </div>
   );
 }
 
 // ---- 바로가기 카드 -----------------------------------------
 function ShortcutCard({ shortcut, onEdit }: { shortcut: Shortcut; onEdit: () => void }) {
+  const confirm = useConfirm();
   const grp = normGroup(shortcut);
-  // 아이콘 색: 분류 그룹이면 (보정된) 분류색, 와우면 그룹색
+  // 아이콘 색: 분류 그룹이면 (보정된) 분류색, 와우면 그룹색 — 데이터가 가진 색
   const grpColor = SHORTCUT_GROUPS.find((g) => g.value === grp)?.color;
   const color = groupHasCategories(grp)
     ? shortcutCategoryColor(normCat(shortcut))
     : grpColor ?? "#71717a";
   const host = hostOf(shortcut.url);
-  const initial = shortcut.title.trim().charAt(0).toUpperCase() || "🔗";
+  const initial = shortcut.title.trim().charAt(0).toUpperCase();
 
   async function remove() {
-    if (!confirm(`‘${shortcut.title}’ 바로가기를 삭제할까요?`)) return;
+    const ok = await confirm({
+      title: `‘${shortcut.title}’ 바로가기를 삭제할까요?`,
+      confirmLabel: "삭제",
+      tone: "danger",
+    });
+    if (!ok) return;
     await deleteShortcut(shortcut.id);
   }
 
   return (
-    <div className="group flex flex-col gap-2.5 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm transition hover:border-zinc-300 hover:shadow-md">
+    <Card padding="sm" className="group flex flex-col gap-2.5 transition-shadow duration-nd-fast hover:shadow-nd-pop">
       <div className="flex items-start gap-3">
         <a
           href={shortcut.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-nd-md outline-none focus-visible:shadow-nd-focus"
         >
           <span
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-base font-bold text-white"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-nd-md text-base font-bold text-white"
             style={{ backgroundColor: color }}
             aria-hidden
           >
-            {initial}
+            {initial || <Icon icon={Link2} size={16} />}
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-semibold text-zinc-900 group-hover:text-indigo-600">
+            <span
+              className="block truncate text-nd-body font-semibold text-nd-fg transition-colors duration-nd-fast group-hover:text-nd-accent-strong"
+              title={shortcut.title}
+            >
               {shortcut.title}
             </span>
-            <span className="mt-0.5 flex items-center gap-1 text-xs text-zinc-400">
-              <span className="truncate">{host}</span>
-              <span aria-hidden className="shrink-0">
-                ↗
+            <span className="mt-0.5 flex items-center gap-1 text-nd-caption text-nd-fg-3">
+              <span className="truncate" title={shortcut.url}>
+                {host}
               </span>
+              <Icon icon={ExternalLink} size={11} className="shrink-0" />
             </span>
           </span>
         </a>
         <div className="flex shrink-0 gap-0.5">
-          <button
-            type="button"
-            onClick={onEdit}
-            className="rounded-lg px-2 py-1 text-xs font-medium text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
-          >
-            수정
-          </button>
-          <button
-            type="button"
+          <IconButton icon={Pencil} label={`${shortcut.title} 수정`} size="sm" onClick={onEdit} />
+          <IconButton
+            icon={Trash2}
+            label={`${shortcut.title} 삭제`}
+            size="sm"
             onClick={remove}
-            className="rounded-lg px-2 py-1 text-xs font-medium text-zinc-300 hover:bg-red-50 hover:text-red-500"
-            aria-label="삭제"
-          >
-            삭제
-          </button>
+            className="hover:text-nd-danger"
+          />
         </div>
       </div>
 
       {shortcut.password && <PasswordRow password={shortcut.password} />}
-    </div>
+    </Card>
   );
 }
 
 // ---- 비밀번호 행 (가리기/보기 + 복사) ----------------------
 function PasswordRow({ password }: { password: string }) {
+  const toast = useToast();
   const [revealed, setRevealed] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   async function copy() {
     try {
       await navigator.clipboard.writeText(password);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      toast.success("비밀번호를 복사했습니다");
     } catch {
       // 클립보드 미지원 — 조용히 무시 (보기 토글로 수동 복사 가능)
     }
   }
 
   return (
-    <div className="flex items-center gap-2 rounded-xl bg-zinc-50 px-3 py-2">
-      <span className="text-xs" aria-hidden>
-        🔒
-      </span>
-      <span className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-600">
+    <div className="flex items-center gap-2 rounded-nd-md bg-nd-sunken py-1 pl-3 pr-1">
+      <Icon icon={Lock} size={12} className="text-nd-fg-3" />
+      <span className="min-w-0 flex-1 truncate font-mono text-nd-caption text-nd-fg-2">
         {revealed ? password : "•".repeat(Math.min(password.length, 12))}
       </span>
-      <button
-        type="button"
+      <IconButton
+        icon={revealed ? EyeOff : Eye}
+        label={revealed ? "비밀번호 가리기" : "비밀번호 보기"}
+        size="sm"
+        active={revealed}
         onClick={() => setRevealed((v) => !v)}
-        className="rounded-md px-1.5 py-0.5 text-xs font-medium text-zinc-400 hover:bg-zinc-200 hover:text-zinc-600"
-      >
-        {revealed ? "가리기" : "보기"}
-      </button>
-      <button
-        type="button"
-        onClick={copy}
-        className={cn(
-          "rounded-md px-1.5 py-0.5 text-xs font-medium",
-          copied ? "text-emerald-600" : "text-indigo-500 hover:bg-indigo-50",
-        )}
-      >
-        {copied ? "복사됨" : "복사"}
-      </button>
+      />
+      <IconButton icon={Copy} label="비밀번호 복사" size="sm" onClick={copy} />
     </div>
   );
 }
 
 // ---- 추가/수정 모달 ----------------------------------------
 function ShortcutModal({
+  open,
   initial,
   defaultGroup,
   defaultCategory,
   onClose,
 }: {
+  open: boolean;
   initial?: Shortcut;
   defaultGroup: ShortcutGroup;
   defaultCategory: ShortcutCategory;
   onClose: () => void;
 }) {
+  const toast = useToast();
   const isEdit = Boolean(initial);
   const initGroup = initial ? normGroup(initial) : defaultGroup;
   const [group, setGroup] = useState<ShortcutGroup>(initGroup);
@@ -364,24 +340,12 @@ function ShortcutModal({
     setCategory(coerceCategory(g, category));
   }
 
-  // ESC 로 닫기 + 열려있는 동안 배경 스크롤 잠금
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [onClose]);
+  // ESC 닫기·배경 스크롤 잠금·포커스 가두기는 Dialog 가 담당한다.
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!title.trim()) return alert("제목을 입력하세요.");
-    if (!url.trim()) return alert("링크를 입력하세요.");
+    if (!title.trim()) return toast.error("제목을 입력하세요.");
+    if (!url.trim()) return toast.error("링크를 입력하세요.");
 
     setSaving(true);
     try {
@@ -397,6 +361,7 @@ function ShortcutModal({
       } else {
         await addShortcut(payload);
       }
+      toast.success(isEdit ? "바로가기를 수정했습니다" : "바로가기를 추가했습니다");
       onClose();
     } finally {
       setSaving(false);
@@ -404,143 +369,121 @@ function ShortcutModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="shortcut-modal-title"
-      onMouseDown={(e) => {
-        // 패널 안에서 시작한 드래그(텍스트 선택 등)로는 닫히지 않도록,
-        // 배경에서 직접 누른 경우에만 닫는다.
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Dialog
+      open={open}
+      onClose={onClose}
+      size="sm"
+      title={isEdit ? "바로가기 수정" : "바로가기 추가"}
+      closeOnOverlay={!saving}
+      footer={
+        <>
+          <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
+            취소
+          </Button>
+          <Button type="submit" form="shortcut-form" disabled={saving} loading={saving}>
+            {saving ? "저장 중…" : isEdit ? "수정 저장" : "추가하기"}
+          </Button>
+        </>
+      }
     >
-      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-6 shadow-xl sm:rounded-3xl">
-        <h2 id="shortcut-modal-title" className="mb-5 text-lg font-bold text-zinc-900">
-          {isEdit ? "바로가기 수정" : "바로가기 추가"}
-        </h2>
+      <form id="shortcut-form" onSubmit={submit} className="flex flex-col gap-4">
+        {/* 상위 그룹 — 그룹 색은 데이터 */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-nd-caption font-medium text-nd-fg-2">그룹</span>
+          <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="그룹">
+            {SHORTCUT_GROUPS.map((g) => {
+              const on = group === g.value;
+              return (
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  key={g.value}
+                  onClick={() => changeGroup(g.value)}
+                  className={cn(
+                    "h-ctl-md rounded-nd-md border text-nd-body font-semibold transition-colors duration-nd-fast",
+                    on ? "text-white" : "border-nd-border bg-nd-content text-nd-fg-2 hover:bg-nd-sunken",
+                  )}
+                  style={on ? { backgroundColor: g.color, borderColor: g.color } : undefined}
+                >
+                  {g.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
-        <form onSubmit={submit} className="flex flex-col gap-4">
-          {/* 상위 그룹 */}
+        {/* 하위 분류 (그룹별, 와우 제외) — 분류 색은 데이터 */}
+        {useCat && (
           <div className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-zinc-700">그룹</span>
-            <div className="grid grid-cols-3 gap-1.5">
-              {SHORTCUT_GROUPS.map((g) => {
-                const on = group === g.value;
+            <span className="text-nd-caption font-medium text-nd-fg-2">분류</span>
+            <div
+              className="grid gap-1.5"
+              style={{ gridTemplateColumns: `repeat(${catDefs.length}, minmax(0, 1fr))` }}
+              role="radiogroup"
+              aria-label="분류"
+            >
+              {catDefs.map((c) => {
+                const on = category === c.value;
                 return (
                   <button
                     type="button"
-                    key={g.value}
-                    onClick={() => changeGroup(g.value)}
+                    role="radio"
+                    aria-checked={on}
+                    key={c.value}
+                    onClick={() => setCategory(c.value)}
                     className={cn(
-                      "rounded-lg border py-2 text-sm font-semibold transition",
-                      on ? "text-white" : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50",
+                      "h-ctl-md rounded-nd-md border text-[13px] font-semibold transition-colors duration-nd-fast",
+                      on ? "text-white" : "border-nd-border bg-nd-content text-nd-fg-2 hover:bg-nd-sunken",
                     )}
-                    style={on ? { backgroundColor: g.color, borderColor: g.color } : undefined}
+                    style={on ? { backgroundColor: c.color, borderColor: c.color } : undefined}
                   >
-                    {g.label}
+                    {c.label}
                   </button>
                 );
               })}
             </div>
           </div>
+        )}
 
-          {/* 하위 분류 (그룹별, 와우 제외) */}
-          {useCat && (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-zinc-700">분류</span>
-              <div
-                className="grid gap-1.5"
-                style={{ gridTemplateColumns: `repeat(${catDefs.length}, minmax(0, 1fr))` }}
-              >
-                {catDefs.map((c) => {
-                  const on = category === c.value;
-                  return (
-                    <button
-                      type="button"
-                      key={c.value}
-                      onClick={() => setCategory(c.value)}
-                      className={cn(
-                        "rounded-lg border py-2 text-xs font-semibold transition",
-                        on
-                          ? "text-white"
-                          : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50",
-                      )}
-                      style={on ? { backgroundColor: c.color, borderColor: c.color } : undefined}
-                    >
-                      {c.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+        <Field label="제목" required>
+          <Input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="예: 인스타그램 광고 관리자"
+            data-autofocus
+          />
+        </Field>
+
+        <Field label="링크" required hint="https:// 를 생략하면 자동으로 붙습니다.">
+          <Input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="예: business.facebook.com"
+            inputMode="url"
+          />
+        </Field>
+
+        {/* 비밀번호 유무 토글 */}
+        <div className="flex flex-col gap-3 rounded-nd-md border border-nd-line p-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="flex flex-col text-left">
+              <span className="text-nd-body font-medium text-nd-fg">비밀번호</span>
+              <span className="text-nd-caption text-nd-fg-3">로그인이 필요한 링크라면 함께 저장</span>
+            </span>
+            <Switch checked={hasPassword} onChange={setHasPassword} aria-label="비밀번호 저장" />
+          </div>
+          {hasPassword && (
+            <Input
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="비밀번호 입력"
+              autoComplete="off"
+              aria-label="비밀번호"
+            />
           )}
-
-          <Field label="제목" required>
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="예: 인스타그램 광고 관리자"
-              autoFocus
-            />
-          </Field>
-
-          <Field label="링크" required hint="https:// 를 생략하면 자동으로 붙습니다.">
-            <Input
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="예: business.facebook.com"
-              inputMode="url"
-            />
-          </Field>
-
-          {/* 비밀번호 유무 토글 */}
-          <div className="flex flex-col gap-3 rounded-xl border border-zinc-200 p-3">
-            <button
-              type="button"
-              role="switch"
-              aria-checked={hasPassword}
-              onClick={() => setHasPassword((v) => !v)}
-              className="flex items-center justify-between"
-            >
-              <span className="flex flex-col text-left">
-                <span className="text-sm font-medium text-zinc-700">비밀번호</span>
-                <span className="text-xs text-zinc-400">로그인이 필요한 링크라면 함께 저장</span>
-              </span>
-              <span
-                className={cn(
-                  "relative h-6 w-11 shrink-0 rounded-full transition-colors",
-                  hasPassword ? "bg-indigo-600" : "bg-zinc-300",
-                )}
-              >
-                <span
-                  className={cn(
-                    "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all",
-                    hasPassword ? "left-[22px]" : "left-0.5",
-                  )}
-                />
-              </span>
-            </button>
-            {hasPassword && (
-              <Input
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="비밀번호 입력"
-                autoComplete="off"
-              />
-            )}
-          </div>
-
-          <div className="mt-1 flex gap-2">
-            <Button type="submit" disabled={saving} className="flex-1">
-              {saving ? "저장 중…" : isEdit ? "수정 저장" : "추가하기"}
-            </Button>
-            <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
-              취소
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
+        </div>
+      </form>
+    </Dialog>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 // ============================================================
-//  계정 트리 테이블 — 지출상세·사업부 공용
+//  계정 트리 테이블 — 지출상세·사업부·예산 공용
 // ------------------------------------------------------------
 //  대 ▸ 중 ▸ 소 3단을 한 표에 접었다 폈다 한다. 엑셀 지출상세 시트는
 //  362행을 통째로 펼쳐 놓고 스크롤로 찾았는데, 여기서는 대분류만 보고
@@ -11,9 +11,10 @@
 //  답하는 것이 이 화면의 존재 이유다.
 // ============================================================
 
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { cn } from "@/components/neander/ui";
+import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
+import { Button, Icon, Table, TableScroll, Td, Th, TotalRow, Tr, cn } from "@/components/neander/ui";
 import { Money } from "./ui";
 import { isEmptyValue, type ReportValue, type TreeNode } from "@/lib/neander/finance/report";
 
@@ -98,7 +99,7 @@ export function TreeTable({
   };
 
   if (visible.length === 0) {
-    return <p className="px-4 py-10 text-center text-sm text-zinc-400">{emptyMessage}</p>;
+    return <p className="px-4 py-10 text-center text-nd-body text-nd-fg-3">{emptyMessage}</p>;
   }
 
   const rows: ReactNode[] = [];
@@ -123,43 +124,35 @@ export function TreeTable({
 
   return (
     <div>
-      <div className="flex items-center justify-end gap-1 border-b border-zinc-200 px-3 py-1.5">
-        <button
-          type="button"
-          onClick={expandAll}
-          className="rounded-md px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
-        >
+      <div className="flex items-center justify-end gap-1 border-b border-nd-line px-3 py-1.5">
+        <Button variant="ghost" size="sm" icon={ChevronsUpDown} onClick={expandAll}>
           모두 펼치기
-        </button>
-        <button
-          type="button"
-          onClick={collapseAll}
-          className="rounded-md px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
-        >
+        </Button>
+        <Button variant="ghost" size="sm" icon={ChevronsDownUp} onClick={collapseAll}>
           모두 접기
-        </button>
+        </Button>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[860px] text-sm">
+      <TableScroll>
+        <Table minWidth={860} dense>
           <thead>
-            <tr className="border-b border-zinc-200 bg-zinc-50 text-xs text-zinc-500">
-              <th className="px-3 py-2 text-left font-medium">계정</th>
-              {summaryFor && <th className="px-3 py-2 text-left font-medium">내역</th>}
+            <tr>
+              <Th>계정</Th>
+              {summaryFor && <Th>내역</Th>}
               {columns.map((c) => (
-                <th key={c.key} className="whitespace-nowrap px-3 py-2 text-right font-medium">
+                <Th key={c.key} align="right">
                   {c.label}
-                  {c.hint && <span className="ml-1 font-normal text-zinc-400">{c.hint}</span>}
-                </th>
+                  {c.hint && <span className="ml-1 font-normal text-nd-fg-3">{c.hint}</span>}
+                </Th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-100">{rows}</tbody>
+          <tbody>{rows}</tbody>
           <tfoot>
-            <tr className="border-t-2 border-zinc-300 bg-zinc-50 font-semibold">
-              <td className="px-3 py-2">{totalLabel}</td>
-              {summaryFor && <td />}
+            <TotalRow>
+              <Td>{totalLabel}</Td>
+              {summaryFor && <Td />}
               {columns.map((c) => (
-                <td key={c.key} className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
+                <Td key={c.key} num className="whitespace-nowrap">
                   {c.renderTotal ? (
                     c.renderTotal()
                   ) : c.key === "count" ? (
@@ -167,12 +160,12 @@ export function TreeTable({
                   ) : c.value ? (
                     <Money value={c.value(total, { value: total } as TreeNode)} unit={false} />
                   ) : null}
-                </td>
+                </Td>
               ))}
-            </tr>
+            </TotalRow>
           </tfoot>
-        </table>
-      </div>
+        </Table>
+      </TableScroll>
     </div>
   );
 }
@@ -196,68 +189,64 @@ function Row({
 }) {
   const empty = isEmptyValue(node.value);
   return (
-    <tr
+    <Tr
       className={cn(
-        "hover:bg-indigo-50/40",
-        node.level === 0 && "bg-zinc-50/60 font-semibold text-zinc-900",
-        node.level === 1 && "text-zinc-800",
-        node.level === 2 && "text-zinc-600",
-        empty && "text-zinc-300",
+        node.level === 0 && "bg-nd-sunken/60 font-semibold text-nd-fg",
+        node.level === 1 && "text-nd-fg",
+        node.level === 2 && "text-nd-fg-2",
+        empty && "text-nd-fg-4",
       )}
     >
-      <td className="px-3 py-1.5">
-        <div
-          className="flex items-center gap-1"
-          style={{ paddingLeft: node.level * 16 }}
-        >
+      <Td>
+        <div className="flex items-center gap-1" style={{ paddingLeft: node.level * 16 }}>
           {hasKids ? (
             <button
               type="button"
               onClick={onToggle}
               aria-expanded={open}
               aria-label={open ? `${node.label} 접기` : `${node.label} 펼치기`}
-              className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-[9px] text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700"
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[6px] text-nd-fg-3 transition-colors duration-nd-fast hover:bg-nd-fg/[.08] hover:text-nd-fg"
             >
-              {open ? "▼" : "▶"}
+              <Icon icon={open ? ChevronDown : ChevronRight} size={14} />
             </button>
           ) : (
-            <span className="h-4 w-4 shrink-0" />
+            <span className="h-5 w-5 shrink-0" />
           )}
-          <span className="truncate">{node.label}</span>
+          <span className="truncate" title={node.label}>{node.label}</span>
         </div>
-      </td>
+      </Td>
       {summary !== undefined && (
-        <td className="max-w-[280px] truncate px-3 py-1.5 text-xs text-zinc-400" title={summary}>
+        <Td className="max-w-[280px] truncate text-nd-caption text-nd-fg-3" title={summary}>
           {summary}
-        </td>
+        </Td>
       )}
       {columns.map((c) => {
         if (c.render) {
           return (
-            <td key={c.key} className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">
+            <Td key={c.key} num className="whitespace-nowrap">
               {c.render(node)}
-            </td>
+            </Td>
           );
         }
         const v = c.key === "count" ? node.value.count : (c.value?.(node.value, node) ?? 0);
         const zero = v === 0;
         return (
-          <td key={c.key} className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">
+          <Td key={c.key} num className="whitespace-nowrap">
             {zero ? (
-              <span className="text-zinc-300">—</span>
+              <span className="text-nd-fg-4">—</span>
             ) : (
               <Link
                 href={href}
-                className="rounded px-1 hover:bg-indigo-100 hover:underline"
+                className="rounded-[6px] px-1 transition-colors duration-nd-fast hover:bg-nd-accent-soft hover:underline"
                 title="이 숫자를 이루는 거래 보기"
               >
                 {c.key === "count" ? v.toLocaleString("ko-KR") : <Money value={v} unit={false} />}
               </Link>
             )}
-          </td>
+          </Td>
         );
       })}
-    </tr>
+    </Tr>
   );
 }
 

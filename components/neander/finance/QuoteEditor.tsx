@@ -17,7 +17,26 @@
 // ============================================================
 
 import { useMemo, useState } from "react";
-import { Button } from "@/components/neander/ui";
+import { ChevronDown, ChevronUp, FileSpreadsheet, Plus, Printer, Trash2, X } from "lucide-react";
+import {
+  Button,
+  Dialog,
+  Field,
+  IconButton,
+  InlineNotice,
+  Input,
+  SectionHeader,
+  SegmentedControl,
+  Select,
+  Table,
+  TableScroll,
+  Td,
+  Textarea,
+  Th,
+  Tr,
+  cn,
+  useConfirm,
+} from "@/components/neander/ui";
 import { Money } from "@/components/neander/finance/ui";
 import { DocFilesField } from "@/components/neander/finance/DocFiles";
 import { deleteFinDoc, saveFinDoc, uploadFinDocFiles } from "@/lib/neander/finance/client";
@@ -40,11 +59,6 @@ import { QUOTE_CSS, openQuotePdf, quoteHtml } from "@/lib/neander/finance/quote-
 import { exportQuoteXlsx } from "@/lib/neander/finance/quote-xlsx";
 import type { VatMode } from "@/lib/neander/finance/project";
 
-const cell =
-  "h-8 w-full rounded border border-zinc-200 bg-white px-2 text-sm outline-none focus:border-indigo-500 focus:bg-indigo-50/30";
-const numCell = `${cell} text-right tabular-nums`;
-const lbl = "flex flex-col gap-1 text-xs text-zinc-500";
-
 const SUPPLIER_FIELDS: { key: keyof FinSupplier; label: string }[] = [
   { key: "name", label: "상호" },
   { key: "bizNo", label: "사업자번호" },
@@ -55,6 +69,9 @@ const SUPPLIER_FIELDS: { key: keyof FinSupplier; label: string }[] = [
   { key: "contact", label: "담당자" },
   { key: "phone", label: "연락처" },
 ];
+
+/** 표 안 머리글 — 카드 안의 표라 배경 없이 얇은 선만 */
+const thCls = "!bg-transparent border-t-0";
 
 export function QuoteEditor({
   id: initialId,
@@ -76,6 +93,7 @@ export function QuoteEditor({
   /** 프로젝트 초안의 계약금액에 총액을 넣는다 */
   onApplyAmount?: (amount: number, vatMode: VatMode) => void;
 }) {
+  const confirm = useConfirm();
   const [docId, setDocId] = useState<string | undefined>(initialId);
   const [form, setForm] = useState<FinQuoteInput>(initial);
   const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(initial));
@@ -98,8 +116,17 @@ export function QuoteEditor({
   const removeLine = (lid: string) => setForm((f) => ({ ...f, lines: f.lines.filter((l) => l.id !== lid) }));
   const addLine = () => setForm((f) => ({ ...f, lines: [...f.lines, newQuoteLine()] }));
 
-  const close = () => {
-    if (dirty && !window.confirm("저장하지 않은 변경이 있습니다. 닫을까요?")) return;
+  const close = async () => {
+    if (
+      dirty &&
+      !(await confirm({
+        title: "저장하지 않은 변경이 있습니다",
+        message: "닫으면 고친 내용이 사라집니다. 닫을까요?",
+        confirmLabel: "닫기",
+        tone: "danger",
+      }))
+    )
+      return;
     onClose();
   };
 
@@ -133,7 +160,13 @@ export function QuoteEditor({
 
   const remove = async () => {
     if (!docId || !onDeleted) return;
-    if (!window.confirm(`견적서 「${form.title || form.quoteNo}」 를 지웁니다. 붙은 파일 ${files.length}개도 함께 사라집니다.`)) return;
+    const ok = await confirm({
+      title: `견적서 「${form.title || form.quoteNo}」 를 지울까요?`,
+      message: `붙은 파일 ${files.length}개도 함께 사라집니다.`,
+      confirmLabel: "삭제",
+      tone: "danger",
+    });
+    if (!ok) return;
     setSaving(true);
     try {
       await deleteFinDoc(docId);
@@ -153,225 +186,45 @@ export function QuoteEditor({
     if (form.lines.filter((l) => l.name.trim()).length === 0) m.push("품목");
     return m;
   };
-  const exportGuard = () => {
+  const exportGuard = async () => {
     const m = missing();
-    return m.length === 0 || window.confirm(`${m.join(" · ")} 이(가) 비어 있습니다. 그대로 뽑을까요?`);
+    return (
+      m.length === 0 ||
+      confirm({
+        title: `${m.join(" · ")} 이(가) 비어 있습니다`,
+        message: "그대로 뽑을까요?",
+        confirmLabel: "그대로 뽑기",
+      })
+    );
   };
-  const print = () => {
-    if (!exportGuard()) return;
+  const print = async () => {
+    if (!(await exportGuard())) return;
     if (!openQuotePdf(form)) setError("팝업이 차단되어 인쇄창을 열지 못했습니다. 이 사이트의 팝업을 허용해 주세요.");
   };
-  const excel = () => {
-    if (!exportGuard()) return;
+  const excel = async () => {
+    if (!(await exportGuard())) return;
     exportQuoteXlsx(form);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-zinc-900/40 p-4 sm:p-8" onClick={close}>
-      <div role="dialog" aria-modal="true" className="w-full max-w-5xl rounded-2xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
-        {/* ---- 머리 ---- */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200 px-6 py-4">
-          <div className="flex items-center gap-3">
-            <h2 className="text-lg font-bold text-zinc-900">{docId ? "견적서" : "새 견적서"}</h2>
-            <div className="flex rounded-lg border border-zinc-200 p-0.5 text-xs">
-              {(["edit", "preview"] as const).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setTab(t)}
-                  className={`rounded-md px-2.5 py-1 ${tab === t ? "bg-indigo-600 text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
-                >
-                  {t === "edit" ? "편집" : "미리보기"}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" className="h-8 px-3 text-xs" onClick={excel} disabled={saving} title="같은 판형의 엑셀 (숫자를 만질 수 있는 사본)">
-              엑셀
-            </Button>
-            <Button variant="secondary" className="h-8 px-3 text-xs" onClick={print} disabled={saving} title="인쇄창을 엽니다 — 대상에서 「PDF로 저장」">
-              인쇄 / PDF
-            </Button>
-            <button type="button" onClick={close} className="rounded-lg px-2 py-1 text-zinc-400 hover:bg-zinc-100" aria-label="닫기">
-              ✕
-            </button>
-          </div>
-        </div>
-
-        {(error || okMsg) && (
-          <p className={`mx-6 mt-4 rounded-lg border px-3 py-2 text-xs ${error ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>
-            {error ?? okMsg}
-          </p>
-        )}
-
-        {tab === "preview" ? (
-          <div className="px-6 py-5">
-            <style>{QUOTE_CSS}</style>
-            <div className="mx-auto max-w-[800px] rounded-lg border border-zinc-200 p-6 shadow-sm" dangerouslySetInnerHTML={{ __html: previewHtml }} />
-          </div>
-        ) : (
-          <div className="space-y-5 px-6 py-5">
-            {/* ---- 머리 칸 ---- */}
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <label className={lbl}>
-                견적번호
-                <span className="flex items-center gap-1">
-                  <span className="text-sm text-zinc-500">제</span>
-                  <input value={form.quoteNo} onChange={(e) => set("quoteNo", e.target.value)} className={`${cell} font-mono`} placeholder="26-001" />
-                  <span className="text-sm text-zinc-500">호</span>
-                </span>
-              </label>
-              <label className={lbl}>
-                견적일
-                <input type="date" value={form.date} onChange={(e) => set("date", e.target.value)} className={cell} />
-              </label>
-              <label className={lbl}>
-                상태
-                <select value={form.status} onChange={(e) => set("status", e.target.value as QuoteStatus)} className={`${cell} cursor-pointer`}>
-                  {QUOTE_STATUSES.map((s) => (
-                    <option key={s} value={s}>{QUOTE_STATUS_LABEL[s]}</option>
-                  ))}
-                </select>
-              </label>
-              <label className={lbl}>
-                단가 기준
-                <select value={form.vatMode} onChange={(e) => set("vatMode", e.target.value as QuoteVatMode)} className={`${cell} cursor-pointer`} title="표의 단가가 부가세를 포함한 값인지">
-                  {(Object.keys(QUOTE_VAT_LABEL) as QuoteVatMode[]).map((m) => (
-                    <option key={m} value={m}>{QUOTE_VAT_LABEL[m]}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-              <label className={lbl}>
-                수신 <span className="text-[10px] text-zinc-400">「○○ 님 귀하」</span>
-                <input value={form.recipient} onChange={(e) => set("recipient", e.target.value)} className={cell} placeholder="FNC" />
-              </label>
-              <label className={lbl}>
-                견적명
-                <input value={form.title} onChange={(e) => set("title", e.target.value)} className={cell} placeholder="N.Flying 'into REM' 룸스프레이의 건" />
-              </label>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <label className={lbl}>
-                납품기한
-                <input value={form.delivery ?? ""} onChange={(e) => set("delivery", e.target.value)} className={cell} placeholder="발주 후 3주 · 납품 완료" />
-              </label>
-              <label className={lbl}>
-                대금 지불방식
-                <input value={form.payment ?? ""} onChange={(e) => set("payment", e.target.value)} className={cell} placeholder="납품 후 세금계산서 발행, 30일 내 입금" />
-              </label>
-              <label className={lbl}>
-                견적 유효기간
-                <input value={form.validity ?? ""} onChange={(e) => set("validity", e.target.value)} className={cell} placeholder="견적일로부터 7일간" />
-              </label>
-            </div>
-
-            {/* ---- 품목 ---- */}
-            <div>
-              <div className="mb-1 flex items-center justify-between text-xs text-zinc-500">
-                <span>품목 <span className="text-zinc-400">— 공급가액은 수량 × 단가</span></span>
-                <button type="button" onClick={addLine} className="text-indigo-600 hover:underline">+ 줄 추가</button>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] text-sm">
-                  <thead>
-                    <tr className="text-left text-[11px] text-zinc-400">
-                      <th className="pb-1 font-medium">품명</th>
-                      <th className="w-36 pb-1 font-medium">규격/사양</th>
-                      <th className="w-20 pb-1 text-right font-medium">수량</th>
-                      <th className="w-28 pb-1 text-right font-medium">단가</th>
-                      <th className="w-28 pb-1 text-right font-medium">공급가액</th>
-                      <th className="w-28 pb-1 font-medium">비고</th>
-                      <th className="w-6 pb-1" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {form.lines.map((l) => (
-                      <tr key={l.id}>
-                        <td className="py-0.5 pr-1"><input value={l.name} onChange={(e) => setLine(l.id, { name: e.target.value })} className={cell} placeholder="품명" /></td>
-                        <td className="py-0.5 pr-1"><input value={l.spec ?? ""} onChange={(e) => setLine(l.id, { spec: e.target.value })} className={cell} placeholder="개/200ml" /></td>
-                        <td className="py-0.5 pr-1"><input type="number" inputMode="numeric" value={l.qty || ""} placeholder="0" onChange={(e) => setLine(l.id, { qty: Number(e.target.value) || 0 })} className={numCell} /></td>
-                        <td className="py-0.5 pr-1"><input type="number" inputMode="numeric" value={l.unitPrice || ""} placeholder="0" onChange={(e) => setLine(l.id, { unitPrice: Number(e.target.value) || 0 })} className={numCell} /></td>
-                        <td className="py-0.5 pr-1 text-right tabular-nums text-zinc-700">{quoteLineAmount(l).toLocaleString("ko-KR")}</td>
-                        <td className="py-0.5 pr-1"><input value={l.note ?? ""} onChange={(e) => setLine(l.id, { note: e.target.value })} className={cell} placeholder="VAT포함" /></td>
-                        <td className="py-0.5"><button type="button" onClick={() => removeLine(l.id)} className="text-zinc-300 hover:text-rose-600" title="줄 삭제">✕</button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="mt-3 flex flex-wrap items-start justify-between gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3">
-                <div className="text-sm">
-                  <span className="text-zinc-500">일금</span>{" "}
-                  <b className="text-base text-zinc-900">{koreanNumber(totals.total)}</b>{" "}
-                  <span className="text-zinc-500">원정</span>
-                  <span className="ml-2 text-xs text-zinc-400">{QUOTE_VAT_LABEL[form.vatMode]}</span>
-                </div>
-                <dl className="grid grid-cols-[auto_auto] gap-x-6 gap-y-0.5 text-xs">
-                  <dt className="text-zinc-500">표 합계</dt>
-                  <dd className="text-right"><Money value={totals.sum} unit={false} /></dd>
-                  <dt className="text-zinc-500">공급가액</dt>
-                  <dd className="text-right"><Money value={totals.supply} unit={false} muted /></dd>
-                  <dt className="text-zinc-500">부가세</dt>
-                  <dd className="text-right"><Money value={totals.vat} unit={false} muted /></dd>
-                  <dt className="border-t border-zinc-200 pt-0.5 font-semibold">합계금액</dt>
-                  <dd className="border-t border-zinc-200 pt-0.5 text-right font-semibold"><Money value={totals.total} unit={false} /></dd>
-                </dl>
-              </div>
-            </div>
-
-            {/* ---- 공급자 ---- */}
-            <div className="rounded-lg border border-zinc-200">
-              <button
-                type="button"
-                onClick={() => setSupplierOpen((v) => !v)}
-                className="flex w-full items-center justify-between px-4 py-2 text-left text-xs text-zinc-600 hover:bg-zinc-50"
-              >
-                <span>
-                  공급자 <span className="text-zinc-400">— {form.supplier.name || "(상호 없음)"} · {form.supplier.contact || "담당자 없음"} {form.supplier.phone}</span>
-                </span>
-                <span className="text-zinc-400">{supplierOpen ? "접기 ▲" : "고치기 ▼"}</span>
-              </button>
-              {supplierOpen && (
-                <div className="grid gap-3 border-t border-zinc-100 px-4 py-3 sm:grid-cols-2 lg:grid-cols-4">
-                  {SUPPLIER_FIELDS.map((f) => (
-                    <label key={f.key} className={`${lbl} ${f.key === "address" ? "sm:col-span-2" : ""}`}>
-                      {f.label}
-                      <input value={form.supplier[f.key]} onChange={(e) => setSupplier(f.key, e.target.value)} className={cell} />
-                    </label>
-                  ))}
-                  <p className="text-[11px] text-zinc-400 sm:col-span-2 lg:col-span-4">
-                    여기서 고친 값은 이 견적서에 남고, 다음 새 견적서가 이어받습니다.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <label className={lbl}>
-              메모 <span className="text-[10px] text-zinc-400">견적서 아래에 함께 찍힙니다 — 배송비·샘플 조건 등</span>
-              <textarea rows={2} value={form.note ?? ""} onChange={(e) => set("note", e.target.value)} className={`${cell} h-auto resize-y py-1.5`} />
-            </label>
-
-            <div className={lbl}>
-              파일 <span className="text-[10px] text-zinc-400">받은 견적 요청서, 보낸 PDF, 상대가 되보낸 수정본</span>
-              <DocFilesField docId={docId} files={files} onFilesChange={setFiles} pending={pending} onPendingChange={setPending} disabled={saving} onError={setError} />
-            </div>
-          </div>
-        )}
-
-        {/* ---- 발 ---- */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200 px-6 py-4">
+    <Dialog
+      open
+      onClose={() => void close()}
+      size="xl"
+      closeOnOverlay={false}
+      title={docId ? "견적서" : "새 견적서"}
+      footer={
+        <div className="flex flex-1 flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             {docId && onDeleted && (
-              <Button variant="danger" className="h-8 px-3 text-xs" onClick={remove} disabled={saving}>삭제</Button>
+              <Button variant="danger" size="sm" icon={Trash2} onClick={remove} disabled={saving}>
+                삭제
+              </Button>
             )}
             {onApplyAmount && (
               <Button
                 variant="secondary"
-                className="h-8 px-3 text-xs"
+                size="sm"
                 disabled={saving || totals.total === 0}
                 onClick={() => {
                   onApplyAmount(totals.total, form.vatMode);
@@ -384,14 +237,216 @@ export function QuoteEditor({
             )}
           </div>
           <div className="flex items-center gap-2">
-            {dirty && <span className="text-xs text-amber-700">저장 안 됨</span>}
-            <Button variant="ghost" className="h-8 px-3 text-xs" onClick={close} disabled={saving}>닫기</Button>
-            <Button className="h-8 px-3 text-xs" onClick={save} disabled={saving || !dirty}>
-              {saving ? "저장 중…" : "저장"}
+            {dirty && <span className="text-nd-caption text-nd-warning-text">저장 안 됨</span>}
+            <Button variant="ghost" onClick={() => void close()} disabled={saving}>
+              닫기
+            </Button>
+            <Button onClick={save} disabled={!dirty} loading={saving}>
+              저장
             </Button>
           </div>
         </div>
+      }
+    >
+      {/* ---- 편집/미리보기 · 내보내기 ---- */}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <SegmentedControl<"edit" | "preview">
+          size="sm"
+          ariaLabel="보기"
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: "edit", label: "편집" },
+            { value: "preview", label: "미리보기" },
+          ]}
+        />
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" size="sm" icon={FileSpreadsheet} onClick={() => void excel()} disabled={saving} title="같은 판형의 엑셀 (숫자를 만질 수 있는 사본)">
+            엑셀
+          </Button>
+          <Button variant="secondary" size="sm" icon={Printer} onClick={() => void print()} disabled={saving} title="인쇄창을 엽니다 — 대상에서 「PDF로 저장」">
+            인쇄 / PDF
+          </Button>
+        </div>
       </div>
-    </div>
+
+      {(error || okMsg) && (
+        <InlineNotice tone={error ? "danger" : "success"} className="mb-4">
+          {error ?? okMsg}
+        </InlineNotice>
+      )}
+
+      {tab === "preview" ? (
+        <div>
+          <style>{QUOTE_CSS}</style>
+          <div className="mx-auto max-w-[800px] rounded-lg border border-nd-line p-6 shadow-sm" dangerouslySetInnerHTML={{ __html: previewHtml }} />
+        </div>
+      ) : (
+        <div className="space-y-5">
+          {/* ---- 머리 칸 ---- */}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Field label="견적번호">
+              <span className="flex items-center gap-1.5">
+                <span className="text-nd-body text-nd-fg-2">제</span>
+                <Input value={form.quoteNo} onChange={(e) => set("quoteNo", e.target.value)} className="font-mono" placeholder="26-001" />
+                <span className="text-nd-body text-nd-fg-2">호</span>
+              </span>
+            </Field>
+            <Field label="견적일">
+              <Input type="date" value={form.date} onChange={(e) => set("date", e.target.value)} />
+            </Field>
+            <Field label="상태">
+              <Select value={form.status} onChange={(e) => set("status", e.target.value as QuoteStatus)}>
+                {QUOTE_STATUSES.map((s) => (
+                  <option key={s} value={s}>{QUOTE_STATUS_LABEL[s]}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="단가 기준">
+              <Select value={form.vatMode} onChange={(e) => set("vatMode", e.target.value as QuoteVatMode)} title="표의 단가가 부가세를 포함한 값인지">
+                {(Object.keys(QUOTE_VAT_LABEL) as QuoteVatMode[]).map((m) => (
+                  <option key={m} value={m}>{QUOTE_VAT_LABEL[m]}</option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+            <Field label="수신" hint="「○○ 님 귀하」">
+              <Input value={form.recipient} onChange={(e) => set("recipient", e.target.value)} placeholder="FNC" />
+            </Field>
+            <Field label="견적명">
+              <Input value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="N.Flying 'into REM' 룸스프레이의 건" />
+            </Field>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label="납품기한">
+              <Input value={form.delivery ?? ""} onChange={(e) => set("delivery", e.target.value)} placeholder="발주 후 3주 · 납품 완료" />
+            </Field>
+            <Field label="대금 지불방식">
+              <Input value={form.payment ?? ""} onChange={(e) => set("payment", e.target.value)} placeholder="납품 후 세금계산서 발행, 30일 내 입금" />
+            </Field>
+            <Field label="견적 유효기간">
+              <Input value={form.validity ?? ""} onChange={(e) => set("validity", e.target.value)} placeholder="견적일로부터 7일간" />
+            </Field>
+          </div>
+
+          {/* ---- 품목 ---- */}
+          <div>
+            <SectionHeader
+              as="h3"
+              title="품목"
+              hint="공급가액은 수량 × 단가"
+              className="mb-2"
+              action={
+                <Button variant="ghost" size="sm" icon={Plus} onClick={addLine}>
+                  줄 추가
+                </Button>
+              }
+            />
+            <TableScroll>
+              <Table minWidth={720} dense className="[&_td]:px-1 [&_th]:px-1">
+                <thead>
+                  <tr>
+                    <Th className={thCls}>품명</Th>
+                    <Th className={cn("w-36", thCls)}>규격/사양</Th>
+                    <Th align="right" className={cn("w-20", thCls)}>수량</Th>
+                    <Th align="right" className={cn("w-28", thCls)}>단가</Th>
+                    <Th align="right" className={cn("w-28", thCls)}>공급가액</Th>
+                    <Th className={cn("w-28", thCls)}>비고</Th>
+                    <Th className={cn("w-8", thCls)} aria-label="동작" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {form.lines.map((l) => (
+                    <Tr key={l.id} hover={false} className="border-b-0">
+                      <Td>
+                        <Input size="sm" value={l.name} onChange={(e) => setLine(l.id, { name: e.target.value })} placeholder="품명" aria-label="품명" className="min-w-[10rem]" />
+                      </Td>
+                      <Td>
+                        <Input size="sm" value={l.spec ?? ""} onChange={(e) => setLine(l.id, { spec: e.target.value })} placeholder="개/200ml" aria-label="규격/사양" />
+                      </Td>
+                      <Td>
+                        <Input size="sm" type="number" inputMode="numeric" value={l.qty || ""} placeholder="0" onChange={(e) => setLine(l.id, { qty: Number(e.target.value) || 0 })} className="nd-num text-right" aria-label="수량" />
+                      </Td>
+                      <Td>
+                        <Input size="sm" type="number" inputMode="numeric" value={l.unitPrice || ""} placeholder="0" onChange={(e) => setLine(l.id, { unitPrice: Number(e.target.value) || 0 })} className="nd-num text-right" aria-label="단가" />
+                      </Td>
+                      <Td num className="text-nd-fg-2">{quoteLineAmount(l).toLocaleString("ko-KR")}</Td>
+                      <Td>
+                        <Input size="sm" value={l.note ?? ""} onChange={(e) => setLine(l.id, { note: e.target.value })} placeholder="VAT포함" aria-label="비고" />
+                      </Td>
+                      <Td className="pr-0">
+                        <IconButton icon={X} label="줄 삭제" size="sm" onClick={() => removeLine(l.id)} className="text-nd-fg-3 hover:text-nd-danger-text" />
+                      </Td>
+                    </Tr>
+                  ))}
+                </tbody>
+              </Table>
+            </TableScroll>
+
+            <div className="mt-3 flex flex-wrap items-start justify-between gap-3 rounded-nd-md bg-nd-sunken px-4 py-3">
+              <div className="text-nd-body">
+                <span className="text-nd-fg-2">일금</span>{" "}
+                <b className="nd-num text-[16px] text-nd-fg">{koreanNumber(totals.total)}</b>{" "}
+                <span className="text-nd-fg-2">원정</span>
+                <span className="ml-2 text-nd-caption text-nd-fg-3">{QUOTE_VAT_LABEL[form.vatMode]}</span>
+              </div>
+              <dl className="grid grid-cols-[auto_auto] gap-x-6 gap-y-0.5 text-nd-caption">
+                <dt className="text-nd-fg-2">표 합계</dt>
+                <dd className="text-right"><Money value={totals.sum} unit={false} /></dd>
+                <dt className="text-nd-fg-2">공급가액</dt>
+                <dd className="text-right"><Money value={totals.supply} unit={false} muted /></dd>
+                <dt className="text-nd-fg-2">부가세</dt>
+                <dd className="text-right"><Money value={totals.vat} unit={false} muted /></dd>
+                <dt className="border-t border-nd-line pt-0.5 font-semibold text-nd-fg">합계금액</dt>
+                <dd className="border-t border-nd-line pt-0.5 text-right font-semibold"><Money value={totals.total} unit={false} /></dd>
+              </dl>
+            </div>
+          </div>
+
+          {/* ---- 공급자 ---- */}
+          <div className="rounded-nd-md border border-nd-line">
+            <button
+              type="button"
+              onClick={() => setSupplierOpen((v) => !v)}
+              aria-expanded={supplierOpen}
+              className="flex w-full items-center justify-between gap-3 rounded-nd-md px-4 py-2.5 text-left text-nd-caption text-nd-fg-2 transition-colors duration-nd-fast hover:bg-nd-sunken"
+            >
+              <span className="min-w-0 truncate">
+                <span className="font-medium text-nd-fg">공급자</span>
+                <span className="text-nd-fg-3"> — {form.supplier.name || "(상호 없음)"} · {form.supplier.contact || "담당자 없음"} {form.supplier.phone}</span>
+              </span>
+              <span className="inline-flex shrink-0 items-center gap-1 text-nd-fg-3">
+                {supplierOpen ? "접기" : "고치기"}
+                {supplierOpen ? <ChevronUp size={14} strokeWidth={1.75} aria-hidden /> : <ChevronDown size={14} strokeWidth={1.75} aria-hidden />}
+              </span>
+            </button>
+            {supplierOpen && (
+              <div className="grid gap-3 border-t border-nd-line px-4 py-3 sm:grid-cols-2 lg:grid-cols-4">
+                {SUPPLIER_FIELDS.map((f) => (
+                  <Field key={f.key} label={f.label} className={f.key === "address" ? "sm:col-span-2" : undefined}>
+                    <Input size="sm" value={form.supplier[f.key]} onChange={(e) => setSupplier(f.key, e.target.value)} />
+                  </Field>
+                ))}
+                <p className="text-nd-micro text-nd-fg-3 sm:col-span-2 lg:col-span-4">
+                  여기서 고친 값은 이 견적서에 남고, 다음 새 견적서가 이어받습니다.
+                </p>
+              </div>
+            )}
+          </div>
+
+          <Field label="메모" hint="견적서 아래에 함께 찍힙니다 — 배송비·샘플 조건 등">
+            <Textarea rows={2} value={form.note ?? ""} onChange={(e) => set("note", e.target.value)} className="!min-h-0" />
+          </Field>
+
+          <div className="flex flex-col gap-1.5">
+            <span className="text-nd-caption font-medium text-nd-fg-2">
+              파일 <span className="ml-1 font-normal text-nd-fg-3">받은 견적 요청서, 보낸 PDF, 상대가 되보낸 수정본</span>
+            </span>
+            <DocFilesField docId={docId} files={files} onFilesChange={setFiles} pending={pending} onPendingChange={setPending} disabled={saving} onError={setError} />
+          </div>
+        </div>
+      )}
+    </Dialog>
   );
 }

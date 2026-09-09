@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { CalendarDays, Pencil, Trash2, Users } from "lucide-react";
 import { useAppData } from "@/components/neander/app-data";
 import {
   subscribeSchedules,
@@ -12,23 +13,46 @@ import { emptyToUndef } from "@/lib/neander/db/helpers";
 import {
   Button,
   Card,
+  DateStepper,
   Field,
+  Icon,
+  IconButton,
   Input,
   Textarea,
   PageHeader,
   Badge,
   EmptyState,
   MemberAvatar,
+  SectionHeader,
+  useConfirm,
+  useToast,
   cn,
 } from "@/components/neander/ui";
 import type { Schedule, Member } from "@/lib/neander/types";
 import { listScheduleShifts, listEvents } from "@/lib/db";
 import type { WorkShift, CalendarEvent, Store } from "@/lib/types";
+import {
+  todayStr,
+  thisMonthStr,
+  formatDateKo,
+  isOverdue,
+  monthGrid,
+  shiftMonth,
+  monthLabel,
+} from "@/lib/neander/format";
 
-// AC'SCENT 매장 라벨/색상 (아이디=보라, 와우=주황)
+// AC'SCENT 매장 라벨/색상 (아이디=보라, 와우=주황) — 매장이 가진 브랜드 색이라 그대로 둔다
 const STORE_LABEL: Record<Store, string> = { id: "악센트 아이디", wow: "악센트 와우" };
 const storeCellCls = (store: Store) =>
   store === "id" ? "bg-brand-light text-brand-dark" : "bg-wow-light text-wow";
+// AC'SCENT 이벤트 기본 색 (데이터 기본값)
+const EVENT_DEFAULT_COLOR = "#ff8a3d";
+
+const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
+
+/** 요일 글자색 — 일요일·토요일만 구분 */
+const weekdayText = (i: number, base = "text-nd-fg-3") =>
+  i === 0 ? "text-nd-danger" : i === 6 ? "text-nd-info" : base;
 
 // 대상자(팀원) 복수 선택기
 function TargetPicker({
@@ -46,17 +70,17 @@ function TargetPicker({
   }
   return (
     <div className="flex flex-col gap-2">
-      <button
+      <Button
         type="button"
+        variant={allOn ? "primary" : "soft"}
+        size="sm"
+        pill
+        className="self-start"
         onClick={() => onChange(allOn ? [] : members.map((m) => m.id))}
-        className={cn(
-          "self-start rounded-full px-3 py-1 text-xs font-medium transition",
-          allOn ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200",
-        )}
       >
         {allOn ? "전체 해제" : "전체 선택"}
-      </button>
-      <div className="flex flex-wrap gap-2">
+      </Button>
+      <div className="flex flex-wrap gap-2" role="group" aria-label="대상자">
         {members.map((m) => {
           const sel = value.includes(m.id);
           return (
@@ -64,13 +88,14 @@ function TargetPicker({
               type="button"
               key={m.id}
               onClick={() => toggle(m.id)}
+              aria-pressed={sel}
               className={cn(
-                "flex items-center gap-1.5 rounded-full border py-1 pl-1 pr-2.5 transition",
-                sel ? "border-indigo-500 bg-indigo-50" : "border-zinc-200 hover:bg-zinc-50",
+                "flex h-8 items-center gap-1.5 rounded-full border pl-1 pr-2.5 transition-colors duration-nd-fast",
+                sel ? "border-nd-accent bg-nd-accent-soft" : "border-nd-line hover:bg-nd-sunken",
               )}
             >
               <MemberAvatar name={m.name} color={m.color} avatar={m.avatar} className="h-6 w-6 text-xs" />
-              <span className="text-xs font-medium text-zinc-700">{m.name}</span>
+              <span className="text-nd-caption font-medium text-nd-fg-2">{m.name}</span>
             </button>
           );
         })}
@@ -78,17 +103,6 @@ function TargetPicker({
     </div>
   );
 }
-import {
-  todayStr,
-  thisMonthStr,
-  formatDateKo,
-  isOverdue,
-  monthGrid,
-  shiftMonth,
-  monthLabel,
-} from "@/lib/neander/format";
-
-const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
 export default function SchedulePage() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -180,45 +194,23 @@ export default function SchedulePage() {
 
         {/* 우측: 캘린더 + 선택일 상세 */}
         <div className="flex flex-col gap-4">
-          <Card className="flex flex-col gap-3">
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setViewMonth(shiftMonth(viewMonth, -1))}
-                className="rounded-lg px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100"
-                aria-label="이전 달"
-              >
-                ‹
-              </button>
-              <span className="min-w-[110px] text-center text-sm font-semibold text-zinc-800">
-                {monthLabel(viewMonth)}
-              </span>
-              <button
-                onClick={() => setViewMonth(shiftMonth(viewMonth, 1))}
-                className="rounded-lg px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100"
-                aria-label="다음 달"
-              >
-                ›
-              </button>
-              <button
-                onClick={() => {
-                  setViewMonth(thisMonthStr());
-                  setSelectedDate(today);
-                }}
-                className="ml-1 rounded-lg px-2 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50"
-              >
-                오늘
-              </button>
-            </div>
+          <Card padding="sm" className="flex flex-col gap-3">
+            <DateStepper
+              label={monthLabel(viewMonth)}
+              prevLabel="이전 달"
+              nextLabel="다음 달"
+              onPrev={() => setViewMonth(shiftMonth(viewMonth, -1))}
+              onNext={() => setViewMonth(shiftMonth(viewMonth, 1))}
+              onToday={() => {
+                setViewMonth(thisMonthStr());
+                setSelectedDate(today);
+              }}
+              className="self-start"
+            />
 
             <div className="grid grid-cols-7 gap-1">
               {WEEKDAYS.map((w, i) => (
-                <div
-                  key={w}
-                  className={cn(
-                    "py-1 text-center text-xs font-medium",
-                    i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-zinc-400",
-                  )}
-                >
+                <div key={w} className={cn("py-1 text-center text-nd-caption font-medium", weekdayText(i))}>
                   {w}
                 </div>
               ))}
@@ -226,7 +218,7 @@ export default function SchedulePage() {
 
             <div className="grid grid-cols-7 gap-1">
               {grid.map((date, idx) => {
-                if (!date) return <div key={`e${idx}`} className="min-h-[92px] rounded-lg" />;
+                if (!date) return <div key={`e${idx}`} className="min-h-[72px] rounded-nd-md sm:min-h-[92px]" />;
                 const dayNum = Number(date.slice(8, 10));
                 const dow = idx % 7;
                 const cellShifts = shiftsByDate.get(date) ?? [];
@@ -237,35 +229,33 @@ export default function SchedulePage() {
                 return (
                   <button
                     key={date}
+                    type="button"
                     onClick={() => selectDate(date)}
+                    aria-pressed={isSelected}
                     className={cn(
-                      "flex min-h-[92px] flex-col gap-0.5 rounded-lg border p-1 text-left transition",
+                      "flex min-h-[72px] min-w-0 flex-col gap-0.5 rounded-nd-md border p-1 text-left transition-colors duration-nd-fast sm:min-h-[92px]",
                       isSelected
-                        ? "border-indigo-500 bg-indigo-50"
-                        : "border-zinc-100 hover:border-indigo-200 hover:bg-zinc-50",
+                        ? "border-nd-accent bg-nd-accent-soft"
+                        : "border-nd-line hover:border-nd-accent/40 hover:bg-nd-sunken",
                     )}
                   >
                     <span
                       className={cn(
-                        "text-xs font-medium",
+                        "nd-num text-nd-caption font-medium",
                         isToday
-                          ? "flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-white"
-                          : dow === 0
-                            ? "text-red-400"
-                            : dow === 6
-                              ? "text-blue-400"
-                              : "text-zinc-600",
+                          ? "flex h-5 w-5 items-center justify-center rounded-full bg-nd-accent text-white"
+                          : weekdayText(dow, "text-nd-fg-2"),
                       )}
                     >
                       {dayNum}
                     </span>
                     {/* 근무자 (매장 색) */}
-                    <div className="flex flex-1 flex-col gap-0.5 overflow-hidden">
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden">
                       {cellShifts.slice(0, 4).map((s) => (
                         <span
                           key={s.id}
                           className={cn(
-                            "truncate rounded px-1 text-[10px] font-medium leading-tight",
+                            "truncate rounded-[4px] px-1 text-nd-micro font-medium leading-tight",
                             storeCellCls(s.store),
                           )}
                           title={`${STORE_LABEL[s.store]} · ${s.staffName}${s.start ? ` (${s.start}~${s.end})` : ""}`}
@@ -274,7 +264,7 @@ export default function SchedulePage() {
                         </span>
                       ))}
                       {cellShifts.length > 4 && (
-                        <span className="text-[10px] text-zinc-400">+{cellShifts.length - 4}</span>
+                        <span className="nd-num text-nd-micro text-nd-fg-3">+{cellShifts.length - 4}</span>
                       )}
                     </div>
                     {/* 하단 점: 생일·이벤트 + 팀 일정 */}
@@ -284,12 +274,12 @@ export default function SchedulePage() {
                           <span
                             key={e.id}
                             className="inline-block h-1.5 w-1.5 rounded-full"
-                            style={{ backgroundColor: e.color || "#ff8a3d" }}
+                            style={{ backgroundColor: e.color || EVENT_DEFAULT_COLOR }}
                             title={e.title}
                           />
                         ))}
                         {hasSchedule && (
-                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-500" title="팀 일정" />
+                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-nd-info" title="팀 일정" />
                         )}
                       </div>
                     )}
@@ -299,21 +289,21 @@ export default function SchedulePage() {
             </div>
 
             {/* 범례 */}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-500">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-nd-micro text-nd-fg-2">
               <span className="flex items-center gap-1">
-                <span className="inline-block h-2.5 w-2.5 rounded bg-brand-light ring-1 ring-brand/30" />
+                <span className="inline-block h-2.5 w-2.5 rounded-[3px] bg-brand-light ring-1 ring-brand/30" />
                 악센트 아이디
               </span>
               <span className="flex items-center gap-1">
-                <span className="inline-block h-2.5 w-2.5 rounded bg-wow-light ring-1 ring-wow/30" />
+                <span className="inline-block h-2.5 w-2.5 rounded-[3px] bg-wow-light ring-1 ring-wow/30" />
                 악센트 와우
               </span>
               <span className="flex items-center gap-1">
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-wow" />
+                <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: EVENT_DEFAULT_COLOR }} />
                 생일·이벤트
               </span>
               <span className="flex items-center gap-1">
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-500" />
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-nd-info" />
                 팀 일정
               </span>
             </div>
@@ -321,16 +311,13 @@ export default function SchedulePage() {
 
           {/* 선택일 상세 */}
           <div className="flex flex-col gap-3">
-            <h2 className="text-sm font-semibold text-zinc-800">{formatDateKo(selectedDate)}</h2>
+            <h2 className="text-nd-section text-nd-fg">{formatDateKo(selectedDate)}</h2>
 
             {/* 근무자 */}
-            <Card className="flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-zinc-800">근무자</h3>
-                <span className="text-xs text-zinc-400">{dayShifts.length}명</span>
-              </div>
+            <Card padding="sm" className="flex flex-col gap-2">
+              <SectionHeader as="h3" title="근무자" hint={`${dayShifts.length}명`} className="mb-0" />
               {dayShifts.length === 0 ? (
-                <p className="text-sm text-zinc-400">근무자 일정이 없습니다.</p>
+                <p className="text-nd-body text-nd-fg-3">근무자 일정이 없습니다.</p>
               ) : (
                 <div className="flex flex-col gap-2">
                   {(["id", "wow"] as Store[]).map((store) => {
@@ -338,15 +325,15 @@ export default function SchedulePage() {
                     if (list.length === 0) return null;
                     return (
                       <div key={store} className="flex flex-col gap-1">
-                        <span className="text-[11px] font-medium text-zinc-400">{STORE_LABEL[store]}</span>
+                        <span className="text-nd-micro font-medium text-nd-fg-3">{STORE_LABEL[store]}</span>
                         <div className="flex flex-wrap gap-1.5">
                           {list.map((s) => (
                             <span
                               key={s.id}
-                              className={cn("rounded-md px-2 py-1 text-xs font-medium", storeCellCls(store))}
+                              className={cn("rounded-[8px] px-2 py-1 text-nd-caption font-medium", storeCellCls(store))}
                             >
                               {s.staffName}
-                              {s.start && <span className="ml-1 opacity-70">{s.start}~{s.end}</span>}
+                              {s.start && <span className="nd-num ml-1 opacity-70">{s.start}~{s.end}</span>}
                             </span>
                           ))}
                         </div>
@@ -359,17 +346,15 @@ export default function SchedulePage() {
 
             {/* 생일·이벤트 */}
             {dayEvents.length > 0 && (
-              <Card className="flex flex-col gap-2">
-                <h3 className="text-sm font-semibold text-zinc-800">생일·이벤트</h3>
+              <Card padding="sm" className="flex flex-col gap-2">
+                <h3 className="text-nd-section text-nd-fg">생일·이벤트</h3>
                 <ul className="flex flex-col gap-1.5">
                   {dayEvents.map((e) => (
-                    <li key={e.id} className="flex items-center gap-2 text-sm">
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-full"
-                        style={{ backgroundColor: e.color || "#ff8a3d" }}
-                      />
-                      <span className="text-zinc-800">{e.title}</span>
-                      {e.memo && <span className="text-xs text-zinc-400">· {e.memo}</span>}
+                    <li key={e.id} className="flex flex-wrap items-center gap-2 text-nd-body">
+                      <Badge color={e.color || EVENT_DEFAULT_COLOR} dot>
+                        {e.title}
+                      </Badge>
+                      {e.memo && <span className="text-nd-caption text-nd-fg-3">· {e.memo}</span>}
                     </li>
                   ))}
                 </ul>
@@ -378,12 +363,14 @@ export default function SchedulePage() {
 
             {/* 팀 일정 (NEANDER) */}
             <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-zinc-800">팀 일정</h3>
-                <span className="text-xs text-zinc-400">{daySchedules.length}건</span>
-              </div>
+              <SectionHeader as="h3" title="팀 일정" hint={`${daySchedules.length}건`} className="mb-0" />
               {daySchedules.length === 0 ? (
-                <EmptyState icon="🗓️" title="등록된 팀 일정이 없습니다" description="왼쪽에서 등록하세요." />
+                <EmptyState
+                  compact
+                  icon={CalendarDays}
+                  title="등록된 팀 일정이 없습니다"
+                  description="왼쪽에서 등록하세요."
+                />
               ) : (
                 daySchedules.map((s) => <ScheduleCard key={s.id} schedule={s} />)
               )}
@@ -397,6 +384,7 @@ export default function SchedulePage() {
 
 function ScheduleCard({ schedule }: { schedule: Schedule }) {
   const { members } = useAppData();
+  const confirm = useConfirm();
   const [editing, setEditing] = useState(false);
   const past = isOverdue(schedule.date);
 
@@ -406,52 +394,49 @@ function ScheduleCard({ schedule }: { schedule: Schedule }) {
     .filter((m): m is Member => Boolean(m));
   const allMembers = members.length > 0 && ids.length === members.length;
 
+  async function remove() {
+    if (!(await confirm({ title: "이 일정을 삭제할까요?", confirmLabel: "삭제", tone: "danger" }))) return;
+    deleteSchedule(schedule.id);
+  }
+
   if (editing) {
     return <ScheduleEditForm schedule={schedule} onDone={() => setEditing(false)} />;
   }
 
   return (
-    <Card className="flex flex-col gap-2">
+    <Card padding="sm" className="flex flex-col gap-2">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             {allMembers ? (
-              <Badge color="#0891b2">🎯 전 직원</Badge>
+              <Badge tone="info">
+                <Icon icon={Users} size={12} /> 전 직원
+              </Badge>
             ) : targetMembers.length === 0 ? (
-              <span className="text-xs text-zinc-400">대상자 미지정</span>
+              <span className="text-nd-caption text-nd-fg-3">대상자 미지정</span>
             ) : (
               targetMembers.map((m) => (
                 <span
                   key={m.id}
-                  className="inline-flex items-center gap-1 rounded-full bg-zinc-100 py-0.5 pl-0.5 pr-2"
+                  className="inline-flex h-6 items-center gap-1 rounded-full bg-nd-fg/[.06] pl-0.5 pr-2"
                 >
                   <MemberAvatar name={m.name} color={m.color} avatar={m.avatar} className="h-5 w-5 text-[10px]" />
-                  <span className="text-[11px] text-zinc-600">{m.name}</span>
+                  <span className="text-nd-micro text-nd-fg-2">{m.name}</span>
                 </span>
               ))
             )}
-            {past && <Badge color="#a1a1aa">지난 일정</Badge>}
+            {past && <Badge tone="neutral">지난 일정</Badge>}
           </div>
-          <div className="mt-2 text-sm font-semibold text-zinc-900">{schedule.title}</div>
+          <div className="mt-2 text-nd-body font-semibold text-nd-fg">{schedule.title}</div>
           {schedule.content && (
-            <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-600">{schedule.content}</p>
+            <p className="mt-1 whitespace-pre-wrap text-nd-body text-nd-fg-2">{schedule.content}</p>
           )}
         </div>
-        <div className="flex shrink-0 gap-1">
-          <button
-            onClick={() => setEditing(true)}
-            className="rounded-lg px-2 py-1 text-xs font-medium text-zinc-500 hover:bg-zinc-100"
-          >
+        <div className="flex shrink-0 items-center gap-1">
+          <Button variant="ghost" size="sm" icon={Pencil} onClick={() => setEditing(true)}>
             수정
-          </button>
-          <button
-            onClick={() => {
-              if (confirm("이 일정을 삭제할까요?")) deleteSchedule(schedule.id);
-            }}
-            className="rounded-lg px-2 py-1 text-xs font-medium text-zinc-400 hover:bg-red-50 hover:text-red-500"
-          >
-            삭제
-          </button>
+          </Button>
+          <IconButton icon={Trash2} label="삭제" size="sm" onClick={remove} className="hover:text-nd-danger-text" />
         </div>
       </div>
     </Card>
@@ -467,6 +452,7 @@ function ScheduleCreateForm({
   onDateChange: (d: string) => void;
 }) {
   const { members } = useAppData();
+  const toast = useToast();
   const [targetIds, setTargetIds] = useState<string[]>([]);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -474,8 +460,14 @@ function ScheduleCreateForm({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!title.trim()) return alert("제목을 입력하세요.");
-    if (targetIds.length === 0) return alert("대상자를 한 명 이상 선택하세요.");
+    if (!title.trim()) {
+      toast.error("제목을 입력하세요.");
+      return;
+    }
+    if (targetIds.length === 0) {
+      toast.error("대상자를 한 명 이상 선택하세요.");
+      return;
+    }
     setSaving(true);
     try {
       await addSchedule({
@@ -493,8 +485,8 @@ function ScheduleCreateForm({
   }
 
   return (
-    <Card>
-      <h2 className="mb-4 text-sm font-semibold text-zinc-800">새 일정</h2>
+    <Card className="self-start">
+      <h2 className="mb-4 text-nd-section text-nd-fg">새 일정</h2>
       <form onSubmit={submit} className="flex flex-col gap-4">
         <Field label="대상자" required hint="팀원을 복수 선택할 수 있습니다">
           <TargetPicker members={members} value={targetIds} onChange={setTargetIds} />
@@ -508,7 +500,7 @@ function ScheduleCreateForm({
         <Field label="내용" hint="선택 입력">
           <Textarea rows={4} value={content} onChange={(e) => setContent(e.target.value)} />
         </Field>
-        <Button type="submit" disabled={saving}>
+        <Button type="submit" loading={saving}>
           {saving ? "저장 중…" : "일정 등록"}
         </Button>
       </form>
@@ -525,6 +517,7 @@ function ScheduleEditForm({
   onDone: () => void;
 }) {
   const { members } = useAppData();
+  const toast = useToast();
   const [targetIds, setTargetIds] = useState<string[]>(schedule.targetIds ?? []);
   const [date, setDate] = useState(schedule.date);
   const [title, setTitle] = useState(schedule.title);
@@ -533,8 +526,14 @@ function ScheduleEditForm({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!title.trim()) return alert("제목을 입력하세요.");
-    if (targetIds.length === 0) return alert("대상자를 한 명 이상 선택하세요.");
+    if (!title.trim()) {
+      toast.error("제목을 입력하세요.");
+      return;
+    }
+    if (targetIds.length === 0) {
+      toast.error("대상자를 한 명 이상 선택하세요.");
+      return;
+    }
     setSaving(true);
     try {
       await updateSchedule(schedule.id, {
@@ -550,8 +549,8 @@ function ScheduleEditForm({
   }
 
   return (
-    <Card>
-      <h2 className="mb-4 text-sm font-semibold text-zinc-800">일정 수정</h2>
+    <Card className="ring-2 ring-nd-accent/60">
+      <h2 className="mb-4 text-nd-section text-nd-fg">일정 수정</h2>
       <form onSubmit={submit} className="flex flex-col gap-4">
         <Field label="대상자" required>
           <TargetPicker members={members} value={targetIds} onChange={setTargetIds} />
@@ -566,7 +565,7 @@ function ScheduleEditForm({
           <Textarea rows={4} value={content} onChange={(e) => setContent(e.target.value)} />
         </Field>
         <div className="flex gap-2">
-          <Button type="submit" disabled={saving} className="flex-1">
+          <Button type="submit" loading={saving} className="flex-1">
             {saving ? "저장 중…" : "수정 저장"}
           </Button>
           <Button type="button" variant="secondary" onClick={onDone} disabled={saving}>

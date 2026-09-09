@@ -17,6 +17,7 @@ import "react-datasheet-grid/dist/style.css";
 import "./ledger-sheet.css";
 
 import { useCallback, useMemo, useRef, useState, type Ref } from "react";
+import { Ellipsis } from "lucide-react";
 import {
   // ⚠️ 이 라이브러리에서 `DataSheetGrid` 라는 이름으로 나오는 것은 실제로는
   //    StaticDataSheetGrid 다. 그 안은 이렇게 생겼다:
@@ -361,7 +362,7 @@ export function LedgerSheet({
         ...createDerivedColumn<FinTransaction>({
           render: (t) => {
             const n = netAmount(t);
-            return <span className={n < 0 ? "text-rose-600" : undefined}>{formatSigned(n)}</span>;
+            return <span className={n < 0 ? "text-nd-danger-text" : undefined}>{formatSigned(n)}</span>;
           },
           copy: (t) => netAmount(t),
           alignRight: true,
@@ -451,8 +452,9 @@ export function LedgerSheet({
   const detailColumn = useMemo(
     () =>
       createActionColumn<FinTransaction>({
-        label: "⋯",
+        label: "전체 항목",
         title: "전체 항목 보기",
+        icon: Ellipsis,
         onClick: onDetail,
       }),
     [onDetail],

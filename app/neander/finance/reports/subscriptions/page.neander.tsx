@@ -21,10 +21,28 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Card, EmptyState } from "@/components/neander/ui";
+import { Repeat } from "lucide-react";
+import {
+  Badge,
+  Card,
+  EmptyState,
+  KpiStrip,
+  LoadingState,
+  PageHeader,
+  SectionHeader,
+  Table,
+  TableNote,
+  TableScroll,
+  Td,
+  Th,
+  TotalRow,
+  Tr,
+  type Tone,
+} from "@/components/neander/ui";
+import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
-import { ReportTabs } from "@/components/neander/finance/ReportTabs";
-import { Money, StatTile, SectionTitle, rampColor, rampTextClass } from "@/components/neander/finance/ui";
+import { MonthStepper, ReportTabs } from "@/components/neander/finance/ReportTabs";
+import { Money, StatTile, monthLabel, rampColor, rampTextClass } from "@/components/neander/finance/ui";
 import { availableMonths } from "@/lib/neander/finance/aggregate";
 import { ledgerHref } from "@/lib/neander/finance/ledgerLink";
 import {
@@ -38,23 +56,46 @@ import { netAmount } from "@/lib/neander/finance/types";
 
 const TREND_MONTHS = 6;
 
-const ALERT_STYLE: Record<SubscriptionAlert["kind"], { label: string; cls: string }> = {
-  split: { label: "카드 분산", cls: "bg-amber-100 text-amber-800" },
-  missing: { label: "결제 없음", cls: "bg-sky-100 text-sky-800" },
-  spike: { label: "급증", cls: "bg-rose-100 text-rose-800" },
-  over: { label: "예상 초과", cls: "bg-rose-100 text-rose-800" },
-  review: { label: "확인 필요", cls: "bg-zinc-200 text-zinc-700" },
+const ALERT_TONE: Record<SubscriptionAlert["kind"], { label: string; tone: Tone }> = {
+  split: { label: "카드 분산", tone: "warning" },
+  missing: { label: "결제 없음", tone: "info" },
+  spike: { label: "급증", tone: "danger" },
+  over: { label: "예상 초과", tone: "danger" },
+  review: { label: "확인 필요", tone: "neutral" },
 };
 
 function AlertChip({ alert }: { alert: SubscriptionAlert }) {
-  const st = ALERT_STYLE[alert.kind];
+  const st = ALERT_TONE[alert.kind];
   return (
-    <span
-      className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${st.cls}`}
-      title={alert.message}
-    >
-      {st.label}
+    <span title={alert.message}>
+      <Badge tone={st.tone} size="sm">{st.label}</Badge>
     </span>
+  );
+}
+
+/** 비율 지표 — 숫자 + 진행 막대. KpiStrip 안에 놓인다 (공통화 후보: KpiItem 에 bar 옵션) */
+function RatioTile({
+  label,
+  percent,
+  hint,
+  tone = "warning",
+}: {
+  label: string;
+  percent: number;
+  hint: React.ReactNode;
+  tone?: "warning" | "danger" | "accent";
+}) {
+  const bar = { warning: "bg-nd-warning", danger: "bg-nd-danger", accent: "bg-nd-accent" }[tone];
+  const pct = Math.max(0, Math.min(100, Math.round(percent)));
+  return (
+    <div className="flex min-w-0 flex-col gap-1 px-4 py-3 sm:px-5 sm:py-4">
+      <div className="text-nd-caption font-medium text-nd-fg-2 sm:mb-1">{label}</div>
+      <div className="nd-num text-[22px] font-bold leading-tight tracking-[-0.02em] text-nd-fg">{pct}%</div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-nd-fg/[.08]" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={label}>
+        <div className={`h-full rounded-full ${bar}`} style={{ width: `${pct}%` }} />
+      </div>
+      <div className="truncate text-nd-caption text-nd-fg-3">{hint}</div>
+    </div>
   );
 }
 
@@ -113,16 +154,17 @@ export default function SubscriptionReport() {
     return (last4: string) => map.get(last4) ?? last4;
   }, [paymentMethods]);
 
-  if (loading) {
-    return <div className="px-5 py-16 text-center text-zinc-400">불러오는 중…</div>;
-  }
+  if (loading) return <LoadingState label="리포트를 만드는 중…" />;
   if (transactions.length === 0) {
     return (
-      <div className="mx-auto w-full max-w-7xl px-5 py-8">
-        <ReportTabs />
-        <div className="mt-6">
-          <EmptyState icon="🔁" title="아직 거래가 없습니다" description="임포트 탭에서 장부를 올리면 구독 지출이 나타납니다." />
-        </div>
+      <div>
+        <PageHeader title="리포트" description="지출상세 · 사업부 · 구독 · 예산" />
+        <ReportTabs className="mb-6" />
+        <EmptyState
+          icon={Repeat}
+          title="아직 거래가 없습니다"
+          description="임포트 탭에서 장부를 올리면 구독 지출이 나타납니다."
+        />
       </div>
     );
   }
@@ -131,66 +173,51 @@ export default function SubscriptionReport() {
     ledgerHref({ month: activeMonth, txTypes: ["지출"], ...extra });
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-5 py-6">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <ReportTabs />
-        <select
-          value={activeMonth}
-          onChange={(e) => setMonth(e.target.value)}
-          className="h-8 cursor-pointer rounded-md border border-zinc-300 bg-white pl-2 pr-6 text-xs text-zinc-800 outline-none focus:border-indigo-500"
-        >
-          {months.map((m) => (
-            <option key={m} value={m}>{m}</option>
-          ))}
-        </select>
-      </div>
+    <div>
+      <ToolbarPortal order={0}>
+        <MonthStepper glass months={months} value={activeMonth} onChange={setMonth} />
+      </ToolbarPortal>
 
-      <p className="mb-4 text-xs text-zinc-500">
-        집계 기준: 계정소분류가 <b className="font-medium text-zinc-700">{SUBSCRIPTION_ACCOUNTS.join(" · ")}</b> 인 거래
+      <PageHeader title="리포트" description="구독 — SaaS·툴 구독 지출" />
+      <ReportTabs className="mb-5" />
+
+      <p className="mb-4 text-nd-caption text-nd-fg-3">
+        집계 기준: 계정소분류가 <b className="font-medium text-nd-fg-2">{SUBSCRIPTION_ACCOUNTS.join(" · ")}</b> 인 거래
         중 거래처 규칙에 맞는 것. 계정으로 먼저 좁히므로 이름이 같은 급여 이체가 섞이지 않습니다.
       </p>
 
-      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatTile label="구독 지출" value={report.total} hint={`${report.count.toLocaleString("ko-KR")}건 · ${activeMonth}`} />
+      <KpiStrip columns={4} className="mb-5">
+        <StatTile label="구독 지출" value={report.total} hint={`${report.count.toLocaleString("ko-KR")}건 · ${monthLabel(activeMonth)}`} />
         <StatTile label="서비스 수" value={report.services.length} hint="규칙에 잡힌 것" />
         <StatTile label="미매칭" value={report.unmatchedTotal} hint={`${report.unmatched.length}건 — 규칙 추가 필요`} />
-        <div className="relative overflow-hidden rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <p className="text-xs text-zinc-500">개인카드 결제 비율</p>
-          <p className="mt-1 text-xl font-bold tracking-tight tabular-nums">
-            {Math.round(cardHealth.ratio * 100)}%
-          </p>
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-100">
-            <div
-              className="h-full rounded-full bg-amber-500"
-              style={{ width: `${Math.round(cardHealth.ratio * 100)}%` }}
-            />
-          </div>
-          <p className="mt-1 text-xs text-zinc-400">
-            법인카드 전환 대상 <Money value={cardHealth.personalAmt} unit={false} />원
-          </p>
-        </div>
-      </div>
+        <RatioTile
+          label="개인카드 결제 비율"
+          percent={cardHealth.ratio * 100}
+          hint={<>법인카드 전환 대상 <Money value={cardHealth.personalAmt} unit={false} />원</>}
+        />
+      </KpiStrip>
 
       {/* ---- 이번 달 확인할 것 ---- */}
       {alerts.length > 0 && (
-        <Card className="mb-5 overflow-hidden p-0">
-          <div className="border-b border-zinc-200 px-4 py-3">
-            <SectionTitle hint="기준선은 직전 달들의 중앙값 — 사용량 과금이 한 달만 튀는 걸 평균보다 덜 탄다">
-              이번 달 확인할 것 <span className="text-zinc-400">{alerts.length}건</span>
-            </SectionTitle>
+        <Card padding="none" className="mb-5 overflow-hidden">
+          <div className="px-5 pt-5">
+            <SectionHeader
+              title={<>이번 달 확인할 것 <span className="text-nd-fg-3">{alerts.length}건</span></>}
+              hint="기준선은 직전 달들의 중앙값 — 사용량 과금이 한 달만 튀는 걸 평균보다 덜 탄다"
+            />
           </div>
-          <ul className="divide-y divide-zinc-100">
+          <ul className="divide-y divide-nd-line border-t border-nd-line">
             {alerts.map((v) => (
-              <li key={v.matcher.service} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm">
-                <span className="min-w-[150px] font-medium text-zinc-900">{v.matcher.service}</span>
+              <li key={v.matcher.service} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2 text-nd-body">
+                <span className="min-w-[150px] font-medium text-nd-fg">{v.matcher.service}</span>
                 <span className="flex flex-wrap gap-1">
                   {v.alerts.map((a) => (
                     <AlertChip key={a.kind} alert={a} />
                   ))}
                 </span>
-                <span className="min-w-0 flex-1 text-xs text-zinc-500">{v.alerts[0].message}</span>
+                <span className="min-w-0 flex-1 text-nd-caption text-nd-fg-2">{v.alerts[0].message}</span>
                 {v.current && (
-                  <span className="shrink-0 text-sm">
+                  <span className="shrink-0">
                     <Money value={v.current.net} unit={false} />
                   </span>
                 )}
@@ -201,183 +228,178 @@ export default function SubscriptionReport() {
       )}
 
       {/* ---- 서비스별 ---- */}
-      <Card className="mb-5 overflow-hidden p-0">
-        <div className="border-b border-zinc-200 px-4 py-3">
-          <SectionTitle hint="순지출 기준 · 결제수단이 여러 개면 카드가 흩어져 있다는 뜻">
-            서비스별 구독비
-          </SectionTitle>
+      <Card padding="none" className="mb-5 overflow-hidden">
+        <div className="px-5 pt-5">
+          <SectionHeader
+            title="서비스별 구독비"
+            hint="순지출 기준 · 결제수단이 여러 개면 카드가 흩어져 있다는 뜻"
+            action={<TableNote>단위: 원</TableNote>}
+          />
         </div>
         {report.services.length === 0 ? (
-          <p className="px-4 py-10 text-center text-sm text-zinc-400">
+          <p className="px-5 py-10 text-center text-nd-body text-nd-fg-3">
             이 달에 구독 계정으로 잡힌 거래가 없습니다.
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
+          <TableScroll>
+            <Table minWidth={760}>
               <thead>
-                <tr className="border-b border-zinc-200 bg-zinc-50 text-xs text-zinc-500">
-                  <th className="px-4 py-2 text-left font-medium">서비스</th>
-                  <th className="px-3 py-2 text-left font-medium">결제수단</th>
-                  <th className="px-3 py-2 text-right font-medium">건수</th>
-                  <th className="px-3 py-2 text-right font-medium">지출</th>
-                  <th className="px-3 py-2 text-right font-medium">환급</th>
-                  <th className="px-3 py-2 text-right font-medium">순지출</th>
-                  <th className="px-4 py-2 text-right font-medium">비중</th>
+                <tr>
+                  <Th className="pl-5">서비스</Th>
+                  <Th>결제수단</Th>
+                  <Th align="right">건수</Th>
+                  <Th align="right">지출</Th>
+                  <Th align="right">환급</Th>
+                  <Th align="right">순지출</Th>
+                  <Th align="right" className="pr-5">비중</Th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-100">
+              <tbody>
                 {report.services.map((s) => {
                   const share = report.total > 0 ? s.net / report.total : 0;
+                  const view = viewOf.get(s.service);
                   return (
-                    <tr key={s.service} className="hover:bg-indigo-50/40">
-                      <td className="px-4 py-2 font-medium text-zinc-900">
+                    <Tr key={s.service}>
+                      <Td className="pl-5 font-medium text-nd-fg">
                         <Link href={subsHref({ vendor: s.keywords[0] })} className="hover:underline">
                           {s.service}
                         </Link>
-                        <span className="ml-1.5 text-xs font-normal text-zinc-400">
+                        <span className="ml-1.5 text-nd-caption font-normal text-nd-fg-3">
                           {s.keywords.join(" · ")}
                         </span>
-                        {(viewOf.get(s.service)?.alerts ?? []).length > 0 && (
+                        {(view?.alerts ?? []).length > 0 && (
                           <span className="ml-1.5 inline-flex gap-1 align-middle">
-                            {viewOf.get(s.service)!.alerts.map((a) => (
+                            {view!.alerts.map((a) => (
                               <AlertChip key={a.kind} alert={a} />
                             ))}
                           </span>
                         )}
-                        {viewOf.get(s.service)?.matcher.recommendedCard && (
-                          <span className="ml-1.5 text-[11px] font-normal text-zinc-400">
-                            → {viewOf.get(s.service)!.matcher.recommendedCard}
+                        {view?.matcher.recommendedCard && (
+                          <span className="ml-1.5 text-nd-micro font-normal text-nd-fg-3">
+                            → {view.matcher.recommendedCard}
                           </span>
                         )}
-                      </td>
-                      <td className="px-3 py-2">
+                      </Td>
+                      <Td>
                         <div className="flex flex-wrap gap-1">
                           {s.last4.map((l) => (
-                            <span
-                              key={l}
-                              className="rounded border border-zinc-200 px-1.5 py-0.5 text-[11px] text-zinc-500"
-                              title={aliasOf(l)}
-                            >
-                              {aliasOf(l)}
+                            <span key={l} title={aliasOf(l)}>
+                              <Badge tone="neutral" size="sm">{aliasOf(l)}</Badge>
                             </span>
                           ))}
                           {s.last4.length > 1 && (
-                            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800">
-                              분산 {s.last4.length}
-                            </span>
+                            <Badge tone="warning" size="sm">분산 {s.last4.length}</Badge>
                           )}
                         </div>
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-zinc-600">{s.count}</td>
-                      <td className="px-3 py-2 text-right"><Money value={s.expense} unit={false} /></td>
-                      <td className="px-3 py-2 text-right">
-                        {s.refund ? <Money value={s.refund} unit={false} /> : <span className="text-zinc-300">—</span>}
-                      </td>
-                      <td className="px-3 py-2 text-right font-medium"><Money value={s.net} unit={false} /></td>
-                      <td className="px-4 py-2 text-right tabular-nums text-zinc-500">
-                        {(share * 100).toFixed(1)}%
-                      </td>
-                    </tr>
+                      </Td>
+                      <Td num muted>{s.count}</Td>
+                      <Td num><Money value={s.expense} unit={false} /></Td>
+                      <Td num>
+                        {s.refund ? <Money value={s.refund} unit={false} /> : <span className="text-nd-fg-4">—</span>}
+                      </Td>
+                      <Td num className="font-medium"><Money value={s.net} unit={false} /></Td>
+                      <Td num muted className="pr-5">{(share * 100).toFixed(1)}%</Td>
+                    </Tr>
                   );
                 })}
               </tbody>
               <tfoot>
-                <tr className="border-t-2 border-zinc-300 bg-zinc-50 font-semibold">
-                  <td className="px-4 py-2" colSpan={2}>소계 (규칙에 잡힌 것)</td>
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    {report.services.reduce((s, x) => s + x.count, 0)}
-                  </td>
-                  <td colSpan={2} />
-                  <td className="px-3 py-2 text-right">
-                    <Money value={report.total - report.unmatchedTotal} unit={false} />
-                  </td>
-                  <td className="px-4 py-2" />
-                </tr>
+                <TotalRow>
+                  <Td className="pl-5" colSpan={2}>소계 (규칙에 잡힌 것)</Td>
+                  <Td num>{report.services.reduce((s, x) => s + x.count, 0)}</Td>
+                  <Td colSpan={2} />
+                  <Td num><Money value={report.total - report.unmatchedTotal} unit={false} /></Td>
+                  <Td className="pr-5" />
+                </TotalRow>
               </tfoot>
-            </table>
-          </div>
+            </Table>
+          </TableScroll>
         )}
       </Card>
 
       {/* ---- 미매칭 ---- */}
       {report.unmatched.length > 0 && (
-        <Card className="mb-5 overflow-hidden p-0">
-          <div className="border-b border-zinc-200 px-4 py-3">
-            <SectionTitle hint="구독 계정인데 거래처 규칙에 없는 거래 — 마스터 탭에서 규칙을 추가하세요">
-              분류 안 된 구독비
-            </SectionTitle>
+        <Card padding="none" className="mb-5 overflow-hidden">
+          <div className="px-5 pt-5">
+            <SectionHeader
+              title="분류 안 된 구독비"
+              hint="구독 계정인데 거래처 규칙에 없는 거래 — 마스터 탭에서 규칙을 추가하세요"
+              action={<TableNote>단위: 원</TableNote>}
+            />
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-sm">
+          <TableScroll>
+            <Table minWidth={560}>
               <thead>
-                <tr className="border-b border-zinc-200 bg-zinc-50 text-xs text-zinc-500">
-                  <th className="px-4 py-2 text-left font-medium">거래일</th>
-                  <th className="px-3 py-2 text-left font-medium">거래처</th>
-                  <th className="px-3 py-2 text-left font-medium">계정소분류</th>
-                  <th className="px-4 py-2 text-right font-medium">금액</th>
+                <tr>
+                  <Th className="pl-5">거래일</Th>
+                  <Th>거래처</Th>
+                  <Th>계정소분류</Th>
+                  <Th align="right" className="pr-5">금액</Th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-100">
+              <tbody>
                 {report.unmatched.map((t) => (
-                  <tr key={t.id} className="hover:bg-indigo-50/40">
-                    <td className="whitespace-nowrap px-4 py-2 tabular-nums text-zinc-600">{t.date}</td>
-                    <td className="px-3 py-2 font-medium text-zinc-900">
+                  <Tr key={t.id}>
+                    <Td className="nd-num whitespace-nowrap pl-5 text-nd-fg-2">{t.date}</Td>
+                    <Td className="font-medium text-nd-fg">
                       <Link href={subsHref({ vendor: t.vendor })} className="hover:underline">
                         {t.vendor || "(거래처 없음)"}
                       </Link>
-                    </td>
-                    <td className="px-3 py-2 text-zinc-500">{t.acctMinor}</td>
-                    <td className="px-4 py-2 text-right"><Money value={netAmount(t)} unit={false} /></td>
-                  </tr>
+                    </Td>
+                    <Td muted>{t.acctMinor}</Td>
+                    <Td num className="pr-5"><Money value={netAmount(t)} unit={false} /></Td>
+                  </Tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+            </Table>
+          </TableScroll>
         </Card>
       )}
 
       {/* ---- 월별 추이 ---- */}
       {trend.length > 0 && trendMonths.length > 1 && (
-        <Card className="overflow-hidden p-0">
-          <div className="border-b border-zinc-200 px-4 py-3">
-            <SectionTitle hint="색이 진할수록 지출이 큼 · 빈 칸은 그 달에 결제가 없었다는 뜻">
-              서비스 × 월
-            </SectionTitle>
+        <Card padding="none" className="overflow-hidden">
+          <div className="px-5 pt-5">
+            <SectionHeader
+              title="서비스 × 월"
+              hint="색이 진할수록 지출이 큼 · 빈 칸은 그 달에 결제가 없었다는 뜻"
+            />
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[620px] text-sm">
+          <TableScroll>
+            <Table minWidth={620} dense>
               <thead>
-                <tr className="border-b border-zinc-200 bg-zinc-50 text-xs text-zinc-500">
-                  <th className="px-4 py-2 text-left font-medium">서비스</th>
+                <tr>
+                  <Th className="pl-5">서비스</Th>
                   {trendMonths.map((m) => (
-                    <th key={m} className="px-2 py-2 text-right font-medium tabular-nums">{m.slice(2)}</th>
+                    <Th key={m} align="right" className="nd-num px-2">{m.slice(2)}</Th>
                   ))}
-                  <th className="px-4 py-2 text-right font-medium">합계</th>
+                  <Th align="right" className="pr-5">합계</Th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-100">
+              <tbody>
                 {trend.map((r) => (
-                  <tr key={r.service}>
-                    <td className="px-4 py-1.5 font-medium text-zinc-800">{r.service}</td>
+                  <Tr key={r.service} hover={false}>
+                    <Td className="pl-5 font-medium text-nd-fg">{r.service}</Td>
                     {trendMonths.map((m) => {
                       const v = r.byMonth[m] ?? 0;
                       return (
-                        <td
+                        <Td
                           key={m}
-                          className={`px-2 py-1.5 text-right tabular-nums text-xs ${rampTextClass(v, trendMax)}`}
+                          num
+                          className={`px-2 text-nd-caption ${rampTextClass(v, trendMax)}`}
                           style={{ backgroundColor: rampColor(v, trendMax) }}
                         >
                           {v ? Math.round(v / 1000).toLocaleString("ko-KR") : "—"}
-                        </td>
+                        </Td>
                       );
                     })}
-                    <td className="px-4 py-1.5 text-right font-medium"><Money value={r.total} unit={false} /></td>
-                  </tr>
+                    <Td num className="pr-5 font-medium"><Money value={r.total} unit={false} /></Td>
+                  </Tr>
                 ))}
               </tbody>
-            </table>
-          </div>
-          <p className="border-t border-zinc-100 px-4 py-2 text-xs text-zinc-400">월별 칸은 천원 단위 · 합계는 원 단위</p>
+            </Table>
+          </TableScroll>
+          <TableNote className="border-t border-nd-line px-5 py-2">월별 칸은 천원 단위 · 합계는 원 단위</TableNote>
         </Card>
       )}
     </div>

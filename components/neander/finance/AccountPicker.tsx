@@ -69,60 +69,79 @@ export function AccountPicker({
       a.major === value.acctMajor && a.mid === value.acctMid && a.minor === value.acctMinor,
   );
 
-  const wrap = compact ? "grid grid-cols-3 gap-2" : "grid gap-3 sm:grid-cols-3";
+  const size = compact ? "sm" : "md";
+
+  // compact 는 라벨 없이 한 줄 — 접근 가능한 이름은 aria-label 로 준다
+  const major = (
+    <Select
+      size={size}
+      aria-label="계정대분류"
+      value={value.acctMajor ?? ""}
+      onChange={(e) =>
+        onChange({ acctMajor: e.target.value || undefined, acctMid: undefined, acctMinor: undefined })
+      }
+    >
+      <option value="">대분류</option>
+      {majors.map((m) => (
+        <option key={m} value={m}>{m}</option>
+      ))}
+    </Select>
+  );
+  const mid = (
+    <Select
+      size={size}
+      aria-label="계정중분류"
+      value={value.acctMid ?? ""}
+      disabled={!value.acctMajor}
+      onChange={(e) =>
+        onChange({ ...value, acctMid: e.target.value || undefined, acctMinor: undefined })
+      }
+    >
+      <option value="">중분류</option>
+      {mids.map((m) => (
+        <option key={m} value={m}>{m}</option>
+      ))}
+    </Select>
+  );
+  const minor = (
+    <Select
+      size={size}
+      aria-label="계정소분류"
+      value={value.acctMinor ?? ""}
+      disabled={!value.acctMid}
+      onChange={(e) => onChange({ ...value, acctMinor: e.target.value || undefined })}
+    >
+      <option value="">소분류</option>
+      {minors.map((m) => (
+        <option key={m} value={m}>{m}</option>
+      ))}
+    </Select>
+  );
 
   return (
     <div>
-      <div className={wrap}>
-        <Field label={compact ? "" : "계정대분류"}>
-          <Select
-            value={value.acctMajor ?? ""}
-            onChange={(e) =>
-              onChange({ acctMajor: e.target.value || undefined, acctMid: undefined, acctMinor: undefined })
-            }
-          >
-            <option value="">대분류</option>
-            {majors.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </Select>
-        </Field>
-        <Field label={compact ? "" : "계정중분류"}>
-          <Select
-            value={value.acctMid ?? ""}
-            disabled={!value.acctMajor}
-            onChange={(e) =>
-              onChange({ ...value, acctMid: e.target.value || undefined, acctMinor: undefined })
-            }
-          >
-            <option value="">중분류</option>
-            {mids.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </Select>
-        </Field>
-        <Field label={compact ? "" : "계정소분류"}>
-          <Select
-            value={value.acctMinor ?? ""}
-            disabled={!value.acctMid}
-            onChange={(e) => onChange({ ...value, acctMinor: e.target.value || undefined })}
-          >
-            <option value="">소분류</option>
-            {minors.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </Select>
-        </Field>
-      </div>
+      {compact ? (
+        <div className="grid grid-cols-3 gap-2">
+          {major}
+          {mid}
+          {minor}
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field label="계정대분류">{major}</Field>
+          <Field label="계정중분류">{mid}</Field>
+          <Field label="계정소분류">{minor}</Field>
+        </div>
+      )}
 
       {picked && (
-        <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-500">
-          <span>회계코드 <b className="font-medium text-zinc-700">{picked.code}</b></span>
-          <span>부가세 <b className="font-medium text-zinc-700">{picked.vat}</b></span>
-          <span>자산 <b className="font-medium text-zinc-700">{picked.asset}</b></span>
-          <span>지점 <b className="font-medium text-zinc-700">{picked.branch}</b></span>
+        <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-nd-caption text-nd-fg-3">
+          <span>회계코드 <b className="font-medium text-nd-fg-2">{picked.code}</b></span>
+          <span>부가세 <b className="font-medium text-nd-fg-2">{picked.vat}</b></span>
+          <span>자산 <b className="font-medium text-nd-fg-2">{picked.asset}</b></span>
+          <span>지점 <b className="font-medium text-nd-fg-2">{picked.branch}</b></span>
           {picked.example && (
-            <span className="w-full text-zinc-400">{picked.example}</span>
+            <span className="w-full text-nd-fg-3">{picked.example}</span>
           )}
         </p>
       )}

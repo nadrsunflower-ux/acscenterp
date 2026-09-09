@@ -58,7 +58,7 @@ for (const route of routes) {
     await page.waitForTimeout(Number(process.env.SETTLE_MS || 1500));
     // "불러오는 중…" 이 사라질 때까지 (재무는 장부 전체를 한 번에 받는다)
     await page
-      .waitForFunction(() => !document.body.innerText.includes("불러오는 중"), null, { timeout: 40000 })
+      .waitForFunction(() => !/(불러오는|만드는|여는) 중/.test(document.body.innerText), null, { timeout: 40000 })
       .catch(() => report.push({ kind: "stuck-loading", route, width: w }));
     await page.waitForTimeout(600);
     const overflow = await page.evaluate(() => {
@@ -67,7 +67,7 @@ for (const route of routes) {
     });
     if (overflow.scrollW > overflow.clientW + 1) report.push({ kind: "overflow", route, width: w, ...overflow });
     const name = `${route.replace(/^\/neander\/?/, "") || "home"}`.replace(/\//g, "_") + `@${w}.png`;
-    await page.screenshot({ path: path.join(outDir, name), fullPage: w >= 1024 });
+    await page.screenshot({ path: path.join(outDir, name), fullPage: process.env.FULLPAGE === "0" ? false : w >= 1024 });
   }
 }
 fs.writeFileSync(path.join(outDir, "report.json"), JSON.stringify(report, null, 2));

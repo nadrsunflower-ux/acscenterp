@@ -9,7 +9,8 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { Card, MemberAvatar, EmptyState } from "@/components/neander/ui";
+import { ArrowRight, UserRound, Zap } from "lucide-react";
+import { Badge, Card, Icon, MemberAvatar, EmptyState } from "@/components/neander/ui";
 import { FeatureChip, KindTag } from "@/components/neander/dev/atoms";
 import { devPriorityRank, type DevFeature, type DevTask } from "@/lib/neander/dev/types";
 import type { Member } from "@/lib/neander/types";
@@ -64,23 +65,24 @@ export function NowInProgress({
   return (
     <section>
       <SectionHeader
-        icon="⚡"
+        icon={Zap}
         title="지금 — 진행중인 작업"
         description="팀원별로 지금 손에 들고 있는 작업이에요. 카드를 누르면 자세한 내용을 볼 수 있어요."
         action={
           <Link
             href="/neander/dev/board?status=in_progress"
-            className="text-xs font-medium text-indigo-600 hover:underline"
+            className="inline-flex items-center gap-1 text-nd-caption font-medium text-nd-accent-strong hover:underline"
           >
-            보드에서 보기 →
+            보드에서 보기
+            <ArrowRight size={12} aria-hidden />
           </Link>
         }
       />
 
-      <Card className="!rounded-2xl">
+      <Card>
         {groups.length === 0 ? (
           <EmptyState
-            icon="⚡"
+            icon={Zap}
             title="아직 진행중 작업이 없어요"
             description="작업 보드에서 카드를 '진행중'으로 옮기면 여기 나타납니다."
           />
@@ -98,24 +100,24 @@ export function NowInProgress({
                         avatar={g.member.avatar}
                         className="h-7 w-7 text-[11px]"
                       />
-                      <span className="text-sm font-semibold text-zinc-800">
+                      <span className="text-nd-body font-semibold text-nd-fg">
                         {g.member.name}
                       </span>
                       {g.member.id === currentMemberId && (
-                        <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600">
+                        <Badge tone="accent" size="sm" className="font-semibold">
                           나
-                        </span>
+                        </Badge>
                       )}
                     </>
                   ) : (
                     <>
-                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-zinc-100 text-[13px]">
-                        🫥
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-nd-fg/[.07] text-nd-fg-3">
+                        <Icon icon={UserRound} size={14} />
                       </span>
-                      <span className="text-sm font-semibold text-zinc-500">미배정</span>
+                      <span className="text-nd-body font-semibold text-nd-fg-2">미배정</span>
                     </>
                   )}
-                  <span className="text-xs tabular-nums text-zinc-400">
+                  <span className="nd-num text-nd-caption text-nd-fg-3">
                     {g.tasks.length}건
                   </span>
                 </div>
@@ -143,22 +145,18 @@ function TaskMiniCard({ task: t, feature }: { task: DevTask; feature?: DevFeatur
       <Link
         href={`/neander/dev/board?task=${t.id}`}
         aria-label={`${t.title} — 작업 상세 보기`}
-        className="flex h-full flex-col gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 transition-colors hover:border-indigo-200 hover:bg-indigo-50/40 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+        className="flex h-full flex-col gap-1.5 rounded-nd-md border border-nd-line bg-nd-content px-3 py-2.5 transition-colors duration-nd-fast hover:border-nd-accent/40 hover:bg-nd-accent-soft/40 focus:outline-none focus-visible:shadow-nd-focus"
       >
         <div className="flex items-start gap-1.5">
           <KindTag kind={t.kind} iconOnly />
-          <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-800">
+          <span className="min-w-0 flex-1 truncate text-nd-body font-medium text-nd-fg" title={t.title}>
             {t.title}
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          {(feature || t.featureName) && (
-            <FeatureChip feature={feature} name={t.featureName} className="!py-0" />
-          )}
+          {(feature || t.featureName) && <FeatureChip feature={feature} name={t.featureName} />}
           {due && (
-            <span
-              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${due.cls}`}
-            >
+            <span className={`inline-flex h-5 items-center rounded-full px-1.5 text-nd-micro ${due.cls}`}>
               {due.label}
             </span>
           )}

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import Link from "next/link";
+import { ArrowUpRight, Check, ClipboardCheck, Puzzle, Trash2, X } from "lucide-react";
 import { useAppData } from "@/components/neander/app-data";
 import {
   addTask,
@@ -14,13 +15,20 @@ import { emptyToUndef } from "@/lib/neander/db/helpers";
 import {
   Button,
   Card,
+  Checkbox,
+  DateStepper,
   Field,
+  IconButton,
+  Icon,
   Input,
   Select,
+  SegmentedControl,
   Textarea,
   EmptyState,
   Badge,
   CategoryPicker,
+  useConfirm,
+  useToast,
   cn,
 } from "@/components/neander/ui";
 import {
@@ -44,14 +52,11 @@ import {
   addDays,
 } from "@/lib/neander/format";
 
-const STATUS_COLOR: Record<TaskStatus, string> = {
-  todo: "#a1a1aa",
-  done: "#16a34a",
-  extended: "#ca8a04",
-  on_hold: "#64748b",
-};
-
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
+
+/** 요일 글자색 — 일요일·토요일만 구분 */
+const weekdayText = (i: number, base = "text-nd-fg-3") =>
+  i === 0 ? "text-nd-danger" : i === 6 ? "text-nd-info" : base;
 
 // 시작~종료 기간에서 선택한 요일(0=일~6=토)에 해당하는 날짜들
 function datesByWeekday(start: string, end: string, weekdays: Set<number>): string[] {
@@ -72,7 +77,8 @@ const isExtended = (t: DailyTask) => t.status === "extended";
 const isStruck = (t: DailyTask) => t.status === "done" || t.status === "on_hold";
 
 // 상태 필터 세그먼트 (전체 + 4개 상태)
-const STATUS_TABS: { value: TaskStatus | "all"; label: string }[] = [
+type StatusFilter = TaskStatus | "all";
+const STATUS_TABS: { value: StatusFilter; label: string }[] = [
   { value: "all", label: "전체" },
   { value: "todo", label: "예정" },
   { value: "done", label: "완료" },
@@ -89,7 +95,7 @@ export default function TasksPage() {
   const [viewMonth, setViewMonth] = useState(thisMonthStr());
   const [selectedDate, setSelectedDate] = useState(today);
   const [memberFilter, setMemberFilter] = useState(currentMember?.id ?? "all");
-  const [statusFilter, setStatusFilter] = useState<TaskStatus | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
   // 담당자 필터 적용
   const scoped = useMemo(
@@ -137,11 +143,11 @@ export default function TasksPage() {
     <div>
       {/* 인사 헤더 */}
       <div className="mb-4">
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-900">
+        <h1 className="text-nd-display text-nd-fg">
           {currentMember ? `안녕하세요, ${currentMember.name}님 ` : "일일업무 "}
           <span className="align-middle">👋</span>
         </h1>
-        <p className="mt-1 text-sm text-zinc-500">오늘도 좋은 하루 되세요!</p>
+        <p className="mt-1 text-nd-body text-nd-fg-2">오늘도 좋은 하루 되세요!</p>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[360px_1fr] lg:gap-6">
@@ -151,43 +157,33 @@ export default function TasksPage() {
         {/* 우측: 날짜 선택 + 상태 탭 + 목록 */}
         <div className="flex flex-col gap-3 sm:gap-4">
           {/* 날짜 카드 (주간 스트립 / 월 달력 토글) */}
-          <div
-            className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5"
+          <Card
+            padding="sm"
             style={{ ["--cal-cell" as string]: "clamp(44px, 6.8vh, 66px)" } as CSSProperties}
           >
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() =>
-                    viewMode === "week"
-                      ? setWeekAnchor(addDays(weekAnchor, -7))
-                      : setViewMonth(shiftMonth(viewMonth, -1))
-                  }
-                  className="rounded-lg px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100"
-                  aria-label="이전"
-                >
-                  ‹
-                </button>
-                <span className="min-w-[140px] text-center text-sm font-semibold text-zinc-800">
-                  {viewMode === "week" ? weekLabelOf(weekAnchor) : monthLabel(viewMonth)}
-                </span>
-                <button
-                  onClick={() =>
-                    viewMode === "week"
-                      ? setWeekAnchor(addDays(weekAnchor, 7))
-                      : setViewMonth(shiftMonth(viewMonth, 1))
-                  }
-                  className="rounded-lg px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100"
-                  aria-label="다음"
-                >
-                  ›
-                </button>
-              </div>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <DateStepper
+                size="sm"
+                icon={false}
+                label={viewMode === "week" ? weekLabelOf(weekAnchor) : monthLabel(viewMonth)}
+                onPrev={() =>
+                  viewMode === "week"
+                    ? setWeekAnchor(addDays(weekAnchor, -7))
+                    : setViewMonth(shiftMonth(viewMonth, -1))
+                }
+                onNext={() =>
+                  viewMode === "week"
+                    ? setWeekAnchor(addDays(weekAnchor, 7))
+                    : setViewMonth(shiftMonth(viewMonth, 1))
+                }
+              />
               <div className="flex items-center gap-2">
                 <Select
+                  size="sm"
                   value={memberFilter}
                   onChange={(e) => setMemberFilter(e.target.value)}
-                  className="!w-28 !py-1.5 !text-xs"
+                  className="!w-28"
+                  aria-label="담당자 필터"
                 >
                   <option value="all">전체 담당자</option>
                   {members.map((m) => (
@@ -196,18 +192,24 @@ export default function TasksPage() {
                     </option>
                   ))}
                 </Select>
-                <button
-                  onClick={toggleMode}
-                  className="rounded-lg bg-zinc-100 px-2.5 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-200"
-                >
-                  {viewMode === "week" ? "월 보기" : "주 보기"}
-                </button>
+                <SegmentedControl<"week" | "month">
+                  size="sm"
+                  ariaLabel="보기 단위"
+                  value={viewMode}
+                  onChange={(v) => {
+                    if (v !== viewMode) toggleMode();
+                  }}
+                  options={[
+                    { value: "week", label: "주" },
+                    { value: "month", label: "월" },
+                  ]}
+                />
               </div>
             </div>
 
             {viewMode === "week" ? (
               /* 주간 스트립 */
-              <div className="grid grid-cols-7 gap-1 rounded-2xl bg-zinc-50 p-1.5">
+              <div className="grid grid-cols-7 gap-1 rounded-nd-lg bg-nd-sunken p-1.5">
                 {weekDays.map((d, i) => {
                   const dayNum = Number(d.slice(8, 10));
                   const count = (byDate.get(d) ?? []).length;
@@ -216,24 +218,19 @@ export default function TasksPage() {
                   return (
                     <button
                       key={d}
+                      type="button"
                       onClick={() => selectDate(d)}
+                      aria-pressed={selected}
                       className={cn(
-                        "flex flex-col items-center gap-1 rounded-xl py-2.5 transition",
-                        selected ? "bg-white shadow-sm ring-1 ring-zinc-200" : "hover:bg-white/60",
+                        "flex flex-col items-center gap-1 rounded-nd-md py-2.5 transition-colors duration-nd-fast",
+                        selected ? "bg-nd-content shadow-nd-card" : "hover:bg-nd-content/60",
                       )}
                     >
+                      <span className={cn("text-nd-micro font-medium", weekdayText(i))}>{WEEKDAYS[i]}</span>
                       <span
                         className={cn(
-                          "text-[11px] font-medium",
-                          i === 0 ? "text-red-300" : i === 6 ? "text-blue-300" : "text-zinc-400",
-                        )}
-                      >
-                        {WEEKDAYS[i]}
-                      </span>
-                      <span
-                        className={cn(
-                          "text-base font-bold",
-                          selected ? "text-zinc-900" : isToday ? "text-indigo-500" : "text-zinc-400",
+                          "nd-num text-base font-bold",
+                          selected ? "text-nd-fg" : isToday ? "text-nd-accent-strong" : "text-nd-fg-3",
                         )}
                       >
                         {dayNum}
@@ -241,7 +238,7 @@ export default function TasksPage() {
                       <span
                         className={cn(
                           "h-1 w-1 rounded-full",
-                          count > 0 ? (selected ? "bg-indigo-500" : "bg-zinc-300") : "bg-transparent",
+                          count > 0 ? (selected ? "bg-nd-accent" : "bg-nd-fg-4") : "bg-transparent",
                         )}
                       />
                     </button>
@@ -253,13 +250,7 @@ export default function TasksPage() {
               <div>
                 <div className="grid grid-cols-7 gap-1">
                   {WEEKDAYS.map((w, i) => (
-                    <div
-                      key={w}
-                      className={cn(
-                        "py-1 text-center text-xs font-medium",
-                        i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-zinc-400",
-                      )}
-                    >
+                    <div key={w} className={cn("py-1 text-center text-nd-caption font-medium", weekdayText(i))}>
                       {w}
                     </div>
                   ))}
@@ -268,7 +259,7 @@ export default function TasksPage() {
                   {grid.map((date, idx) => {
                     if (!date)
                       return (
-                        <div key={`e${idx}`} className="min-h-[var(--cal-cell)] rounded-lg" />
+                        <div key={`e${idx}`} className="min-h-[var(--cal-cell)] rounded-nd-md" />
                       );
                     const dayNum = Number(date.slice(8, 10));
                     const dow = idx % 7;
@@ -282,22 +273,20 @@ export default function TasksPage() {
                     return (
                       <button
                         key={date}
+                        type="button"
                         onClick={() => selectDate(date)}
+                        aria-pressed={selected}
                         className={cn(
-                          "flex min-h-[var(--cal-cell)] flex-col gap-1 rounded-lg border p-1 text-left transition",
-                          selected ? "border-indigo-500 bg-indigo-50" : "border-zinc-100 hover:bg-zinc-50",
+                          "flex min-h-[var(--cal-cell)] min-w-0 flex-col gap-1 rounded-nd-md border p-1 text-left transition-colors duration-nd-fast",
+                          selected ? "border-nd-accent bg-nd-accent-soft" : "border-nd-line hover:bg-nd-sunken",
                         )}
                       >
                         <span
                           className={cn(
-                            "text-xs font-medium leading-none",
+                            "nd-num text-nd-caption font-medium leading-none",
                             isToday
-                              ? "flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-white"
-                              : dow === 0
-                                ? "text-red-400"
-                                : dow === 6
-                                  ? "text-blue-400"
-                                  : "text-zinc-600",
+                              ? "flex h-5 w-5 items-center justify-center rounded-full bg-nd-accent text-white"
+                              : weekdayText(dow, "text-nd-fg-2"),
                           )}
                         >
                           {dayNum}
@@ -307,7 +296,7 @@ export default function TasksPage() {
                             {activeCats.map((c) => (
                               <span
                                 key={c.value}
-                                className="flex items-center gap-0.5 rounded px-1 py-px text-[9px] font-semibold leading-none sm:text-[10px]"
+                                className="nd-num flex items-center gap-0.5 rounded-[4px] px-1 py-px text-nd-micro font-semibold leading-none"
                                 style={{ backgroundColor: `${c.color}1f`, color: c.color }}
                                 title={`${c.label} ${counts[c.value]}건`}
                               >
@@ -326,9 +315,9 @@ export default function TasksPage() {
                   })}
                 </div>
                 {/* 분류 색상 범례 */}
-                <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-t border-zinc-100 pt-2">
+                <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-t border-nd-line pt-2">
                   {TASK_CATEGORIES.map((c) => (
-                    <span key={c.value} className="flex items-center gap-1 text-[10px] text-zinc-500">
+                    <span key={c.value} className="flex items-center gap-1 text-nd-micro text-nd-fg-2">
                       <span className="h-2 w-2 rounded-full" style={{ backgroundColor: c.color }} />
                       {c.label}
                     </span>
@@ -336,44 +325,41 @@ export default function TasksPage() {
                 </div>
               </div>
             )}
-          </div>
+          </Card>
 
           {/* 상태 세그먼트 탭 */}
-          <div className="flex gap-1 overflow-x-auto rounded-full bg-zinc-100 p-1">
-            {STATUS_TABS.map((s) => (
-              <button
-                key={s.value}
-                onClick={() => setStatusFilter(s.value)}
-                className={cn(
-                  "whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium transition",
-                  statusFilter === s.value
-                    ? "bg-zinc-900 text-white shadow-sm"
-                    : "text-zinc-500 hover:text-zinc-800",
-                )}
-              >
-                {s.label}
-              </button>
-            ))}
+          <div className="nd-scroll overflow-x-auto">
+            <SegmentedControl<StatusFilter>
+              ariaLabel="상태 필터"
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={STATUS_TABS}
+            />
           </div>
 
           {/* 선택일 업무 목록 */}
-          <div className="rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
+          <Card padding="none" className="overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3">
-              <h2 className="text-sm font-semibold text-zinc-800">{formatDateKo(selectedDate)}</h2>
-              <span className="text-xs text-zinc-400">{dayTasks.length}건</span>
+              <h2 className="text-nd-section text-nd-fg">{formatDateKo(selectedDate)}</h2>
+              <span className="nd-num text-nd-caption text-nd-fg-3">{dayTasks.length}건</span>
             </div>
             {dayTasks.length === 0 ? (
-              <div className="px-4 pb-10 pt-2">
-                <EmptyState icon="✅" title="표시할 업무가 없습니다" description="왼쪽에서 등록하거나 필터를 바꿔보세요." />
+              <div className="px-4 pb-6 pt-1">
+                <EmptyState
+                  compact
+                  icon={ClipboardCheck}
+                  title="표시할 업무가 없습니다"
+                  description="왼쪽에서 등록하거나 필터를 바꿔보세요."
+                />
               </div>
             ) : (
-              <ul className="divide-y divide-zinc-100">
+              <ul className="divide-y divide-nd-line border-t border-nd-line">
                 {dayTasks.map((t) => (
                   <TaskRow key={t.id} task={t} members={members} onMoved={selectDate} />
                 ))}
               </ul>
             )}
-          </div>
+          </Card>
         </div>
       </div>
     </div>
@@ -389,6 +375,8 @@ function TaskRow({
   members: { id: string; name: string }[];
   onMoved?: (date: string) => void;
 }) {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [editing, setEditing] = useState(false);
   const [picking, setPicking] = useState(false);
   const [extDate, setExtDate] = useState("");
@@ -417,9 +405,15 @@ function TaskRow({
   }
 
   async function saveEdit() {
-    if (!title.trim()) return alert("업무 내용을 입력하세요.");
+    if (!title.trim()) {
+      toast.error("업무 내용을 입력하세요.");
+      return;
+    }
     const member = members.find((m) => m.id === memberId);
-    if (!member) return alert("담당자를 선택하세요.");
+    if (!member) {
+      toast.error("담당자를 선택하세요.");
+      return;
+    }
     setBusy(true);
     try {
       await updateTask(task.id, {
@@ -438,11 +432,27 @@ function TaskRow({
 
   // 수정 중인 업무를 선택한 (반복) 날짜들에 새로 등록
   async function addRecurring() {
-    if (!title.trim()) return alert("업무 내용을 입력하세요.");
+    if (!title.trim()) {
+      toast.error("업무 내용을 입력하세요.");
+      return;
+    }
     const member = members.find((m) => m.id === memberId);
-    if (!member) return alert("담당자를 선택하세요.");
-    if (editRecurDates.length === 0) return alert("반복 등록할 날짜를 선택하세요.");
-    if (editRecurDates.length > 100 && !confirm(`${editRecurDates.length}건을 등록합니다. 계속할까요?`))
+    if (!member) {
+      toast.error("담당자를 선택하세요.");
+      return;
+    }
+    if (editRecurDates.length === 0) {
+      toast.error("반복 등록할 날짜를 선택하세요.");
+      return;
+    }
+    if (
+      editRecurDates.length > 100 &&
+      !(await confirm({
+        title: `${editRecurDates.length}건을 등록합니다`,
+        message: "계속할까요?",
+        confirmLabel: "등록",
+      }))
+    )
       return;
     setBusy(true);
     try {
@@ -478,23 +488,33 @@ function TaskRow({
   }
 
   function confirmExtend() {
-    if (!extDate) return alert("연장할 날짜를 선택하세요.");
+    if (!extDate) {
+      toast.error("연장할 날짜를 선택하세요.");
+      return;
+    }
     const original = task.originalDate ?? task.date;
     setTaskExtended(task.id, extDate, original);
     setPicking(false);
     onMoved?.(extDate);
   }
 
+  async function remove() {
+    if (!(await confirm({ title: "이 업무를 삭제할까요?", confirmLabel: "삭제", tone: "danger" }))) return;
+    deleteTask(task.id);
+  }
+
   if (editing) {
     return (
-      <li className="flex flex-col gap-2 bg-zinc-50/60 px-4 py-3">
+      <li className="flex flex-col gap-2 bg-nd-sunken/60 px-4 py-3">
         {task.sourceType === "dev" && (
-          <p className="text-[11px] text-emerald-600/80">🧩 개발 보드와 연동된 업무입니다</p>
+          <p className="flex items-center gap-1 text-nd-micro text-nd-success-text">
+            <Icon icon={Puzzle} size={12} /> 개발 보드와 연동된 업무입니다
+          </p>
         )}
         <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="업무 내용" />
         <Textarea rows={2} value={detail} onChange={(e) => setDetail(e.target.value)} placeholder="상세 (선택)" />
         <div className="grid grid-cols-2 gap-2">
-          <Select value={memberId} onChange={(e) => setMemberId(e.target.value)}>
+          <Select value={memberId} onChange={(e) => setMemberId(e.target.value)} aria-label="담당자">
             <option value="" disabled>
               담당자
             </option>
@@ -504,31 +524,35 @@ function TaskRow({
               </option>
             ))}
           </Select>
-          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="날짜" />
         </div>
         <CategoryPicker value={category} onChange={setCategory} />
-        <p className="text-[11px] text-zinc-400">상태(예정/완료/연장/보류)는 저장 후 목록의 상태 선택으로 변경하세요.</p>
+        <p className="text-nd-micro text-nd-fg-3">상태(예정/완료/연장/보류)는 저장 후 목록의 상태 선택으로 변경하세요.</p>
 
         {/* 이미 등록된 업무 → 다른 날짜에도 반복 등록 */}
-        <label className="flex cursor-pointer items-center gap-2 border-t border-zinc-200 pt-3">
-          <input
-            type="checkbox"
+        <div className="border-t border-nd-line pt-3">
+          <Checkbox
             checked={editRecurring}
             onChange={(e) => setEditRecurring(e.target.checked)}
-            className="h-4 w-4 accent-indigo-600"
+            label={
+              <>
+                <span className="text-nd-caption font-medium text-nd-fg-2">반복 등록</span>
+                <span className="ml-2 text-nd-micro text-nd-fg-3">이 업무를 다른 날짜에도 추가</span>
+              </>
+            }
           />
-          <span className="text-xs font-medium text-zinc-700">반복 등록</span>
-          <span className="text-[11px] text-zinc-400">이 업무를 다른 날짜에도 추가</span>
-        </label>
+        </div>
         {editRecurring && (
           <>
             <RecurrenceControls baseDate={task.date} onDatesChange={setEditRecurDates} />
             <Button
               type="button"
               variant="secondary"
-              className="!px-3 !py-1.5 !text-xs"
+              size="sm"
+              className="self-start"
               onClick={addRecurring}
-              disabled={busy || editRecurDates.length === 0 || !title.trim()}
+              loading={busy}
+              disabled={editRecurDates.length === 0 || !title.trim()}
             >
               {busy ? "등록 중…" : `반복으로 추가 등록 (${editRecurDates.length}건)`}
             </Button>
@@ -536,15 +560,10 @@ function TaskRow({
         )}
 
         <div className="flex gap-2">
-          <Button className="!px-3 !py-1.5 !text-xs" onClick={saveEdit} disabled={busy || !title.trim()}>
+          <Button size="sm" onClick={saveEdit} loading={busy} disabled={!title.trim()}>
             {busy ? "저장 중…" : "저장"}
           </Button>
-          <Button
-            variant="secondary"
-            className="!px-3 !py-1.5 !text-xs"
-            onClick={() => setEditing(false)}
-            disabled={busy}
-          >
+          <Button variant="secondary" size="sm" onClick={() => setEditing(false)} disabled={busy}>
             취소
           </Button>
         </div>
@@ -553,18 +572,20 @@ function TaskRow({
   }
 
   return (
-    <li className={cn("flex flex-col gap-1.5 px-4 py-3", extended && "bg-yellow-100")}>
+    <li className={cn("flex flex-col gap-1.5 px-4 py-3", extended && "bg-nd-warning-soft/50")}>
       <div className="flex items-center gap-2.5">
         {/* 완료 체크박스 */}
         <button
+          type="button"
           onClick={() => setTaskStatus(task.id, done ? "todo" : "done")}
-          className={cn(
-            "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-[11px] transition",
-            done ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 hover:border-zinc-500",
-          )}
           aria-label="완료 토글"
+          aria-pressed={done}
+          className={cn(
+            "flex h-5 w-5 shrink-0 items-center justify-center rounded-[6px] border transition-colors duration-nd-fast",
+            done ? "border-nd-accent bg-nd-accent text-white" : "border-nd-border hover:border-nd-fg-3",
+          )}
         >
-          {done && "✓"}
+          {done && <Icon icon={Check} size={12} />}
         </button>
         {task.sourceType === "dev" && task.sourceId ? (
           /* 개발 보드 미러 업무 — 칩 클릭 시 보드 상세로 딥링크 */
@@ -574,68 +595,67 @@ function TaskRow({
             className="shrink-0 transition hover:opacity-80"
             title="개발 보드에서 열기"
           >
-            <Badge color="#10b981">개발 ↗</Badge>
+            <Badge color={taskCategoryColor("dev")}>
+              개발 <Icon icon={ArrowUpRight} size={11} />
+            </Badge>
           </Link>
         ) : (
           <Badge color={taskCategoryColor(task.category)}>{taskCategoryLabel(task.category)}</Badge>
         )}
         <span
           className={cn(
-            "min-w-0 flex-1 truncate text-sm",
-            struck ? "text-zinc-400 line-through" : "font-medium text-zinc-800",
-            extended && "bg-yellow-200 px-1",
+            "min-w-0 flex-1 truncate text-nd-body",
+            struck ? "text-nd-fg-3 line-through" : "font-medium text-nd-fg",
+            extended && "rounded-[4px] bg-nd-warning-soft px-1 text-nd-warning-text",
           )}
+          title={task.title}
         >
           {task.title}
         </span>
-        <div className="w-[88px] shrink-0">
-          <Select
-            value={task.status}
-            onChange={(e) => onStatusChange(e.target.value as TaskStatus)}
-            className="!py-1.5 !text-xs"
-          >
-            {TASK_STATUSES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <button
-          onClick={startEdit}
-          className="shrink-0 text-xs font-medium text-zinc-400 hover:text-indigo-600"
+        <Select
+          size="sm"
+          value={task.status}
+          onChange={(e) => onStatusChange(e.target.value as TaskStatus)}
+          className="!w-[88px] shrink-0"
+          aria-label="상태"
         >
+          {TASK_STATUSES.map((s) => (
+            <option key={s.value} value={s.value}>
+              {s.label}
+            </option>
+          ))}
+        </Select>
+        <Button variant="ghost" size="sm" onClick={startEdit} className="shrink-0">
           수정
-        </button>
-        <button
-          onClick={() => {
-            if (confirm("이 업무를 삭제할까요?")) deleteTask(task.id);
-          }}
-          className="shrink-0 text-xs text-zinc-300 hover:text-red-500"
-          aria-label="삭제"
-        >
-          ✕
-        </button>
+        </Button>
+        <IconButton icon={Trash2} label="삭제" size="sm" onClick={remove} className="hover:text-nd-danger-text" />
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pl-[30px] text-xs text-zinc-400">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pl-[30px] text-nd-caption text-nd-fg-3">
         <span>{task.memberName}</span>
-        {task.detail && <span className="text-zinc-500">· {task.detail}</span>}
+        {task.detail && <span className="text-nd-fg-2">· {task.detail}</span>}
         {extended && task.originalDate && (
-          <span className="rounded bg-yellow-200 px-1 font-medium text-yellow-800">
-            🟡 {formatDateKo(task.originalDate)} → {formatDateKo(task.date)}로 연장
-          </span>
+          <Badge tone="warning" size="sm">
+            {formatDateKo(task.originalDate)} → {formatDateKo(task.date)}로 연장
+          </Badge>
         )}
       </div>
 
       {picking && (
-        <div className="flex items-center gap-2 pl-[30px]">
-          <span className="text-xs text-zinc-500">연장할 날짜</span>
-          <Input type="date" value={extDate} onChange={(e) => setExtDate(e.target.value)} className="w-40" />
-          <Button className="!px-3 !py-1 !text-xs" onClick={confirmExtend}>
+        <div className="flex flex-wrap items-center gap-2 pl-[30px]">
+          <span className="text-nd-caption text-nd-fg-2">연장할 날짜</span>
+          <Input
+            size="sm"
+            type="date"
+            value={extDate}
+            onChange={(e) => setExtDate(e.target.value)}
+            className="!w-40"
+            aria-label="연장할 날짜"
+          />
+          <Button size="sm" onClick={confirmExtend}>
             연장 확정
           </Button>
-          <Button variant="secondary" className="!px-3 !py-1 !text-xs" onClick={() => setPicking(false)}>
+          <Button variant="secondary" size="sm" onClick={() => setPicking(false)}>
             취소
           </Button>
         </div>
@@ -687,99 +707,76 @@ function RecurrenceControls({
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg bg-zinc-50 p-3">
+    <div className="flex flex-col gap-3 rounded-nd-md bg-nd-sunken p-3">
       {/* 반복 방식 */}
-      <div className="flex rounded-lg border border-zinc-200 bg-white p-0.5">
-        <button
-          type="button"
-          onClick={() => setRecurMode("weekday")}
-          className={cn(
-            "flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition",
-            recurMode === "weekday" ? "bg-indigo-600 text-white" : "text-zinc-500 hover:bg-zinc-100",
-          )}
-        >
-          요일 반복
-        </button>
-        <button
-          type="button"
-          onClick={() => setRecurMode("dates")}
-          className={cn(
-            "flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition",
-            recurMode === "dates" ? "bg-indigo-600 text-white" : "text-zinc-500 hover:bg-zinc-100",
-          )}
-        >
-          날짜 직접 선택
-        </button>
-      </div>
+      <SegmentedControl<"weekday" | "dates">
+        size="sm"
+        fill
+        ariaLabel="반복 방식"
+        value={recurMode}
+        onChange={setRecurMode}
+        options={[
+          { value: "weekday", label: "요일 반복" },
+          { value: "dates", label: "날짜 직접 선택" },
+        ]}
+      />
 
       {recurMode === "weekday" ? (
         <>
           <div>
-            <span className="mb-1 block text-xs font-medium text-zinc-500">반복 요일</span>
-            <div className="flex gap-1">
-              {WEEKDAYS.map((w, i) => (
-                <button
-                  type="button"
-                  key={i}
-                  onClick={() => toggleWeekday(i)}
-                  className={cn(
-                    "h-8 w-8 rounded-full text-xs font-semibold transition",
-                    weekdaysSel.has(i)
-                      ? "bg-indigo-600 text-white"
-                      : "bg-white ring-1 ring-zinc-200 hover:bg-zinc-100",
-                    !weekdaysSel.has(i) && (i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-zinc-500"),
-                  )}
-                >
-                  {w}
-                </button>
-              ))}
+            <span className="mb-1 block text-nd-caption font-medium text-nd-fg-2">반복 요일</span>
+            <div className="flex gap-1" role="group" aria-label="반복 요일">
+              {WEEKDAYS.map((w, i) => {
+                const on = weekdaysSel.has(i);
+                return (
+                  <button
+                    type="button"
+                    key={i}
+                    onClick={() => toggleWeekday(i)}
+                    aria-pressed={on}
+                    className={cn(
+                      "h-8 w-8 rounded-full text-nd-caption font-semibold transition-colors duration-nd-fast",
+                      on
+                        ? "bg-nd-accent text-white"
+                        : cn("border border-nd-line bg-nd-content hover:bg-nd-fg/[.06]", weekdayText(i, "text-nd-fg-2")),
+                    )}
+                  >
+                    {w}
+                  </button>
+                );
+              })}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <div>
-              <span className="mb-1 block text-xs font-medium text-zinc-500">시작일</span>
-              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-            </div>
-            <div>
-              <span className="mb-1 block text-xs font-medium text-zinc-500">종료일</span>
-              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-            </div>
+            <Field label="시작일">
+              <Input size="sm" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            </Field>
+            <Field label="종료일">
+              <Input size="sm" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            </Field>
           </div>
         </>
       ) : (
         <div className="flex flex-col gap-2">
-          <span className="text-xs font-medium text-zinc-500">
-            등록할 날짜 선택 <span className="text-zinc-400">(여러 날 클릭)</span>
+          <span className="text-nd-caption font-medium text-nd-fg-2">
+            등록할 날짜 선택 <span className="font-normal text-nd-fg-3">(여러 날 클릭)</span>
           </span>
-          <div className="rounded-lg border border-zinc-200 bg-white p-2">
-            <div className="mb-1 flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => setPickMonth(shiftMonth(pickMonth, -1))}
-                className="rounded px-1.5 py-0.5 text-zinc-500 hover:bg-zinc-100"
-                aria-label="이전 달"
-              >
-                ‹
-              </button>
-              <span className="text-xs font-semibold text-zinc-700">{monthLabel(pickMonth)}</span>
-              <button
-                type="button"
-                onClick={() => setPickMonth(shiftMonth(pickMonth, 1))}
-                className="rounded px-1.5 py-0.5 text-zinc-500 hover:bg-zinc-100"
-                aria-label="다음 달"
-              >
-                ›
-              </button>
+          <div className="rounded-nd-md border border-nd-line bg-nd-content p-2">
+            <div className="mb-1 flex justify-center">
+              <DateStepper
+                size="sm"
+                icon={false}
+                label={monthLabel(pickMonth)}
+                prevLabel="이전 달"
+                nextLabel="다음 달"
+                onPrev={() => setPickMonth(shiftMonth(pickMonth, -1))}
+                onNext={() => setPickMonth(shiftMonth(pickMonth, 1))}
+                className="!border-0"
+              />
             </div>
             <div className="grid grid-cols-7 gap-0.5">
               {WEEKDAYS.map((w, i) => (
-                <div
-                  key={w}
-                  className={cn(
-                    "py-0.5 text-center text-[10px] font-medium",
-                    i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-zinc-400",
-                  )}
-                >
+                <div key={w} className={cn("py-0.5 text-center text-nd-micro font-medium", weekdayText(i))}>
                   {w}
                 </div>
               ))}
@@ -789,11 +786,12 @@ function RecurrenceControls({
                     type="button"
                     key={d}
                     onClick={() => toggleSpecific(d)}
+                    aria-pressed={specificDates.includes(d)}
                     className={cn(
-                      "flex h-8 items-center justify-center rounded-md text-xs transition",
+                      "nd-num flex h-8 items-center justify-center rounded-[8px] text-nd-caption transition-colors duration-nd-fast",
                       specificDates.includes(d)
-                        ? "bg-indigo-600 font-semibold text-white"
-                        : "text-zinc-600 hover:bg-zinc-100",
+                        ? "bg-nd-accent font-semibold text-white"
+                        : "text-nd-fg-2 hover:bg-nd-fg/[.06]",
                     )}
                   >
                     {Number(d.slice(8, 10))}
@@ -809,32 +807,28 @@ function RecurrenceControls({
               {specificDates.map((d) => (
                 <span
                   key={d}
-                  className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-[11px] text-zinc-600 ring-1 ring-zinc-200"
+                  className="inline-flex h-6 items-center gap-1 rounded-full border border-nd-line bg-nd-content pl-2 pr-1 text-nd-micro text-nd-fg-2"
                 >
                   {formatDateKo(d)}
                   <button
                     type="button"
                     onClick={() => removeSpecific(d)}
-                    className="text-zinc-400 hover:text-red-500"
-                    aria-label="날짜 제거"
+                    aria-label={`${formatDateKo(d)} 제거`}
+                    className="flex h-4 w-4 items-center justify-center rounded-full text-nd-fg-3 hover:bg-nd-danger-soft hover:text-nd-danger-text"
                   >
-                    ✕
+                    <Icon icon={X} size={11} />
                   </button>
                 </span>
               ))}
-              <button
-                type="button"
-                onClick={() => setSpecificDates([])}
-                className="rounded-full px-2 py-1 text-[11px] text-zinc-400 hover:text-red-500"
-              >
+              <Button variant="ghost" size="sm" onClick={() => setSpecificDates([])}>
                 전체 해제
-              </button>
+              </Button>
             </div>
           )}
         </div>
       )}
 
-      <p className="text-[11px] text-zinc-400">
+      <p className="text-nd-micro text-nd-fg-3">
         {dates.length > 0 ? `총 ${dates.length}일에 등록됩니다.` : "조건에 맞는 날짜가 없습니다."}
       </p>
     </div>
@@ -850,6 +844,8 @@ function TaskForm({
   date: string;
   onDateChange: (date: string) => void;
 }) {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [category, setCategory] = useState<TaskCategory>("id");
   const [title, setTitle] = useState("");
   const [detail, setDetail] = useState("");
@@ -865,10 +861,23 @@ function TaskForm({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
-    if (!me) return alert("로그인 계정이 팀원과 연결되어야 등록할 수 있습니다.");
-    if (recurring && targetDates.length === 0)
-      return alert("반복 등록할 요일·기간 또는 날짜를 선택하세요.");
-    if (targetDates.length > 100 && !confirm(`${targetDates.length}건을 등록합니다. 계속할까요?`)) return;
+    if (!me) {
+      toast.error("로그인 계정이 팀원과 연결되어야 등록할 수 있습니다.");
+      return;
+    }
+    if (recurring && targetDates.length === 0) {
+      toast.error("반복 등록할 요일·기간 또는 날짜를 선택하세요.");
+      return;
+    }
+    if (
+      targetDates.length > 100 &&
+      !(await confirm({
+        title: `${targetDates.length}건을 등록합니다`,
+        message: "계속할까요?",
+        confirmLabel: "등록",
+      }))
+    )
+      return;
     setSaving(true);
     try {
       await Promise.all(
@@ -894,26 +903,26 @@ function TaskForm({
   }
 
   return (
-    <Card className="!rounded-2xl">
-      <h2 className="mb-4 text-sm font-semibold text-zinc-800">업무 등록</h2>
+    <Card className="self-start">
+      <h2 className="mb-4 text-nd-section text-nd-fg">업무 등록</h2>
       <form onSubmit={submit} className="flex flex-col gap-4">
         <Field label="담당자">
-          <div className="flex h-[42px] items-center rounded-lg border border-zinc-200 bg-zinc-50 px-3 text-sm text-zinc-700">
+          <div className="flex h-ctl-md items-center rounded-nd-md border border-nd-line bg-nd-sunken px-3 text-nd-body text-nd-fg-2">
             {me ? `${me.name} (나)` : "로그인 필요"}
           </div>
         </Field>
 
         {/* 반복 등록 토글 */}
-        <label className="flex cursor-pointer items-center gap-2">
-          <input
-            type="checkbox"
-            checked={recurring}
-            onChange={(e) => setRecurring(e.target.checked)}
-            className="h-4 w-4 accent-indigo-600"
-          />
-          <span className="text-sm font-medium text-zinc-700">반복 등록</span>
-          <span className="text-xs text-zinc-400">요일 주기 또는 지정한 날짜에 한 번에</span>
-        </label>
+        <Checkbox
+          checked={recurring}
+          onChange={(e) => setRecurring(e.target.checked)}
+          label={
+            <>
+              <span className="font-medium">반복 등록</span>
+              <span className="ml-2 text-nd-caption text-nd-fg-3">요일 주기 또는 지정한 날짜에 한 번에</span>
+            </>
+          }
+        />
 
         {!recurring ? (
           <Field label="마감일" required hint="캘린더에서 선택 가능">
@@ -932,7 +941,7 @@ function TaskForm({
         <Field label="상세" hint="선택 입력">
           <Textarea rows={3} value={detail} onChange={(e) => setDetail(e.target.value)} />
         </Field>
-        <Button type="submit" disabled={saving || !title.trim() || !me}>
+        <Button type="submit" loading={saving} disabled={!title.trim() || !me}>
           {saving ? "등록 중…" : recurring ? `반복 등록 (${targetDates.length}건)` : "업무 등록"}
         </Button>
       </form>

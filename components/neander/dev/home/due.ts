@@ -1,6 +1,6 @@
 // ============================================================
 //  개발허브 홈 — 마감일 분류 헬퍼 (순수 함수, 렌더 전용)
-//  지연=빨강 / 오늘=주황 / 내일=호박 / 이번 주·이후=회색.
+//  지연=danger / 오늘·내일=warning / 이번 주·이후=중성 (nd 토큰).
 //  날짜는 "YYYY-MM-DD" 문자열 비교(사전순 == 시간순) 관용구를 따른다.
 // ============================================================
 
@@ -35,21 +35,21 @@ export function dueInfo(dueDate: string): DueInfo {
     return {
       tone: "overdue",
       label: `지연 · ${shortDate(dueDate)}`,
-      cls: "bg-red-50 text-red-600",
+      cls: "bg-nd-danger-soft text-nd-danger-text",
     };
   }
   if (dueDate === today) {
-    return { tone: "today", label: "오늘 마감", cls: "bg-orange-50 text-orange-600" };
+    return { tone: "today", label: "오늘 마감", cls: "bg-nd-warning-soft text-nd-warning-text" };
   }
   if (dueDate === addDays(today, 1)) {
-    return { tone: "tomorrow", label: "내일 마감", cls: "bg-amber-50 text-amber-600" };
+    return { tone: "tomorrow", label: "내일 마감", cls: "bg-nd-warning-soft text-nd-warning-text" };
   }
   if (dueDate <= thisWeekEnd()) {
     return {
       tone: "week",
       label: `이번 주 · ${shortDate(dueDate)}`,
-      cls: "bg-zinc-100 text-zinc-600",
+      cls: "bg-nd-fg/[.07] text-nd-fg-2",
     };
   }
-  return { tone: "later", label: `${shortDate(dueDate)} 마감`, cls: "bg-zinc-100 text-zinc-500" };
+  return { tone: "later", label: `${shortDate(dueDate)} 마감`, cls: "bg-nd-fg/[.07] text-nd-fg-3" };
 }

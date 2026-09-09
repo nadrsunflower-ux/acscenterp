@@ -8,11 +8,12 @@
 // ============================================================
 
 import { useMemo, useState } from "react";
+import { Archive, CalendarDays, Megaphone, Moon, Pin, Search, Sun, type LucideIcon } from "lucide-react";
 import { useAppData } from "@/components/neander/app-data";
 import { useDevData } from "@/components/neander/dev/dev-data";
 import { ActivityComposer } from "@/components/neander/dev/ActivityComposer";
 import { ActivityItem } from "@/components/neander/dev/ActivityItem";
-import { Card, Input, Select, EmptyState, cn } from "@/components/neander/ui";
+import { Card, Icon, Input, LoadingState, SectionHeader, Select, EmptyState } from "@/components/neander/ui";
 import { todayStr, addDays, weekKey, formatDateKo } from "@/lib/neander/format";
 import type { DevActivity } from "@/lib/neander/dev/types";
 
@@ -73,12 +74,12 @@ export default function TimelinePage() {
     return map;
   }, [filtered, today, yesterday]);
 
-  const groupMeta: Record<GroupKey, { icon: string; label: string; sub?: string }> = {
-    pinned: { icon: "📌", label: "고정된 소식" },
-    today: { icon: "🌞", label: "오늘", sub: formatDateKo(today) },
-    yesterday: { icon: "🌙", label: "어제", sub: formatDateKo(yesterday) },
-    thisWeek: { icon: "📆", label: "이번 주" },
-    earlier: { icon: "🗄️", label: "그 이전" },
+  const groupMeta: Record<GroupKey, { icon: LucideIcon; label: string; sub?: string }> = {
+    pinned: { icon: Pin, label: "고정된 소식" },
+    today: { icon: Sun, label: "오늘", sub: formatDateKo(today) },
+    yesterday: { icon: Moon, label: "어제", sub: formatDateKo(yesterday) },
+    thisWeek: { icon: CalendarDays, label: "이번 주" },
+    earlier: { icon: Archive, label: "그 이전" },
   };
 
   const hasAny = activity.length > 0;
@@ -86,32 +87,43 @@ export default function TimelinePage() {
   return (
     <div className="flex flex-col gap-4">
       {/* 화면 한 줄 설명 (H1 은 dev layout 이 담당) */}
-      <div>
-        <h2 className="text-lg font-bold tracking-tight text-zinc-900">📣 진행 소식</h2>
-        <p className="mt-0.5 text-sm text-zinc-500">
-          팀이 무엇을 진행했는지 시간순으로 — 소식을 게시하면 팀 메신저에도 전달됩니다.
-        </p>
-      </div>
+      <SectionHeader
+        title={
+          <span className="inline-flex items-center gap-1.5">
+            <Icon icon={Megaphone} size={16} className="text-nd-fg-3" />
+            진행 소식
+          </span>
+        }
+        hint="팀이 무엇을 진행했는지 시간순으로 — 소식을 게시하면 팀 메신저에도 전달됩니다."
+      />
 
       <div className="grid gap-4 lg:grid-cols-[380px_1fr] lg:gap-6">
         {/* 좌측 고정 컬럼: 작성기 + 필터 */}
         <div className="flex flex-col gap-4 self-start lg:sticky lg:top-4">
           <ActivityComposer />
 
-          <Card className="!rounded-2xl">
-            <h2 className="mb-2.5 text-sm font-semibold text-zinc-800">🔍 필터</h2>
+          <Card padding="sm">
+            <SectionHeader
+              as="h3"
+              title={
+                <span className="inline-flex items-center gap-1.5">
+                  <Icon icon={Search} size={14} className="text-nd-fg-3" />
+                  필터
+                </span>
+              }
+            />
             <div className="flex flex-col gap-2">
               <Input
+                size="sm"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="제목·본문 검색…"
-                className="!py-1.5 !text-xs"
                 aria-label="진행 소식 검색"
               />
               <Select
+                size="sm"
                 value={featureFilter}
                 onChange={(e) => setFeatureFilter(e.target.value)}
-                className="!py-1.5 !text-xs"
                 aria-label="프로젝트 필터"
               >
                 <option value="all">전체 프로젝트</option>
@@ -122,9 +134,9 @@ export default function TimelinePage() {
                 ))}
               </Select>
               <Select
+                size="sm"
                 value={authorFilter}
                 onChange={(e) => setAuthorFilter(e.target.value)}
-                className="!py-1.5 !text-xs"
                 aria-label="작성자 필터"
               >
                 <option value="all">전체 작성자</option>
@@ -134,8 +146,8 @@ export default function TimelinePage() {
                   </option>
                 ))}
               </Select>
-              <p className={cn("text-right text-xs text-zinc-400", loading && "animate-pulse")}>
-                {loading ? "불러오는 중…" : `${filtered.length}개 표시 중`}
+              <p className="flex justify-end text-nd-caption text-nd-fg-3">
+                {loading ? <LoadingState size="inline" /> : <span className="nd-num">{filtered.length}개 표시 중</span>}
               </p>
             </div>
           </Card>
@@ -145,13 +157,13 @@ export default function TimelinePage() {
         <div className="flex min-w-0 flex-col gap-5">
           {!loading && !hasAny ? (
             <EmptyState
-              icon="📣"
+              icon={Megaphone}
               title="아직 올라온 진행 소식이 없어요"
               description="왼쪽 작성기에서 오늘 진행한 일을 첫 소식으로 올려보세요. 게시하면 팀 메신저에도 함께 전달됩니다."
             />
           ) : !loading && filtered.length === 0 ? (
             <EmptyState
-              icon="🔍"
+              icon={Search}
               title="조건에 맞는 소식이 없어요"
               description="검색어를 지우거나 프로젝트·작성자 필터를 '전체'로 되돌려 보세요."
             />
@@ -163,14 +175,11 @@ export default function TimelinePage() {
               return (
                 <section key={key}>
                   {/* sticky 그룹 헤더 */}
-                  <div className="sticky top-0 z-10 -mx-1 mb-2 flex items-baseline gap-2 rounded-lg bg-zinc-50/90 px-1 py-1.5 backdrop-blur">
-                    <h2 className="text-sm font-bold text-zinc-800">
-                      {meta.icon} {meta.label}
-                    </h2>
-                    {meta.sub && <span className="text-[11px] text-zinc-400">{meta.sub}</span>}
-                    <span className="ml-auto text-[11px] font-medium tabular-nums text-zinc-400">
-                      {rows.length}건
-                    </span>
+                  <div className="nd-glass sticky top-0 z-nd-sticky -mx-1 mb-2 flex items-center gap-2 rounded-nd-md px-2 py-1.5">
+                    <Icon icon={meta.icon} size={14} className="text-nd-fg-3" />
+                    <h2 className="text-nd-body font-semibold text-nd-fg">{meta.label}</h2>
+                    {meta.sub && <span className="text-nd-micro text-nd-fg-3">{meta.sub}</span>}
+                    <span className="nd-num ml-auto text-nd-micro text-nd-fg-3">{rows.length}건</span>
                   </div>
                   <div className="flex flex-col gap-3">
                     {rows.map((a) => (

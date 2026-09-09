@@ -17,6 +17,11 @@
 //  값** 기준으로 건다 — 거래유형 필터를 걸어둔 채 유형을 바꿔도 행이
 //  눈앞에서 사라지지 않게 하기 위해서다. 초안이 있는 동안 필터를 바꿔도
 //  초안은 id 로 따라다닌다.
+//
+//  화면 구성 (HIG 툴바: 기능별로 묶는다)
+//    왼쪽  = 제목·건수 → 검색 → 연/월 → 필터 표시·해제
+//    오른쪽 = [실행취소·다시실행] [배율] 행 추가 · 내보내기 · 변경 취소 · 저장
+//  시트는 불투명 콘텐츠 표면이다 — 유리를 쓰지 않는다.
 // ============================================================
 
 import {
@@ -27,10 +32,23 @@ import {
   useRef,
   useState,
   type ReactNode,
-  type SelectHTMLAttributes,
 } from "react";
 import type { DataSheetGridRef } from "react-datasheet-grid";
-import { Button, EmptyState, cn } from "@/components/neander/ui";
+import { BookOpen, FileDown, Plus, Redo2, SearchX, Undo2, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  Badge,
+  Button,
+  ButtonGroup,
+  Card,
+  EmptyState,
+  IconButton,
+  Input,
+  LoadingState,
+  Select,
+  Tabs,
+  cn,
+  useConfirm,
+} from "@/components/neander/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { TransactionEditor } from "@/components/neander/finance/TransactionEditor";
 import { LedgerSheet } from "@/components/neander/finance/LedgerSheet";
@@ -153,14 +171,15 @@ function useMeasuredHeight<T extends HTMLElement>(enabled: boolean) {
 
 function Stat({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <span className="text-zinc-500">
-      {label} <span className="font-medium text-zinc-800">{children}</span>
+    <span className="text-nd-fg-3">
+      {label} <span className="nd-num font-medium text-nd-fg">{children}</span>
     </span>
   );
 }
 
 export default function LedgerPage() {
   const { transactions, accounts, paymentMethods, loading, refresh } = useFinance();
+  const confirm = useConfirm();
 
   const [filters, setFilters] = useState<Filters>({});
   /** 결제수단 탭. 열 필터와 다른 축이라 필터가 아니라 보기로 둔다 */
@@ -443,8 +462,16 @@ export default function LedgerPage() {
     }
   };
 
-  const discard = () => {
-    if (dirtyCount > 0 && !window.confirm(`변경 ${dirtyCount}건을 모두 버릴까요?`)) return;
+  const discard = async () => {
+    if (dirtyCount > 0) {
+      const ok = await confirm({
+        title: `변경 ${dirtyCount.toLocaleString("ko-KR")}건을 모두 버릴까요?`,
+        message: "저장하지 않은 수정·추가·삭제가 전부 사라집니다. 되돌릴 수 없습니다.",
+        confirmLabel: "모두 버리기",
+        tone: "danger",
+      });
+      if (!ok) return;
+    }
     resetEdits();
     setNotice(null);
   };
@@ -528,301 +555,293 @@ export default function LedgerPage() {
   const sheet = useSheetLayout();
 
   if (loading) {
-    return <div className="px-5 py-16 text-center text-zinc-400">불러오는 중…</div>;
+    return <LoadingState label="장부를 불러오는 중…" />;
   }
 
   const firstIssues = [...issues.entries()].slice(0, 3);
 
+  // 「미지정」은 있을 때만 보인다 — 0건짜리 탭은 누를 이유가 없고,
+  // 반대로 1건이라도 있으면 반드시 보여야 한다. 계좌·카드만 두면
+  // 마스터에 없는 결제수단이 어느 탭에도 안 나오면서 전체 건수와만
+  // 어긋나기 때문이다.
+  const scopeTabs = SCOPE_TABS.filter((t) => t.key !== "unknown" || counts.unknown > 0).map((t) => ({
+    key: t.key,
+    label: t.label,
+    badge: counts[t.key],
+    badgeLabel: `${t.label} ${counts[t.key].toLocaleString("ko-KR")}건`,
+  }));
+
   return (
     <div
       ref={page.ref}
-      className="flex min-h-0 flex-col bg-white"
+      className="flex min-h-0 flex-col"
       style={{ height: page.height || undefined }}
     >
-      {/* ---- 툴바: 검색 + 동작 버튼 (열 필터는 머리글 드롭다운에) ------ */}
-      <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-zinc-200 px-3 py-2">
-        <span className="mr-2 text-sm font-semibold text-zinc-900">
-          거래 원장
-          <span className="ml-1.5 text-xs font-normal text-zinc-400">
-            {transactions.length.toLocaleString("ko-KR")}건
-          </span>
-        </span>
-        <input
-          placeholder="거래처·계정·비고 검색"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="h-8 w-48 rounded-md border border-zinc-300 bg-white px-2.5 text-xs text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-        />
-        {/* 기간 — 거래일 열 필터와 같은 값을 읽고 쓴다.
-            따로 상태를 두면 툴바엔 「2026년」인데 실제로는 7월만 걸린 표가 된다. */}
-        <select
-          value={period.custom ? CUSTOM_PERIOD : period.year}
-          onChange={(e) => {
-            const y = e.target.value;
-            if (y === CUSTOM_PERIOD) return; // 표시 전용
-            setColumnFilter("date", periodFilter(allMonths, y, ""));
-          }}
-          title="연도로 거르기"
-          className="h-8 cursor-pointer rounded-md border border-zinc-300 bg-white px-2 text-xs text-zinc-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-        >
-          <option value="">전체 기간</option>
-          {years.map((y) => (
-            <option key={y} value={y}>
-              {y}년
-            </option>
-          ))}
-          {period.custom && <option value={CUSTOM_PERIOD}>직접 선택</option>}
-        </select>
-        <select
-          value={period.month}
-          disabled={!period.year || period.custom}
-          onChange={(e) => setColumnFilter("date", periodFilter(allMonths, period.year, e.target.value))}
-          title={period.custom ? "머리글에서 달을 직접 고른 상태입니다" : "월로 거르기"}
-          className="h-8 cursor-pointer rounded-md border border-zinc-300 bg-white px-2 text-xs text-zinc-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:bg-zinc-50 disabled:text-zinc-400"
-        >
-          <option value="">연 전체</option>
-          {/* allMonths 는 최신순이라 뒤집어 1월 → 12월 로 보여준다 */}
-          {[...monthsOfYear(allMonths, period.year)].reverse().map((m) => (
-            <option key={m} value={m.slice(5, 7)}>
-              {Number(m.slice(5, 7))}월
-            </option>
-          ))}
-        </select>
-        {filterCount > 0 && (
-          <span className="flex h-8 items-center gap-1 rounded-md bg-indigo-50 px-2 text-xs font-medium text-indigo-700">
-            열 필터 {filterCount}개
-          </span>
-        )}
-        {anyFilter && (
-          <button
-            type="button"
-            onClick={resetFilters}
-            className="h-8 rounded-md px-2 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
-          >
-            필터 해제
-          </button>
-        )}
-        {sort && (
-          <button
-            type="button"
-            onClick={() => setSort(null)}
-            className="h-8 rounded-md px-2 text-xs text-indigo-600 hover:bg-indigo-50"
-          >
-            정렬 해제
-          </button>
-        )}
-
-        <div className="ml-auto flex items-center gap-1.5">
-          <div className="mr-1 flex items-center">
-            <button
-              type="button"
-              onClick={undo}
-              disabled={!canUndo}
-              title="실행취소 (⌘Z)"
-              aria-label="실행취소"
-              className="flex h-8 w-8 items-center justify-center rounded-md text-base text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 disabled:cursor-not-allowed disabled:text-zinc-300 disabled:hover:bg-transparent"
-            >
-              ↶
-            </button>
-            <button
-              type="button"
-              onClick={redo}
-              disabled={!canRedo}
-              title="다시 실행 (⌘⇧Z)"
-              aria-label="다시 실행"
-              className="flex h-8 w-8 items-center justify-center rounded-md text-base text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 disabled:cursor-not-allowed disabled:text-zinc-300 disabled:hover:bg-transparent"
-            >
-              ↷
-            </button>
-          </div>
-          {/* 표 배율 — 구글 스프레드시트처럼 단계로 */}
-          <div className="flex h-8 items-center rounded-md border border-zinc-200">
-            <button
-              type="button"
-              onClick={() => sheet.stepZoom(-1)}
-              disabled={sheet.layout.zoom <= ZOOM_STEPS[0]}
-              title="축소"
-              aria-label="표 축소"
-              className="flex h-8 w-7 items-center justify-center rounded-l-md text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 disabled:cursor-not-allowed disabled:text-zinc-300 disabled:hover:bg-transparent"
-            >
-              −
-            </button>
-            <button
-              type="button"
-              onClick={() => sheet.setZoom(DEFAULT_ZOOM)}
-              title="100% 로"
-              className="h-8 w-12 text-xs tabular-nums text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-            >
-              {Math.round(sheet.layout.zoom * 100)}%
-            </button>
-            <button
-              type="button"
-              onClick={() => sheet.stepZoom(1)}
-              disabled={sheet.layout.zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1]}
-              title="확대"
-              aria-label="표 확대"
-              className="flex h-8 w-7 items-center justify-center rounded-r-md text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 disabled:cursor-not-allowed disabled:text-zinc-300 disabled:hover:bg-transparent"
-            >
-              +
-            </button>
-          </div>
-          <Button variant="secondary" className="h-8 px-3 text-xs" onClick={addRow}>
-            행 추가
-          </Button>
-          <Button
-            variant="secondary"
-            className="h-8 px-3 text-xs"
-            disabled={rows.length === 0}
-            onClick={() =>
-              exportLedgerXlsx(
-                rows,
-                accounts,
-                paymentMethods,
-                `통합거래장_${exportScope}.xlsx`,
-              )
-            }
-          >
-            엑셀 내보내기
-          </Button>
-          <Button
-            variant="ghost"
-            className="h-8 px-3 text-xs"
-            onClick={discard}
-            disabled={saving || dirtyCount === 0}
-          >
-            변경 취소
-          </Button>
-          <Button
-            className="h-8 px-3 text-xs"
-            onClick={save}
-            disabled={saving || dirtyCount === 0 || issues.size > 0}
-          >
-            {saving ? "저장 중…" : dirtyCount > 0 ? `저장 (${dirtyCount})` : "저장"}
-          </Button>
-        </div>
-      </div>
-
-      {/* ---- 결제수단 탭 ---------------------------------------------
-           「미지정」은 있을 때만 보인다 — 0건짜리 탭은 누를 이유가 없고,
-           반대로 1건이라도 있으면 반드시 보여야 한다. 계좌·카드만 두면
-           마스터에 없는 결제수단이 어느 탭에도 안 나오면서 전체 건수와만
-           어긋나기 때문이다. */}
-      <div className="flex shrink-0 items-center gap-0.5 overflow-x-auto border-b border-zinc-200 px-3">
-        {SCOPE_TABS.filter((t) => t.key !== "unknown" || counts.unknown > 0).map((t) => {
-          const on = scope === t.key;
-          return (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setScope(t.key)}
-              title={t.hint}
-              aria-current={on ? "page" : undefined}
-              className={cn(
-                "shrink-0 border-b-2 px-3 py-1.5 text-xs font-medium transition",
-                on
-                  ? "border-indigo-600 text-indigo-700"
-                  : "border-transparent text-zinc-500 hover:text-zinc-800",
-                t.key === "unknown" && !on && "text-amber-600 hover:text-amber-700",
-              )}
-            >
-              {t.label}
-              <span
-                className={cn(
-                  "ml-1.5 tabular-nums",
-                  on ? "text-indigo-400" : "text-zinc-400",
-                )}
-              >
-                {counts[t.key].toLocaleString("ko-KR")}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* ---- 상태 줄: 합계 + 초안 상태 ------------------------------- */}
-      <div
-        className={cn(
-          "flex shrink-0 flex-wrap items-center gap-x-5 gap-y-1 border-b px-3 py-1.5 text-xs",
-          dirtyCount > 0 ? "border-amber-200 bg-amber-50" : "border-zinc-200 bg-zinc-50",
-        )}
-      >
-        <Stat label="검색 결과">{rows.length.toLocaleString("ko-KR")}건</Stat>
-        <Stat label="수입"><Money value={sum.income} unit={false} /></Stat>
-        <Stat label="지출"><Money value={sum.expense} unit={false} /></Stat>
-        <Stat label="환급"><Money value={sum.refund} unit={false} /></Stat>
-        <Stat label="순손익"><Money value={sum.net} unit={false} className="font-semibold" /></Stat>
-
-        <span className="ml-auto flex flex-wrap items-center gap-x-3">
-          {dirtyCount > 0 ? (
-            <>
-              <span className="font-medium text-zinc-900">
-                저장 안 된 변경 {dirtyCount.toLocaleString("ko-KR")}건
-                <span className="ml-1.5 font-normal text-zinc-500">
-                  (수정 {edits.draft.size} · 추가 {insertCount} · 삭제 {edits.deleted.size}
-                  {blankNew > 0 && ` · 빈 행 ${blankNew} 저장 안 함`})
-                </span>
-              </span>
-              {issues.size > 0 && (
-                <span className="text-rose-600">
-                  오류 {issues.size}행 — 빨간 셀을 고쳐야 저장됩니다
-                  {firstIssues.length > 0 &&
-                    ` (${firstIssues.map(([, is]) => is[0].message).join(", ")}${issues.size > firstIssues.length ? " …" : ""})`}
-                </span>
-              )}
-              {notice?.kind === "error" && <span className="text-rose-600">{notice.text}</span>}
-            </>
-          ) : notice ? (
-            <span className={notice.kind === "ok" ? "text-emerald-700" : "text-rose-600"}>
-              {notice.text}
+      <Card padding="none" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {/* ---- 툴바: 검색 + 동작 버튼 (열 필터는 머리글 드롭다운에) ------ */}
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-nd-line px-3 py-2">
+          <h1 className="mr-1 flex items-baseline gap-1.5 text-nd-section text-nd-fg">
+            거래 원장
+            <span className="nd-num text-nd-caption font-normal text-nd-fg-3">
+              {transactions.length.toLocaleString("ko-KR")}건
             </span>
-          ) : (
-            <span className="text-zinc-400">
-              Enter 편집 · Esc 취소 · ⌘Z 실행취소 · 머리글 이름 클릭 정렬 · 머리글 ⌄ 필터 · 머리글·행번호 경계 끌어 크기 조절(더블클릭 기본값) · ⌘C·V 엑셀 복사·붙여넣기 · 우클릭 행 메뉴 · 끝의 ⋯ 전체 항목
-            </span>
-          )}
-        </span>
-      </div>
-
-      {/* ---- 시트: 남는 공간 전부 ------------------------------------ */}
-      <div ref={slot.ref} className="min-h-0 flex-1 overflow-hidden">
-        {rows.length === 0 ? (
-          <div className="p-8">
-            {narrowed ? (
-              <EmptyState
-                icon="🔍"
-                title="조건에 맞는 거래가 없습니다"
-                description={
-                  scope === "all"
-                    ? "필터를 풀거나 검색어를 바꿔보세요."
-                    : `「${scopeLabel}」 탭에는 없습니다. 다른 탭을 보거나 필터를 풀어보세요.`
-                }
-              />
-            ) : (
-              <EmptyState icon="📒" title="거래가 없습니다" description="행 추가를 누르거나 엑셀 임포트로 장부를 올리세요." />
-            )}
-          </div>
-        ) : slot.height > 0 ? (
-          <LedgerSheet
-            gridRef={gridRef}
-            rows={rows}
-            onChange={onSheetChange}
-            accounts={accounts}
-            paymentMethods={paymentMethods}
-            sites={opts.sites}
-            issues={issues}
-            dirtyIds={dirtyIds}
-            createRow={createRow}
-            onDetail={setDetail}
-            sort={sort}
-            onSort={toggleSort}
-            filters={filters}
-            onFilterChange={setColumnFilter}
-            optionsFor={optionsFor}
-            height={slot.height}
-            sheet={sheet}
+          </h1>
+          <Input
+            size="sm"
+            type="search"
+            aria-label="거래 검색"
+            placeholder="거래처·계정·비고 검색"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-48"
           />
-        ) : null}
-      </div>
+          {/* 기간 — 거래일 열 필터와 같은 값을 읽고 쓴다.
+              따로 상태를 두면 툴바엔 「2026년」인데 실제로는 7월만 걸린 표가 된다. */}
+          <Select
+            size="sm"
+            aria-label="연도로 거르기"
+            title="연도로 거르기"
+            className="w-auto"
+            value={period.custom ? CUSTOM_PERIOD : period.year}
+            onChange={(e) => {
+              const y = e.target.value;
+              if (y === CUSTOM_PERIOD) return; // 표시 전용
+              setColumnFilter("date", periodFilter(allMonths, y, ""));
+            }}
+          >
+            <option value="">전체 기간</option>
+            {years.map((y) => (
+              <option key={y} value={y}>
+                {y}년
+              </option>
+            ))}
+            {period.custom && <option value={CUSTOM_PERIOD}>직접 선택</option>}
+          </Select>
+          <Select
+            size="sm"
+            aria-label="월로 거르기"
+            className="w-auto"
+            value={period.month}
+            disabled={!period.year || period.custom}
+            onChange={(e) => setColumnFilter("date", periodFilter(allMonths, period.year, e.target.value))}
+            title={period.custom ? "머리글에서 달을 직접 고른 상태입니다" : "월로 거르기"}
+          >
+            <option value="">연 전체</option>
+            {/* allMonths 는 최신순이라 뒤집어 1월 → 12월 로 보여준다 */}
+            {[...monthsOfYear(allMonths, period.year)].reverse().map((m) => (
+              <option key={m} value={m.slice(5, 7)}>
+                {Number(m.slice(5, 7))}월
+              </option>
+            ))}
+          </Select>
+          {filterCount > 0 && <Badge tone="accent">열 필터 {filterCount}개</Badge>}
+          {anyFilter && (
+            <Button variant="ghost" size="sm" onClick={resetFilters}>
+              필터 해제
+            </Button>
+          )}
+          {sort && (
+            <Button variant="ghost" size="sm" onClick={() => setSort(null)}>
+              정렬 해제
+            </Button>
+          )}
+
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <ButtonGroup label="실행취소">
+              <IconButton
+                icon={Undo2}
+                label="실행취소 (⌘Z)"
+                size="sm"
+                pill
+                onClick={undo}
+                disabled={!canUndo}
+              />
+              <IconButton
+                icon={Redo2}
+                label="다시 실행 (⌘⇧Z)"
+                size="sm"
+                pill
+                onClick={redo}
+                disabled={!canRedo}
+              />
+            </ButtonGroup>
+            {/* 표 배율 — 구글 스프레드시트처럼 단계로 */}
+            <ButtonGroup label="표 배율">
+              <IconButton
+                icon={ZoomOut}
+                label="표 축소"
+                size="sm"
+                pill
+                onClick={() => sheet.stepZoom(-1)}
+                disabled={sheet.layout.zoom <= ZOOM_STEPS[0]}
+              />
+              <button
+                type="button"
+                onClick={() => sheet.setZoom(DEFAULT_ZOOM)}
+                title="100% 로"
+                aria-label={`표 배율 ${Math.round(sheet.layout.zoom * 100)}% — 누르면 100% 로`}
+                className="nd-num h-ctl-sm min-w-[3rem] rounded-full px-1.5 text-nd-caption font-medium text-nd-fg-2 transition-colors duration-nd-fast hover:bg-nd-fg/[.06] hover:text-nd-fg"
+              >
+                {Math.round(sheet.layout.zoom * 100)}%
+              </button>
+              <IconButton
+                icon={ZoomIn}
+                label="표 확대"
+                size="sm"
+                pill
+                onClick={() => sheet.stepZoom(1)}
+                disabled={sheet.layout.zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1]}
+              />
+            </ButtonGroup>
+            <Button variant="secondary" size="sm" icon={Plus} onClick={addRow}>
+              행 추가
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={FileDown}
+              disabled={rows.length === 0}
+              onClick={() =>
+                exportLedgerXlsx(
+                  rows,
+                  accounts,
+                  paymentMethods,
+                  `통합거래장_${exportScope}.xlsx`,
+                )
+              }
+            >
+              엑셀 내보내기
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={discard}
+              disabled={saving || dirtyCount === 0}
+            >
+              변경 취소
+            </Button>
+            <Button
+              size="sm"
+              onClick={save}
+              loading={saving}
+              disabled={dirtyCount === 0 || issues.size > 0}
+            >
+              {dirtyCount > 0 ? `저장 (${dirtyCount.toLocaleString("ko-KR")})` : "저장"}
+            </Button>
+          </div>
+        </div>
+
+        {/* ---- 결제수단 탭 --------------------------------------------- */}
+        <Tabs
+          size="sm"
+          ariaLabel="결제수단"
+          className="shrink-0 px-3"
+          items={scopeTabs}
+          value={scope}
+          onChange={(k) => setScope(k as ScopeKey)}
+        />
+
+        {/* ---- 상태 줄: 합계 + 초안 상태 ------------------------------- */}
+        <div
+          className={cn(
+            "flex shrink-0 flex-wrap items-center gap-x-5 gap-y-1 border-b px-3 py-1.5 text-nd-caption",
+            dirtyCount > 0 ? "border-nd-warning/30 bg-nd-warning-soft" : "border-nd-line bg-nd-sunken",
+          )}
+        >
+          <Stat label="검색 결과">{rows.length.toLocaleString("ko-KR")}건</Stat>
+          <Stat label="수입"><Money value={sum.income} unit={false} /></Stat>
+          <Stat label="지출"><Money value={sum.expense} unit={false} /></Stat>
+          <Stat label="환급"><Money value={sum.refund} unit={false} /></Stat>
+          <Stat label="순손익"><Money value={sum.net} unit={false} className="font-semibold" /></Stat>
+
+          <span className="ml-auto flex flex-wrap items-center gap-x-3" role="status" aria-live="polite">
+            {dirtyCount > 0 ? (
+              <>
+                <span className="font-medium text-nd-fg">
+                  저장 안 된 변경 {dirtyCount.toLocaleString("ko-KR")}건
+                  <span className="ml-1.5 font-normal text-nd-fg-2">
+                    (수정 {edits.draft.size} · 추가 {insertCount} · 삭제 {edits.deleted.size}
+                    {blankNew > 0 && ` · 빈 행 ${blankNew} 저장 안 함`})
+                  </span>
+                </span>
+                {issues.size > 0 && (
+                  <span className="text-nd-danger-text">
+                    오류 {issues.size}행 — 빨간 셀을 고쳐야 저장됩니다
+                    {firstIssues.length > 0 &&
+                      ` (${firstIssues.map(([, is]) => is[0].message).join(", ")}${issues.size > firstIssues.length ? " …" : ""})`}
+                  </span>
+                )}
+                {notice?.kind === "error" && <span className="text-nd-danger-text">{notice.text}</span>}
+              </>
+            ) : notice ? (
+              <span className={notice.kind === "ok" ? "text-nd-success-text" : "text-nd-danger-text"}>
+                {notice.text}
+              </span>
+            ) : (
+              <span className="hidden text-nd-fg-3 lg:inline">
+                Enter 편집 · Esc 취소 · ⌘Z 실행취소 · 머리글 이름 클릭 정렬 · 머리글 ⌄ 필터 · 머리글·행번호 경계 끌어 크기 조절(더블클릭 기본값) · ⌘C·V 엑셀 복사·붙여넣기 · 우클릭 행 메뉴 · 끝의 ⋯ 전체 항목
+              </span>
+            )}
+          </span>
+        </div>
+
+        {/* ---- 시트: 남는 공간 전부 ------------------------------------ */}
+        <div ref={slot.ref} className="min-h-0 flex-1 overflow-hidden bg-nd-content">
+          {rows.length === 0 ? (
+            <div className="p-8">
+              {narrowed ? (
+                <EmptyState
+                  icon={SearchX}
+                  title="조건에 맞는 거래가 없습니다"
+                  description={
+                    scope === "all"
+                      ? "필터를 풀거나 검색어를 바꿔보세요."
+                      : `「${scopeLabel}」 탭에는 없습니다. 다른 탭을 보거나 필터를 풀어보세요.`
+                  }
+                  action={
+                    anyFilter && (
+                      <Button variant="secondary" size="sm" onClick={resetFilters}>
+                        필터 해제
+                      </Button>
+                    )
+                  }
+                />
+              ) : (
+                <EmptyState
+                  icon={BookOpen}
+                  title="거래가 없습니다"
+                  description="행 추가를 누르거나 엑셀 임포트로 장부를 올리세요."
+                  action={
+                    <Button variant="secondary" size="sm" icon={Plus} onClick={addRow}>
+                      행 추가
+                    </Button>
+                  }
+                />
+              )}
+            </div>
+          ) : slot.height > 0 ? (
+            <LedgerSheet
+              gridRef={gridRef}
+              rows={rows}
+              onChange={onSheetChange}
+              accounts={accounts}
+              paymentMethods={paymentMethods}
+              sites={opts.sites}
+              issues={issues}
+              dirtyIds={dirtyIds}
+              createRow={createRow}
+              onDetail={setDetail}
+              sort={sort}
+              onSort={toggleSort}
+              filters={filters}
+              onFilterChange={setColumnFilter}
+              optionsFor={optionsFor}
+              height={slot.height}
+              sheet={sheet}
+            />
+          ) : null}
+        </div>
+      </Card>
 
       {detail && (
         <TransactionEditor

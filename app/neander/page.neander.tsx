@@ -2,8 +2,19 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { Check, ChevronRight, ThumbsUp } from "lucide-react";
 import { useAppData } from "@/components/neander/app-data";
-import { Card, Badge, cn } from "@/components/neander/ui";
+import {
+  Badge,
+  Card,
+  DateStepper,
+  Icon,
+  KpiItem,
+  KpiStrip,
+  SectionHeader,
+  SegmentedControl,
+  cn,
+} from "@/components/neander/ui";
 import {
   SALES_CHANNELS,
   taskStatusLabel,
@@ -30,6 +41,11 @@ import {
 } from "@/lib/neander/format";
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
+const DEFAULT_MEMBER_COLOR = "#71717a"; // 팀원 색이 비어 있을 때의 데이터 기본값
+
+/** 요일 글자색 — 일요일·토요일만 구분 */
+const weekdayText = (i: number, base = "text-nd-fg-3") =>
+  i === 0 ? "text-nd-danger" : i === 6 ? "text-nd-info" : base;
 
 /** 하루치 업무를 팀원별로 묶는다 (members 배열 순서로 정렬). 업무는 입력 순서 유지(=createdAt). */
 function groupByMember(
@@ -84,63 +100,98 @@ export default function DashboardPage() {
   // 하단 '받은 요청 (미완료)' 리스트 카드용 (기존 유지)
   const myReceived = myReceivedAll.filter((r) => r.status !== "done");
 
+  const kpiLink = "block transition-colors duration-nd-fast hover:!bg-nd-sunken";
+
   return (
-    <div>
+    <div className="mx-auto w-full max-w-[1400px]">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-900">
+        <h1 className="text-nd-display text-nd-fg">
           {currentMember ? `안녕하세요, ${currentMember.name}님 👋` : "대시보드"}
         </h1>
-        <p className="mt-1 text-sm text-zinc-500">{month} 현황 요약</p>
+        <p className="mt-1 text-nd-body text-nd-fg-2">{month} 현황 요약</p>
       </div>
 
       {/* 상단 지표 */}
-      <div className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="이번 달 매출" value={formatKRW(totalSales)} href="/neander/sales" accent />
-        <StatCard label="오늘의 업무" value={`${myTodayTasks.length}건`} href="/neander/tasks" />
-        <StatCard
-          label="미완료 업무"
-          value={`${myOpenTasks.length}건`}
-          onToggle={() => setShowOpen((v) => !v)}
-          open={showOpen}
-        />
-        <StatCard
-          label="받은 요청"
-          value={`${myReceivedToday.length}건`}
-          href="/neander/requests"
-          badge={hasUnacked ? "N" : undefined}
-        />
-      </div>
+      <KpiStrip columns={4} className="mb-3">
+        <Link href="/neander/sales" className={kpiLink}>
+          <KpiItem label="이번 달 매출" value={formatKRW(totalSales)} tone="accent" hint="매출 관리로 이동" />
+        </Link>
+        <Link href="/neander/tasks" className={kpiLink}>
+          <KpiItem label="오늘의 업무" value={myTodayTasks.length} unit="건" hint="일일업무로 이동" />
+        </Link>
+        <button
+          type="button"
+          onClick={() => setShowOpen((v) => !v)}
+          aria-expanded={showOpen}
+          aria-controls="dash-open-tasks"
+          className={cn(kpiLink, "w-full text-left", showOpen && "!bg-nd-accent-soft/40")}
+        >
+          <KpiItem
+            label="미완료 업무"
+            value={myOpenTasks.length}
+            unit="건"
+            hint={showOpen ? "목록 접기" : "목록 펼치기"}
+            tag={
+              <Icon
+                icon={ChevronRight}
+                size={14}
+                className={cn("text-nd-fg-4 transition-transform duration-nd-fast", showOpen && "rotate-90")}
+              />
+            }
+          />
+        </button>
+        <Link href="/neander/requests" className={kpiLink}>
+          <KpiItem
+            label="받은 요청"
+            value={myReceivedToday.length}
+            unit="건"
+            hint="오늘 받은 요청"
+            tag={
+              hasUnacked ? (
+                <Badge tone="danger" size="sm">
+                  N
+                </Badge>
+              ) : undefined
+            }
+          />
+        </Link>
+      </KpiStrip>
 
       {/* 미완료 업무 펼침 목록 (마감기한 포함) */}
       {showOpen && (
-        <Card className="mb-6">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-zinc-800">
-              미완료 업무 <span className="font-normal text-zinc-400">({myOpenTasks.length})</span>
-            </h2>
-            <Link href="/neander/tasks" className="text-xs text-indigo-600 hover:underline">
-              일일업무 →
-            </Link>
-          </div>
+        <Card id="dash-open-tasks" className="mb-6">
+          <SectionHeader
+            title="미완료 업무"
+            hint={`${myOpenTasks.length}건`}
+            action={
+              <Link href="/neander/tasks" className="text-nd-caption font-medium text-nd-accent-strong hover:underline">
+                일일업무 →
+              </Link>
+            }
+          />
           {myOpenSorted.length === 0 ? (
-            <p className="py-4 text-center text-sm text-zinc-400">미완료 업무가 없습니다. 👍</p>
+            <p className="flex items-center justify-center gap-1.5 py-4 text-nd-body text-nd-fg-3">
+              <Icon icon={ThumbsUp} size={15} /> 미완료 업무가 없습니다.
+            </p>
           ) : (
-            <ul className="flex flex-col divide-y divide-zinc-100">
+            <ul className="flex flex-col divide-y divide-nd-line">
               {myOpenSorted.map((t) => {
                 const overdue = t.date < todayKST;
                 return (
-                  <li key={t.id} className="flex items-center gap-2 py-2 text-sm">
+                  <li key={t.id} className="flex items-center gap-2 py-2 text-nd-body">
                     <span
                       className="h-2 w-2 shrink-0 rounded-full"
                       style={{ backgroundColor: taskCategoryColor(t.category) }}
                       title={taskCategoryLabel(t.category)}
                     />
-                    <span className="min-w-0 flex-1 truncate text-zinc-800">{t.title}</span>
-                    <span className="shrink-0 text-[11px] text-zinc-400">{taskStatusLabel(t.status)}</span>
+                    <span className="min-w-0 flex-1 truncate text-nd-fg" title={t.title}>
+                      {t.title}
+                    </span>
+                    <span className="shrink-0 text-nd-micro text-nd-fg-3">{taskStatusLabel(t.status)}</span>
                     <span
                       className={cn(
-                        "shrink-0 text-xs",
-                        overdue ? "font-semibold text-red-500" : "text-zinc-500",
+                        "nd-num shrink-0 text-nd-caption",
+                        overdue ? "font-semibold text-nd-danger-text" : "text-nd-fg-2",
                       )}
                     >
                       {formatDateKo(t.date)}
@@ -160,22 +211,24 @@ export default function DashboardPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         {/* 채널별 매출 */}
         <Card>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-zinc-800">채널별 매출 ({month})</h2>
-            <Link href="/neander/sales" className="text-xs text-indigo-600 hover:underline">
-              자세히 →
-            </Link>
-          </div>
+          <SectionHeader
+            title={`채널별 매출 (${month})`}
+            action={
+              <Link href="/neander/sales" className="text-nd-caption font-medium text-nd-accent-strong hover:underline">
+                자세히 →
+              </Link>
+            }
+          />
           <div className="flex flex-col gap-3">
             {byChannel.map((c) => (
               <div key={c.value}>
-                <div className="mb-1 flex justify-between text-sm">
-                  <span className="text-zinc-600">{c.label}</span>
-                  <span className="font-semibold text-zinc-900">{formatKRW(c.amount)}</span>
+                <div className="mb-1 flex justify-between text-nd-body">
+                  <span className="text-nd-fg-2">{c.label}</span>
+                  <span className="nd-num font-semibold text-nd-fg">{formatKRW(c.amount)}</span>
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-zinc-100">
+                <div className="h-2 overflow-hidden rounded-full bg-nd-fg/[.06]">
                   <div
-                    className="h-full rounded-full bg-indigo-500 transition-all"
+                    className="h-full rounded-full bg-nd-accent transition-all"
                     style={{ width: `${(c.amount / maxChannel) * 100}%` }}
                   />
                 </div>
@@ -186,26 +239,32 @@ export default function DashboardPage() {
 
         {/* 내 받은 요청 */}
         <Card>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-zinc-800">받은 요청 (미완료)</h2>
-            <Link href="/neander/requests" className="text-xs text-indigo-600 hover:underline">
-              전체 →
-            </Link>
-          </div>
+          <SectionHeader
+            title="받은 요청 (미완료)"
+            action={
+              <Link href="/neander/requests" className="text-nd-caption font-medium text-nd-accent-strong hover:underline">
+                전체 →
+              </Link>
+            }
+          />
           {!currentMember ? (
-            <p className="py-6 text-center text-sm text-zinc-400">
+            <p className="py-6 text-center text-nd-body text-nd-fg-3">
               로그인 계정이 팀원과 연결되면 받은 요청이 표시됩니다.
             </p>
           ) : myReceived.length === 0 ? (
-            <p className="py-6 text-center text-sm text-zinc-400">받은 요청이 없습니다. 👍</p>
+            <p className="flex items-center justify-center gap-1.5 py-6 text-nd-body text-nd-fg-3">
+              <Icon icon={ThumbsUp} size={15} /> 받은 요청이 없습니다.
+            </p>
           ) : (
-            <ul className="flex flex-col gap-2">
+            <ul className="flex flex-col divide-y divide-nd-line">
               {myReceived.slice(0, 5).map((r) => (
-                <li key={r.id} className="flex items-center gap-2 text-sm">
-                  <Badge color="#6366f1">{r.fromName}</Badge>
-                  <span className="flex-1 truncate text-zinc-700">{r.title}</span>
+                <li key={r.id} className="flex items-center gap-2 py-2 text-nd-body">
+                  <Badge tone="accent">{r.fromName}</Badge>
+                  <span className="min-w-0 flex-1 truncate text-nd-fg-2" title={r.title}>
+                    {r.title}
+                  </span>
                   {r.dueDate && (
-                    <span className="text-xs text-zinc-400">{formatDateKo(r.dueDate)}</span>
+                    <span className="nd-num shrink-0 text-nd-caption text-nd-fg-3">{formatDateKo(r.dueDate)}</span>
                   )}
                 </li>
               ))}
@@ -244,8 +303,8 @@ function WeeklyTasks({
 
   const memberColor = useMemo(() => {
     const map = new Map<string, string>();
-    members.forEach((m) => map.set(m.id, m.color ?? "#71717a"));
-    return (id: string) => map.get(id) ?? "#71717a";
+    members.forEach((m) => map.set(m.id, m.color ?? DEFAULT_MEMBER_COLOR));
+    return (id: string) => map.get(id) ?? DEFAULT_MEMBER_COLOR;
   }, [members]);
 
   // 팀원 표시 순서 (members 배열 순) — 날짜 칸 안 그룹 정렬용
@@ -300,36 +359,38 @@ function WeeklyTasks({
   const renderGroups = (d: string) => {
     const dayTasks = [...(byDate.get(d) ?? [])].sort((a, b) => a.createdAt - b.createdAt);
     return (
-      <div className="flex flex-col gap-1.5">
+      <div className="flex min-w-0 flex-col gap-1.5">
         {groupByMember(dayTasks, memberIndex).map((g) => {
           const open = !collapsed.has(`${d}|${g.memberId}`);
           const ext = g.items.filter((t) => t.status === "extended").length;
           const hold = g.items.filter((t) => t.status === "on_hold").length;
           return (
-            <div key={g.memberId} className="rounded-md border border-zinc-100 bg-zinc-50/60">
+            <div key={g.memberId} className="min-w-0 overflow-hidden rounded-nd-sm border border-nd-line bg-nd-sunken/60">
               <button
                 type="button"
                 onClick={() => toggleCollapse(d, g.memberId)}
                 aria-expanded={open}
-                className="flex min-h-[32px] w-full items-center gap-1 rounded-md px-1.5 py-1 text-left active:bg-zinc-100"
+                className="flex min-h-[32px] w-full min-w-0 items-center gap-1 rounded-nd-sm px-1.5 py-1 text-left active:bg-nd-fg/[.06]"
                 title={`${g.memberName} · ${g.items.length}건`}
               >
                 <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: memberColor(g.memberId) }} />
-                <span className="truncate text-[11px] font-semibold text-zinc-600">{g.memberName}</span>
-                <span className="shrink-0 text-[10px] text-zinc-400">{g.items.length}</span>
+                <span className="min-w-0 truncate text-nd-micro font-semibold text-nd-fg-2">{g.memberName}</span>
+                <span className="nd-num shrink-0 text-nd-micro text-nd-fg-3">{g.items.length}</span>
                 {ext > 0 && (
-                  <span className="shrink-0 rounded-sm bg-yellow-200 px-1 text-[9px] font-semibold leading-tight text-yellow-800">
+                  <Badge tone="warning" size="sm" className="shrink-0 !h-4 !px-1">
                     연장 {ext}
-                  </span>
+                  </Badge>
                 )}
                 {hold > 0 && (
-                  <span className="shrink-0 rounded-sm bg-orange-100 px-1 text-[9px] font-semibold leading-tight text-orange-700">
+                  <Badge tone="neutral" size="sm" className="shrink-0 !h-4 !px-1">
                     보류 {hold}
-                  </span>
+                  </Badge>
                 )}
-                <span className="ml-auto shrink-0 px-0.5 text-[11px] font-semibold leading-none text-zinc-500">
-                  {open ? "▾" : "▸"}
-                </span>
+                <Icon
+                  icon={ChevronRight}
+                  size={12}
+                  className={cn("ml-auto shrink-0 text-nd-fg-3 transition-transform duration-nd-fast", open && "rotate-90")}
+                />
               </button>
               {open && (
                 <div className="flex flex-col gap-0.5 px-1 pb-1">
@@ -337,20 +398,18 @@ function WeeklyTasks({
                     <div
                       key={t.id}
                       className={cn(
-                        "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] leading-tight",
+                        "flex min-w-0 items-center gap-1 rounded-[4px] px-1.5 py-0.5 text-nd-micro leading-tight",
                         t.status === "extended"
-                          ? "bg-yellow-200 text-yellow-800"
+                          ? "bg-nd-warning-soft text-nd-warning-text"
                           : t.status === "done"
-                            ? "bg-white text-zinc-400 line-through"
-                            : "bg-white text-zinc-700",
+                            ? "bg-nd-content text-nd-fg-3 line-through"
+                            : "bg-nd-content text-nd-fg-2",
                       )}
                       title={`${t.memberName}: ${t.title}`}
                     >
                       {/* 업무가 여러 건이면 앞에 작은 체크로 구분 */}
-                      {g.items.length > 1 && (
-                        <span className="shrink-0 text-[8px] leading-none text-zinc-400">✓</span>
-                      )}
-                      <span className="truncate">{t.title}</span>
+                      {g.items.length > 1 && <Icon icon={Check} size={9} className="text-nd-fg-3" />}
+                      <span className="min-w-0 truncate">{t.title}</span>
                     </div>
                   ))}
                 </div>
@@ -369,19 +428,14 @@ function WeeklyTasks({
       <div
         key={d}
         className={cn(
-          "flex flex-col gap-1 rounded-lg border p-2",
+          "flex min-w-0 flex-col gap-1 rounded-nd-md border p-1 sm:p-2",
           minH,
-          isToday ? "border-indigo-300 bg-indigo-50/50" : "border-zinc-100",
+          isToday ? "border-nd-accent bg-nd-accent-soft/40" : "border-nd-line",
         )}
       >
-        <div className="flex items-baseline justify-between border-b border-zinc-100 pb-1">
+        <div className="flex items-baseline justify-between border-b border-nd-line pb-1">
           {weekdayLabel ? (
-            <span
-              className={cn(
-                "text-xs font-semibold",
-                colIdx === 0 ? "text-red-400" : colIdx === 6 ? "text-blue-400" : "text-zinc-500",
-              )}
-            >
+            <span className={cn("text-nd-caption font-semibold", weekdayText(colIdx, "text-nd-fg-2"))}>
               {WEEKDAYS[colIdx]}
             </span>
           ) : (
@@ -389,14 +443,8 @@ function WeeklyTasks({
           )}
           <span
             className={cn(
-              "text-xs",
-              isToday
-                ? "font-bold text-indigo-600"
-                : colIdx === 0
-                  ? "text-red-400"
-                  : colIdx === 6
-                    ? "text-blue-400"
-                    : "text-zinc-400",
+              "nd-num text-nd-caption",
+              isToday ? "font-bold text-nd-accent-strong" : weekdayText(colIdx),
             )}
           >
             {Number(d.slice(8, 10))}
@@ -412,62 +460,28 @@ function WeeklyTasks({
       {/* 헤더 + 이동 네비 + 주간/월간 전환 */}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-sm font-semibold text-zinc-800">
-            {mode === "week" ? "주간 업무" : "월간 업무"}
-          </h2>
-          <div className="flex items-center gap-0.5">
-            <button
-              type="button"
-              onClick={goPrev}
-              aria-label="이전"
-              className="rounded-md px-1.5 py-0.5 text-zinc-500 hover:bg-zinc-100"
-            >
-              ‹
-            </button>
-            <span className="whitespace-nowrap px-1 text-xs font-medium text-zinc-500">
-              {mode === "week" ? weekLabelOf(anchor) : monthLabel(month)}
-            </span>
-            <button
-              type="button"
-              onClick={goNext}
-              aria-label="다음"
-              className="rounded-md px-1.5 py-0.5 text-zinc-500 hover:bg-zinc-100"
-            >
-              ›
-            </button>
-            <button
-              type="button"
-              onClick={goToday}
-              className="ml-0.5 rounded-md px-2 py-0.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50"
-            >
-              오늘
-            </button>
-          </div>
+          <h2 className="text-nd-section text-nd-fg">{mode === "week" ? "주간 업무" : "월간 업무"}</h2>
+          <DateStepper
+            size="sm"
+            icon={false}
+            label={mode === "week" ? weekLabelOf(anchor) : monthLabel(month)}
+            onPrev={goPrev}
+            onNext={goNext}
+            onToday={goToday}
+          />
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex rounded-lg border border-zinc-200 p-0.5">
-            <button
-              type="button"
-              onClick={() => setMode("week")}
-              className={cn(
-                "rounded-md px-2.5 py-1 text-xs font-medium transition",
-                mode === "week" ? "bg-indigo-600 text-white" : "text-zinc-500 hover:bg-zinc-100",
-              )}
-            >
-              주간
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode("month")}
-              className={cn(
-                "rounded-md px-2.5 py-1 text-xs font-medium transition",
-                mode === "month" ? "bg-indigo-600 text-white" : "text-zinc-500 hover:bg-zinc-100",
-              )}
-            >
-              월간
-            </button>
-          </div>
-          <Link href="/neander/tasks" className="text-xs text-indigo-600 hover:underline">
+          <SegmentedControl<"week" | "month">
+            size="sm"
+            ariaLabel="보기 단위"
+            value={mode}
+            onChange={setMode}
+            options={[
+              { value: "week", label: "주간" },
+              { value: "month", label: "월간" },
+            ]}
+          />
+          <Link href="/neander/tasks" className="text-nd-caption font-medium text-nd-accent-strong hover:underline">
             일일업무 →
           </Link>
         </div>
@@ -482,7 +496,7 @@ function WeeklyTasks({
           <FilterTab
             key={m.id}
             active={!excluded.has(m.id)}
-            color={m.color ?? "#71717a"}
+            color={m.color ?? DEFAULT_MEMBER_COLOR}
             onClick={() => toggleMember(m.id)}
           >
             {m.name}
@@ -491,7 +505,7 @@ function WeeklyTasks({
       </div>
 
       {total === 0 ? (
-        <p className="py-10 text-center text-sm text-zinc-400">
+        <p className="py-10 text-center text-nd-body text-nd-fg-3">
           {allOff
             ? "표시할 팀원을 선택하세요."
             : mode === "week"
@@ -499,38 +513,28 @@ function WeeklyTasks({
               : "이번 달 등록된 업무가 없습니다."}
         </p>
       ) : mode === "week" ? (
-        <div className="-mx-1 overflow-x-auto px-1">
-          <div className="grid min-w-[680px] grid-cols-7 gap-2 md:min-w-0">
-            {weekDays.map((d, i) => renderCell(d, i, true, "min-h-[200px]"))}
-          </div>
+        <div className="grid grid-cols-7 gap-1 sm:gap-2">
+          {weekDays.map((d, i) => renderCell(d, i, true, "min-h-[200px]"))}
         </div>
       ) : (
-        <div className="-mx-1 overflow-x-auto px-1">
-          <div className="min-w-[680px] md:min-w-0">
-            {/* 요일 헤더 */}
-            <div className="mb-1 grid grid-cols-7 gap-2">
-              {WEEKDAYS.map((w, i) => (
-                <div
-                  key={w}
-                  className={cn(
-                    "text-center text-xs font-semibold",
-                    i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-zinc-400",
-                  )}
-                >
-                  {w}
-                </div>
-              ))}
-            </div>
-            {/* 월 그리드 (6주) — 칸은 내용만큼만 차지(업무 없으면 최소화) */}
-            <div className="grid grid-cols-7 gap-2">
-              {monthCells.map((c, idx) =>
-                c ? (
-                  renderCell(c, idx % 7, false, "min-h-[44px]")
-                ) : (
-                  <div key={`e${idx}`} className="min-h-[44px] rounded-lg" />
-                ),
-              )}
-            </div>
+        <div>
+          {/* 요일 헤더 */}
+          <div className="mb-1 grid grid-cols-7 gap-1 sm:gap-2">
+            {WEEKDAYS.map((w, i) => (
+              <div key={w} className={cn("text-center text-nd-caption font-semibold", weekdayText(i))}>
+                {w}
+              </div>
+            ))}
+          </div>
+          {/* 월 그리드 (6주) — 칸은 내용만큼만 차지(업무 없으면 최소화) */}
+          <div className="grid grid-cols-7 gap-1 sm:gap-2">
+            {monthCells.map((c, idx) =>
+              c ? (
+                renderCell(c, idx % 7, false, "min-h-[44px]")
+              ) : (
+                <div key={`e${idx}`} className="min-h-[44px] rounded-nd-md" />
+              ),
+            )}
           </div>
         </div>
       )}
@@ -551,78 +555,23 @@ function FilterTab({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition",
-        active ? "bg-indigo-600 text-white" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200",
+        "inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-nd-caption font-medium transition-colors duration-nd-fast",
+        active
+          ? "bg-nd-accent-soft text-nd-accent-strong"
+          : "bg-nd-fg/[.06] text-nd-fg-2 hover:bg-nd-fg/10",
       )}
     >
       {color && (
-        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+        <span
+          className={cn("h-2 w-2 rounded-full", !active && "opacity-40")}
+          style={{ backgroundColor: color }}
+        />
       )}
       {children}
     </button>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  href,
-  accent,
-  badge,
-  onToggle,
-  open,
-}: {
-  label: string;
-  value: string;
-  href?: string;
-  accent?: boolean;
-  /** 값 옆 작은 표시 (예: 미확인 'N') */
-  badge?: string;
-  /** 지정 시 Link 대신 펼침 토글 버튼으로 렌더 (▸/▾) */
-  onToggle?: () => void;
-  open?: boolean;
-}) {
-  const cardCls = accent
-    ? "rounded-xl bg-indigo-600 p-4 text-white shadow-sm transition hover:bg-indigo-700"
-    : "rounded-xl border border-zinc-200 bg-white p-4 shadow-sm transition hover:border-indigo-300";
-  const inner = (
-    <>
-      <div className="flex items-center justify-between gap-1">
-        <span className={accent ? "text-xs text-indigo-100" : "text-xs text-zinc-400"}>{label}</span>
-        {onToggle && (
-          <span className="text-[11px] font-semibold leading-none text-zinc-400">
-            {open ? "▾" : "▸"}
-          </span>
-        )}
-      </div>
-      <div className="mt-1 flex items-center gap-1.5">
-        <span className={accent ? "text-xl font-bold" : "text-xl font-bold text-zinc-900"}>{value}</span>
-        {badge && (
-          <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
-            {badge}
-          </span>
-        )}
-      </div>
-    </>
-  );
-
-  if (onToggle) {
-    return (
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        className={cn(cardCls, "text-left", open && "border-indigo-300 bg-indigo-50/40")}
-      >
-        {inner}
-      </button>
-    );
-  }
-  return (
-    <Link href={href ?? "#"} className={cardCls}>
-      {inner}
-    </Link>
   );
 }
