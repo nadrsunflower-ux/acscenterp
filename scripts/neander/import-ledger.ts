@@ -60,7 +60,11 @@ async function main() {
     console.error("--until 은 YYYY-MM-DD 형식이어야 합니다.");
     process.exit(1);
   }
-  const file = args.find((a, i) => !a.startsWith("--") && i !== untilIdx + 1);
+  // `--until` 이 없으면 untilIdx 는 -1 이라 untilIdx + 1 이 0 이 된다.
+  // 그대로 비교하면 **첫 인자(파일 경로)를 건너뛴다** — `--until` 없이
+  // 실행하면 늘 "사용법" 만 뜨던 이유다.
+  const untilValueIdx = untilIdx >= 0 ? untilIdx + 1 : -1;
+  const file = args.find((a, i) => !a.startsWith("--") && i !== untilValueIdx);
   if (!file) {
     console.error("사용법: npm run finance:import -- <장부.xlsx> [--dry] [--until YYYY-MM-DD]");
     process.exit(1);
