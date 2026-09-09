@@ -12,7 +12,9 @@
 // ============================================================
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button } from "@/components/neander/ui";
+import { Button, cn } from "@/components/neander/ui";
+import { MessageSquareText } from "lucide-react";
+import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useFinance } from "./FinanceProvider";
 import { fetchChat, fetchChatList, deleteChat } from "@/lib/neander/finance/client";
 import type { FinChatSummary } from "@/lib/neander/finance/chat-log";
@@ -433,18 +435,21 @@ export function FinanceChat() {
 
   return (
     <>
-      {/* 여는 버튼 */}
-      {!open && (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full bg-indigo-600 px-4 py-3 text-sm font-medium text-white shadow-lg transition hover:bg-indigo-700"
-          aria-label="재무 비서 열기"
+      {/* 여는 버튼 — 상단 툴바 오른쪽 캡슐 (열려 있으면 눌린 상태) */}
+      <ToolbarPortal order={10}>
+        <Button
+          variant="secondary"
+          pill
+          icon={MessageSquareText}
+          onClick={() => setOpen((v) => !v)}
+          aria-pressed={open}
+          aria-label={open ? "재무 비서 닫기" : "재무 비서 열기"}
+          title="재무 비서"
+          className={cn("max-sm:w-9 max-sm:px-0", open ? "border-transparent bg-nd-accent-soft text-nd-accent-strong" : "nd-glass border-0")}
         >
-          <span className="text-base">💬</span>
-          재무 비서
-        </button>
-      )}
+          <span className="max-sm:hidden">재무 비서</span>
+        </Button>
+      </ToolbarPortal>
 
       {/* 도킹 모드: 본문을 밀어낼 자리 — 실제 패널은 fixed 로 화면 오른쪽 끝에
           겹쳐 그린다 (메인 영역 패딩과 무관하게 가장자리에 붙이기 위해) */}

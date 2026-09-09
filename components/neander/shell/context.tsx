@@ -1,0 +1,136 @@
+"use client";
+
+// ============================================================
+//  셸 컨텍스트 — 사이드바 상태 · 드로어 · 배지 · 툴바 슬롯
+// ------------------------------------------------------------
+//  페이지는 ToolbarPortal 로 상단 툴바 오른쪽에 컨트롤(월 선택·검색·
+//  재무 비서)을 올리고, 모듈 레이아웃은 setBadge 로 사이드바 건수를
+//  갱신한다. 상태는 여기 한 곳에만 둔다.
+// ============================================================
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
+import { useMediaQuery } from "@/components/neander/ui";
+import type { BadgeKey } from "./nav-config";
+
+/** 사이드바 접힘 저장 키 — 기기별 취향이라 localStorage */
+const SIDEBAR_KEY = "neander.sidebar.collapsed";
+
+interface ShellValue {
+  /** <768: 사이드바 대신 드로어 */
+  isMobile: boolean;
+  collapsed: boolean;
+  toggleCollapsed: () => void;
+  drawerOpen: boolean;
+  setDrawerOpen: (v: boolean) => void;
+  badges: Partial<Record<BadgeKey, number>>;
+  setBadge: (key: BadgeKey, n: number) => void;
+  toolbarEl: HTMLElement | null;
+  setToolbarEl: (el: HTMLElement | null) => void;
+}
+
+const ShellContext = createContext<ShellValue | null>(null);
+
+export function ShellProvider({ children }: { children: ReactNode }) {
+  const isMobile = useMediaQuery("(max-width: 767px)");
+  const isTablet = useMediaQuery("(max-width: 1023px)");
+
+  // 초기값은 펼침, 마운트 후 저장값을 읽는다 (SSR 불일치 방지).
+  // 저장값이 없으면 태블릿 폭에서는 접힌 채로 시작한다.
+  const [collapsed, setCollapsed] = useState(false);
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(SIDEBAR_KEY);
+      if (saved === "1" || saved === "0") setCollapsed(saved === "1");
+      else setCollapsed(isTablet);
+    } catch {
+      /* 저장소 접근 불가 — 기본값 유지 */
+    }
+    setRestored(true);
+  }, [isTablet]);
+
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((c) => {
+      try {
+        localStorage.setItem(SIDEBAR_KEY, c ? "0" : "1");
+      } catch {
+        /* noop */
+      }
+      return !c;
+    });
+  }, []);
+
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  useEffect(() => {
+    if (!isMobile) setDrawerOpen(false);
+  }, [isMobile]);
+
+  const [badges, setBadges] = useState<Partial<Record<BadgeKey, number>>>({});
+  const setBadge = useCallback((key: BadgeKey, n: number) => {
+    setBadges((b) => (b[key] === n ? b : { ...b, [key]: n }));
+  }, []);
+
+  const [toolbarEl, setToolbarEl] = useState<HTMLElement | null>(null);
+
+  const value = useMemo<ShellValue>(
+    () => ({
+      isMobile,
+      collapsed: restored ? collapsed : false,
+      toggleCollapsed,
+      drawerOpen,
+      setDrawerOpen,
+      badges,
+      setBadge,
+      toolbarEl,
+      setToolbarEl,
+    }),
+    [isMobile, collapsed, restored, toggleCollapsed, drawerOpen, badges, setBadge, toolbarEl],
+  );
+
+  return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
+}
+
+export function useShell(): ShellValue {
+  const ctx = useContext(ShellContext);
+  if (!ctx) throw new Error("useShell must be used within ShellProvider");
+  return ctx;
+}
+
+/** 셸 밖(로그인·상태 화면)에서도 안전하게 — 없으면 null */
+export function useShellOptional(): ShellValue | null {
+  return useContext(ShellContext);
+}
+
+/**
+ * 상단 툴바 오른쪽에 컨트롤을 올린다. 페이지가 언마운트되면 함께 사라진다.
+ * 여러 페이지 요소가 동시에 올릴 수 있으므로 순서는 마운트 순서다.
+ */
+export function ToolbarPortal({ children, order = 5 }: { children: ReactNode; order?: number }) {
+  const shell = useShellOptional();
+  if (!shell?.toolbarEl) return null;
+  // 마운트 순서와 무관하게 자리를 정한다 (월 선택 0 → … → 비서 10)
+  return createPortal(
+    <div className="flex shrink-0 items-center gap-2" style={{ order }}>
+      {children}
+    </div>,
+    shell.toolbarEl,
+  );
+}
+
+/** 모듈 레이아웃이 사이드바 배지를 갱신할 때 */
+export function useSidebarBadge(key: BadgeKey, count: number) {
+  const shell = useShellOptional();
+  const set = shell?.setBadge;
+  useEffect(() => {
+    set?.(key, count);
+    return () => set?.(key, 0);
+  }, [set, key, count]);
+}

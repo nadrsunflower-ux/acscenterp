@@ -6,42 +6,40 @@ import { AuthProvider, useAuth } from "@/components/neander/auth";
 import { AppDataProvider, useAppData } from "@/components/neander/app-data";
 import { ChatProvider } from "@/components/neander/chat";
 import { Shell } from "@/components/neander/Shell";
-import { Button } from "@/components/neander/ui";
+import { Lock } from "lucide-react";
+import { Button, ToastProvider, ConfirmProvider } from "@/components/neander/ui";
+import { LoadingScreen, StatusCard, StatusScreen } from "@/components/neander/shell/StatusScreen";
 
 const LOGIN_PATH = "/neander/login";
-
-function FullScreen({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 p-6">
-      {children}
-    </div>
-  );
-}
 
 /** 로그인은 됐지만 허용 목록에 없는 계정 */
 function NotAuthorized() {
   const { user, logout } = useAuth();
   return (
-    <FullScreen>
-      <div className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-8 text-center shadow-sm">
-        <div className="mb-3 text-4xl">🔒</div>
-        <h1 className="text-xl font-bold text-zinc-900">접근 권한이 없습니다</h1>
-        <p className="mt-2 text-sm text-zinc-500">
-          <span className="font-medium text-zinc-700">{user?.email}</span> 계정은 등록된
-          팀원이 아닙니다. 관리자에게 이메일 등록을 요청하거나 다른 계정으로 로그인하세요.
-        </p>
-        <Button variant="secondary" className="mt-5" onClick={() => logout()}>
+    <StatusScreen>
+      <StatusCard
+        icon={Lock}
+        tone="warning"
+        title="접근 권한이 없습니다"
+        description={
+          <>
+            <span className="font-medium text-nd-fg">{user?.email}</span> 계정은 등록된 팀원이
+            아닙니다. 관리자에게 이메일 등록을 요청하거나 다른 계정으로 로그인하세요.
+          </>
+        }
+      >
+        <Button variant="secondary" className="mt-6" onClick={() => logout()}>
           로그아웃
         </Button>
-      </div>
-    </FullScreen>
+      </StatusCard>
+    </StatusScreen>
   );
 }
 
 /** members 로드 후 권한 확인 → 통과 시 Shell */
 function AuthorizedShell({ children }: { children: ReactNode }) {
   const { loading, authorized } = useAppData();
-  if (loading) return <FullScreen><span className="text-zinc-400">불러오는 중…</span></FullScreen>;
+  if (loading) return <LoadingScreen label="팀원 정보를 불러오는 중…" />;
   if (!authorized) return <NotAuthorized />;
   return (
     <ChatProvider>
@@ -66,7 +64,7 @@ function Gate({ children }: { children: ReactNode }) {
   if (pathname === LOGIN_PATH) return <>{children}</>;
 
   if (loading || !user) {
-    return <FullScreen><span className="text-zinc-400">불러오는 중…</span></FullScreen>;
+    return <LoadingScreen label="로그인 확인 중…" />;
   }
 
   return (
@@ -78,8 +76,12 @@ function Gate({ children }: { children: ReactNode }) {
 
 export function Providers({ children }: { children: ReactNode }) {
   return (
-    <AuthProvider>
-      <Gate>{children}</Gate>
-    </AuthProvider>
+    <ToastProvider>
+      <ConfirmProvider>
+        <AuthProvider>
+          <Gate>{children}</Gate>
+        </AuthProvider>
+      </ConfirmProvider>
+    </ToastProvider>
   );
 }

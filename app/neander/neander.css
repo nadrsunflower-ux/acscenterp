@@ -1,0 +1,181 @@
+/* ============================================================
+   NEANDER ERP 디자인 토큰
+   ------------------------------------------------------------
+   승인된 재무 목업을 기준으로 정리한 공통 값. /neander 아래에서만
+   유효하도록 [data-app="neander"] 안에 둔다 — 루트 globals.css 는
+   /id, /wow(매장 사이트)와 공유되므로 그쪽에는 손대지 않는다.
+
+   색은 "R G B" 세 숫자로 두어 Tailwind 의 <alpha-value> 와 결합한다
+   (tailwind.config.ts 의 nd.* 참고). 선·그림자처럼 이미 알파를
+   가진 값은 완성된 색으로 둔다.
+
+   레이어 원칙 (HIG Materials · WWDC25 219):
+     - 유리(반투명+블러)는 탐색·조작 레이어에만: 사이드바, 툴바 캡슐,
+       메뉴·팝오버. 표·원장·본문·폼은 불투명 콘텐츠 표면.
+     - 유리 위에 유리를 겹치지 않는다. 상단바는 투명.
+     - 색조(accent)는 선택 상태와 주요 동작에만.
+     - 반투명을 못 쓰는 환경에서는 불투명 대체 배경으로 내려간다.
+   ============================================================ */
+
+[data-app="neander"] {
+  /* ---- 배경 ------------------------------------------------ */
+  --nd-bg-page: 243 245 249;      /* #F3F5F9 옅은 중성 */
+  --nd-bg-content: 255 255 255;   /* 카드·표·폼 */
+  --nd-bg-sunken: 248 249 252;    /* 표 머리글·안쪽 영역 */
+  --nd-bg-inverse: 15 23 42;
+
+  /* ---- 텍스트 ---------------------------------------------- */
+  --nd-fg: 15 23 42;              /* #0F172A 기본 */
+  --nd-fg-2: 71 85 105;           /* #475569 보조 */
+  --nd-fg-3: 148 163 184;         /* #94A3B8 힌트 */
+  --nd-fg-4: 203 213 225;         /* #CBD5E1 비활성 */
+
+  /* ---- 선 ---------------------------------------------------- */
+  --nd-line: rgba(15, 23, 42, 0.08);      /* 얇은 구분선 */
+  --nd-border: rgba(15, 23, 42, 0.12);    /* 컨트롤 테두리 */
+  --nd-border-strong: rgba(15, 23, 42, 0.2);
+  --nd-glass-edge: rgba(255, 255, 255, 0.75); /* 유리 상단 하이라이트 */
+
+  /* ---- 상태·강조 ---------------------------------------------- */
+  --nd-accent: 42 120 214;        /* #2A78D6 선택·주요 동작 */
+  --nd-accent-strong: 31 99 184;  /* hover */
+  --nd-accent-soft: 232 241 252;  /* 선택 배경 */
+  --nd-hover: rgba(15, 23, 42, 0.045);
+  --nd-pressed: rgba(15, 23, 42, 0.09);
+  --nd-focus: 0 0 0 3px rgba(42, 120, 214, 0.35);
+
+  /* *-text 는 soft 배경 위에 얹는 작은 글씨용(대비 4.5:1 이상) */
+  --nd-success: 22 163 74;   --nd-success-soft: 236 253 243;  --nd-success-text: 21 128 61;
+  --nd-warning: 217 119 6;   --nd-warning-soft: 255 247 230;  --nd-warning-text: 180 83 9;
+  --nd-danger: 220 38 38;    --nd-danger-soft: 254 242 242;   --nd-danger-text: 185 28 28;
+  --nd-info: 2 132 199;      --nd-info-soft: 236 247 254;     --nd-info-text: 3 105 161;
+
+  /* ---- 차트 --------------------------------------------------- */
+  --nd-series-income: 42 120 214;   /* SERIES.income 과 동일 */
+  --nd-series-expense: 235 104 52;  /* SERIES.expense */
+  --nd-series-neutral: 148 163 184;
+
+  /* ---- 그림자 ------------------------------------------------ */
+  --nd-shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 0 0 1px rgba(15, 23, 42, 0.06);
+  --nd-shadow-glass: 0 8px 24px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.05);
+  --nd-shadow-pop: 0 12px 32px rgba(15, 23, 42, 0.14), 0 0 0 1px rgba(15, 23, 42, 0.06);
+  --nd-shadow-dialog: 0 24px 64px rgba(15, 23, 42, 0.22), 0 0 0 1px rgba(15, 23, 42, 0.06);
+
+  /* ---- 유리 --------------------------------------------------- */
+  --nd-glass-bg: rgba(255, 255, 255, 0.72);
+  --nd-glass-bg-strong: rgba(255, 255, 255, 0.86);
+  --nd-glass-blur: 20px;
+
+  /* ---- 모션 --------------------------------------------------- */
+  --nd-ease: cubic-bezier(0.2, 0, 0, 1);
+  --nd-dur-fast: 120ms;
+  --nd-dur: 200ms;
+
+  /* ---- 컨트롤 높이 -------------------------------------------- */
+  --nd-ctl-sm: 28px;
+  --nd-ctl-md: 36px;
+  --nd-ctl-lg: 44px;
+
+  /* ---- 셸 치수 ------------------------------------------------ */
+  --nd-sidebar-w: 248px;
+  --nd-sidebar-w-collapsed: 64px;
+  --nd-topbar-h: 56px;
+
+  color: rgb(var(--nd-fg));
+  background-color: rgb(var(--nd-bg-page));
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============================================================
+   기본 표면
+   ============================================================ */
+
+/* 페이지 바탕 — 위쪽이 아주 살짝 밝은 옅은 중성. 유리가 그 위에서
+   깊이를 얻는다. 파랑·보라 그라데이션으로 소재 효과를 대신하지 않는다. */
+[data-app="neander"] .nd-page-bg {
+  background-color: rgb(var(--nd-bg-page));
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0, rgba(255, 255, 255, 0) 320px);
+}
+
+/* 유리 — 탐색·조작 레이어 전용 (regular 계열) */
+[data-app="neander"] .nd-glass {
+  background-color: var(--nd-glass-bg);
+  -webkit-backdrop-filter: blur(var(--nd-glass-blur)) saturate(160%);
+  backdrop-filter: blur(var(--nd-glass-blur)) saturate(160%);
+  box-shadow: inset 0 1px 0 var(--nd-glass-edge), var(--nd-shadow-glass);
+}
+[data-app="neander"] .nd-glass-strong {
+  background-color: var(--nd-glass-bg-strong);
+  -webkit-backdrop-filter: blur(var(--nd-glass-blur)) saturate(160%);
+  backdrop-filter: blur(var(--nd-glass-blur)) saturate(160%);
+  box-shadow: inset 0 1px 0 var(--nd-glass-edge), var(--nd-shadow-pop);
+}
+/* 반투명을 못 쓰거나(구형 엔진) 사용자가 끈 경우 — 불투명 대체 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  [data-app="neander"] .nd-glass,
+  [data-app="neander"] .nd-glass-strong {
+    background-color: #fbfcfe;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  [data-app="neander"] .nd-glass,
+  [data-app="neander"] .nd-glass-strong {
+    background-color: #fbfcfe;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* 불투명 콘텐츠 표면 (카드) */
+[data-app="neander"] .nd-surface {
+  background-color: rgb(var(--nd-bg-content));
+  box-shadow: var(--nd-shadow-card);
+}
+
+/* ============================================================
+   포커스 · 숫자 · 스크롤바
+   ============================================================ */
+[data-app="neander"] :focus-visible {
+  outline: none;
+  box-shadow: var(--nd-focus);
+}
+/* 시트(react-datasheet-grid)는 자체 선택 표시를 쓴다 */
+[data-app="neander"] .dsg-container :focus-visible {
+  box-shadow: none;
+}
+
+[data-app="neander"] .nd-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+[data-app="neander"] .nd-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(15, 23, 42, 0.18) transparent;
+}
+
+/* 움직임 줄이기 — 전환을 사실상 끈다 */
+@media (prefers-reduced-motion: reduce) {
+  [data-app="neander"] *,
+  [data-app="neander"] *::before,
+  [data-app="neander"] *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* ============================================================
+   카드 기록을 홈 화면 앱으로 열었을 때 (StandaloneChrome 참고)
+   ------------------------------------------------------------
+   사이드바·상단바를 감추고 입력칸이 바로 보이게 한다. 예전 규칙
+   (.neander-topbar/.finance-tabs) 을 새 셸 구조로 옮긴 것.
+   ============================================================ */
+html[data-pwa-card] [data-nd-sidebar],
+html[data-pwa-card] [data-nd-topbar] {
+  display: none;
+}
+html[data-pwa-card] [data-nd-main] {
+  padding-top: max(0.75rem, env(safe-area-inset-top));
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
