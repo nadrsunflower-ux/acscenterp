@@ -1,0 +1,195 @@
+/* ============================================================
+   견적서 시트 — 종이 위에서 바로 고치기
+   ------------------------------------------------------------
+   판형(QUOTE_CSS)은 인쇄본과 한 글자도 다르지 않아야 하므로 건드리지
+   않는다. 여기서는 그 위에 「고칠 수 있다」 는 신호만 얹는다 — 칸 배경이
+   손을 따라 옅게 뜨고, 커서가 들어가면 테두리가 선다.
+
+   입력칸은 글꼴·정렬·색을 전부 물려받는다. 그래야 타이핑하는 글자와
+   인쇄될 글자가 같은 글자다. 인쇄할 때는 입력칸을 그 값의 글자로 바꿔
+   치기 때문에(quote-pdf.ts 의 sheetPrintHtml), 여기 스타일이 인쇄본에
+   따라가는 일은 없다.
+   ============================================================ */
+
+.sheet--edit .q-cell {
+  width: 100%;
+  min-width: 0;
+  margin: -2px -4px;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  /* 입력칸은 text-align 을 물려받지 않는다 — 칸이 정한 정렬을 따르게 한다 */
+  text-align: inherit;
+  outline: none;
+}
+
+.sheet--edit .q-cell::placeholder {
+  color: #a1a1aa;
+  font-weight: 400;
+}
+
+.sheet--edit .q-cell:hover {
+  background: rgb(0 0 0 / 0.04);
+}
+
+.sheet--edit .q-cell:focus {
+  border-color: #4f46e5;
+  background: rgb(79 70 229 / 0.06);
+}
+
+/* 견적번호·수신처럼 문장 안에 박히는 칸 — 적은 만큼만 넓어진다.
+   고정폭으로 두면 「제 26-001      호」 처럼 뒤 글자가 멀리 밀린다.
+   field-sizing 을 모르는 브라우저는 size 속성(컴포넌트가 계산)으로 떨어진다. */
+.sheet--edit .q-cell.q-auto {
+  width: auto;
+  min-width: 2em;
+  max-width: 100%;
+  field-sizing: content;
+}
+
+/* ---- 견적일 ----------------------------------------------------
+   「2026년09월10일」 이라는 인쇄 표기를 그대로 두고, 그 위에 날짜
+   입력칸을 투명하게 덮는다. 클릭하면 달력이 뜬다. 인쇄할 때는 덮개만
+   빠지고 글자가 남는다. */
+.sheet--edit .q-date {
+  position: relative;
+  display: inline-block;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+}
+.sheet--edit .q-date:hover {
+  background: rgb(0 0 0 / 0.04);
+}
+.sheet--edit .q-date:focus-within {
+  box-shadow: inset 0 0 0 1px #4f46e5;
+  background: rgb(79 70 229 / 0.06);
+}
+.sheet--edit .q-date input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  border: 0;
+  padding: 0;
+}
+
+/* ---- 품목 줄 ---------------------------------------------------
+   지우기 단추는 표 밖 오른쪽에 세워 둔다. 표 안에 두면 비고 칸을 가리고,
+   칸을 하나 더 만들면 인쇄본과 칸 수가 달라진다. */
+.sheet--edit .lines td.note {
+  position: relative;
+}
+.sheet--edit .q-rowdel {
+  position: absolute;
+  right: -26px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #a1a1aa;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+.sheet--edit .lines tr:hover .q-rowdel,
+.sheet--edit .q-rowdel:focus-visible {
+  opacity: 1;
+}
+.sheet--edit .q-rowdel:hover {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* ---- 인감 ------------------------------------------------------
+   도장도 눌러서 바꾼다. 셀렉트를 도장 위에 투명하게 덮어 둔다. */
+.sheet--edit td.ceo .q-seal {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 46px;
+  height: 46px;
+  opacity: 0;
+  cursor: pointer;
+  border: 0;
+  padding: 0;
+  z-index: 1;
+}
+.sheet--edit td.ceo:hover .seal,
+.sheet--edit td.ceo:focus-within .seal {
+  outline: 1px dashed #4f46e5;
+  outline-offset: 2px;
+  border-radius: 50%;
+}
+/* 도장이 안 찍히는 상태(「찍지 않음」·이미지 없음)에서는 자리를 늘 비워 보인다.
+   이게 유일한 실마리다 — 아무것도 안 보이면 도장을 고를 자리가 있는 줄 모른다. */
+.sheet--edit td.ceo .seal-empty {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 1px dashed #d4d4d8;
+  display: grid;
+  place-items: center;
+  font-size: 9px;
+  line-height: 1.1;
+  text-align: center;
+  color: #a1a1aa;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+.sheet--edit td.ceo:hover .seal-empty,
+.sheet--edit td.ceo:focus-within .seal-empty {
+  border-color: #4f46e5;
+  color: #4f46e5;
+}
+
+/* ---- 메모 ------------------------------------------------------ */
+.sheet--edit .memo textarea {
+  display: block;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  resize: none;
+  outline: none;
+  overflow: hidden;
+}
+.sheet--edit .memo:focus-within {
+  border-color: #4f46e5;
+}
+
+/* ---- 줄 추가 --------------------------------------------------- */
+.sheet--edit .q-addline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 3px 8px 3px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  font-size: 11.5px;
+  color: #52525b;
+  cursor: pointer;
+}
+.sheet--edit .q-addline:hover {
+  background: rgb(0 0 0 / 0.05);
+  color: #18181b;
+}

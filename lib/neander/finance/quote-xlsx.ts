@@ -20,6 +20,7 @@ import {
   type FinQuoteDoc,
   type FinQuoteInput,
 } from "./docs";
+import { resolveSeal } from "./supplier";
 
 type Cell = string | number | null;
 
@@ -28,6 +29,9 @@ export function exportQuoteXlsx(q: FinQuoteInput | FinQuoteDoc) {
   const s = q.supplier;
   const lines = q.lines.filter((l) => l.name.trim());
   const vat = QUOTE_VAT_LABEL[q.vatMode];
+  // SheetJS 커뮤니티판은 이미지를 못 넣는다. 도장 자리에 「(인)」 만 적어 두고,
+  // 도장이 찍힌 종이가 필요하면 PDF 쪽으로 보낸다.
+  const ceo = resolveSeal(q.sealId) ? `${s.ceo} (인)` : s.ceo;
 
   // 열: A(빈) B C D E F G H I J K L M N O P — 원본과 같은 자리
   const rows: Cell[][] = [];
@@ -45,7 +49,7 @@ export function exportQuoteXlsx(q: FinQuoteInput | FinQuoteDoc) {
   put(2, C("G"), "상     호");
   put(2, C("I"), s.name);
   put(2, C("L"), "대 표 자");
-  put(2, C("O"), s.ceo);
+  put(2, C("O"), ceo);
   put(3, C("G"), "소 재 지");
   put(3, C("I"), s.address);
   put(4, C("B"), `${q.recipient} 님 귀하\n\n${koreanDate(q.date)}`);

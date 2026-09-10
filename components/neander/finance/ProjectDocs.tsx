@@ -25,10 +25,12 @@ import { FileChip } from "@/components/neander/finance/DocFiles";
 import { QuoteEditor } from "@/components/neander/finance/QuoteEditor";
 import { ContractEditor } from "@/components/neander/finance/ContractEditor";
 import { openQuotePdf } from "@/lib/neander/finance/quote-pdf";
+import { printableQuoteHtml } from "@/components/neander/finance/QuoteSheet";
 import {
   CONTRACT_STATUS_LABEL,
   QUOTE_STATUS_LABEL,
   QUOTE_VAT_LABEL,
+  quoteFileStem,
   docsOfProject,
   emptyContract,
   emptyQuote,
@@ -115,7 +117,7 @@ export function ProjectDocs({
     });
 
   const printQuote = (q: FinQuoteDoc) => {
-    if (!openQuotePdf(q)) onNotice?.({ kind: "error", text: "팝업이 차단되어 인쇄창을 열지 못했습니다. 이 사이트의 팝업을 허용해 주세요." });
+    if (!openQuotePdf(printableQuoteHtml(q), quoteFileStem(q))) onNotice?.({ kind: "error", text: "팝업이 차단되어 인쇄창을 열지 못했습니다. 이 사이트의 팝업을 허용해 주세요." });
   };
 
   const after = async () => {

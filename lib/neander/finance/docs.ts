@@ -24,6 +24,11 @@
 // ============================================================
 
 import { VAT_MODES, VAT_RATE, type VatMode } from "./project";
+import { DEFAULT_SUPPLIER, DEFAULT_SEAL_ID, SEAL_IDS, canonicalSealId, type FinSupplier } from "./supplier";
+
+// 공급자·인감은 supplier.ts 가 갖는다. 견적서를 다루는 쪽이 두 곳을 뒤지지
+// 않도록 여기서 그대로 내보낸다.
+export { DEFAULT_SUPPLIER, type FinSupplier };
 
 export type FinDocKind = "quote" | "contract";
 
@@ -71,30 +76,6 @@ export const QUOTE_VAT_LABEL: Record<QuoteVatMode, string> = {
   excluded: "VAT 별도",
 };
 
-/** 견적서 공급자 칸 — 시트 오른쪽 위의 표 */
-export interface FinSupplier {
-  bizNo: string;
-  name: string;
-  ceo: string;
-  address: string;
-  bizType: string;
-  bizItem: string;
-  contact: string;
-  phone: string;
-}
-
-/** 예시 시트의 값. 새 견적서는 가장 최근 견적서의 공급자 칸을 물려받고, 없으면 이걸 쓴다 */
-export const DEFAULT_SUPPLIER: FinSupplier = {
-  bizNo: "683-86-02812",
-  name: "(주)네안데르",
-  ceo: "유재영",
-  address: "서울시 마포구 독막로36길 10-6, 1층",
-  bizType: "도매 및 소매업",
-  bizItem: "화장품 도소매업",
-  contact: "유선화",
-  phone: "010-8028-3822",
-};
-
 export interface FinQuoteLine {
   id: string;
   /** 품명 */
@@ -138,6 +119,8 @@ export interface FinQuoteDoc extends FinDocBase {
   validity?: string;
   vatMode: QuoteVatMode;
   lines: FinQuoteLine[];
+  /** 대표자 칸에 찍을 인감 (seal.ts 의 id). 「none」 은 찍지 않음, 없으면 기본 인감 */
+  sealId?: string;
   status: QuoteStatus;
 }
 
@@ -210,10 +193,20 @@ export function nextQuoteNo(existing: FinDoc[], date = today()): string {
   return `${yy}-${String(max + 1).padStart(3, "0")}`;
 }
 
-/** 가장 최근 견적서의 공급자 칸 — 담당자·연락처가 바뀌면 그다음부터 따라온다 */
-export function lastSupplier(existing: FinDoc[]): FinSupplier {
+/**
+ * 가장 최근 견적서가 쓴 공급자 칸과 도장 — 담당자·연락처가 바뀌면 그다음부터
+ * 따라온다. 사업자를 와작홈즈로 바꿔 한 장 냈다면 다음 견적서도 와작홈즈로
+ * 시작한다. 둘을 함께 물려주는 게 중요하다 — 공급자만 따라오고 도장은 기본값
+ * 으로 돌아가면, 와작홈즈 견적서에 네안데르 대표이사인이 찍힌다.
+ */
+export function lastSupplier(existing: FinDoc[]): { supplier: FinSupplier; sealId: string } {
   const quotes = existing.filter(isQuote).sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt));
-  return quotes[0]?.supplier ? { ...DEFAULT_SUPPLIER, ...quotes[0].supplier } : { ...DEFAULT_SUPPLIER };
+  const last = quotes[0];
+  if (!last?.supplier) return { supplier: { ...DEFAULT_SUPPLIER }, sealId: DEFAULT_SEAL_ID };
+  return {
+    supplier: { ...DEFAULT_SUPPLIER, ...last.supplier },
+    sealId: last.sealId ?? DEFAULT_SEAL_ID,
+  };
 }
 
 export function emptyQuote(
@@ -221,6 +214,7 @@ export function emptyQuote(
   seed: { title?: string; recipient?: string; existing?: FinDoc[] } = {},
 ): FinQuoteInput {
   const existing = seed.existing ?? [];
+  const from = lastSupplier(existing);
   return {
     projectId,
     kind: "quote",
@@ -228,12 +222,13 @@ export function emptyQuote(
     quoteNo: nextQuoteNo(existing),
     date: today(),
     recipient: seed.recipient ?? "",
-    supplier: lastSupplier(existing),
+    supplier: from.supplier,
     delivery: "",
     payment: "",
     validity: "견적일로부터 7일간",
     vatMode: "included",
     lines: [newQuoteLine()],
+    sealId: from.sealId,
     status: "draft",
   };
 }
@@ -428,6 +423,7 @@ export function sanitizeFinDoc(raw: Partial<FinDocInput> & { kind?: unknown }): 
         validity: str(r.validity),
         vatMode: oneOf(["included", "excluded"] as const, r.vatMode, "included"),
         lines,
+        sealId: oneOf(SEAL_IDS, canonicalSealId(r.sealId), DEFAULT_SEAL_ID),
         status: oneOf(QUOTE_STATUSES, r.status, "draft"),
       }),
     };
