@@ -517,6 +517,7 @@ export default function FinanceDashboard() {
                                 title={`${r} × ${c}`}
                                 subtitle={matrixNote}
                                 ledgerHref={matrixHref(r, c)}
+                                scope={{ acctMajor: r, bizKey: c, month: activeMonth }}
                                 className={cellTextClass(v, maxCell)}
                               />
                             </Td>
@@ -529,6 +530,7 @@ export default function FinanceDashboard() {
                             title={`${r} 합계`}
                             subtitle={matrixNote}
                             ledgerHref={matrixHref(r)}
+                            scope={{ acctMajor: r, month: activeMonth }}
                           />
                         </Td>
                       </Tr>
@@ -545,6 +547,7 @@ export default function FinanceDashboard() {
                             title={`${c} 합계`}
                             subtitle={matrixNote}
                             ledgerHref={matrixHref(undefined, c)}
+                            scope={{ bizKey: c, month: activeMonth }}
                           />
                         </Td>
                       ))}
@@ -555,6 +558,7 @@ export default function FinanceDashboard() {
                           title="전체 합계"
                           subtitle={matrixNote}
                           ledgerHref={matrixHref()}
+                          scope={{ month: activeMonth }}
                         />
                       </Td>
                     </TotalRow>

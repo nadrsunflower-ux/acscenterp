@@ -156,6 +156,16 @@ test("matrix numbers open a breakdown: hover previews, click pins a dialog", asy
   await expect(dlg.getByRole("columnheader", { name: "금액" })).toBeVisible();
   expect(await dlg.locator("tbody tr").count()).toBeGreaterThan(0);
   await expect(dlg.getByRole("link", { name: "원장에서 보기" })).toHaveAttribute("href", /\/neander\/finance\/ledger\?/);
+  // 잘못 분류된 계정을 그 자리에서 고칠 수 있다 (여는 것까지만 — 실데이터는 건드리지 않는다)
+  const acctCell = dlg.getByRole("button", { name: /^계정 고치기/ }).first();
+  await acctCell.click();
+  await expect(dlg.getByRole("combobox", { name: "계정대분류" })).toBeVisible();
+  await expect(dlg.getByRole("combobox", { name: "계정소분류" })).toBeVisible();
+  // Esc 는 편집 줄만 닫고 창은 남는다
+  await page.keyboard.press("Escape");
+  await expect(dlg.getByRole("combobox", { name: "계정대분류" })).toBeHidden();
+  await expect(dlg).toBeVisible();
+
   await page.keyboard.press("Escape");
   await expect(dlg).toBeHidden();
   await expect(cell).toBeFocused();
