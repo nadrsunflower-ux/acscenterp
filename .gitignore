@@ -9,6 +9,7 @@
 # next.js
 /.next/
 /.next-neander/
+/.next-*-check/
 /out/
 
 # production
@@ -47,3 +48,6 @@ Pretendard-1.3.9/
 
 # UI 캡처 산출물 (e2e/capture.mjs)
 /e2e/shots/
+
+# Playwright 실패 시 남는 추적 산출물
+/test-results/

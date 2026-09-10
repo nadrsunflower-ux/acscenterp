@@ -220,7 +220,7 @@ export default function MessengerPage() {
         description="전체 팀 채팅·1:1·단체 채팅방. 이미지/파일 첨부 가능. 탭이 열려 있으면 새 메시지를 알림으로 받습니다."
       />
 
-      <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[260px_1fr] [&>*]:min-w-0">
         {/* 대화 목록 (모바일: 대화 선택 시 숨김) */}
         <Card
           padding="none"

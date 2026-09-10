@@ -219,7 +219,7 @@ export default function UnitReport() {
         </InlineNotice>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+      <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)] [&>*]:min-w-0">
         {/* ---- 왼쪽: 사업부 목록 ---- */}
         <Card padding="none" className="h-fit overflow-hidden">
           <div className="px-4 pt-4">

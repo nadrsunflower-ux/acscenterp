@@ -188,7 +188,7 @@ export default function SchedulePage() {
         description="AC'SCENT 매장 근무자와 생일·이벤트 일정을 한눈에 봅니다. 팀 일정도 등록·공유할 수 있어요."
       />
 
-      <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
+      <div className="grid gap-6 lg:grid-cols-[380px_1fr] [&>*]:min-w-0">
         {/* 좌측: 팀 일정 등록 */}
         <ScheduleCreateForm dateValue={selectedDate} onDateChange={selectDate} />
 

@@ -47,7 +47,8 @@ const ROUTES = [
 
 /** 화면이 자료를 다 받을 때까지 */
 async function settle(page: Page) {
-  await page.waitForFunction(() => !/(불러오는|만드는|여는) 중/.test(document.body.innerText), null, { timeout: 45_000 });
+  await page.waitForSelector("[data-nd-topbar], [data-nd-status]", { timeout: 45_000 }).catch(() => {});
+  await page.waitForFunction(() => !/(불러오는|만드는|여는|확인) 중/.test(document.body.innerText), null, { timeout: 45_000 });
   await page.waitForTimeout(400);
 }
 
@@ -116,7 +117,7 @@ test("finance dashboard: month picker and 2026-07 P&L match the Excel reference"
   await picker.click();
   await page.getByRole("menuitem", { name: "2026년 7월" }).click();
   await expect(picker).toHaveText("2026년 7월");
-  const strip = page.locator("text=총수입").locator("xpath=ancestor::div[contains(@class,'grid')][1]");
+  const strip = page.locator("[data-nd-kpi]").first();
   await expect(strip).toContainText("41,656,602");
   await expect(strip).toContainText("58,896,728");
   await expect(strip).toContainText("143,700");

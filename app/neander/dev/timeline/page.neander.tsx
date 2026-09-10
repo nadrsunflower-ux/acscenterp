@@ -97,7 +97,7 @@ export default function TimelinePage() {
         hint="팀이 무엇을 진행했는지 시간순으로 — 소식을 게시하면 팀 메신저에도 전달됩니다."
       />
 
-      <div className="grid gap-4 lg:grid-cols-[380px_1fr] lg:gap-6">
+      <div className="grid gap-4 lg:grid-cols-[380px_1fr] lg:gap-6 [&>*]:min-w-0">
         {/* 좌측 고정 컬럼: 작성기 + 필터 */}
         <div className="flex flex-col gap-4 self-start lg:sticky lg:top-4">
           <ActivityComposer />

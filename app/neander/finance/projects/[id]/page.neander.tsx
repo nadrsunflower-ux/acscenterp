@@ -760,7 +760,7 @@ export default function ProjectDetailPage() {
       <Card className="mb-5">
         <SectionHeader title="수입" hint="계약서에 적힌 금액이 부가세를 포함한 값인지 골라 주세요" />
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,22rem)_1fr]">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,22rem)_1fr] [&>*]:min-w-0">
           <div>
             <div className="flex flex-wrap items-end gap-2">
               <Field label="계약금액">

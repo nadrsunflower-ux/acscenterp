@@ -23,20 +23,17 @@ export function KpiStrip({
   columns?: 2 | 3 | 4 | 5 | 6;
   className?: string;
 }) {
-  const cols: Record<number, string> = {
-    2: "grid-cols-2",
-    3: "grid-cols-1 sm:grid-cols-3",
-    4: "grid-cols-1 sm:grid-cols-2 xl:grid-cols-4",
-    5: "grid-cols-1 sm:grid-cols-3 xl:grid-cols-5",
-    6: "grid-cols-1 sm:grid-cols-3 xl:grid-cols-6",
-  };
+  // 뷰포트가 아니라 컨테이너 폭에 맞춰 칸 수가 정해진다 — 오른쪽에 패널이
+  // 도킹돼 본문이 좁아져도 숫자가 잘리지 않는다 (auto-fit + 칸 최소 폭)
+  const minCol: Record<number, number> = { 2: 240, 3: 220, 4: 210, 5: 190, 6: 170 };
   return (
     <div
+      data-nd-kpi
       className={cn(
         "nd-surface grid gap-px overflow-hidden rounded-nd-lg bg-[var(--nd-line)] [&>*]:bg-nd-content",
-        cols[columns],
         className,
       )}
+      style={{ gridTemplateColumns: `repeat(auto-fit, minmax(min(${minCol[columns]}px, 100%), 1fr))` }}
     >
       {children}
     </div>

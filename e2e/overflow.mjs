@@ -6,7 +6,8 @@ const width = Number(process.argv[3] || 390);
 const ctx = await chromium.launchPersistentContext(PROFILE_DIR, { headless: true, viewport: { width, height: 844 } });
 const page = await ctx.newPage();
 await page.goto(`${BASE_URL}${route}`, { waitUntil: "load" });
-await page.waitForFunction(() => !/(불러오는|만드는|여는) 중/.test(document.body.innerText), null, { timeout: 40000 }).catch(() => {});
+await page.waitForSelector("[data-nd-topbar], [data-nd-status]", { timeout: 40000 }).catch(() => {});
+await page.waitForFunction(() => !/(불러오는|만드는|여는|확인) 중/.test(document.body.innerText), null, { timeout: 40000 }).catch(() => {});
 await page.waitForTimeout(800);
 const out = await page.evaluate((w) => {
   const rows = [`doc scrollW=${document.documentElement.scrollWidth} body scrollW=${document.body.scrollWidth} clientW=${document.documentElement.clientWidth}`];

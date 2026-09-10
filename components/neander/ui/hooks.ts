@@ -49,10 +49,15 @@ export function useFocusTrap(
   initialFocus?: RefObject<HTMLElement>,
 ) {
   const restoreRef = useRef<HTMLElement | null>(null);
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
     if (!active) return;
     const root = ref.current;
-    if (!root) return;
+    if (!root) {
+      // 포탈 자식이 아직 안 붙은 경우 — 한 프레임 뒤 다시
+      const id = requestAnimationFrame(() => setRetry((n) => n + 1));
+      return () => cancelAnimationFrame(id);
+    }
     restoreRef.current = document.activeElement as HTMLElement | null;
 
     const target =
@@ -87,7 +92,7 @@ export function useFocusTrap(
       const back = restoreRef.current;
       if (back && document.contains(back)) back.focus({ preventScroll: true });
     };
-  }, [ref, active, initialFocus]);
+  }, [ref, active, initialFocus, retry]);
 }
 
 /** refs 바깥을 누르면 onOutside — 팝오버·메뉴 닫기 */
@@ -131,10 +136,15 @@ export function useAnchorPosition(
 
   useLayoutEffect(() => {
     if (!open) return;
+    let raf = 0;
     const compute = () => {
       const a = anchorRef.current?.getBoundingClientRect();
       const p = panelRef.current;
-      if (!a || !p) return;
+      if (!a || !p) {
+        // 패널이 아직 안 붙었으면 다음 프레임에 한 번 더
+        raf = requestAnimationFrame(compute);
+        return;
+      }
       const pw = p.offsetWidth;
       const ph = p.offsetHeight;
       const vw = window.innerWidth;
@@ -163,6 +173,7 @@ export function useAnchorPosition(
     window.addEventListener("resize", compute);
     window.addEventListener("scroll", compute, true);
     return () => {
+      cancelAnimationFrame(raf);
       window.removeEventListener("resize", compute);
       window.removeEventListener("scroll", compute, true);
     };

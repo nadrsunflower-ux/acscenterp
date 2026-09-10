@@ -208,7 +208,7 @@ export default function DashboardPage() {
       {/* 주간 업무 (모두의 이번 주 일일업무) */}
       <WeeklyTasks tasks={tasks} members={members} today={today} />
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-2 [&>*]:min-w-0">
         {/* 채널별 매출 */}
         <Card>
           <SectionHeader

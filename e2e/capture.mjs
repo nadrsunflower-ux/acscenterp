@@ -56,9 +56,10 @@ for (const route of routes) {
     // Firestore 가 웹소켓을 계속 열어 두므로 networkidle 은 끝나지 않는다 — load + 고정 대기
     await page.goto(`${BASE_URL}${route}`, { waitUntil: "load", timeout: 45000 }).catch((e) => report.push({ kind: "nav", route, text: String(e) }));
     await page.waitForTimeout(Number(process.env.SETTLE_MS || 1500));
-    // "불러오는 중…" 이 사라질 때까지 (재무는 장부 전체를 한 번에 받는다)
+    // 셸이 붙은 뒤 "불러오는 중…" 이 사라질 때까지 (재무는 장부 전체를 한 번에 받는다)
+    await page.waitForSelector("[data-nd-topbar], [data-nd-status]", { timeout: 45000 }).catch(() => {});
     await page
-      .waitForFunction(() => !/(불러오는|만드는|여는) 중/.test(document.body.innerText), null, { timeout: 40000 })
+      .waitForFunction(() => !/(불러오는|만드는|여는|확인) 중/.test(document.body.innerText), null, { timeout: 40000 })
       .catch(() => report.push({ kind: "stuck-loading", route, width: w }));
     await page.waitForTimeout(600);
     const overflow = await page.evaluate(() => {

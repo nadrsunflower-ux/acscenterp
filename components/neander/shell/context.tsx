@@ -34,6 +34,9 @@ interface ShellValue {
   setBadge: (key: BadgeKey, n: number) => void;
   toolbarEl: HTMLElement | null;
   setToolbarEl: (el: HTMLElement | null) => void;
+  /** 오른쪽에 도킹된 패널(재무 비서)이 차지하는 폭 — 상단바·본문이 함께 비켜선다 */
+  dockWidth: number;
+  setDockWidth: (px: number) => void;
 }
 
 const ShellContext = createContext<ShellValue | null>(null);
@@ -79,6 +82,7 @@ export function ShellProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const [toolbarEl, setToolbarEl] = useState<HTMLElement | null>(null);
+  const [dockWidth, setDockWidth] = useState(0);
 
   const value = useMemo<ShellValue>(
     () => ({
@@ -91,8 +95,10 @@ export function ShellProvider({ children }: { children: ReactNode }) {
       setBadge,
       toolbarEl,
       setToolbarEl,
+      dockWidth,
+      setDockWidth,
     }),
-    [isMobile, collapsed, restored, toggleCollapsed, drawerOpen, badges, setBadge, toolbarEl],
+    [isMobile, collapsed, restored, toggleCollapsed, drawerOpen, badges, setBadge, toolbarEl, dockWidth],
   );
 
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
@@ -123,6 +129,16 @@ export function ToolbarPortal({ children, order = 5 }: { children: ReactNode; or
     </div>,
     shell.toolbarEl,
   );
+}
+
+/** 오른쪽 도킹 패널이 열려 있는 동안 셸이 그만큼 비켜선다 (언마운트·닫힘이면 0) */
+export function useDockReservation(px: number) {
+  const shell = useShellOptional();
+  const set = shell?.setDockWidth;
+  useEffect(() => {
+    set?.(px);
+    return () => set?.(0);
+  }, [set, px]);
 }
 
 /** 모듈 레이아웃이 사이드바 배지를 갱신할 때 */

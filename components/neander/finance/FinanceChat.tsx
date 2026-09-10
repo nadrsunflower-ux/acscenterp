@@ -42,7 +42,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { ToolbarPortal } from "@/components/neander/shell/context";
+import { ToolbarPortal, useDockReservation } from "@/components/neander/shell/context";
 import { useFinance } from "./FinanceProvider";
 import { fetchChat, fetchChatList, deleteChat } from "@/lib/neander/finance/client";
 import type { FinChatSummary } from "@/lib/neander/finance/chat-log";
@@ -139,6 +139,8 @@ export function FinanceChat() {
   // 배치: 도킹(본문을 밀어냄) ↔ 팝업(자유 이동·크기조절)
   const [panelMode, setPanelMode] = useState<"docked" | "floating">("docked");
   const [dockWidth, setDockWidth] = useState(448);
+  // 도킹돼 열려 있는 동안 셸(상단바+본문)이 그 폭만큼 비켜선다
+  useDockReservation(open && panelMode === "docked" && !narrow ? dockWidth : 0);
   const [floatBox, setFloatBox] = useState({ x: 80, y: 72, w: 420, h: 620 });
   const layoutLoaded = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
@@ -479,12 +481,9 @@ export function FinanceChat() {
         </Button>
       </ToolbarPortal>
 
-      {/* 도킹 모드: 본문을 밀어낼 자리 — 실제 패널은 fixed 로 화면 오른쪽 끝에
-          겹쳐 그린다 (메인 영역 패딩과 무관하게 가장자리에 붙이기 위해).
+      {/* 도킹 모드: 셸(상단바+본문)이 패널 폭만큼 비켜선다 — useDockReservation.
+          예전처럼 본문에만 자리를 비우면 상단바의 툴바(월 선택·이 버튼)가 패널에 가렸다.
           좁은 화면에서는 패널이 전체를 덮으므로 자리를 비우지 않는다. */}
-      {open && panelMode === "docked" && !narrow && (
-        <div aria-hidden className="shrink-0" style={{ width: dockWidth }} />
-      )}
 
       {/* 패널 */}
       {open && (

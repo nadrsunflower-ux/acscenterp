@@ -88,7 +88,7 @@ export default function SalesPage() {
         ))}
       </KpiStrip>
 
-      <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
+      <div className="grid gap-6 lg:grid-cols-[360px_1fr] [&>*]:min-w-0">
         <SaleForm me={currentMember} />
 
         <div className="flex flex-col gap-4">

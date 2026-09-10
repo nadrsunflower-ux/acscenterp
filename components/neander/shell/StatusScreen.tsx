@@ -11,7 +11,7 @@ import { cn, Icon, Spinner, type LucideIcon, type Tone, toneCls } from "@/compon
 
 export function StatusScreen({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn("nd-page-bg flex min-h-screen items-center justify-center p-6", className)}>
+    <div data-nd-status className={cn("nd-page-bg flex min-h-screen items-center justify-center p-6", className)}>
       {children}
     </div>
   );

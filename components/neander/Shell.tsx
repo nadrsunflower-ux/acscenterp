@@ -65,6 +65,22 @@ function SetupScreen() {
   );
 }
 
+/** 상단바 + 본문 열. 도킹 패널이 있으면 그 폭만큼 오른쪽을 비운다 */
+function ContentColumn({ children }: { children: ReactNode }) {
+  const { dockWidth } = useShell();
+  return (
+    <div
+      className="flex min-w-0 flex-1 flex-col transition-[padding] duration-nd ease-nd"
+      style={dockWidth > 0 ? { paddingRight: dockWidth } : undefined}
+    >
+      <Topbar />
+      <main data-nd-main className="w-full min-w-0 flex-1 px-4 pb-10 pt-3 sm:px-6 lg:px-8">
+        {children}
+      </main>
+    </div>
+  );
+}
+
 export function Shell({ children }: { children: ReactNode }) {
   const { members } = useAppData();
 
@@ -76,12 +92,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <GlobalBadges />
       <div className="nd-page-bg flex min-h-screen">
         <Sidebar />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <Topbar />
-          <main data-nd-main className="w-full min-w-0 flex-1 px-4 pb-10 pt-3 sm:px-6 lg:px-8">
-            {children}
-          </main>
-        </div>
+        <ContentColumn>{children}</ContentColumn>
       </div>
     </ShellProvider>
   );

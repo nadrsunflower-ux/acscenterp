@@ -150,7 +150,7 @@ export default function TasksPage() {
         <p className="mt-1 text-nd-body text-nd-fg-2">오늘도 좋은 하루 되세요!</p>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[360px_1fr] lg:gap-6">
+      <div className="grid gap-4 lg:grid-cols-[360px_1fr] lg:gap-6 [&>*]:min-w-0">
         {/* 좌측: 업무 등록 */}
         <TaskForm me={currentMember} date={selectedDate} onDateChange={selectDate} />
 

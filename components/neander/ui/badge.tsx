@@ -13,10 +13,10 @@ export type Tone = "neutral" | "accent" | "success" | "warning" | "danger" | "in
 export const toneCls: Record<Tone, { soft: string; text: string; dot: string; solid: string }> = {
   neutral: { soft: "bg-nd-fg/[.07]", text: "text-nd-fg-2", dot: "bg-nd-fg-3", solid: "bg-nd-fg-2" },
   accent: { soft: "bg-nd-accent-soft", text: "text-nd-accent-strong", dot: "bg-nd-accent", solid: "bg-nd-accent" },
-  success: { soft: "bg-nd-success-soft", text: "text-nd-success-text", dot: "bg-nd-success", solid: "bg-nd-success" },
-  warning: { soft: "bg-nd-warning-soft", text: "text-nd-warning-text", dot: "bg-nd-warning", solid: "bg-nd-warning" },
+  success: { soft: "bg-nd-success-soft", text: "text-nd-success-text", dot: "bg-nd-success", solid: "bg-nd-success-text" },
+  warning: { soft: "bg-nd-warning-soft", text: "text-nd-warning-text", dot: "bg-nd-warning", solid: "bg-nd-warning-text" },
   danger: { soft: "bg-nd-danger-soft", text: "text-nd-danger-text", dot: "bg-nd-danger", solid: "bg-nd-danger" },
-  info: { soft: "bg-nd-info-soft", text: "text-nd-info-text", dot: "bg-nd-info", solid: "bg-nd-info" },
+  info: { soft: "bg-nd-info-soft", text: "text-nd-info-text", dot: "bg-nd-info", solid: "bg-nd-info-text" },
 };
 
 export function Badge({

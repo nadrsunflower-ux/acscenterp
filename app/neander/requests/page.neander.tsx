@@ -154,7 +154,7 @@ export default function RequestsPage() {
     <div>
       <PageHeader title="업무요청" description="구성원에게 업무를 요청하고 진행 상태를 추적합니다." />
 
-      <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
+      <div className="grid gap-6 lg:grid-cols-[360px_1fr] [&>*]:min-w-0">
         <RequestForm members={members} me={currentMember} />
 
         <div className="flex flex-col gap-4">

@@ -123,7 +123,7 @@ export function NowInProgress({
                 </div>
 
                 {/* 진행중 카드 리스트 */}
-                <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3 [&>*]:min-w-0">
                   {g.tasks.map((t) => (
                     <TaskMiniCard key={t.id} task={t} feature={featureById(t.featureId)} />
                   ))}
