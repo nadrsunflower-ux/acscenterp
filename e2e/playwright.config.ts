@@ -10,7 +10,8 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: ".",
   testMatch: /.*\.spec\.ts/,
-  timeout: 90_000,
+  // 한 테스트가 두 폭(1440·390)을 도는데, 재무 화면은 한 폭당 30초까지 걸린다
+  timeout: 180_000,
   fullyParallel: false,
   workers: 1,
   reporter: [["list"]],

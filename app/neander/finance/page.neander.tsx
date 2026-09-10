@@ -66,18 +66,32 @@ import {
   businessUnitPL,
   expenseMatrix,
   inMonth,
+  matrixRows,
   monthlyTrend,
   bySite,
+  splitBizKey,
   topVendors,
   totals,
   plOnly,
 } from "@/lib/neander/finance/aggregate";
+import { ledgerHref } from "@/lib/neander/finance/ledgerLink";
+import { AmountBreakdown } from "@/components/neander/finance/AmountBreakdown";
 import {
   SUBSCRIPTION_ACCOUNTS,
   subscriptionMatchers,
   subscriptionReport,
 } from "@/lib/neander/finance/report";
-import { formatSigned } from "@/lib/neander/finance/types";
+import { formatSigned, type FinTransaction } from "@/lib/neander/finance/types";
+
+/** 빈 칸에 매번 새 배열을 만들지 않는다 (드릴다운의 memo 가 깨진다) */
+const NO_ROWS: FinTransaction[] = [];
+
+/** 히트맵 위 숫자 색 — 음수(환급이 지출을 넘김)는 △ 와 함께 붉게 */
+function cellTextClass(v: number, max: number): string {
+  if (v < 0) return "text-nd-danger-text";
+  if (v > 0) return rampTextClass(v, max);
+  return "text-nd-fg-4";
+}
 
 type Detail = "matrix" | "sites" | "vendors" | "subs";
 type Range = "6" | "12" | "all";
@@ -115,6 +129,38 @@ export default function FinanceDashboard() {
   );
   const subs = useMemo(() => subscriptionReport(scoped, matchers), [scoped, matchers]);
 
+  // 매트릭스 숫자를 누르면 무엇이 들어 있는지 보여준다 — 줄·열·전체 합계는
+  // 여러 칸의 거래를 합쳐야 하므로 달이 바뀔 때 한 번만 만들어 둔다.
+  const matrixRowRows = useMemo(() => {
+    const out: Record<string, FinTransaction[]> = {};
+    matrix.rowKeys.forEach((r) => {
+      out[r] = matrixRows(matrix, { row: r });
+    });
+    return out;
+  }, [matrix]);
+  const matrixColRows = useMemo(() => {
+    const out: Record<string, FinTransaction[]> = {};
+    matrix.colKeys.forEach((c) => {
+      out[c] = matrixRows(matrix, { col: c });
+    });
+    return out;
+  }, [matrix]);
+  const matrixAllRows = useMemo(() => matrixRows(matrix), [matrix]);
+
+  const matrixNote = `${monthLabel(activeMonth)} · 환급 차감 반영`;
+
+  /** 같은 조건이 걸린 채로 원장 열기 (지출·환급만) */
+  const matrixHref = (row?: string, col?: string) => {
+    const biz = col ? splitBizKey(col) : undefined;
+    return ledgerHref({
+      month: activeMonth,
+      txTypes: ["지출", "환급"],
+      acctMajor: row,
+      bizMajor: biz?.bizMajor,
+      bizMinor: biz?.bizMinor,
+    });
+  };
+
   const pending = transactions.filter(
     (x) => x.status === "suggested" || x.status === "needs_review",
   ).length;
@@ -133,9 +179,17 @@ export default function FinanceDashboard() {
   // 요약 링크 → 펼침 상세. URL 해시로 열린 상태를 남긴다.
   const [detail, setDetail] = useState<Detail | null>(null);
   useEffect(() => {
-    const h = window.location.hash;
-    const hit = (Object.keys(DETAIL_HASHES) as Detail[]).find((k) => DETAIL_HASHES[k] === h);
-    if (hit) setDetail(hit);
+    // 주소창의 해시를 따른다. 우리가 여는 것은 replaceState 라 hashchange 를
+    // 일으키지 않으므로, 여기 걸리는 것은 "밖에서 들어온 링크" 뿐이다
+    // (이미 이 화면을 보고 있을 때 #matrix 링크를 눌러도 열린다).
+    const apply = () => {
+      const h = window.location.hash;
+      const hit = (Object.keys(DETAIL_HASHES) as Detail[]).find((k) => DETAIL_HASHES[k] === h);
+      setDetail(hit ?? null);
+    };
+    apply();
+    window.addEventListener("hashchange", apply);
+    return () => window.removeEventListener("hashchange", apply);
   }, []);
   const toggleDetail = (d: Detail) => {
     const next = detail === d ? null : d;
@@ -431,7 +485,7 @@ export default function FinanceDashboard() {
             <div className="px-5 pt-5">
               <SectionHeader
                 title="계정대분류 × 사업부 지출"
-                hint="색이 진할수록 지출이 큼 · 환급 차감 반영"
+                hint="색이 진할수록 지출이 큼 · 숫자에 올리면 내역, 누르면 창"
                 action={<TableNote>단위: 원</TableNote>}
               />
             </div>
@@ -457,14 +511,25 @@ export default function FinanceDashboard() {
                           const v = matrix.cells[r]?.[c] ?? 0;
                           return (
                             <Td key={c} num className="px-2.5" style={{ backgroundColor: rampColor(v, maxCell) }}>
-                              <span className={v > 0 ? rampTextClass(v, maxCell) : "text-nd-fg-4"}>
-                                {v > 0 ? Math.round(v).toLocaleString("ko-KR") : "—"}
-                              </span>
+                              <AmountBreakdown
+                                value={v}
+                                rows={matrix.cellRows[r]?.[c] ?? NO_ROWS}
+                                title={`${r} × ${c}`}
+                                subtitle={matrixNote}
+                                ledgerHref={matrixHref(r, c)}
+                                className={cellTextClass(v, maxCell)}
+                              />
                             </Td>
                           );
                         })}
                         <Td num className="pr-5 font-semibold">
-                          {Math.round(matrix.rowTotals[r]).toLocaleString("ko-KR")}
+                          <AmountBreakdown
+                            value={matrix.rowTotals[r] ?? 0}
+                            rows={matrixRowRows[r] ?? NO_ROWS}
+                            title={`${r} 합계`}
+                            subtitle={matrixNote}
+                            ledgerHref={matrixHref(r)}
+                          />
                         </Td>
                       </Tr>
                     ))}
@@ -474,10 +539,24 @@ export default function FinanceDashboard() {
                       <Td sticky="left" className="!bg-nd-sunken pl-5">합계</Td>
                       {matrix.colKeys.map((c) => (
                         <Td key={c} num className="px-2.5">
-                          {Math.round(matrix.colTotals[c]).toLocaleString("ko-KR")}
+                          <AmountBreakdown
+                            value={matrix.colTotals[c] ?? 0}
+                            rows={matrixColRows[c] ?? NO_ROWS}
+                            title={`${c} 합계`}
+                            subtitle={matrixNote}
+                            ledgerHref={matrixHref(undefined, c)}
+                          />
                         </Td>
                       ))}
-                      <Td num className="pr-5">{Math.round(matrix.grandTotal).toLocaleString("ko-KR")}</Td>
+                      <Td num className="pr-5">
+                        <AmountBreakdown
+                          value={matrix.grandTotal}
+                          rows={matrixAllRows}
+                          title="전체 합계"
+                          subtitle={matrixNote}
+                          ledgerHref={matrixHref()}
+                        />
+                      </Td>
                     </TotalRow>
                   </tfoot>
                 </Table>

@@ -57,7 +57,11 @@ export function Th({
   className,
   children,
   ...rest
-}: ThHTMLAttributes<HTMLTableCellElement> & { align?: Align; sticky?: "left" | "top" | "both" }) {
+}: ThHTMLAttributes<HTMLTableCellElement> & {
+  align?: Align;
+  /** 스크롤해도 붙어 있을 방향. right 는 금액처럼 잘리면 안 되는 열에 */
+  sticky?: "left" | "top" | "both" | "right" | "top-right";
+}) {
   return (
     <th
       scope="col"
@@ -67,6 +71,8 @@ export function Th({
         sticky === "left" && "sticky left-0 z-10",
         sticky === "top" && "sticky top-0 z-10",
         sticky === "both" && "sticky left-0 top-0 z-20",
+        sticky === "right" && "sticky right-0 z-10",
+        sticky === "top-right" && "sticky right-0 top-0 z-20",
         className,
       )}
       {...rest}
@@ -89,7 +95,8 @@ export function Td({
   /** 숫자 — 오른쪽 정렬 + tabular */
   num?: boolean;
   muted?: boolean;
-  sticky?: "left";
+  /** 스크롤해도 붙어 있을 방향. right 는 금액처럼 잘리면 안 되는 열에 */
+  sticky?: "left" | "right";
 }) {
   return (
     <td
@@ -98,6 +105,7 @@ export function Td({
         num ? "nd-num text-right" : alignCls[align],
         muted && "text-nd-fg-3",
         sticky === "left" && "sticky left-0 z-10 bg-nd-content",
+        sticky === "right" && "sticky right-0 z-10 bg-nd-content",
         className,
       )}
       {...rest}

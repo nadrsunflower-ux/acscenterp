@@ -94,6 +94,22 @@ export function businessUnitPL(rows: FinTransaction[]): { rows: PLRow[]; total: 
   return { rows: out, total: totals(plOnly(rows)) };
 }
 
+/** 매트릭스 열 이름은 `대분류 · 소분류` 로 합친다 */
+export const BIZ_SEP = " · ";
+
+/** 열 이름을 다시 사업대분류·소분류로 — 원장 드릴다운 링크에 쓴다 */
+export function splitBizKey(col: string): { bizMajor: string; bizMinor: string } {
+  const i = col.indexOf(BIZ_SEP);
+  return i < 0
+    ? { bizMajor: col, bizMinor: "" }
+    : { bizMajor: col.slice(0, i), bizMinor: col.slice(i + BIZ_SEP.length) };
+}
+
+/** 매트릭스에서 이 거래가 더하는 값 — 환급은 지출을 상쇄하므로 음수 */
+export function matrixDelta(t: FinTransaction): number {
+  return t.txType === "환급" ? -netAmount(t) : netAmount(t);
+}
+
 export interface Matrix {
   /** 행 이름 (계정대분류) */
   rowKeys: string[];
@@ -104,6 +120,32 @@ export interface Matrix {
   rowTotals: Record<string, number>;
   colTotals: Record<string, number>;
   grandTotal: number;
+  /**
+   * [행][열] 을 이루는 거래.
+   *
+   * 숫자만 보여주면 "왜 이만큼인지" 를 다시 엑셀에서 찾아야 한다. 화면에서
+   * 바로 열어 보려고 참조를 들고 있는다 — 복사가 아니라 같은 객체라
+   * 메모리 부담은 없다 (한 달치 수백 건).
+   */
+  cellRows: Record<string, Record<string, FinTransaction[]>>;
+}
+
+/**
+ * 매트릭스의 한 칸·한 줄·한 열·전체를 이루는 거래 (금액 큰 순).
+ *   { row, col } 둘 다 → 그 칸 · row 만 → 그 줄 합계 · col 만 → 그 열 합계
+ *   아무것도 없으면 → 전체 합계
+ */
+export function matrixRows(m: Matrix, sel: { row?: string; col?: string } = {}): FinTransaction[] {
+  const rows = sel.row ? [sel.row] : m.rowKeys;
+  const cols = sel.col ? [sel.col] : m.colKeys;
+  const out: FinTransaction[] = [];
+  rows.forEach((r) => {
+    cols.forEach((c) => {
+      const list = m.cellRows[r]?.[c];
+      if (list) out.push(...list);
+    });
+  });
+  return out.sort((a, b) => matrixDelta(b) - matrixDelta(a));
 }
 
 /**
@@ -112,19 +154,21 @@ export interface Matrix {
  */
 export function expenseMatrix(rows: FinTransaction[]): Matrix {
   const cells: Record<string, Record<string, number>> = {};
+  const cellRows: Record<string, Record<string, FinTransaction[]>> = {};
   const rowSet = new Set<string>();
   const colSet = new Set<string>();
 
   plOnly(rows).forEach((t) => {
     if (t.txType === "수입") return;
     const r = t.acctMajor || UNSET;
-    const c = `${t.bizMajor || UNSET} · ${t.bizMinor || UNSET}`;
+    const c = `${t.bizMajor || UNSET}${BIZ_SEP}${t.bizMinor || UNSET}`;
     rowSet.add(r);
     colSet.add(c);
     cells[r] ??= {};
     // 환급은 지출을 상쇄한다
-    const delta = t.txType === "환급" ? -netAmount(t) : netAmount(t);
-    cells[r][c] = (cells[r][c] ?? 0) + delta;
+    cells[r][c] = (cells[r][c] ?? 0) + matrixDelta(t);
+    cellRows[r] ??= {};
+    (cellRows[r][c] ??= []).push(t);
   });
 
   const rowKeys = [...rowSet].sort((a, b) => a.localeCompare(b, "ko"));
@@ -141,7 +185,7 @@ export function expenseMatrix(rows: FinTransaction[]): Matrix {
     colTotals[c] = rowKeys.reduce((s, r) => s + (cells[r]?.[c] ?? 0), 0);
   });
 
-  return { rowKeys, colKeys, cells, rowTotals, colTotals, grandTotal };
+  return { rowKeys, colKeys, cells, rowTotals, colTotals, grandTotal, cellRows };
 }
 
 export interface MonthPoint {

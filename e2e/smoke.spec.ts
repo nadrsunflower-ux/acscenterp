@@ -45,10 +45,13 @@ const ROUTES = [
   "/neander/finance/master",
 ];
 
-/** 화면이 자료를 다 받을 때까지 */
+/**
+ * 화면이 자료를 다 받을 때까지. 재무는 장부 11,000건을 한 번에 받아오고
+ * dev 서버는 라우트를 그때그때 컴파일한다 — 넉넉히 기다린다.
+ */
 async function settle(page: Page) {
-  await page.waitForSelector("[data-nd-topbar], [data-nd-status]", { timeout: 45_000 }).catch(() => {});
-  await page.waitForFunction(() => !/(불러오는|만드는|여는|확인) 중/.test(document.body.innerText), null, { timeout: 45_000 });
+  await page.waitForSelector("[data-nd-topbar], [data-nd-status]", { timeout: 60_000 }).catch(() => {});
+  await page.waitForFunction(() => !/(불러오는|만드는|여는|확인) 중/.test(document.body.innerText), null, { timeout: 60_000 });
   await page.waitForTimeout(400);
 }
 
@@ -125,4 +128,35 @@ test("finance dashboard: month picker and 2026-07 P&L match the Excel reference"
   // 요약 링크가 실제 표를 펼친다
   await page.getByRole("button", { name: /사업장별 손익/ }).click();
   await expect(page.getByRole("columnheader", { name: "사업장" })).toBeVisible();
+});
+
+test("matrix numbers open a breakdown: hover previews, click pins a dialog", async () => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${BASE}/neander/finance`, { waitUntil: "load" });
+  await settle(page);
+  await page.getByRole("button", { name: /사업부 지출 매트릭스/ }).click();
+
+  // 합계 숫자는 눌러서 내역을 볼 수 있는 버튼이다
+  const cell = page.getByRole("button", { name: /×.*원, \d+건\. 세부 내역 열기$/ }).first();
+  await expect(cell).toBeVisible();
+
+  // 올리면 미리보기 — 마우스를 받지 않아야 깜빡이지 않는다
+  await cell.hover();
+  const preview = page.locator("[data-nd-breakdown]");
+  await expect(preview).toBeVisible();
+  await expect(preview).toContainText("모두");
+  expect(await preview.evaluate((el) => getComputedStyle(el).pointerEvents)).toBe("none");
+  await page.mouse.move(10, 500);
+  await expect(preview).toBeHidden();
+
+  // 누르면 창 — 내역·합계·원장 링크, Esc 로 닫히고 포커스 복귀
+  await cell.click();
+  const dlg = page.getByRole("dialog").first();
+  await expect(dlg).toBeVisible();
+  await expect(dlg.getByRole("columnheader", { name: "금액" })).toBeVisible();
+  expect(await dlg.locator("tbody tr").count()).toBeGreaterThan(0);
+  await expect(dlg.getByRole("link", { name: "원장에서 보기" })).toHaveAttribute("href", /\/neander\/finance\/ledger\?/);
+  await page.keyboard.press("Escape");
+  await expect(dlg).toBeHidden();
+  await expect(cell).toBeFocused();
 });
