@@ -117,8 +117,43 @@ interface Edits {
   newRows: FinTransaction[];
   /** 삭제 표시된 기존 행 id */
   deleted: Set<string>;
+  /**
+   * 새 행 id → 그 바로 위에 끼울 기준 행 id.
+   *
+   * 새 행을 늘 맨 아래에 두면 "고른 행 위에 추가" 를 할 수 없고, 그렇다고
+   * 정렬 결과 한가운데에 그냥 꽂으면 정렬이 바뀔 때 빈 행이 어디로 갔는지
+   * 잃는다. 그래서 위치를 **기준 행 id** 로 기억한다 — 정렬·필터가 바뀌어도
+   * 그 행 위에 붙고, 기준 행이 화면에서 사라지면 맨 아래로 내려간다.
+   */
+  anchors: Map<string, string>;
 }
-const EMPTY_EDITS: Edits = { draft: new Map(), newRows: [], deleted: new Set() };
+const EMPTY_EDITS: Edits = { draft: new Map(), newRows: [], deleted: new Set(), anchors: new Map() };
+
+/**
+ * 두 초안이 실질적으로 같은가.
+ *
+ * ⚠️ 정체성(===)으로 보면 안 된다. 시트는 값이 하나도 안 바뀌어도 onChange 를
+ *    부르고, 그때마다 새 Map·Set·배열이 만들어진다. 그것을 되돌리기 스택에
+ *    쌓으면 한 번 고친 것을 되돌리는 데 ⌘Z 를 세 번 눌러야 하고, 화면을 열자마자
+ *    되돌릴 것이 있다고 나온다 — 실제로 그랬다.
+ */
+function editsEqual(a: Edits, b: Edits): boolean {
+  if (a === b) return true;
+  if (a.draft.size !== b.draft.size) return false;
+  if (a.deleted.size !== b.deleted.size) return false;
+  if (a.newRows.length !== b.newRows.length) return false;
+  if (a.anchors.size !== b.anchors.size) return false;
+  for (const [id, anchor] of a.anchors) if (b.anchors.get(id) !== anchor) return false;
+  for (const [id, row] of a.draft) {
+    const other = b.draft.get(id);
+    if (!other || !rowsEqual(row, other)) return false;
+  }
+  for (const id of a.deleted) if (!b.deleted.has(id)) return false;
+  for (let i = 0; i < a.newRows.length; i += 1) {
+    if (a.newRows[i].id !== b.newRows[i].id || !rowsEqual(a.newRows[i], b.newRows[i])) return false;
+  }
+  return true;
+}
 
 /**
  * 실행취소 스택. 저장 **전** 초안에만 적용된다 — 이미 서버에 쓴 것을
@@ -131,6 +166,22 @@ interface History {
   future: Edits[];
 }
 const EMPTY_HISTORY: History = { past: [], present: EMPTY_EDITS, future: [] };
+
+/**
+ * 지금 글자를 치고 있는가 — 단축키를 넘겨야 할지 판단한다.
+ *
+ * ⚠️ "입력칸이면 넘긴다" 로는 안 된다. 시트는 셀을 **고르기만 해도** 숨은
+ *    입력칸에 포커스를 주기 때문에, 그 규칙이면 원장에서 ⌘Z 가 영영 동작하지
+ *    않는다(실제로 그랬다). 편집 중이 아닐 때만 `dsg-input-idle` 이 붙는다.
+ */
+function isTypingInto(t: HTMLElement | null): boolean {
+  if (!t) return false;
+  if (t.isContentEditable) return true;
+  const tag = t.tagName;
+  if (tag === "TEXTAREA" || tag === "SELECT") return true;
+  if (tag !== "INPUT") return false;
+  return !t.classList.contains("dsg-input-idle");
+}
 const HISTORY_LIMIT = 100;
 
 /**
@@ -222,7 +273,7 @@ export default function LedgerPage() {
   const commit = useCallback((next: (prev: Edits) => Edits) => {
     setHistory((h) => {
       const value = next(h.present);
-      if (value === h.present) return h;
+      if (editsEqual(value, h.present)) return h;
       return {
         past: [...h.past, h.present].slice(-HISTORY_LIMIT),
         present: value,
@@ -263,16 +314,14 @@ export default function LedgerPage() {
   const canRedo = history.future.length > 0;
 
   // ⌘Z / ⌘⇧Z (윈도우: Ctrl+Z / Ctrl+Y).
-  // 셀·검색창 안에서 편집 중일 때는 브라우저 기본 되돌리기에 맡긴다 —
-  // 그게 "타자 중 방금 친 글자"를 되돌리는 자연스러운 동작이다.
+  // 셀·검색창에 **글자를 치고 있을 때만** 브라우저 기본 되돌리기에 맡긴다 —
+  // 그게 "방금 친 글자"를 되돌리는 자연스러운 동작이다.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
       const key = e.key.toLowerCase();
       if (key !== "z" && key !== "y") return;
-      const t = e.target as HTMLElement | null;
-      const tag = t?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || t?.isContentEditable) return;
+      if (isTypingInto(e.target as HTMLElement | null)) return;
       e.preventDefault();
       if (key === "y" || e.shiftKey) redo();
       else undo();
@@ -364,14 +413,21 @@ export default function LedgerPage() {
   // 시트에 보이는 행 = 필터 결과(삭제 제외, 초안 덮어쓰기) + 새 행.
   // 아직 저장 안 된 새 행은 정렬과 무관하게 항상 맨 아래에 둔다 —
   // 빈 행이 정렬 결과 한가운데로 끼어들면 어디에 입력 중이었는지 잃는다.
-  const rows = useMemo(
-    () =>
-      sortRows(
-        filtered.filter((t) => !edits.deleted.has(t.id)).map((t) => edits.draft.get(t.id) ?? t),
-        sort,
-      ).concat(edits.newRows),
-    [filtered, edits, sort],
-  );
+  const rows = useMemo(() => {
+    const base = sortRows(
+      filtered.filter((t) => !edits.deleted.has(t.id)).map((t) => edits.draft.get(t.id) ?? t),
+      sort,
+    );
+    // 새 행은 기준 행 바로 위에. 기준이 없거나 지금 화면에 없으면 맨 아래.
+    const out = [...base];
+    edits.newRows.forEach((r) => {
+      const anchor = edits.anchors.get(r.id);
+      const at = anchor ? out.findIndex((x) => x.id === anchor) : -1;
+      if (at >= 0) out.splice(at, 0, r);
+      else out.push(r);
+    });
+    return out;
+  }, [filtered, edits, sort]);
 
   /**
    * 시트가 돌려준 전체 행을 원본과 대조해 초안을 다시 만든다.
@@ -395,13 +451,33 @@ export default function LedgerPage() {
           if (rowsEqual(orig, r)) draft.delete(r.id);
           else draft.set(r.id, r);
         });
+        /**
+         * 새 행의 순서는 **만든 순서**로 고정한다.
+         *
+         * 시트는 화면 순서대로 돌려주는데, 기준 행 위에 꽂은 새 행은 화면에서
+         * 앞으로 올라간다. 그 순서를 그대로 받으면 값이 하나도 안 바뀌었는데도
+         * 배열 순서만 달라져 되돌리기 단계가 하나 더 생긴다 — 행을 두 번 넣고
+         * ⌘Z 를 세 번 눌러야 했던 이유다. 화면 순서는 rows 조립이 정한다.
+         */
+        const order = new Map(prev.newRows.map((r, i) => [r.id, i]));
+        newRows.sort(
+          (a, b) =>
+            (order.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+        );
+
+        // 없어진 새 행의 기준은 같이 버린다 (안 그러면 영영 남는다)
+        const anchors = new Map<string, string>();
+        newRows.forEach((r) => {
+          const a = prev.anchors.get(r.id);
+          if (a) anchors.set(r.id, a);
+        });
         filtered.forEach((t) => {
           if (!deleted.has(t.id) && !seen.has(t.id)) {
             deleted.add(t.id);
             draft.delete(t.id);
           }
         });
-        return { draft, newRows, deleted };
+        return { draft, newRows, deleted, anchors };
       });
     },
     [byId, filtered, commit],
@@ -479,15 +555,7 @@ export default function LedgerPage() {
     setNotice(null);
   };
 
-  const addRow = () => {
-    const row = createRow();
-    const index = rows.length;
-    commit((prev) => ({ ...prev, newRows: [...prev.newRows, row] }));
-    // 새 행이 그려진 뒤 첫 셀로 커서를 옮긴다
-    requestAnimationFrame(() => gridRef.current?.setActiveCell({ col: 0, row: index }));
-  };
-
-  // ---- 행 삭제 --------------------------------------------------
+  // ---- 선택 --------------------------------------------------
   /**
    * 시트가 알려준 선택 범위. 「행 삭제」 가 이걸 보고 동작한다.
    *
@@ -515,6 +583,22 @@ export default function LedgerPage() {
     [selRange, rows],
   );
 
+  /** 고른 행이 있으면 그 **바로 위**에, 없으면 맨 아래에 새 행을 넣는다 */
+  const addRow = () => {
+    const row = createRow();
+    const anchor = selRange ? rows[selRange.from]?.id : undefined;
+    const at = anchor ? rows.findIndex((r) => r.id === anchor) : -1;
+    const index = at >= 0 ? at : rows.length;
+    commit((prev) => ({
+      ...prev,
+      newRows: [...prev.newRows, row],
+      anchors: anchor ? new Map(prev.anchors).set(row.id, anchor) : prev.anchors,
+    }));
+    // 새 행이 그려진 뒤 첫 셀로 커서를 옮긴다
+    requestAnimationFrame(() => gridRef.current?.setActiveCell({ col: 0, row: index }));
+  };
+
+  // ---- 행 삭제 --------------------------------------------------
   const deleteSelected = useCallback(async () => {
     if (selectedRows.length === 0) return;
     // 저장된 행이 하나라도 섞였으면 묻는다. 새 행만이면 되돌리기 쉬우니 그냥 지운다.
@@ -539,8 +623,7 @@ export default function LedgerPage() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.key !== "Backspace") return;
-      const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (isTypingInto(e.target as HTMLElement | null)) return;
       e.preventDefault();
       void deleteSelected();
     };
