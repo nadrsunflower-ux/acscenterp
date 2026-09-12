@@ -68,6 +68,7 @@ import {
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { TransactionEditor } from "@/components/neander/finance/TransactionEditor";
 import { LedgerSheet, LEDGER_COLUMNS } from "@/components/neander/finance/LedgerSheet";
+import { isTypingInto } from "@/components/neander/finance/sheetCells";
 import {
   useSheetLayout,
   ZOOM_STEPS,
@@ -185,21 +186,6 @@ interface History {
 }
 const EMPTY_HISTORY: History = { past: [], present: EMPTY_EDITS, future: [] };
 
-/**
- * 지금 글자를 치고 있는가 — 단축키를 넘겨야 할지 판단한다.
- *
- * ⚠️ "입력칸이면 넘긴다" 로는 안 된다. 시트는 셀을 **고르기만 해도** 숨은
- *    입력칸에 포커스를 주기 때문에, 그 규칙이면 원장에서 ⌘Z 가 영영 동작하지
- *    않는다(실제로 그랬다). 편집 중이 아닐 때만 `dsg-input-idle` 이 붙는다.
- */
-function isTypingInto(t: HTMLElement | null): boolean {
-  if (!t) return false;
-  if (t.isContentEditable) return true;
-  const tag = t.tagName;
-  if (tag === "TEXTAREA" || tag === "SELECT") return true;
-  if (tag !== "INPUT") return false;
-  return !t.classList.contains("dsg-input-idle");
-}
 const HISTORY_LIMIT = 100;
 
 /**

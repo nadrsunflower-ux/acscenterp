@@ -61,6 +61,7 @@ import {
   type Tone,
 } from "@/components/neander/ui";
 import { ChecklistSheet } from "@/components/neander/finance/ChecklistSheet";
+import { isTypingInto } from "@/components/neander/finance/sheetCells";
 import { CHECKLIST_LAYOUT_KEY, useSheetLayout } from "@/components/neander/finance/useSheetLayout";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { Money, StatTile } from "@/components/neander/finance/ui";
@@ -111,6 +112,39 @@ const INSTALLMENT_STATUS_TONE: Record<InstallmentStatus, Tone> = {
   overdue: "danger",
   planned: "neutral",
 };
+
+/** 초안 되돌리기 스택. present 가 null 이면 "저장된 그대로" */
+interface DraftHistory {
+  past: FinProjectInput[];
+  present: FinProjectInput | null;
+  future: FinProjectInput[];
+}
+const EMPTY_DRAFT_HISTORY: DraftHistory = { past: [], present: null, future: [] };
+const DRAFT_HISTORY_LIMIT = 100;
+
+/**
+ * 값으로 비교한다 — 프로젝트 하나라 통째로 견줘도 부담이 없다.
+ *
+ * 그냥 JSON.stringify 로 견주면 **키 순서**까지 견주게 된다. 시트를 거친 줄은
+ * 같은 값이라도 키 차례가 달라져 나온다(빈 값을 지웠다가 다시 채우니까).
+ * 그러면 아무것도 안 고쳤는데 「저장」이 켜지고, 되돌리기 스택에도 빈 걸음이
+ * 잔뜩 쌓여 ⌘Z 를 여러 번 눌러야 한 번 되돌아간다. 키를 정렬해 견준다.
+ */
+function canonical(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(canonical);
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    return Object.keys(o)
+      .sort()
+      .reduce<Record<string, unknown>>((acc, k) => {
+        if (o[k] !== undefined) acc[k] = canonical(o[k]);
+        return acc;
+      }, {});
+  }
+  return v;
+}
+const sameDraft = (a: FinProjectInput, b: FinProjectInput) =>
+  JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 
 /** 저장된 문서에서 편집 가능한 부분만 떼어 초안으로 쓴다 */
 function toInput(p: FinProjectDoc): FinProjectInput {
@@ -163,7 +197,19 @@ export default function ProjectDetailPage() {
   const { projects, transactions, accounts, paymentMethods, loading, refresh } = useFinance();
 
   const saved = useMemo(() => projects.find((p) => p.id === id) ?? null, [projects, id]);
-  const [draft, setDraft] = useState<FinProjectInput | null>(null);
+  /**
+   * 초안과 그 되돌리기 스택.
+   *
+   * 한 덩어리 상태로 둔다 — 스택을 따로 두면 초안을 바꾸는 자리마다 두 번
+   * 갱신해야 하고, 그중 하나만 빠져도 ⌘Z 가 엉뚱한 데로 간다.
+   * `present` 가 null 이면 "저장된 그대로"다.
+   */
+  const [hist, setHist] = useState<DraftHistory>(EMPTY_DRAFT_HISTORY);
+  const draft = hist.present;
+  const setDraft = useCallback(
+    (next: FinProjectInput | null) => setHist({ past: [], present: next, future: [] }),
+    [],
+  );
   const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   /** 원장 대조 표에서 열어 둔 거래 — 그 자리에서 고친다 */
@@ -190,7 +236,7 @@ export default function ProjectDetailPage() {
 
   const form: FinProjectInput | null = draft ?? (saved ? toInput(saved) : null);
   const dirty = useMemo(
-    () => !!draft && !!saved && JSON.stringify(draft) !== JSON.stringify(toInput(saved)),
+    () => !!draft && !!saved && !sameDraft(draft, toInput(saved)),
     [draft, saved],
   );
 
@@ -225,13 +271,61 @@ export default function ProjectDetailPage() {
 
   const edit = useCallback(
     (fn: (f: FinProjectInput) => FinProjectInput) => {
-      setDraft((prev) => {
-        const base = prev ?? (saved ? toInput(saved) : null);
-        return base ? fn(base) : prev;
+      setHist((h) => {
+        const base = h.present ?? (saved ? toInput(saved) : null);
+        if (!base) return h;
+        const next = fn(base);
+        // 값이 그대로면 스택도 그대로 — 시트는 안 바뀌어도 통지를 보낸다
+        if (sameDraft(next, base)) return h;
+        return { past: [...h.past, base].slice(-DRAFT_HISTORY_LIMIT), present: next, future: [] };
       });
     },
     [saved],
   );
+
+  const undo = useCallback(
+    () =>
+      setHist((h) =>
+        h.past.length === 0
+          ? h
+          : {
+              past: h.past.slice(0, -1),
+              present: h.past[h.past.length - 1],
+              future: h.present ? [h.present, ...h.future].slice(0, DRAFT_HISTORY_LIMIT) : h.future,
+            },
+      ),
+    [],
+  );
+  const redo = useCallback(
+    () =>
+      setHist((h) =>
+        h.future.length === 0
+          ? h
+          : {
+              past: h.present ? [...h.past, h.present].slice(-DRAFT_HISTORY_LIMIT) : h.past,
+              present: h.future[0],
+              future: h.future.slice(1),
+            },
+      ),
+    [],
+  );
+  const canUndo = hist.past.length > 0;
+  const canRedo = hist.future.length > 0;
+
+  // ⌘Z / ⌘⇧Z — 시트 위에서도 듣는다 (셀에 글자를 치는 중일 때만 넘긴다)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key !== "z" && key !== "y") return;
+      if (isTypingInto(e.target as HTMLElement | null)) return;
+      e.preventDefault();
+      if (key === "y" || e.shiftKey) redo();
+      else undo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo]);
 
   const setField = <K extends keyof FinProjectInput>(k: K, v: FinProjectInput[K]) =>
     edit((f) => ({ ...f, [k]: v }));
@@ -1064,6 +1158,10 @@ export default function ProjectDetailPage() {
           columns={form.columns ?? []}
           onColumnsChange={(cols) => setField("columns", cols)}
           createRow={() => newLine("")}
+          undo={undo}
+          redo={redo}
+          canUndo={canUndo}
+          canRedo={canRedo}
           height={sheetHeight}
           sheet={sheetLayout}
         />

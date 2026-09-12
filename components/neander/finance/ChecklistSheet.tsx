@@ -38,8 +38,9 @@ import {
   type Column,
   type DataSheetGridRef,
 } from "react-datasheet-grid";
-import { Columns3, Minus, Plus, RotateCcw } from "lucide-react";
-import { Badge, Button, Divider, useConfirm } from "@/components/neander/ui";
+import { parseAmountInput } from "@/lib/neander/finance/sheet";
+import { Columns3, Minus, Plus, Redo2, RotateCcw, Undo2 } from "lucide-react";
+import { Badge, Button, ButtonGroup, Divider, IconButton, useConfirm } from "@/components/neander/ui";
 import {
   KoAddRows,
   KoContextMenu,
@@ -52,11 +53,11 @@ import {
 } from "./sheetCells";
 import { ColumnMenu } from "./ColumnMenu";
 import { DEFAULT_ROW_HEIGHT, clampColWidth, type SheetLayoutHandle } from "./useSheetLayout";
-import { parseAmountInput } from "@/lib/neander/finance/sheet";
 import {
   extraKey,
   hasActual,
   lineEstimate,
+  COLUMN_START,
   orderedColumnIds,
   shortId,
   type ChecklistFixedKey,
@@ -165,12 +166,46 @@ const requiredText = createSheetTextColumn<string>({
 
 const fmt = (n: number) => Math.round(n).toLocaleString("ko-KR");
 
+/**
+ * 수량·단가 칸의 글자.
+ *
+ * ⚠️ 반올림해 보여주면 안 된다. 단가 49.5 를 「50」으로 찍으면 수량×단가가
+ *    견적금액과 어긋나 보이고(2,000 × 50 ≠ 99,000), 더 나쁘게는 그 칸을
+ *    지나가기만 해도 화면 글자가 값으로 확정돼 49.5 가 조용히 50 이 된다.
+ *    금액 합계(견적금액)는 원 단위라 fmt 그대로 둔다.
+ */
+function fmtCell(n: number): string {
+  // toLocaleString 은 소수 세 자리에서 잘라 반올림한다 — 그러면 또 값이 바뀐다.
+  // 정수부에만 쉼표를 넣고 소수부는 있는 그대로 둔다.
+  const [int, frac] = String(n).split(".");
+  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return frac ? `${grouped}.${frac}` : grouped;
+}
+
+/**
+ * 수량·단가 입력.
+ *
+ * 원장의 금액 파서(parseAmountInput)는 원 단위로 반올림한다 — 장부 금액에는
+ * 맞지만 여기서는 못 쓴다. 수입 자재 단가는 49.5원/개, 무게는 2.5kg 처럼
+ * 소수가 흔하고, 반올림하면 견적이 통째로 어긋난다.
+ */
+function parseDecimalInput(raw: string): number {
+  const s = raw.trim();
+  if (!s) return 0;
+  const neg = s.startsWith("△") || s.startsWith("-") || s.startsWith("(");
+  const digits = s.replace(/[^\d.]/g, "");
+  if (!digits) return NaN;
+  const n = Number(digits);
+  if (!Number.isFinite(n)) return NaN;
+  return neg ? -n : n;
+}
+
 /** 수량처럼 언제나 값이 있는 숫자 셀. 지우면 0. */
 const requiredNumber = createSheetTextColumn<number>({
   alignRight: true,
-  parse: parseAmountInput,
-  parsePasted: parseAmountInput,
-  formatBlurred: (n) => (Number.isFinite(n) ? fmt(n) : "⚠"),
+  parse: parseDecimalInput,
+  parsePasted: parseDecimalInput,
+  formatBlurred: (n) => (Number.isFinite(n) ? fmtCell(n) : "⚠"),
   formatEditing: (n) => (Number.isFinite(n) ? String(n) : ""),
   deletedValue: 0,
 });
@@ -182,11 +217,27 @@ const requiredNumber = createSheetTextColumn<number>({
  * 다. 실제금액이 비면 견적으로 계산하고, 0 이면 실제로 0원을 썼다는 뜻이다.
  * 그래서 지운 값을 0 이 아니라 undefined 로 되돌린다.
  */
-const optionalNumber = createSheetTextColumn<number | undefined>({
+/**
+ * 실제금액 — 비울 수 있는 **원 단위** 칸.
+ *
+ * 수량·단가와 달리 이 값은 실제로 지불한 돈이라 소수가 없다. 계산도
+ * (lineActual) 원 단위로 반올림하므로, 칸에만 1.5 를 남겨 두면 화면과
+ * 손익이 어긋난다. 들어올 때 바로 원으로 맞춘다.
+ */
+const optionalWon = createSheetTextColumn<number | undefined>({
   alignRight: true,
   parse: (v) => (v.trim() ? parseAmountInput(v) : undefined),
   parsePasted: (v) => (v.trim() ? parseAmountInput(v) : undefined),
   formatBlurred: (n) => (n === undefined ? "" : Number.isFinite(n) ? fmt(n) : "⚠"),
+  formatEditing: (n) => (n === undefined || !Number.isFinite(n) ? "" : String(n)),
+  deletedValue: undefined,
+});
+
+const optionalNumber = createSheetTextColumn<number | undefined>({
+  alignRight: true,
+  parse: (v) => (v.trim() ? parseDecimalInput(v) : undefined),
+  parsePasted: (v) => (v.trim() ? parseDecimalInput(v) : undefined),
+  formatBlurred: (n) => (n === undefined ? "" : Number.isFinite(n) ? fmtCell(n) : "⚠"),
   formatEditing: (n) => (n === undefined || !Number.isFinite(n) ? "" : String(n)),
   deletedValue: undefined,
 });
@@ -226,6 +277,10 @@ export function ChecklistSheet({
   createRow,
   height = 520,
   sheet,
+  undo,
+  redo,
+  canUndo = false,
+  canRedo = false,
 }: {
   lines: FinProjectLine[];
   onChange: (lines: FinProjectLine[]) => void;
@@ -235,6 +290,11 @@ export function ChecklistSheet({
   createRow: () => FinProjectLine;
   height?: number;
   sheet: SheetLayoutHandle;
+  /** 되돌리기 — 초안을 쥔 화면이 넘겨준다 (없으면 버튼을 그리지 않는다) */
+  undo?: () => void;
+  redo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
 }) {
   const { layout, setWidth, clearWidth, setRowHeight, reset, customized } = sheet;
   const gridRef = useRef<DataSheetGridRef>(null);
@@ -246,6 +306,29 @@ export function ChecklistSheet({
   const [menu, setMenu] = useState<{ colId: string; label: string; anchor: DOMRect } | null>(null);
   /** 지금 고른 칸 — 넣고 지우는 자리의 기준 */
   const [picked, setPicked] = useState<{ colId?: string; rowMin: number; rowMax: number } | null>(null);
+
+  /**
+   * 선택 통지.
+   *
+   * 화살표를 이 자리에 바로 적으면 매 렌더마다 새 함수가 되고, 그리드는
+   * 새 함수를 받을 때마다 선택을 다시 알려 온다. 그 통지가 또 새 객체를
+   * 만들어 setPicked 를 부르면 렌더가 끝없이 돈다 — 원장에서 브라우저가
+   * 멈췄던 이유다. 함수를 고정하고, 자리가 같으면 상태도 그대로 둔다.
+   */
+  const notifySelection = useCallback(
+    ({ selection }: { selection: { min: { colId?: string; row: number }; max: { row: number } } | null }) => {
+      if (!selection) return;
+      const next = {
+        colId: selection.min.colId,
+        rowMin: selection.min.row,
+        rowMax: selection.max.row,
+      };
+      setPicked((p) =>
+        p && p.colId === next.colId && p.rowMin === next.rowMin && p.rowMax === next.rowMax ? p : next,
+      );
+    },
+    [],
+  );
 
   const zoomRef = useRef(layout.zoom);
   zoomRef.current = layout.zoom;
@@ -282,11 +365,11 @@ export function ChecklistSheet({
 
   // ---- 행·열 추가 ------------------------------------------------
 
-  /** 고른 줄 **바로 아래**에 넣는다. 고른 게 없으면 맨 끝. */
-  const addRowBelow = useCallback(() => {
-    const anchorId = picked ? view[picked.rowMax]?.id : undefined;
+  /** 고른 줄 **바로 위**에 넣는다. 고른 게 없으면 맨 끝. */
+  const addRowAbove = useCallback(() => {
+    const anchorId = picked ? view[picked.rowMin]?.id : undefined;
     const found = anchorId ? lines.findIndex((l) => l.id === anchorId) : -1;
-    const at = found >= 0 ? found + 1 : lines.length;
+    const at = found >= 0 ? found : lines.length;
     const next = [...lines];
     next.splice(at, 0, createRow());
     onChange(next);
@@ -324,11 +407,34 @@ export function ChecklistSheet({
     setPicked(null);
   }, [picked, view, lines, onChange, confirm]);
 
-  /** 고른 열 **바로 오른쪽**에 새 열을 만든다 */
-  const addColumnRight = useCallback(() => {
-    const anchor = picked?.colId ?? colIds[colIds.length - 1];
+  /**
+   * 고른 열 **바로 왼쪽**에 새 열을 만든다.
+   *
+   * 열의 자리는 "왼쪽에 있는 열"(after)로 적는다. 그래서 「X 왼쪽」은
+   * 「X 앞 열의 오른쪽」과 같다. 고른 열이 맨 앞이면 앞 열이 없으므로
+   * 맨 앞 자리표(COLUMN_START)를 쓴다. 고른 열이 없으면 맨 오른쪽.
+   */
+  const addColumnLeft = useCallback(() => {
+    const anchorCol = picked?.colId;
+    const at = anchorCol ? colIds.indexOf(anchorCol) : -1;
     const id = shortId();
-    onColumnsChange([...userColumns, { id, label: `새 열 ${userColumns.length + 1}`, after: anchor }]);
+    const made = (after?: string) => ({ id, label: `새 열 ${userColumns.length + 1}`, after });
+
+    // 고른 열이 내가 만든 열이면, 같은 앵커를 물려받아 **그 앞**에 끼운다.
+    // 같은 앵커에 붙은 열끼리는 배열 차례대로 서기 때문이다 — 뒤에 붙이면
+    // 「왼쪽에」라고 해 놓고 오른쪽에 서 버린다.
+    const mineAt = anchorCol?.startsWith("x:")
+      ? userColumns.findIndex((c) => c.id === anchorCol.slice(2))
+      : -1;
+    if (mineAt >= 0) {
+      const next = [...userColumns];
+      next.splice(mineAt, 0, made(userColumns[mineAt].after));
+      onColumnsChange(next);
+    } else {
+      // 고정 열 왼쪽 = 그 앞 열의 오른쪽. 맨 앞이면 자리표를 쓴다.
+      const after = at < 0 ? colIds[colIds.length - 1] : at === 0 ? COLUMN_START : colIds[at - 1];
+      onColumnsChange([...userColumns, made(after)]);
+    }
     setTimeout(
       () => gridRef.current?.setActiveCell({ col: extraKey(id), row: picked?.rowMax ?? 0 }),
       0,
@@ -411,8 +517,9 @@ export function ChecklistSheet({
           return { ...keyColumn<SheetLine, "item">(key as "item", requiredText), ...size(key) };
         case "qty":
           return { ...keyColumn<SheetLine, "qty">("qty", requiredNumber), ...size(key) };
-        case "unitPrice":
         case "actual":
+          return { ...keyColumn<SheetLine, "actual">("actual", optionalWon), ...size(key) };
+        case "unitPrice":
         case "preparedQty":
           return {
             ...keyColumn<SheetLine, "unitPrice">(key as "unitPrice", optionalNumber),
@@ -518,16 +625,39 @@ export function ChecklistSheet({
     <div>
       {/* ---- 툴바 ---- */}
       <div className="flex flex-wrap items-center gap-2 border-b border-nd-line px-5 py-2 text-nd-caption">
+        {undo && redo && (
+          <>
+            <ButtonGroup label="실행취소">
+              <IconButton
+                icon={Undo2}
+                label="실행취소"
+                size="sm"
+                onClick={undo}
+                disabled={!canUndo}
+                title="실행취소 (⌘Z)"
+              />
+              <IconButton
+                icon={Redo2}
+                label="다시 실행"
+                size="sm"
+                onClick={redo}
+                disabled={!canRedo}
+                title="다시 실행 (⌘⇧Z)"
+              />
+            </ButtonGroup>
+            <Divider vertical className="mx-1" />
+          </>
+        )}
         <Button
           variant="secondary"
           size="sm"
           icon={Plus}
-          onClick={addRowBelow}
-          title="고른 줄 바로 아래에 새 줄을 넣습니다 (고른 줄이 없으면 맨 끝)"
+          onClick={addRowAbove}
+          title="고른 줄 바로 위에 새 줄을 넣습니다 (고른 줄이 없으면 맨 끝)"
         >
           행 추가
           <span className="ml-1 font-normal text-nd-fg-3">
-            {picked ? `${picked.rowMax + 1}행 아래` : "맨 끝"}
+            {picked ? `${picked.rowMin + 1}행 위` : "맨 끝"}
           </span>
         </Button>
         <Button
@@ -554,12 +684,12 @@ export function ChecklistSheet({
           variant="secondary"
           size="sm"
           icon={Columns3}
-          onClick={addColumnRight}
-          title="고른 열 바로 오른쪽에 새 열을 만듭니다 (고른 열이 없으면 맨 오른쪽)"
+          onClick={addColumnLeft}
+          title="고른 열 바로 왼쪽에 새 열을 만듭니다 (고른 열이 없으면 맨 오른쪽)"
         >
           열 추가
           <span className="ml-1 font-normal text-nd-fg-3">
-            {pickedCol ? `${pickedCol} 오른쪽` : "맨 오른쪽"}
+            {pickedCol ? `${pickedCol} 왼쪽` : "맨 오른쪽"}
           </span>
         </Button>
         <Button
@@ -630,14 +760,7 @@ export function ChecklistSheet({
           // 그리드는 선택을 놓는데(바깥 클릭), 그때 자리를 잊으면 「행 추가」가
           // 늘 맨 끝에 붙어 버린다 — 버튼을 누르려면 반드시 바깥을 클릭해야
           // 하므로 사실상 위치 지정이 동작하지 않게 된다.
-          onSelectionChange={({ selection }) => {
-            if (selection)
-              setPicked({
-                colId: selection.min.colId,
-                rowMin: selection.min.row,
-                rowMax: selection.max.row,
-              });
-          }}
+          onSelectionChange={notifySelection}
           addRowsComponent={KoAddRows}
           contextMenuComponent={KoContextMenu}
         />

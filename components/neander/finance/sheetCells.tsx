@@ -278,6 +278,23 @@ export function createSheetTextColumn<V>({
   };
 }
 
+/**
+ * 지금 글자를 치고 있는가 — 시트 위 단축키(⌘Z·⌘⌫)를 넘겨야 할지 판단한다.
+ *
+ * ⚠️ "입력칸이면 넘긴다" 로는 안 된다. 그리드는 셀을 **고르기만 해도** 숨은
+ *    입력칸에 포커스를 주기 때문에, 그 규칙이면 시트 위에서 ⌘Z 가 영영
+ *    동작하지 않는다(실제로 그랬다). 편집 중이 아닐 때만 `dsg-input-idle`
+ *    클래스가 붙는다.
+ */
+export function isTypingInto(t: HTMLElement | null): boolean {
+  if (!t) return false;
+  if (t.isContentEditable) return true;
+  const tag = t.tagName;
+  if (tag === "TEXTAREA" || tag === "SELECT") return true;
+  if (tag !== "INPUT") return false;
+  return !t.classList.contains("dsg-input-idle");
+}
+
 // ---- 사람이 덧붙인 열 ------------------------------------------
 
 /**

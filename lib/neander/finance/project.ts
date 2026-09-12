@@ -180,6 +180,14 @@ export const extraKey = (id: string) => `x:${id}`;
  * 화면에 나갈 열 순서. 고정 열을 훑으며 그 뒤에 붙은 사용자 열을 끼워 넣고,
  * 앵커가 사라진 열은 맨 뒤에 붙여 **어떤 열도 조용히 사라지지 않게** 한다.
  */
+/**
+ * 「고정 열보다 왼쪽」 자리. `after` 에 이 값을 넣으면 맨 앞에 선다.
+ *
+ * `after` 가 없으면(undefined) 맨 뒤라는 뜻이라 "맨 앞"을 따로 표시할 방법이
+ * 없었다. 기존 문서에는 없는 값이라 지금까지 저장된 열의 자리는 그대로다.
+ */
+export const COLUMN_START = "*start";
+
 export function orderedColumnIds(columns: FinProjectColumn[] = []): string[] {
   const byAnchor = new Map<string, FinProjectColumn[]>();
   columns.forEach((c) => {
@@ -197,6 +205,7 @@ export function orderedColumnIds(columns: FinProjectColumn[] = []): string[] {
     out.push(id);
     (byAnchor.get(id) ?? []).forEach((c) => emit(extraKey(c.id)));
   };
+  (byAnchor.get(COLUMN_START) ?? []).forEach((c) => emit(extraKey(c.id)));
   CHECKLIST_FIXED_KEYS.forEach(emit);
   columns.forEach((c) => emit(extraKey(c.id)));
   return out;
