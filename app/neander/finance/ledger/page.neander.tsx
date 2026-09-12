@@ -20,7 +20,11 @@
 //
 //  화면 구성 (HIG 툴바: 기능별로 묶는다)
 //    왼쪽  = 제목·건수 → 검색 → 연/월 → 필터 표시·해제
-//    오른쪽 = [실행취소·다시실행] [배율] 행 추가 · 내보내기 · 변경 취소 · 저장
+//    오른쪽 = [실행취소·다시실행] [배율] ＋행·－행 · ＋열·－열 · 열 · 내보내기
+//             · 변경 취소 · 저장
+//  행·열 버튼은 「＋ 행」처럼 부호와 대상만 쓴다 — 엑셀 툴바가 그렇듯 네 개가
+//  나란히 설 때는 「행 추가/행 삭제/열 추가/열 삭제」 라고 다 적는 쪽이 오히려
+//  읽기 느리다. 무슨 일이 일어나는지는 툴팁과 접근성 이름에 그대로 남긴다.
 //  시트는 불투명 콘텐츠 표면이다 — 유리를 쓰지 않는다.
 // ============================================================
 
@@ -38,10 +42,12 @@ import {
   BookOpen,
   Columns3,
   FileDown,
+  Maximize2,
+  Minimize2,
+  Minus,
   Plus,
   Redo2,
   SearchX,
-  Trash2,
   Undo2,
   ZoomIn,
   ZoomOut,
@@ -66,6 +72,7 @@ import {
   useToast,
 } from "@/components/neander/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
+import { useShellFocus } from "@/components/neander/shell/context";
 import { TransactionEditor } from "@/components/neander/finance/TransactionEditor";
 import { LedgerSheet, LEDGER_COLUMNS } from "@/components/neander/finance/LedgerSheet";
 import { isTypingInto } from "@/components/neander/finance/sheetCells";
@@ -122,6 +129,12 @@ import { totals, plOnly } from "@/lib/neander/finance/aggregate";
 
 /** 연/월로 표현할 수 없는 선택 — 선택기에 그대로 드러낸다 */
 const CUSTOM_PERIOD = "__custom__";
+
+/**
+ * 전체화면 상태 저장 키. sessionStorage 다 — 새로고침해도 유지되지만 탭을
+ * 닫으면 잊는다. 다음 날 원장을 열었을 때 사이드바가 없이 시작하면 놀란다.
+ */
+const FOCUS_KEY = "neander.finance.ledger.focus";
 
 /** 내보내기 파일명에 붙일 범위 이름 */
 function anyFilterLabel(filterCount: number, search: string): string {
@@ -191,8 +204,13 @@ const HISTORY_LIMIT = 100;
 /**
  * 요소가 뷰포트 바닥까지 차지하도록 높이를 잰다. 상단에 무엇이 있든
  * (셸 헤더·재무 탭) 요소의 화면 위치로 계산하므로 레이아웃에 의존하지 않는다.
+ *
+ * ⚠️ `signal` 은 **창 크기 말고** 요소의 화면 위치를 바꾸는 것을 넘긴다
+ *    (전체화면 토글 → 상단바·본문 여백이 사라진다). 이게 없으면 전체화면을
+ *    켠 직후 옛 높이가 그대로 남아 바닥에 상단바+여백만큼(96px) 흰 자리가
+ *    생긴다 — 창 크기를 한 번 건드려야 사라졌다.
  */
-function useFillViewport<T extends HTMLElement>(enabled: boolean) {
+function useFillViewport<T extends HTMLElement>(enabled: boolean, signal?: unknown) {
   const ref = useRef<T>(null);
   const [height, setHeight] = useState(0);
   // 로딩 중엔 요소가 없으므로 enabled 가 바뀔 때 다시 잰다
@@ -200,16 +218,20 @@ function useFillViewport<T extends HTMLElement>(enabled: boolean) {
     const el = ref.current;
     if (!enabled || !el) return;
     const measure = () => {
-      // 셸의 <main> 이 아래쪽 패딩을 갖고 있어 그만큼 빼야 본문 스크롤이 안 생긴다
-      const parentPad = el.parentElement
-        ? parseFloat(getComputedStyle(el.parentElement).paddingBottom) || 0
-        : 0;
-      setHeight(Math.max(320, window.innerHeight - el.getBoundingClientRect().top - parentPad));
+      // 셸의 <main> 이 아래쪽 패딩을 갖고 있어 그만큼 빼야 본문 스크롤이 안 생긴다.
+      // 바로 위 부모만 보면 안 된다 — 재무 레이아웃이 비서 패널 때문에 래퍼를
+      // 한 겹 더 끼워서, 그 여백이 안 빠진 채 페이지가 40px 스크롤됐다.
+      let pad = 0;
+      for (let p = el.parentElement; p; p = p.parentElement) {
+        pad += parseFloat(getComputedStyle(p).paddingBottom) || 0;
+        if (p.tagName === "MAIN" || p === document.body) break;
+      }
+      setHeight(Math.max(320, window.innerHeight - el.getBoundingClientRect().top - pad));
     };
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [enabled]);
+  }, [enabled, signal]);
   return { ref, height };
 }
 
@@ -258,6 +280,44 @@ export default function LedgerPage() {
     setFilters(parsed.filters);
     setSearch(parsed.search);
   }, []);
+
+  /**
+   * 전체화면 — 사이드바·상단바·여백을 걷어내고 원장이 창 전체가 된다
+   * (엑셀을 켜 놓은 느낌). 셸이 실제로 감추는 건 useShellFocus 가 한다.
+   * 브라우저 전체화면 API 는 쓰지 않는다 — 그러면 Esc 한 번에 셀 편집
+   * 취소와 전체화면 해제가 같이 일어난다.
+   */
+  const [focus, setFocus] = useState(false);
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(FOCUS_KEY) === "1") setFocus(true);
+    } catch {
+      /* 저장소 접근 불가 — 기본값 유지 */
+    }
+  }, []);
+  const toggleFocus = useCallback(() => {
+    setFocus((v) => {
+      try {
+        sessionStorage.setItem(FOCUS_KEY, v ? "0" : "1");
+      } catch {
+        /* noop */
+      }
+      return !v;
+    });
+  }, []);
+  useShellFocus(focus);
+
+  // ⌘⇧F (윈도우: Ctrl+Shift+F) = 전체화면 켜고 끄기
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey) return;
+      if (e.key.toLowerCase() !== "f") return;
+      e.preventDefault();
+      toggleFocus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleFocus]);
 
   const [history, setHistory] = useState<History>(EMPTY_HISTORY);
   const edits = history.present;
@@ -764,7 +824,7 @@ export default function LedgerPage() {
     setSearch("");
   };
 
-  const page = useFillViewport<HTMLDivElement>(!loading);
+  const page = useFillViewport<HTMLDivElement>(!loading, focus);
   const slot = useMeasuredHeight<HTMLDivElement>(!loading);
   // 열 너비·행 높이·배율. 배율 조절이 툴바에 있어서 페이지가 들고 있다.
   const sheet = useSheetLayout();
@@ -792,7 +852,14 @@ export default function LedgerPage() {
       className="flex min-h-0 flex-col"
       style={{ height: page.height || undefined }}
     >
-      <Card padding="none" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <Card
+        padding="none"
+        className={cn(
+          "flex min-h-0 flex-1 flex-col overflow-hidden",
+          // 전체화면: 창 가장자리까지 — 모서리·그림자가 있으면 창 안의 창처럼 보인다
+          focus && "rounded-none shadow-none",
+        )}
+      >
         {/* ---- 툴바: 검색 + 동작 버튼 (열 필터는 머리글 드롭다운에) ------ */}
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-nd-line px-3 py-2">
           <h1 className="mr-1 flex items-baseline gap-1.5 text-nd-section text-nd-fg">
@@ -862,6 +929,14 @@ export default function LedgerPage() {
           )}
 
           <div className="ml-auto flex flex-wrap items-center gap-2">
+            <IconButton
+              icon={focus ? Minimize2 : Maximize2}
+              label={focus ? "전체화면 끝내기 (⌘⇧F)" : "전체화면 (⌘⇧F)"}
+              size="sm"
+              pill
+              active={focus}
+              onClick={toggleFocus}
+            />
             <ButtonGroup label="실행취소">
               <IconButton
                 icon={Undo2}
@@ -908,22 +983,34 @@ export default function LedgerPage() {
                 disabled={sheet.layout.zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1]}
               />
             </ButtonGroup>
-            <Button variant="secondary" size="sm" icon={Plus} onClick={addRow}>
-              행 추가
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={Plus}
+              onClick={addRow}
+              aria-label="행 추가"
+              title={
+                selectedRows.length > 0
+                  ? "고른 행 바로 위에 새 행"
+                  : "맨 아래에 새 행 (행을 고르면 그 위에 들어갑니다)"
+              }
+            >
+              행
             </Button>
             <Button
               variant="secondary"
               size="sm"
-              icon={Trash2}
+              icon={Minus}
               onClick={() => void deleteSelected()}
               disabled={selectedRows.length === 0}
+              aria-label="행 삭제"
               title={
                 selectedRows.length === 0
                   ? "지울 행을 먼저 고르세요 (행 번호를 클릭하거나 끌어서 여러 행)"
                   : "고른 행 삭제 (⌘⌫)"
               }
             >
-              행 삭제
+              행
               {selectedRows.length > 0 && (
                 <span className="nd-num">({selectedRows.length.toLocaleString("ko-KR")})</span>
               )}
@@ -934,20 +1021,22 @@ export default function LedgerPage() {
               icon={Plus}
               onClick={() => setAddingCol(true)}
               disabled={colBusy}
+              aria-label="열 추가"
               title={
                 selColId && !selColId.startsWith("x:")
                   ? `「${selFixedLabel}」 왼쪽에 새 열`
                   : "맨 오른쪽에 새 열 (열을 고르면 그 왼쪽에 들어갑니다)"
               }
             >
-              열 추가
+              열
             </Button>
             <Button
               variant="secondary"
               size="sm"
-              icon={Trash2}
+              icon={Minus}
               onClick={() => void removeColumn()}
               disabled={!selColId || colBusy}
+              aria-label="열 삭제"
               title={
                 selCustom
                   ? `「${selCustom.label}」 열 지우기`
@@ -956,7 +1045,7 @@ export default function LedgerPage() {
                     : "지울 열을 먼저 고르세요 (머리글 아래 칸을 클릭)"
               }
             >
-              열 삭제
+              열
             </Button>
             <ColumnsButton sheet={sheet} />
             <Button
@@ -1040,11 +1129,7 @@ export default function LedgerPage() {
               <span className={notice.kind === "ok" ? "text-nd-success-text" : "text-nd-danger-text"}>
                 {notice.text}
               </span>
-            ) : (
-              <span className="hidden text-nd-fg-3 lg:inline">
-                Enter 편집 · Esc 취소 · ⌘Z 실행취소 · 행번호 클릭·끌어 행 고르기(⌘⌫ 삭제) · 머리글 이름 클릭 정렬 · 머리글 ⌄ 필터·감추기 · 머리글·행번호 경계 끌어 크기 조절(더블클릭 기본값) · ⌘C·V 엑셀 복사·붙여넣기 · 우클릭 행 메뉴 · 끝의 ⋯ 전체 항목
-              </span>
-            )}
+            ) : null}
           </span>
         </div>
 
@@ -1156,9 +1241,9 @@ function ColumnsButton({ sheet }: { sheet: SheetLayoutHandle }) {
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-haspopup="dialog"
+        aria-label="볼 열 고르기"
         title="볼 열 고르기"
       >
-        열
         {hidden.size > 0 && (
           <span className="nd-num text-nd-fg-3">
             {shown}/{LEDGER_COLUMNS.length}
