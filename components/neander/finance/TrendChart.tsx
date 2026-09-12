@@ -17,7 +17,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { MonthPoint } from "@/lib/neander/finance/aggregate";
 import { formatSigned } from "@/lib/neander/finance/types";
-import { cn } from "@/components/neander/ui";
+import { ChartTooltip, cn, useChartHover } from "@/components/neander/ui";
 import { Legend, SERIES, monthLabel } from "./ui";
 
 const H = 220; // 전체 높이
@@ -65,7 +65,7 @@ function useWidth<T extends HTMLElement>() {
 }
 
 export function TrendChart({ points, className }: { points: MonthPoint[]; className?: string }) {
-  const [hover, setHover] = useState<number | null>(null);
+  const { index: hover, at, hitProps, clear } = useChartHover();
   const [wrapRef, width] = useWidth<HTMLDivElement>();
   const id = useId();
 
@@ -104,7 +104,7 @@ export function TrendChart({ points, className }: { points: MonthPoint[]; classN
         </div>
       </div>
 
-      <div ref={wrapRef} className="relative w-full" onMouseLeave={() => setHover(null)}>
+      <div ref={wrapRef} className="relative w-full" onMouseLeave={clear}>
         {width > 0 && (
           <svg
             width={width}
@@ -155,9 +155,7 @@ export function TrendChart({ points, className }: { points: MonthPoint[]; classN
                     width={Math.max(0, groupW)}
                     height={plotH + PAD_B}
                     fill={active ? "rgba(15,23,42,0.035)" : "transparent"}
-                    onMouseEnter={() => setHover(i)}
-                    onFocus={() => setHover(i)}
-                    tabIndex={0}
+                    {...hitProps(i)}
                     aria-label={`${monthLabel(p.month)} 수입 ${formatSigned(p.income)}원, 지출 ${formatSigned(p.expense)}원`}
                     rx={6}
                   />
@@ -198,26 +196,26 @@ export function TrendChart({ points, className }: { points: MonthPoint[]; classN
         )}
       </div>
 
-      {/* 값은 hover/포커스 했을 때만 */}
-      <div className="mt-1 min-h-[2.25rem]" aria-live="polite">
-        {cur && (
-          <div className="inline-flex flex-wrap items-center gap-x-4 gap-y-1 rounded-nd-md bg-nd-sunken px-3 py-1.5 text-nd-caption">
-            <span className="font-semibold text-nd-fg">{monthLabel(cur.month)}</span>
-            <span className="text-nd-fg-2">
-              수입 <span className="nd-num font-medium text-nd-fg">{formatSigned(cur.income)}</span>
-            </span>
-            <span className="text-nd-fg-2">
-              지출 <span className="nd-num font-medium text-nd-fg">{formatSigned(cur.expense)}</span>
-            </span>
-            <span className="text-nd-fg-2">
-              순손익{" "}
-              <span className={cn("nd-num font-medium", cur.net < 0 ? "text-nd-danger-text" : "text-nd-fg")}>
-                {formatSigned(cur.net)}
-              </span>
-            </span>
-          </div>
-        )}
-      </div>
+      {/* 값은 커서 옆에 띄운다 — 눈이 막대를 떠나지 않게 (chart-tooltip.tsx) */}
+      <ChartTooltip
+        at={at}
+        title={cur ? monthLabel(cur.month) : ""}
+        rows={
+          cur
+            ? [
+                { key: "income", label: "수입", color: SERIES.income, value: formatSigned(cur.income) },
+                { key: "expense", label: "지출", color: SERIES.expense, value: formatSigned(cur.expense) },
+                { key: "net", label: "순손익", value: formatSigned(cur.net), negative: cur.net < 0, total: true },
+              ]
+            : []
+        }
+      />
+      {/* 판은 화면 낭독기에 잡히지 않는다(aria-hidden) — 대신 여기로 알린다 */}
+      <p className="sr-only" aria-live="polite">
+        {cur
+          ? `${monthLabel(cur.month)} 수입 ${formatSigned(cur.income)}원, 지출 ${formatSigned(cur.expense)}원, 순손익 ${formatSigned(cur.net)}원`
+          : ""}
+      </p>
     </div>
   );
 }

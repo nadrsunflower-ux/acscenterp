@@ -14,6 +14,7 @@ export { Badge, StatusDot, CountBadge, toneCls, type Tone } from "./badge";
 export { Tabs, SegmentedControl, type TabItem, type SegmentOption } from "./tabs";
 export { Dialog, Sheet, ConfirmDialog, ConfirmProvider, useConfirm, type DialogProps, type ConfirmOptions } from "./dialog";
 export { Popover, Menu, Tooltip, type MenuItem, type PopoverProps } from "./popover";
+export { ChartTooltip, useChartHover, type ChartTooltipRow } from "./chart-tooltip";
 export { ToastProvider, useToast, type ToastOptions } from "./toast";
 export { TableScroll, Table, Th, Td, Tr, TotalRow, TableNote } from "./table";
 export { Spinner, LoadingState, Skeleton, EmptyState, ErrorState, InlineNotice } from "./state";
