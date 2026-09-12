@@ -34,16 +34,18 @@ import {
   type ReactNode,
 } from "react";
 import type { DataSheetGridRef } from "react-datasheet-grid";
-import { BookOpen, FileDown, Plus, Redo2, SearchX, Undo2, ZoomIn, ZoomOut } from "lucide-react";
+import { BookOpen, Columns3, FileDown, Plus, Redo2, SearchX, Trash2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
 import {
   Badge,
   Button,
   ButtonGroup,
   Card,
+  Checkbox,
   EmptyState,
   IconButton,
   Input,
   LoadingState,
+  Popover,
   Select,
   Tabs,
   cn,
@@ -51,11 +53,12 @@ import {
 } from "@/components/neander/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { TransactionEditor } from "@/components/neander/finance/TransactionEditor";
-import { LedgerSheet } from "@/components/neander/finance/LedgerSheet";
+import { LedgerSheet, LEDGER_COLUMNS } from "@/components/neander/finance/LedgerSheet";
 import {
   useSheetLayout,
   ZOOM_STEPS,
   DEFAULT_ZOOM,
+  type SheetLayoutHandle,
 } from "@/components/neander/finance/useSheetLayout";
 import { Money } from "@/components/neander/finance/ui";
 import { applyFinEdits } from "@/lib/neander/finance/client";
@@ -484,6 +487,67 @@ export default function LedgerPage() {
     requestAnimationFrame(() => gridRef.current?.setActiveCell({ col: 0, row: index }));
   };
 
+  // ---- 행 삭제 --------------------------------------------------
+  /**
+   * 시트가 알려준 선택 범위. 「행 삭제」 가 이걸 보고 동작한다.
+   *
+   * 오른쪽 클릭 메뉴에도 삭제가 있지만 그것만으로는 아무도 찾지 못했다.
+   * 행을 고르고 Delete 를 누르면 스프레드시트 관례대로 **셀 값만** 지워져서,
+   * 지운 것 같은데 행은 그대로 남는다 — 그게 "삭제가 안 된다" 의 정체였다.
+   * 그래서 「행 추가」 옆에 같은 무게의 버튼을 두고 고른 수를 함께 보여준다.
+   */
+  const [selRange, setSelRange] = useState<{ from: number; to: number } | null>(null);
+
+  /**
+   * 시트가 알려주는 선택을 받는다. 두 가지를 막아야 한다.
+   *
+   * ① null 무시 — 버튼을 누르는 순간 시트가 포커스를 잃으며 null 이 온다.
+   *    그대로 받으면 「행 삭제」 는 언제나 빈 선택으로 돌아 아무 일도 안 한다.
+   * ② 같은 범위면 상태를 그대로 둔다 — 시트는 매번 새 객체를 주므로, 값이
+   *    같아도 갱신하면 렌더 → 통지 → 렌더 로 끝없이 돈다.
+   */
+  const setSelection = useCallback((r: { from: number; to: number } | null) => {
+    if (!r) return;
+    setSelRange((prev) => (prev && prev.from === r.from && prev.to === r.to ? prev : r));
+  }, []);
+  const selectedRows = useMemo(
+    () => (selRange ? rows.slice(selRange.from, selRange.to + 1) : []),
+    [selRange, rows],
+  );
+
+  const deleteSelected = useCallback(async () => {
+    if (selectedRows.length === 0) return;
+    // 저장된 행이 하나라도 섞였으면 묻는다. 새 행만이면 되돌리기 쉬우니 그냥 지운다.
+    if (selectedRows.some((r) => !isNewRow(r))) {
+      const ok = await confirm({
+        title: `${selectedRows.length.toLocaleString("ko-KR")}행을 삭제할까요?`,
+        message:
+          "「저장」 을 눌러야 장부에서 실제로 지워집니다. 그 전까지는 「변경 취소」 로 되돌릴 수 있습니다.",
+        confirmLabel: "삭제",
+        tone: "danger",
+      });
+      if (!ok) return;
+    }
+    const ids = new Set(selectedRows.map((r) => r.id));
+    onSheetChange(rows.filter((r) => !ids.has(r.id)));
+    setSelRange(null);
+    gridRef.current?.setSelection(null);
+  }, [selectedRows, rows, onSheetChange, confirm]);
+
+  // ⌘⌫ (Ctrl+Backspace) = 고른 행 삭제. 맨 Delete 는 셀 값 지우기로 남겨 둔다 —
+  // 스프레드시트에서 그게 관례라 바꾸면 다른 것이 깨진다.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key !== "Backspace") return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      e.preventDefault();
+      void deleteSelected();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [deleteSelected]);
+
   // ---- 상세 모달 → 초안에 적용 -----------------------------------
   const applyDetail = async (patch: Partial<FinTransaction>) => {
     if (!detail) return;
@@ -699,6 +763,24 @@ export default function LedgerPage() {
             <Button
               variant="secondary"
               size="sm"
+              icon={Trash2}
+              onClick={() => void deleteSelected()}
+              disabled={selectedRows.length === 0}
+              title={
+                selectedRows.length === 0
+                  ? "지울 행을 먼저 고르세요 (행 번호를 클릭하거나 끌어서 여러 행)"
+                  : "고른 행 삭제 (⌘⌫)"
+              }
+            >
+              행 삭제
+              {selectedRows.length > 0 && (
+                <span className="nd-num">({selectedRows.length.toLocaleString("ko-KR")})</span>
+              )}
+            </Button>
+            <ColumnsButton sheet={sheet} />
+            <Button
+              variant="secondary"
+              size="sm"
               icon={FileDown}
               disabled={rows.length === 0}
               onClick={() =>
@@ -779,7 +861,7 @@ export default function LedgerPage() {
               </span>
             ) : (
               <span className="hidden text-nd-fg-3 lg:inline">
-                Enter 편집 · Esc 취소 · ⌘Z 실행취소 · 머리글 이름 클릭 정렬 · 머리글 ⌄ 필터 · 머리글·행번호 경계 끌어 크기 조절(더블클릭 기본값) · ⌘C·V 엑셀 복사·붙여넣기 · 우클릭 행 메뉴 · 끝의 ⋯ 전체 항목
+                Enter 편집 · Esc 취소 · ⌘Z 실행취소 · 행번호 클릭·끌어 행 고르기(⌘⌫ 삭제) · 머리글 이름 클릭 정렬 · 머리글 ⌄ 필터·감추기 · 머리글·행번호 경계 끌어 크기 조절(더블클릭 기본값) · ⌘C·V 엑셀 복사·붙여넣기 · 우클릭 행 메뉴 · 끝의 ⋯ 전체 항목
               </span>
             )}
           </span>
@@ -838,6 +920,7 @@ export default function LedgerPage() {
               optionsFor={optionsFor}
               height={slot.height}
               sheet={sheet}
+              onSelectionChange={setSelection}
             />
           ) : null}
         </div>
@@ -857,5 +940,70 @@ export default function LedgerPage() {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * 열 관리 — 어떤 열을 볼지 고른다.
+ *
+ * ⚠️ 「삭제」 가 아니라 「감추기」 다. 원장의 열은 집계·검증·엑셀 내보내기가
+ *    전부 의존하는 회계 항목이라 값을 지울 수 없다. 사람이 실제로 원하는 것은
+ *    "이 화면에서 안 보이게" 이고, 그래서 열 너비처럼 이 기기에만 남는다.
+ */
+function ColumnsButton({ sheet }: { sheet: SheetLayoutHandle }) {
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const hidden = useMemo(() => new Set(sheet.layout.hidden), [sheet.layout.hidden]);
+  const shown = LEDGER_COLUMNS.length - hidden.size;
+
+  return (
+    <>
+      <Button
+        ref={btnRef}
+        variant="secondary"
+        size="sm"
+        icon={Columns3}
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        title="볼 열 고르기"
+      >
+        열
+        {hidden.size > 0 && (
+          <span className="nd-num text-nd-fg-3">
+            {shown}/{LEDGER_COLUMNS.length}
+          </span>
+        )}
+      </Button>
+
+      <Popover
+        open={open}
+        onClose={() => setOpen(false)}
+        anchorRef={btnRef}
+        placement="bottom-end"
+        ariaLabel="열 관리"
+        autoFocus={false}
+        unpadded
+        className="w-56"
+      >
+        <div className="nd-scroll max-h-[60vh] overflow-y-auto p-1.5">
+          {LEDGER_COLUMNS.map((c) => (
+            <Checkbox
+              key={c.key}
+              label={c.label}
+              checked={!hidden.has(c.key)}
+              onChange={(e) => sheet.setColumnHidden(c.key, !e.target.checked)}
+              className="w-full rounded-[7px] px-2 py-1.5 text-nd-table transition-colors duration-nd-fast hover:bg-nd-fg/[.06]"
+            />
+          ))}
+        </div>
+        <div className="flex items-center justify-between gap-2 border-t border-nd-line px-2 py-1.5">
+          <span className="text-nd-micro text-nd-fg-3">값은 지워지지 않습니다</span>
+          <Button variant="ghost" size="sm" onClick={sheet.showAllColumns} disabled={hidden.size === 0}>
+            모두 보이기
+          </Button>
+        </div>
+      </Popover>
+    </>
   );
 }

@@ -44,9 +44,17 @@ export interface SheetLayout {
   rowHeight: number;
   /** 표 전체 배율. 1 = 100% */
   zoom: number;
+  /**
+   * 화면에서 감춘 열.
+   *
+   * ⚠️ 감추는 것이지 지우는 것이 아니다. 원장의 고정 열은 집계·검증·내보내기가
+   *    전부 의존하므로 값을 지울 수 없다. "이 화면에서 안 보이게" 가 사람이
+   *    실제로 원하는 것이고, 그래서 열 너비처럼 이 기기에만 남긴다.
+   */
+  hidden: string[];
 }
 
-const EMPTY: SheetLayout = { widths: {}, rowHeight: DEFAULT_ROW_HEIGHT, zoom: DEFAULT_ZOOM };
+const EMPTY: SheetLayout = { widths: {}, rowHeight: DEFAULT_ROW_HEIGHT, zoom: DEFAULT_ZOOM, hidden: [] };
 
 /** 저장된 값이 단계 목록에 없으면 가장 가까운 단계로 (목록을 바꿔도 안 깨진다) */
 const nearestZoom = (v: number) =>
@@ -79,6 +87,7 @@ function read(key: string): SheetLayout {
       widths,
       rowHeight: Number.isFinite(h) ? clamp(h, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT) : DEFAULT_ROW_HEIGHT,
       zoom: Number.isFinite(z) && z > 0 ? nearestZoom(z) : DEFAULT_ZOOM,
+      hidden: Array.isArray(p.hidden) ? p.hidden.filter((x): x is string => typeof x === "string") : [],
     };
   } catch {
     // 사생활 보호 모드나 저장 공간 초과 — 설정이 없는 것으로 본다
@@ -147,14 +156,40 @@ export function useSheetLayout(storageKey: string = STORAGE_KEY) {
     setLayout((l) => (l.zoom === z ? l : { ...l, zoom: nearestZoom(z) }));
   }, []);
 
+  /** 열 감추기/되살리기 — 값은 그대로 남는다 */
+  const setColumnHidden = useCallback((id: string, hidden: boolean) => {
+    setLayout((l) => {
+      const has = l.hidden.includes(id);
+      if (has === hidden) return l;
+      return { ...l, hidden: hidden ? [...l.hidden, id] : l.hidden.filter((k) => k !== id) };
+    });
+  }, []);
+
+  /** 감춘 열 전부 되살리기 */
+  const showAllColumns = useCallback(() => {
+    setLayout((l) => (l.hidden.length === 0 ? l : { ...l, hidden: [] }));
+  }, []);
+
   const reset = useCallback(() => setLayout(EMPTY), []);
 
   const customized =
     Object.keys(layout.widths).length > 0 ||
     layout.rowHeight !== DEFAULT_ROW_HEIGHT ||
-    layout.zoom !== DEFAULT_ZOOM;
+    layout.zoom !== DEFAULT_ZOOM ||
+    layout.hidden.length > 0;
 
-  return { layout, setWidth, clearWidth, setRowHeight, stepZoom, setZoom, reset, customized };
+  return {
+    layout,
+    setWidth,
+    clearWidth,
+    setRowHeight,
+    stepZoom,
+    setZoom,
+    setColumnHidden,
+    showAllColumns,
+    reset,
+    customized,
+  };
 }
 
 /** 페이지와 시트가 같은 설정을 나눠 쓴다 */

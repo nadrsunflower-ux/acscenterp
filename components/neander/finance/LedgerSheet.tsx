@@ -121,6 +121,13 @@ const LABEL: Record<SortKey, string> = {
   status: "상태",
 };
 
+/**
+ * 열 관리(툴바)가 쓰는 순서 있는 목록 — 위 LABEL 의 나열 순서가 화면 순서다.
+ */
+export const LEDGER_COLUMNS: { key: SortKey; label: string }[] = (Object.keys(LABEL) as SortKey[]).map(
+  (key) => ({ key, label: LABEL[key] }),
+);
+
 /** 검증 오류를 빨갛게 칠하는 열. 오류 필드 이름이 열 키와 같다. */
 const INVALID_KEYS = new Set<SortKey>(["date", "txType", "last4", "bizMajor", "acctMajor", "acctMid", "acctMinor", "gross", "adjust", "status"]);
 
@@ -192,6 +199,7 @@ export function LedgerSheet({
   height = 640,
   gridRef,
   sheet,
+  onSelectionChange,
 }: {
   rows: FinTransaction[];
   onChange: (rows: FinTransaction[]) => void;
@@ -217,14 +225,16 @@ export function LedgerSheet({
   /** 시트에 쓸 수 있는 세로 공간(화면 픽셀). 배율·행추가바 보정은 여기서 한다 */
   height?: number;
   gridRef?: Ref<DataSheetGridRef>;
-  /** 열 너비·행 높이·배율. 툴바가 배율을 만지므로 페이지가 들고 있다 */
+  /** 열 너비·행 높이·배율·감춘 열. 툴바가 만지므로 페이지가 들고 있다 */
   sheet: SheetLayoutHandle;
+  /** 고른 행 범위 — 툴바의 「행 삭제」 가 이걸 보고 동작한다 */
+  onSelectionChange?: (range: { from: number; to: number } | null) => void;
 }) {
   // 열린 드롭다운. anchor 는 머리글 버튼의 화면 좌표.
   const [menu, setMenu] = useState<{ key: FilterKey; label: string; anchor: DOMRect } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
 
-  const { layout, setWidth, clearWidth, setRowHeight, reset, customized } = sheet;
+  const { layout, setWidth, clearWidth, setRowHeight, setColumnHidden, reset, customized } = sheet;
 
   // 배율은 드래그가 시작될 때의 값을 읽어야 한다. 값으로 넘기면 손잡이가
   // 배율이 바뀔 때마다 새로 만들어진다.
@@ -402,9 +412,14 @@ export function LedgerSheet({
    * 폭을 정하면 grow 를 0 으로 고정한다. 남겨두면 남는 공간을 받아 끈
    * 자리보다 넓어져서, 끌었는데 다른 값이 되는 표가 된다.
    */
+  const hiddenSet = useMemo(() => new Set(layout.hidden), [layout.hidden]);
+
   const columns = useMemo<Col[]>(
     () =>
-      cellColumns.map((c) => {
+      // 감춘 열은 그리지 않는다. 값은 그대로 남아 있고 저장·집계에도 영향이 없다.
+      cellColumns
+        .filter((c) => !hiddenSet.has(String(c.id)))
+        .map((c) => {
         const key = String(c.id) as SortKey;
         const label = LABEL[key] ?? key;
         const w = layout.widths[key];
@@ -433,7 +448,7 @@ export function LedgerSheet({
           ...(w === undefined ? null : { basis: w, grow: 0, shrink: 0, minWidth: w }),
         };
       }),
-    [cellColumns, layout.widths, sort, filters, issues, onSort, setWidth, clearWidth, scale],
+    [cellColumns, hiddenSet, layout.widths, sort, filters, issues, onSort, setWidth, clearWidth, scale],
   );
 
   // 행 번호 칸 — 아래 경계가 행 높이 손잡이, 왼쪽 위 모서리가 초기화 버튼
@@ -469,6 +484,17 @@ export function LedgerSheet({
    * 대신 세로 공간을 직접 보정해야 한다. 부모가 준 높이는 화면 픽셀이고
    * 시트 안쪽은 본래 픽셀이라, 나누지 않으면 80% 에서 아래 20% 가 빈다.
    */
+  /**
+   * 선택 통지. 콜백 정체성이 매 렌더 바뀌면 그리드가 그때마다 다시 알려 오고,
+   * 받는 쪽이 새 객체로 상태를 바꾸면 렌더 → 통지 → 렌더 로 끝없이 돈다.
+   * (실제로 그렇게 화면이 멎었다.) 그래서 여기서 한 번 고정한다.
+   */
+  const notifySelection = useCallback(
+    ({ selection }: { selection: { min: { row: number }; max: { row: number } } | null }) =>
+      onSelectionChange?.(selection ? { from: selection.min.row, to: selection.max.row } : null),
+    [onSelectionChange],
+  );
+
   const gridHeight = Math.max(200, height / layout.zoom - ADD_ROW_BAR);
 
   return (
@@ -502,6 +528,7 @@ export function LedgerSheet({
         }
         addRowsComponent={KoAddRows}
         contextMenuComponent={KoContextMenu}
+        onSelectionChange={notifySelection}
       />
 
       {menu && (
@@ -515,6 +542,10 @@ export function LedgerSheet({
             const current = sort?.key === menu.key ? sort.dir : null;
             if (dir === null || dir === current) onSort(menu.key, null);
             else onSort(menu.key, dir);
+          }}
+          onHide={() => {
+            setColumnHidden(menu.key, true);
+            closeMenu();
           }}
           filter={filters[menu.key]}
           options={optionsFor(menu.key)}

@@ -13,7 +13,7 @@
 // ============================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, EyeOff } from "lucide-react";
 import { Button, Checkbox, Icon, Input, Popover, cn } from "@/components/neander/ui";
 import {
   isRangeKey,
@@ -46,6 +46,7 @@ export function ColumnMenu({
   filter,
   options,
   onFilterChange,
+  onHide,
   onClose,
 }: {
   /** 열 id. 원장은 FilterKey, 체크리스트는 `x:<id>` 같은 자유 문자열도 온다 */
@@ -61,6 +62,8 @@ export function ColumnMenu({
   /** 다른 열 필터를 반영한 이 열의 후보값 */
   options: FilterOption[];
   onFilterChange: (next: ColumnFilter | null) => void;
+  /** 이 열을 화면에서 감춘다 (값은 그대로). 없으면 항목이 나오지 않는다 */
+  onHide?: () => void;
   onClose: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -178,6 +181,16 @@ export function ColumnMenu({
         <div className="border-b border-nd-line p-1.5">
           {sortBtn("asc", range ? "작은 값부터" : "오름차순 정렬")}
           {sortBtn("desc", range ? "큰 값부터" : "내림차순 정렬")}
+          {onHide && (
+            <button
+              type="button"
+              onClick={onHide}
+              className="flex w-full items-center gap-2 rounded-[7px] px-2 py-1.5 text-left text-nd-table text-nd-fg transition-colors duration-nd-fast hover:bg-nd-fg/[.06]"
+            >
+              <Icon icon={EyeOff} size={13} className="text-nd-fg-3" />
+              이 열 감추기
+            </button>
+          )}
         </div>
 
         {range ? (

@@ -159,14 +159,55 @@ test("matrix numbers open a breakdown: hover previews, click pins a dialog", asy
   // 잘못 분류된 계정을 그 자리에서 고칠 수 있다 (여는 것까지만 — 실데이터는 건드리지 않는다)
   const acctCell = dlg.getByRole("button", { name: /^계정 고치기/ }).first();
   await acctCell.click();
-  await expect(dlg.getByRole("combobox", { name: "계정대분류" })).toBeVisible();
-  await expect(dlg.getByRole("combobox", { name: "계정소분류" })).toBeVisible();
-  // Esc 는 편집 줄만 닫고 창은 남는다
+  // 편집 컨트롤이 창 안에 펼쳐지든 창 위 팝오버로 뜨든 상관없이 보이면 된다
+  const acctMajor = page.getByRole("combobox", { name: "계정대분류" });
+  await expect(acctMajor).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "계정소분류" })).toBeVisible();
+  // Esc 는 편집만 닫고 창은 남는다
   await page.keyboard.press("Escape");
-  await expect(dlg.getByRole("combobox", { name: "계정대분류" })).toBeHidden();
+  await expect(acctMajor).toBeHidden();
   await expect(dlg).toBeVisible();
 
   await page.keyboard.press("Escape");
   await expect(dlg).toBeHidden();
   await expect(cell).toBeFocused();
+});
+
+test("ledger: rows can be selected and deleted, columns can be hidden and restored", async () => {
+  await page.setViewportSize({ width: 1600, height: 950 });
+  await page.goto(`${BASE}/neander/finance/ledger`, { waitUntil: "load" });
+  await settle(page);
+
+  const del = page.getByRole("button", { name: /^행 삭제/ });
+  await expect(del).toBeDisabled();
+
+  // 행 번호를 눌러 한 행 고르면 버튼이 살아나고 고른 수가 나온다
+  const gutter = page.locator(".dsg-cell-gutter").nth(3);
+  const gb = await gutter.boundingBox();
+  expect(gb).not.toBeNull();
+  await page.mouse.click(gb!.x + 10, gb!.y + 10);
+  await expect(del).toBeEnabled();
+  await expect(del).toContainText("(1)");
+
+  // 삭제는 초안이다 — 저장 전에는 「변경 취소」 로 되돌아간다 (실데이터는 그대로)
+  const countBefore = await page.locator("text=검색 결과").first().innerText();
+  await del.click();
+  const confirmDlg = page.getByRole("dialog").first();
+  await expect(confirmDlg).toContainText("삭제할까요");
+  await confirmDlg.getByRole("button", { name: "삭제" }).click();
+  await expect(page.getByRole("button", { name: /^저장/ })).toContainText("(1)");
+  await page.getByRole("button", { name: "변경 취소" }).click();
+  await page.getByRole("dialog").first().getByRole("button", { name: "모두 버리기" }).click();
+  await expect(page.getByRole("button", { name: /^저장/ })).not.toContainText("(");
+  await expect(page.locator("text=검색 결과").first()).toHaveText(countBefore);
+
+  // 열은 감추고 되살릴 수 있다 (값은 그대로)
+  await page.locator('button[title="볼 열 고르기"]').click();
+  const cols = page.getByRole("dialog", { name: "열 관리" });
+  await expect(cols).toBeVisible();
+  await cols.getByText("사업대분류", { exact: true }).click();
+  await expect(page.locator(".dsg-cell-header", { hasText: "사업대분류" })).toHaveCount(0);
+  await page.getByRole("button", { name: "모두 보이기" }).click();
+  await expect(page.locator(".dsg-cell-header", { hasText: "사업대분류" })).toHaveCount(1);
+  await page.keyboard.press("Escape");
 });
