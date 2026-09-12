@@ -69,6 +69,36 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: true });
       }
 
+      case "ledgerColumn.upsert": {
+        // 원장에 사람이 덧붙이는 열. 값은 거래 문서의 extra 에 들어가므로
+        // 여기서는 이름과 자리만 기억한다.
+        const { id, label, before } = payload as { id?: string; label?: string; before?: string };
+        const name = String(label ?? "").trim();
+        if (!name) return NextResponse.json({ error: "열 이름이 필요합니다." }, { status: 400 });
+        const col = db.collection(NEANDER_COL.finLedgerColumns);
+        const ref = id ? col.doc(id) : col.doc();
+        await ref.set(
+          {
+            label: name.slice(0, 40),
+            before: before ?? null,
+            createdAt: id ? undefined : now,
+            createdBy: id ? undefined : user.email,
+            updatedAt: now,
+            updatedBy: user.email,
+          },
+          { merge: true },
+        );
+        return NextResponse.json({ ok: true, id: ref.id });
+      }
+
+      case "ledgerColumn.delete": {
+        const { id } = payload as { id: string };
+        if (!id) return NextResponse.json({ error: "id 가 필요합니다." }, { status: 400 });
+        // 거래에 남은 값은 지우지 않는다 — 열을 되살리면 그대로 다시 보인다
+        await db.collection(NEANDER_COL.finLedgerColumns).doc(id).delete();
+        return NextResponse.json({ ok: true });
+      }
+
       case "transaction.delete": {
         const { id } = payload as { id: string };
         if (!id) return NextResponse.json({ error: "id 가 필요합니다." }, { status: 400 });

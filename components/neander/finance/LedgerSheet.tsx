@@ -38,7 +38,7 @@ import {
   type Column,
   type DataSheetGridRef,
 } from "react-datasheet-grid";
-import type { FinAccountDoc, FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
+import type { FinAccountDoc, FinLedgerColumnDoc, FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
 import {
   STATUS_LABEL,
   TX_TYPES,
@@ -61,6 +61,7 @@ import {
   KoAddRows,
   KoContextMenu,
   createActionColumn,
+  createExtraColumn,
   createDerivedColumn,
   createGutterColumn,
   createSelectColumn,
@@ -199,6 +200,7 @@ export function LedgerSheet({
   height = 640,
   gridRef,
   sheet,
+  ledgerColumns,
   onSelectionChange,
 }: {
   rows: FinTransaction[];
@@ -227,8 +229,10 @@ export function LedgerSheet({
   gridRef?: Ref<DataSheetGridRef>;
   /** 열 너비·행 높이·배율·감춘 열. 툴바가 만지므로 페이지가 들고 있다 */
   sheet: SheetLayoutHandle;
-  /** 고른 행 범위 — 툴바의 「행 삭제」 가 이걸 보고 동작한다 */
-  onSelectionChange?: (range: { from: number; to: number } | null) => void;
+  /** 사람이 덧붙인 열 */
+  ledgerColumns?: FinLedgerColumnDoc[];
+  /** 고른 행 범위와 열 — 툴바의 행·열 추가/삭제가 이걸 보고 동작한다 */
+  onSelectionChange?: (sel: { from: number; to: number; colId?: string } | null) => void;
 }) {
   // 열린 드롭다운. anchor 는 머리글 버튼의 화면 좌표.
   const [menu, setMenu] = useState<{ key: FilterKey; label: string; anchor: DOMRect } | null>(null);
@@ -414,7 +418,7 @@ export function LedgerSheet({
    */
   const hiddenSet = useMemo(() => new Set(layout.hidden), [layout.hidden]);
 
-  const columns = useMemo<Col[]>(
+  const fixedColumns = useMemo<Col[]>(
     () =>
       // 감춘 열은 그리지 않는다. 값은 그대로 남아 있고 저장·집계에도 영향이 없다.
       cellColumns
@@ -450,6 +454,61 @@ export function LedgerSheet({
       }),
     [cellColumns, hiddenSet, layout.widths, sort, filters, issues, onSort, setWidth, clearWidth, scale],
   );
+
+  /**
+   * 사람이 덧붙인 열을 제자리에 꽂는다.
+   *
+   * `before` 가 가리키는 고정 열 **바로 왼쪽**에 들어간다. 그 열이 감춰졌거나
+   * 없으면 맨 오른쪽으로 간다 — 열이 통째로 사라지는 것보다 낫다.
+   * 정렬·필터는 걸지 않는다(집계가 보지 않는 메모 칸이다).
+   */
+  const columns = useMemo<Col[]>(() => {
+    const list = ledgerColumns ?? [];
+    if (list.length === 0) return fixedColumns;
+
+    const build = (lc: FinLedgerColumnDoc): Col => {
+      const id = `x:${lc.id}`;
+      const w = layout.widths[id];
+      return {
+        ...(createExtraColumn<FinTransaction>(lc.id, optionalText as never) as Col),
+        title: (
+          <ColumnHead
+            label={lc.label}
+            dir={null}
+            filtered={false}
+            sortable={false}
+            onSort={() => undefined}
+            onOpenMenu={() => undefined}
+            onResize={(px) => setWidth(id, px)}
+            onResetWidth={() => clearWidth(id)}
+            scale={scale}
+          />
+        ),
+        ...(w === undefined
+          ? { basis: 150, grow: 0, shrink: 0, minWidth: 110 }
+          : { basis: w, grow: 0, shrink: 0, minWidth: w }),
+      };
+    };
+
+    const byBefore = new Map<string, Col[]>();
+    const tail: Col[] = [];
+    const shown = new Set(fixedColumns.map((c) => String(c.id)));
+    list.forEach((lc) => {
+      const col = build(lc);
+      if (lc.before && shown.has(lc.before)) {
+        const arr = byBefore.get(lc.before) ?? [];
+        arr.push(col);
+        byBefore.set(lc.before, arr);
+      } else tail.push(col);
+    });
+
+    const out: Col[] = [];
+    fixedColumns.forEach((c) => {
+      byBefore.get(String(c.id))?.forEach((x) => out.push(x));
+      out.push(c);
+    });
+    return out.concat(tail);
+  }, [fixedColumns, ledgerColumns, layout.widths, setWidth, clearWidth, scale]);
 
   // 행 번호 칸 — 아래 경계가 행 높이 손잡이, 왼쪽 위 모서리가 초기화 버튼
   const gutterColumn = useMemo(
@@ -490,8 +549,16 @@ export function LedgerSheet({
    * (실제로 그렇게 화면이 멎었다.) 그래서 여기서 한 번 고정한다.
    */
   const notifySelection = useCallback(
-    ({ selection }: { selection: { min: { row: number }; max: { row: number } } | null }) =>
-      onSelectionChange?.(selection ? { from: selection.min.row, to: selection.max.row } : null),
+    ({
+      selection,
+    }: {
+      selection: { min: { row: number; colId?: string }; max: { row: number } } | null;
+    }) =>
+      onSelectionChange?.(
+        selection
+          ? { from: selection.min.row, to: selection.max.row, colId: selection.min.colId }
+          : null,
+      ),
     [onSelectionChange],
   );
 

@@ -201,6 +201,17 @@ test("ledger: rows can be selected and deleted, columns can be hidden and restor
   await expect(page.getByRole("button", { name: /^저장/ })).not.toContainText("(");
   await expect(page.locator("text=검색 결과").first()).toHaveText(countBefore);
 
+  // 새 열은 고른 열 바로 왼쪽에 들어간다 (창만 열어 확인 — 실데이터는 건드리지 않는다)
+  const vendorHead = page.locator(".dsg-cell-header", { hasText: "거래처" }).first();
+  const vb = await vendorHead.boundingBox();
+  expect(vb).not.toBeNull();
+  await page.mouse.click(vb!.x + 15, vb!.y + 60);
+  await page.getByRole("button", { name: "열 추가" }).click();
+  const colDlg = page.getByRole("dialog").first();
+  await expect(colDlg).toContainText("바로 왼쪽에 들어갑니다");
+  await colDlg.getByRole("button", { name: "취소" }).click();
+  await expect(colDlg).toBeHidden();
+
   // 열은 감추고 되살릴 수 있다 (값은 그대로)
   await page.locator('button[title="볼 열 고르기"]').click();
   const cols = page.getByRole("dialog", { name: "열 관리" });

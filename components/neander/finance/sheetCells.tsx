@@ -278,6 +278,74 @@ export function createSheetTextColumn<V>({
   };
 }
 
+// ---- 사람이 덧붙인 열 ------------------------------------------
+
+/**
+ * 덧붙인 열의 값은 거래의 `extra[열id]` 에 들어간다.
+ *
+ * 라이브러리의 keyColumn 은 최상위 키만 묶어 준다. 한 단계 안쪽을 보려면
+ * 같은 방식으로 직접 감싸야 한다 — 셀에는 그 칸의 값만 넘겨서, 같은 행의
+ * 다른 칸이 바뀌었다고 이 칸까지 다시 그리지 않게 한다.
+ */
+type ExtraRow = { extra?: Record<string, string> };
+
+const ExtraCell = ({
+  columnData,
+  rowData,
+  setRowData,
+  ...rest
+}: {
+  columnData: { key: string; original: Column<string, unknown, string> };
+  rowData: ExtraRow;
+  setRowData: (row: ExtraRow) => void;
+}) => {
+  const { key, original } = columnData;
+  // ref 로 두어야 행이 바뀔 때마다 setter 가 새로 만들어지지 않는다
+  const rowRef = useRef(rowData);
+  rowRef.current = rowData;
+  const setValue = useCallback(
+    (value: string) =>
+      setRowData({ ...rowRef.current, extra: { ...(rowRef.current.extra ?? {}), [key]: value ?? "" } }),
+    [key, setRowData],
+  );
+  // 원래 셀은 CellProps 전체를 요구한다. 나머지(rest)는 그리드가 넘겨준 것을
+  // 그대로 흘려보내면 되므로 한 번 느슨하게 받는다.
+  const Cell = original.component as unknown as React.ComponentType<Record<string, unknown>>;
+  if (!Cell) return <></>;
+  return (
+    <Cell
+      {...(rest as Record<string, unknown>)}
+      columnData={original.columnData}
+      setRowData={setValue}
+      rowData={rowData.extra?.[key] ?? ""}
+    />
+  );
+};
+
+/** 덧붙인 열 하나 → 그리드 열. `id` 는 `x:<열id>` 로 고정 열과 겹치지 않게 */
+export function createExtraColumn<T extends ExtraRow>(
+  key: string,
+  column: Column<string, unknown, string>,
+): Column<T, unknown, string> {
+  const val = (rowData: T) => rowData.extra?.[key] ?? "";
+  const put = (rowData: T, value: string): T => ({
+    ...rowData,
+    extra: { ...(rowData.extra ?? {}), [key]: value ?? "" },
+  });
+  return {
+    ...(column as unknown as Column<T, unknown, string>),
+    id: `x:${key}`,
+    columnData: { key, original: column },
+    component: ExtraCell as unknown as Column<T, unknown, string>["component"],
+    copyValue: ({ rowData, rowIndex }) => column.copyValue?.({ rowData: val(rowData), rowIndex }) ?? null,
+    deleteValue: ({ rowData, rowIndex }) =>
+      put(rowData, String(column.deleteValue?.({ rowData: val(rowData), rowIndex }) ?? "")),
+    pasteValue: ({ rowData, value, rowIndex }) =>
+      put(rowData, String(column.pasteValue?.({ rowData: val(rowData), value, rowIndex }) ?? "")),
+    isCellEmpty: ({ rowData }) => !val(rowData),
+  };
+}
+
 // ---- 체크 셀 --------------------------------------------------
 
 interface CheckColumnData<T> {

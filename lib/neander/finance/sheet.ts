@@ -58,8 +58,16 @@ type EditableField = (typeof EDITABLE_FIELDS)[number];
 /** 빈 문자열·null·undefined 를 같은 "비어 있음"으로 본다 */
 const norm = (v: unknown) => (v === "" || v === null || v === undefined ? undefined : v);
 
+/** 사람이 덧붙인 열의 값 비교 — 빈 문자열과 없음을 같게 본다 */
+function extraEqual(a?: Record<string, string>, b?: Record<string, string>): boolean {
+  const keys = new Set([...Object.keys(a ?? {}), ...Object.keys(b ?? {})]);
+  for (const k of keys) if (norm(a?.[k]) !== norm(b?.[k])) return false;
+  return true;
+}
+
 export function rowsEqual(a: FinTransaction, b: FinTransaction): boolean {
-  return EDITABLE_FIELDS.every((k) => norm(a[k]) === norm(b[k]));
+  if (!EDITABLE_FIELDS.every((k) => norm(a[k]) === norm(b[k]))) return false;
+  return extraEqual(a.extra, b.extra);
 }
 
 // ---- 셀 입력 정규화 ------------------------------------------
@@ -279,6 +287,9 @@ export function toPatch(t: FinTransaction): Partial<FinTransactionInput> {
     projectCode: str(t.projectCode),
     refundMatchId: str(t.refundMatchId),
     status: t.status,
+    // 덧붙인 열은 값이 있을 때만 실어 보낸다 — 키가 있으면 서버가 null 로
+    // 덮어써서 남의 열까지 지운다 (client.ts 의 undefined→null 주석 참고)
+    ...(t.extra ? { extra: t.extra } : null),
     dedupHash: dedupHashOf({
       date: t.date,
       last4: t.last4,

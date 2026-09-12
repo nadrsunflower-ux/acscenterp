@@ -34,7 +34,18 @@ import {
   type ReactNode,
 } from "react";
 import type { DataSheetGridRef } from "react-datasheet-grid";
-import { BookOpen, Columns3, FileDown, Plus, Redo2, SearchX, Trash2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  BookOpen,
+  Columns3,
+  FileDown,
+  Plus,
+  Redo2,
+  SearchX,
+  Trash2,
+  Undo2,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
 import {
   Badge,
   Button,
@@ -45,11 +56,14 @@ import {
   IconButton,
   Input,
   LoadingState,
+  Dialog,
+  Field,
   Popover,
   Select,
   Tabs,
   cn,
   useConfirm,
+  useToast,
 } from "@/components/neander/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { TransactionEditor } from "@/components/neander/finance/TransactionEditor";
@@ -61,7 +75,11 @@ import {
   type SheetLayoutHandle,
 } from "@/components/neander/finance/useSheetLayout";
 import { Money } from "@/components/neander/finance/ui";
-import { applyFinEdits } from "@/lib/neander/finance/client";
+import {
+  applyFinEdits,
+  deleteFinLedgerColumn,
+  upsertFinLedgerColumn,
+} from "@/lib/neander/finance/client";
 import { exportLedgerXlsx } from "@/lib/neander/finance/export";
 import type { FinTransaction } from "@/lib/neander/finance/types";
 import {
@@ -232,8 +250,9 @@ function Stat({ label, children }: { label: string; children: ReactNode }) {
 }
 
 export default function LedgerPage() {
-  const { transactions, accounts, paymentMethods, loading, refresh } = useFinance();
+  const { transactions, accounts, paymentMethods, ledgerColumns, loading, refresh } = useFinance();
   const confirm = useConfirm();
+  const toast = useToast();
 
   const [filters, setFilters] = useState<Filters>({});
   /** 결제수단 탭. 열 필터와 다른 축이라 필터가 아니라 보기로 둔다 */
@@ -564,7 +583,7 @@ export default function LedgerPage() {
    * 지운 것 같은데 행은 그대로 남는다 — 그게 "삭제가 안 된다" 의 정체였다.
    * 그래서 「행 추가」 옆에 같은 무게의 버튼을 두고 고른 수를 함께 보여준다.
    */
-  const [selRange, setSelRange] = useState<{ from: number; to: number } | null>(null);
+  const [selRange, setSelRange] = useState<{ from: number; to: number; colId?: string } | null>(null);
 
   /**
    * 시트가 알려주는 선택을 받는다. 두 가지를 막아야 한다.
@@ -574,9 +593,11 @@ export default function LedgerPage() {
    * ② 같은 범위면 상태를 그대로 둔다 — 시트는 매번 새 객체를 주므로, 값이
    *    같아도 갱신하면 렌더 → 통지 → 렌더 로 끝없이 돈다.
    */
-  const setSelection = useCallback((r: { from: number; to: number } | null) => {
+  const setSelection = useCallback((r: { from: number; to: number; colId?: string } | null) => {
     if (!r) return;
-    setSelRange((prev) => (prev && prev.from === r.from && prev.to === r.to ? prev : r));
+    setSelRange((prev) =>
+      prev && prev.from === r.from && prev.to === r.to && prev.colId === r.colId ? prev : r,
+    );
   }, []);
   const selectedRows = useMemo(
     () => (selRange ? rows.slice(selRange.from, selRange.to + 1) : []),
@@ -630,6 +651,67 @@ export default function LedgerPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [deleteSelected]);
+
+  // ---- 열 추가·삭제 ----------------------------------------------
+  /**
+   * 고른 열. `x:` 로 시작하면 사람이 덧붙인 열, 아니면 회계 고정 열이다.
+   *
+   * 고정 열은 지울 수 없다 — 거래일·금액·계정은 집계·검증·내보내기가 전부
+   * 의존한다. 그래서 「열 삭제」 는 고정 열이면 **감추고**, 덧붙인 열이면
+   * 정의를 지운다(거래에 남은 값은 그대로 둔다. 되살리면 다시 보인다).
+   */
+  const selColId = selRange?.colId;
+  const selCustom = selColId?.startsWith("x:") ? ledgerColumns.find((c) => `x:${c.id}` === selColId) : undefined;
+  const selFixedLabel = selColId && !selColId.startsWith("x:")
+    ? LEDGER_COLUMNS.find((c) => c.key === selColId)?.label
+    : undefined;
+
+  const [addingCol, setAddingCol] = useState(false);
+  const [colBusy, setColBusy] = useState(false);
+
+  const addColumn = async (label: string) => {
+    setColBusy(true);
+    try {
+      // 고른 열 바로 왼쪽에. 고른 열이 없으면 맨 오른쪽.
+      await upsertFinLedgerColumn({
+        label,
+        before: selColId && !selColId.startsWith("x:") ? selColId : undefined,
+      });
+      setAddingCol(false);
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "열을 만들지 못했습니다.");
+    } finally {
+      setColBusy(false);
+    }
+  };
+
+  const removeColumn = async () => {
+    if (selCustom) {
+      const ok = await confirm({
+        title: `「${selCustom.label}」 열을 지울까요?`,
+        message: "적어 둔 값은 지우지 않습니다. 같은 이름으로 다시 만들면 그대로 다시 보입니다.",
+        confirmLabel: "열 지우기",
+        tone: "danger",
+      });
+      if (!ok) return;
+      setColBusy(true);
+      try {
+        await deleteFinLedgerColumn(selCustom.id);
+        await refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "열을 지우지 못했습니다.");
+      } finally {
+        setColBusy(false);
+      }
+      return;
+    }
+    if (selColId) {
+      // 회계 고정 열 — 지우지 않고 감춘다
+      sheet.setColumnHidden(selColId, true);
+      toast.info(`「${selFixedLabel ?? selColId}」 열을 감췄습니다. 「열」 에서 다시 보일 수 있습니다.`);
+    }
+  };
 
   // ---- 상세 모달 → 초안에 적용 -----------------------------------
   const applyDetail = async (patch: Partial<FinTransaction>) => {
@@ -860,6 +942,36 @@ export default function LedgerPage() {
                 <span className="nd-num">({selectedRows.length.toLocaleString("ko-KR")})</span>
               )}
             </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={Plus}
+              onClick={() => setAddingCol(true)}
+              disabled={colBusy}
+              title={
+                selColId && !selColId.startsWith("x:")
+                  ? `「${selFixedLabel}」 왼쪽에 새 열`
+                  : "맨 오른쪽에 새 열 (열을 고르면 그 왼쪽에 들어갑니다)"
+              }
+            >
+              열 추가
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={Trash2}
+              onClick={() => void removeColumn()}
+              disabled={!selColId || colBusy}
+              title={
+                selCustom
+                  ? `「${selCustom.label}」 열 지우기`
+                  : selFixedLabel
+                    ? `「${selFixedLabel}」 감추기 (회계 열이라 지울 수 없습니다)`
+                    : "지울 열을 먼저 고르세요 (머리글 아래 칸을 클릭)"
+              }
+            >
+              열 삭제
+            </Button>
             <ColumnsButton sheet={sheet} />
             <Button
               variant="secondary"
@@ -1003,11 +1115,20 @@ export default function LedgerPage() {
               optionsFor={optionsFor}
               height={slot.height}
               sheet={sheet}
+              ledgerColumns={ledgerColumns}
               onSelectionChange={setSelection}
             />
           ) : null}
         </div>
       </Card>
+
+      <AddColumnDialog
+        open={addingCol}
+        busy={colBusy}
+        beside={selFixedLabel}
+        onClose={() => setAddingCol(false)}
+        onAdd={addColumn}
+      />
 
       {detail && (
         <TransactionEditor
@@ -1088,5 +1209,63 @@ function ColumnsButton({ sheet }: { sheet: SheetLayoutHandle }) {
         </div>
       </Popover>
     </>
+  );
+}
+
+/** 새 열 이름 묻기 — 고른 열이 있으면 그 왼쪽에 들어간다고 알려 준다 */
+function AddColumnDialog({
+  open,
+  busy,
+  beside,
+  onClose,
+  onAdd,
+}: {
+  open: boolean;
+  busy: boolean;
+  beside?: string;
+  onClose: () => void;
+  onAdd: (label: string) => void;
+}) {
+  const [label, setLabel] = useState("");
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (open) setLabel("");
+  }, [open]);
+  const submit = () => {
+    const v = label.trim();
+    if (v) onAdd(v);
+  };
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      size="sm"
+      title="새 열"
+      description={beside ? `「${beside}」 바로 왼쪽에 들어갑니다.` : "표 맨 오른쪽에 들어갑니다."}
+      initialFocus={ref}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            취소
+          </Button>
+          <Button onClick={submit} loading={busy} disabled={!label.trim()}>
+            만들기
+          </Button>
+        </>
+      }
+    >
+      <Field label="열 이름" hint="집계·엑셀 내보내기에는 들어가지 않는 메모 칸입니다.">
+        <Input
+          ref={ref}
+          value={label}
+          maxLength={40}
+          placeholder="예: 확인함, 담당자"
+          onChange={(e) => setLabel(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit();
+          }}
+        />
+      </Field>
+    </Dialog>
   );
 }

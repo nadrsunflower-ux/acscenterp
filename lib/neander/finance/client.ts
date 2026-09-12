@@ -25,6 +25,7 @@ import type {
   FinBudgetDoc,
   FinPaymentMethodDoc,
   FinSubscriptionDoc,
+  FinLedgerColumnDoc,
   FinVendorRuleDoc,
 } from "./db-types";
 
@@ -36,6 +37,8 @@ export interface FinanceSnapshot {
   accounts: FinAccountDoc[];
   paymentMethods: FinPaymentMethodDoc[];
   vendorRules: FinVendorRuleDoc[];
+  /** 원장에 사람이 덧붙인 열 */
+  ledgerColumns: FinLedgerColumnDoc[];
   subscriptions: FinSubscriptionDoc[];
   allocations: FinAllocationDoc[];
   budgets: FinBudgetDoc[];
@@ -525,3 +528,10 @@ export const upsertFinVendorRule = (rule: {
 }) => mutate("vendorRule.upsert", rule);
 
 export const deleteFinVendorRule = (id: string) => mutate("vendorRule.delete", { id });
+
+/** 원장에 덧붙인 열 — 만들기·이름 바꾸기 */
+export const upsertFinLedgerColumn = (col: { id?: string; label: string; before?: string }) =>
+  mutate<{ id: string }>("ledgerColumn.upsert", col);
+
+/** 열 정의를 지운다. 거래에 남은 값은 건드리지 않는다 (되살리면 다시 보인다) */
+export const deleteFinLedgerColumn = (id: string) => mutate("ledgerColumn.delete", { id });

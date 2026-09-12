@@ -56,4 +56,6 @@ export const NEANDER_COL = {
   finProjects: "neander_fin_projects",
   /** 프로젝트 문서 — 견적서·계약서 (문서 1개 = 서류 1개, kind 로 구분, 파일은 Storage 경로) */
   finDocs: "neander_fin_docs",
+  /** 원장에 사람이 덧붙인 열 (값은 거래 문서의 extra 에 담긴다) */
+  finLedgerColumns: "neander_fin_ledger_columns",
 } as const;

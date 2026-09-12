@@ -86,6 +86,11 @@ export interface FinTransaction {
   projectCode?: string;
   /** 비고 (자유 메모) */
   note?: string;
+  /**
+   * 사람이 덧붙인 열의 값 (열 id → 문자열).
+   * 집계·검증·엑셀 내보내기는 보지 않는다 — 화면에서만 쓰는 메모 칸이다.
+   */
+  extra?: Record<string, string>;
 
   // ---- 분류 상태 ----
   status: ClassificationStatus;

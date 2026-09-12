@@ -22,6 +22,22 @@ export interface FinVendorRuleDoc extends FinVendorRuleMaster {
   lookupKey?: string;
 }
 
+/**
+ * 원장에 사람이 덧붙인 열.
+ *
+ * 고정 열(거래일·금액·계정 …)은 집계·검증·내보내기가 의존하는 회계 항목이라
+ * 손댈 수 없다. 그 옆에 자기 열을 하나 더 두고 싶을 때 쓴다 — 값은 거래 문서의
+ * `extra[id]` 에 문자열로 담기고, 집계에는 들어가지 않는다.
+ */
+export interface FinLedgerColumnDoc {
+  id: string;
+  label: string;
+  /** 이 고정 열 **바로 왼쪽**에 놓는다. 비어 있으면 맨 오른쪽 */
+  before?: string;
+  createdAt: number;
+  createdBy?: string;
+}
+
 export interface FinSubscriptionDoc extends FinSubscriptionMaster {
   id: string;
 }
