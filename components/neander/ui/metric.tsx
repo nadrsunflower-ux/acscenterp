@@ -12,6 +12,7 @@ import { ChevronRight } from "lucide-react";
 import { cn } from "./cn";
 import { Icon } from "./icon";
 import { Badge, type Tone } from "./badge";
+import { Meter } from "./meter";
 
 /** 핵심 지표 여러 개를 하나의 표면에 — 칸 사이는 얇은 선(gap-px 트릭) */
 export function KpiStrip({
@@ -164,4 +165,49 @@ export function Metric({
       </button>
     );
   return <div className={base}>{body}</div>;
+}
+
+/**
+ * 비율 타일 — 큰 퍼센트 + 그 아래 진행 막대.
+ *
+ * 구독 리포트와 예산 리포트가 거의 같은 코드를 각자 손으로 만들고 있었다
+ * (양쪽 주석에 「공통화 후보」라고 적혀 있었다). 막대만으로는 정확한 값을
+ * 알 수 없어 숫자를 늘 함께 찍고, 기준을 넘긴 값은 색과 함께 「초과」
+ * 글자로도 알린다 — 색만으로 뜻을 전하지 않는다.
+ */
+export function RatioTile({
+  label,
+  /** 0~1. null 이면 분모가 없다는 뜻 — 0% 로 보이면 거짓말이 된다 */
+  value,
+  hint,
+  /** 이 값을 넘으면 경고 (예산 1 = 100%) */
+  warnAbove,
+  /** 막대의 최대값 (기본 1). 달성률처럼 100% 를 넘을 수 있으면 늘린다 */
+  max = 1,
+  digits = 1,
+  tag,
+}: {
+  label: ReactNode;
+  value: number | null | undefined;
+  hint?: ReactNode;
+  warnAbove?: number;
+  max?: number;
+  digits?: number;
+  tag?: ReactNode;
+}) {
+  const has = value !== null && value !== undefined && Number.isFinite(value);
+  const over = has && warnAbove !== undefined && (value as number) > warnAbove;
+  return (
+    <KpiItem
+      label={label}
+      tag={tag ?? (over ? <Badge tone="danger" size="sm">초과</Badge> : undefined)}
+      value={<span className={cn("nd-num", over && "text-nd-danger-text")}>{has ? `${((value as number) * 100).toFixed(digits)}%` : "—"}</span>}
+      hint={
+        <span className="flex items-center gap-2">
+          <Meter value={has ? (value as number) : null} max={max} warnAbove={warnAbove} width={72} />
+          {hint}
+        </span>
+      }
+    />
+  );
 }

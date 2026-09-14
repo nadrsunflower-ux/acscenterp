@@ -86,7 +86,7 @@ const config: Config = {
         "nd-sm": "6px", // 배지·안쪽 요소
       },
       fontSize: {
-        "nd-display": ["28px", { lineHeight: "1.2", fontWeight: "700", letterSpacing: "-0.02em" }],
+        "nd-display": ["clamp(26px, 2.3vw, 32px)", { lineHeight: "1.2", fontWeight: "700", letterSpacing: "-0.02em" }],
         "nd-title": ["20px", { lineHeight: "1.3", fontWeight: "700", letterSpacing: "-0.01em" }],
         "nd-section": ["15px", { lineHeight: "1.4", fontWeight: "600" }],
         "nd-body": ["14px", { lineHeight: "1.5" }],
@@ -102,6 +102,9 @@ const config: Config = {
         "nd-dock": "40",
         "nd-popover": "50",
         "nd-dialog": "60",
+        // 창 안에서 연 팝오버 — 창(60) 위, 토스트(70) 아래.
+        // 층이 하나 없어서 「창 위에 뜨는 판」 을 못 그리던 자리다.
+        "nd-popover-over": "65",
         "nd-toast": "70",
       },
       transitionTimingFunction: { nd: "var(--nd-ease)" },

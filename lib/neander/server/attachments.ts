@@ -15,7 +15,7 @@ import * as XLSX from "xlsx";
 import mammoth from "mammoth";
 import JSZip from "jszip";
 import { extractText } from "unpdf";
-import { fileExt } from "../attachment-limits";
+import { fileExt } from "@/lib/neander/ai/attachment-limits";
 
 /** 파일 하나당 이 글자 수를 넘는 부분은 버린다 — 대화 몇 턴이면 비용이 튄다 */
 const MAX_CHARS_PER_FILE = 30_000;

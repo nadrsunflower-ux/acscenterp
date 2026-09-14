@@ -14,11 +14,25 @@
 //  음수가 되는 문제가 있었다.
 // ============================================================
 
-import { useEffect, useId, useRef, useState } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import type { MonthPoint } from "@/lib/neander/finance/aggregate";
-import { formatSigned } from "@/lib/neander/finance/types";
-import { ChartTooltip, cn, useChartHover } from "@/components/neander/ui";
-import { Legend, SERIES, monthLabel } from "./ui";
+import {
+  ChartTooltip,
+  cn,
+  Legend,
+  SERIES,
+  useChartHover,
+} from "@/components/neander/ui";
+import {
+  formatSigned,
+  monthLabel,
+  shortWon,
+} from "@/lib/neander/format";
 
 const H = 220; // 전체 높이
 const PAD_T = 12;
@@ -37,18 +51,6 @@ function niceMax(v: number): number {
   return step * mag;
 }
 
-/** 축 눈금용 축약 표기 — 60,000,000 → "6,000만", 150,000,000 → "1억 5,000만" */
-export function shortWon(n: number): string {
-  const a = Math.round(Math.abs(n));
-  if (a === 0) return "0";
-  const eok = Math.floor(a / 100_000_000);
-  const man = Math.round((a % 100_000_000) / 10_000);
-  const parts: string[] = [];
-  if (eok > 0) parts.push(`${eok.toLocaleString("ko-KR")}억`);
-  if (man > 0) parts.push(`${man.toLocaleString("ko-KR")}만`);
-  if (parts.length === 0) return a.toLocaleString("ko-KR");
-  return (n < 0 ? "△" : "") + parts.join(" ");
-}
 
 function useWidth<T extends HTMLElement>() {
   const ref = useRef<T>(null);

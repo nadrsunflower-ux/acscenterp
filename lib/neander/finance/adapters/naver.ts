@@ -22,7 +22,7 @@
 
 import type { WorkBook } from "xlsx";
 import { cellAt, col, findHeaderRow, hasLabels, parseAmount, pickSheet, sheetRange, str } from "./util";
-import type { PosResult, PosSale } from "./pos";
+import type { PosResult, PosSale, PosSaleOption } from "./pos";
 
 /**
  * `26. 6. 1.(월) 오후 4:00` → `2026-06-01`.
@@ -48,6 +48,22 @@ function parseNaverDate(v: unknown): { date: string; datetime?: string } | null 
   return { date, datetime: `${date} ${pad(h)}:${tm[3]}:00` };
 }
 
+/** 한 행의 품목별 내역. 금액이 있는 칸만 — 없으면 필드 자체를 붙이지 않는다 */
+function optionsOf(
+  ws: Parameters<typeof cellAt>[0],
+  r: number,
+  cols: { label: string; count: number; amount: number }[],
+): { options?: PosSaleOption[] } {
+  const options = cols
+    .map((c) => ({
+      label: c.label,
+      count: parseAmount(cellAt(ws, r, c.count)).amount,
+      amount: parseAmount(cellAt(ws, r, c.amount)).amount,
+    }))
+    .filter((o) => o.count > 0 && o.amount > 0);
+  return options.length > 0 ? { options } : {};
+}
+
 export function detectNaverBooking(wb: WorkBook): number {
   return hasLabels(wb, ["예약번호", "이용일시", "실결제금액"]) ? 0.95 : 0;
 }
@@ -69,10 +85,35 @@ export function parseNaverBooking(wb: WorkBook, fileName?: string): PosResult | 
     method: col(head.cols, "결제수단"),
     payStatus: col(head.cols, "결제상태"),
     refund: col(head.cols, "환불금액"),
+    // 취소해도 남는 돈 — 2608 실측으로 늘 「실결제 − 환불」과 같았다
+    cancelFee: col(head.cols, "취소수수료"),
     channel: col(head.cols, "유입경로"),
     status: col(head.cols, "상태"),
     // 예약자·전화번호·이메일은 **일부러 읽지 않는다** (위 주석 참고)
   };
+
+  // 품목별 수량·금액 열 — 「옵션3-[포도알이벤트] 퍼퓸(50ml)」 과 그 짝
+  // 「… 결제금액」. 한 예약에 50ml 10병 + 10ml 4병처럼 섞여 오면 상품·인원
+  // 열만으로는 나눌 수 없는데, 이 열에는 답이 그대로 있다 (2608 실측: 금액이
+  // 있는 169건 모두 옵션 금액의 합 = 실결제금액). 개인정보가 없는 열이다.
+  //
+  // ⚠️ head.cols 로 찾지 않는다 — 열 이름 정규화가 괄호를 지워서
+  //    「퍼퓸(50ml)」과 「퍼퓸(10ml)」의 용량이 사라진다. 헤더 칸을 그대로 읽는다.
+  const optionCols: { label: string; count: number; amount: number }[] = [];
+  {
+    const range = sheetRange(ws);
+    const titles = new Map<string, number>();
+    for (let ci = range.s.c; ci <= range.e.c; ci++) {
+      const t = str(cellAt(ws, head.row, ci));
+      if (t) titles.set(t, ci);
+    }
+    titles.forEach((ci, t) => {
+      const m = t.match(/^(?:가격분류|옵션)\d+-(.+)$/);
+      if (!m || /결제금액$/.test(t)) return;
+      const amount = titles.get(`${t} 결제금액`);
+      if (amount !== undefined) optionCols.push({ label: m[1].trim(), count: ci, amount });
+    });
+  }
 
   const sales: PosSale[] = [];
   const warnings: string[] = [];
@@ -80,6 +121,8 @@ export function parseNaverBooking(wb: WorkBook, fileName?: string): PosResult | 
   let refundCount = 0;
   let freeCount = 0;
   let cancelled = 0;
+  let feeKeptCount = 0;
+  let feeKeptTotal = 0;
   const methods = new Map<string, number>();
 
   const range = sheetRange(ws);
@@ -95,7 +138,8 @@ export function parseNaverBooking(wb: WorkBook, fileName?: string): PosResult | 
     const method = c.method >= 0 ? str(cellAt(ws, r, c.method)) : "";
 
     if (/취소/.test(status)) cancelled += 1;
-    if (refunded > 0 || payStatus === "환불완료") {
+    const isRefund = refunded > 0 || payStatus === "환불완료" || payStatus === "입금대기취소";
+    if (isRefund) {
       refundTotal += refunded || paid;
       refundCount += 1;
     }
@@ -125,8 +169,22 @@ export function parseNaverBooking(wb: WorkBook, fileName?: string): PosResult | 
       easy: paid,
       other: 0,
       online: 0,
-      refundedAt: refunded > 0 || payStatus === "환불완료" ? payStatus : undefined,
+      ...optionsOf(ws, r, optionCols),
+      refundedAt: isRefund ? payStatus || "환불" : undefined,
+      ...(isRefund
+        ? {
+            refundAmount: refunded,
+            ...(c.cancelFee >= 0 ? { cancelFee: parseAmount(cellAt(ws, r, c.cancelFee)).amount } : {}),
+          }
+        : {}),
     });
+    if (isRefund) {
+      const kept = c.cancelFee >= 0 ? parseAmount(cellAt(ws, r, c.cancelFee)).amount : Math.max(0, paid - refunded);
+      if (kept > 0) {
+        feeKeptCount += 1;
+        feeKeptTotal += kept;
+      }
+    }
   }
 
   const total = sales.reduce((s, x) => s + x.total, 0);
@@ -139,6 +197,11 @@ export function parseNaverBooking(wb: WorkBook, fileName?: string): PosResult | 
   }
   if (cancelled > 0) {
     warnings.push(`상태가 취소인 ${cancelled}건이 있습니다.`);
+  }
+  if (feeKeptCount > 0) {
+    warnings.push(
+      `취소됐지만 취소수수료로 남은 금액이 ${feeKeptCount}건 ${feeKeptTotal.toLocaleString("ko-KR")}원 있습니다.`,
+    );
   }
   if (methods.size > 0) {
     warnings.push(

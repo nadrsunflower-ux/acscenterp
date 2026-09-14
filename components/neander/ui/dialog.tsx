@@ -20,7 +20,13 @@ import { X } from "lucide-react";
 import { cn } from "./cn";
 import { Button, IconButton, type ButtonVariant } from "./button";
 import { Portal } from "./portal";
-import { useEscape, useFocusTrap, useLockScroll } from "./hooks";
+import { useEscape, useFocusTrap, useLockScroll, usePresence } from "./hooks";
+
+/**
+ * 닫힐 때 흐려지며 사라지는 시간 (ms) — duration-nd-fast(120ms)보다 조금 길게.
+ * 창이 순간 사라지면 방금 무엇이 닫혔는지 눈이 놓친다.
+ */
+const EXIT_MS = 140;
 
 type Size = "sm" | "md" | "lg" | "xl" | "full";
 const sizeCls: Record<Size, string> = {
@@ -71,11 +77,20 @@ export function Dialog({
   useLockScroll(open);
   useFocusTrap(panelRef, open, initialFocus);
 
-  if (!open) return null;
+  // 닫히는 동안에는 마지막으로 열려 있던 내용을 그린다 — 부르는 쪽이 닫으며
+  // 제목·본문 값을 비워도 빈 창이 흐려지며 사라지지 않게
+  const { mounted, closing } = usePresence(open, EXIT_MS);
+  const shown = useRef({ title, description, children, footer });
+  if (open) shown.current = { title, description, children, footer };
+  if (!mounted) return null;
+  const v = shown.current;
   return (
     <Portal>
       <div
-        className="fixed inset-0 z-nd-dialog flex items-end justify-center bg-nd-inverse/35 p-0 animate-in fade-in duration-nd sm:items-center sm:p-4"
+        className={cn(
+          "fixed inset-0 z-nd-dialog flex items-end justify-center bg-nd-inverse/35 p-0 sm:items-center sm:p-4",
+          closing ? "pointer-events-none animate-out fade-out fill-mode-forwards duration-nd-fast" : "animate-in fade-in duration-nd",
+        )}
         onMouseDown={(e) => {
           if (closeOnOverlay && e.target === e.currentTarget) onClose();
         }}
@@ -84,34 +99,37 @@ export function Dialog({
           ref={panelRef}
           role="dialog"
           aria-modal="true"
-          aria-labelledby={title ? titleId : undefined}
-          aria-label={!title ? ariaLabel : undefined}
+          aria-labelledby={v.title ? titleId : undefined}
+          aria-label={!v.title ? ariaLabel : undefined}
           tabIndex={-1}
           className={cn(
-            "nd-surface flex max-h-[92vh] w-full flex-col rounded-t-nd-xl shadow-nd-dialog outline-none animate-in slide-in-from-bottom-4 duration-nd sm:max-h-[88vh] sm:rounded-nd-xl sm:zoom-in-95 sm:slide-in-from-bottom-0",
+            "nd-surface flex max-h-[92vh] w-full flex-col rounded-t-nd-xl shadow-nd-dialog outline-none sm:max-h-[88vh] sm:rounded-nd-xl",
+            closing
+              ? "animate-out fade-out slide-out-to-bottom-2 fill-mode-forwards duration-nd-fast sm:zoom-out-95 sm:slide-out-to-bottom-0"
+              : "animate-in slide-in-from-bottom-4 duration-nd sm:zoom-in-95 sm:slide-in-from-bottom-0",
             sizeCls[size],
             className,
           )}
         >
-          {(title || !hideClose) && (
+          {(v.title || !hideClose) && (
             <div className="flex items-start justify-between gap-3 px-5 pb-3 pt-4 sm:px-6 sm:pt-5">
               <div className="min-w-0">
-                {title && (
+                {v.title && (
                   <h2 id={titleId} className="text-nd-title text-nd-fg">
-                    {title}
+                    {v.title}
                   </h2>
                 )}
-                {description && <p className="mt-1 text-nd-body text-nd-fg-2">{description}</p>}
+                {v.description && <p className="mt-1 text-nd-body text-nd-fg-2">{v.description}</p>}
               </div>
               {!hideClose && <IconButton icon={X} label="닫기" onClick={onClose} className="-mr-2 -mt-1" />}
             </div>
           )}
-          <div className={cn("nd-scroll min-h-0 flex-1 overflow-y-auto px-5 pb-5 sm:px-6", !title && "pt-5", bodyClassName)}>
-            {children}
+          <div className={cn("nd-scroll min-h-0 flex-1 overflow-y-auto px-5 pb-5 sm:px-6", !v.title && "pt-5", bodyClassName)}>
+            {v.children}
           </div>
-          {footer && (
+          {v.footer && (
             <div className="flex flex-wrap items-center justify-end gap-2 border-t border-nd-line px-5 py-3 sm:px-6">
-              {footer}
+              {v.footer}
             </div>
           )}
         </div>
@@ -149,19 +167,37 @@ export function Sheet({
   useEscape(open, onClose);
   useLockScroll(open);
   useFocusTrap(panelRef, open, initialFocus);
-  if (!open) return null;
+  // 닫힐 때도 들어온 쪽으로 미끄러져 나간다 (Dialog 와 같은 원칙 — 마지막 내용을 그린다)
+  const { mounted, closing } = usePresence(open, EXIT_MS);
+  const shown = useRef({ title, children });
+  if (open) shown.current = { title, children };
+  if (!mounted) return null;
+  const v = shown.current;
 
   const pos =
     side === "bottom"
-      ? "inset-x-0 bottom-0 max-h-[92vh] rounded-t-nd-xl slide-in-from-bottom-6"
+      ? "inset-x-0 bottom-0 max-h-[92vh] rounded-t-nd-xl"
       : side === "left"
-        ? "inset-y-0 left-0 h-full slide-in-from-left-6"
-        : "inset-y-0 right-0 h-full slide-in-from-right-6";
+        ? "inset-y-0 left-0 h-full"
+        : "inset-y-0 right-0 h-full";
+  const motion = closing
+    ? cn(
+        "animate-out fill-mode-forwards duration-nd-fast",
+        side === "bottom" ? "slide-out-to-bottom-6" : side === "left" ? "slide-out-to-left-6" : "slide-out-to-right-6",
+        "fade-out",
+      )
+    : cn(
+        "animate-in duration-nd",
+        side === "bottom" ? "slide-in-from-bottom-6" : side === "left" ? "slide-in-from-left-6" : "slide-in-from-right-6",
+      );
 
   return (
     <Portal>
       <div
-        className="fixed inset-0 z-nd-dialog bg-nd-inverse/35 animate-in fade-in duration-nd"
+        className={cn(
+          "fixed inset-0 z-nd-dialog bg-nd-inverse/35",
+          closing ? "pointer-events-none animate-out fade-out fill-mode-forwards duration-nd-fast" : "animate-in fade-in duration-nd",
+        )}
         onMouseDown={(e) => {
           if (e.target === e.currentTarget) onClose();
         }}
@@ -170,21 +206,17 @@ export function Sheet({
           ref={panelRef}
           role="dialog"
           aria-modal="true"
-          aria-labelledby={title ? titleId : undefined}
-          aria-label={!title ? ariaLabel : undefined}
+          aria-labelledby={v.title ? titleId : undefined}
+          aria-label={!v.title ? ariaLabel : undefined}
           tabIndex={-1}
           style={side !== "bottom" ? { width: `min(100vw, ${width}px)` } : undefined}
-          className={cn(
-            "nd-surface absolute flex flex-col shadow-nd-dialog outline-none animate-in duration-nd",
-            pos,
-            className,
-          )}
+          className={cn("nd-surface absolute flex flex-col shadow-nd-dialog outline-none", pos, motion, className)}
         >
-          {(title || !hideClose) && (
+          {(v.title || !hideClose) && (
             <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-              {title ? (
+              {v.title ? (
                 <h2 id={titleId} className="text-nd-section text-nd-fg">
-                  {title}
+                  {v.title}
                 </h2>
               ) : (
                 <span />
@@ -192,7 +224,7 @@ export function Sheet({
               {!hideClose && <IconButton icon={X} label="닫기" onClick={onClose} className="-mr-2" />}
             </div>
           )}
-          <div className="nd-scroll min-h-0 flex-1 overflow-y-auto">{children}</div>
+          <div className="nd-scroll min-h-0 flex-1 overflow-y-auto">{v.children}</div>
         </div>
       </div>
     </Portal>
@@ -267,16 +299,20 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     state?.resolve(v);
     setState(null);
   };
+  // 닫히며 흐려지는 동안 제목·버튼 문구가 비지 않게 마지막 질문을 쥐고 있는다
+  const last = useRef(state);
+  if (state) last.current = state;
+  const shown = state ?? last.current;
   return (
     <ConfirmContext.Provider value={ask}>
       {children}
       <ConfirmDialog
         open={!!state}
-        title={state?.title ?? ""}
-        message={state?.message}
-        confirmLabel={state?.confirmLabel}
-        cancelLabel={state?.cancelLabel}
-        tone={state?.tone}
+        title={shown?.title ?? ""}
+        message={shown?.message}
+        confirmLabel={shown?.confirmLabel}
+        cancelLabel={shown?.cancelLabel}
+        tone={shown?.tone}
         onConfirm={() => finish(true)}
         onCancel={() => finish(false)}
       />

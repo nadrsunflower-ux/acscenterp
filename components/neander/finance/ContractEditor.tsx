@@ -14,7 +14,10 @@
 //  볼 수 있게 한다.
 // ============================================================
 
-import { useMemo, useState } from "react";
+import {
+  useMemo,
+  useState,
+} from "react";
 import { Trash2 } from "lucide-react";
 import {
   Button,
@@ -22,13 +25,17 @@ import {
   Field,
   InlineNotice,
   Input,
+  Money,
   Select,
   Textarea,
   useConfirm,
 } from "@/components/neander/ui";
-import { Money } from "@/components/neander/finance/ui";
 import { DocFilesField } from "@/components/neander/finance/DocFiles";
-import { deleteFinDoc, saveFinDoc, uploadFinDocFiles } from "@/lib/neander/finance/client";
+import {
+  deleteFinDoc,
+  saveFinDoc,
+  uploadFinDocFiles,
+} from "@/lib/neander/finance/client";
 import {
   CONTRACT_STATUSES,
   CONTRACT_STATUS_LABEL,
@@ -36,7 +43,13 @@ import {
   type FinContractInput,
   type FinDocFile,
 } from "@/lib/neander/finance/docs";
-import { VAT_HINT, VAT_LABEL, VAT_MODES, splitVat, type VatMode } from "@/lib/neander/finance/project";
+import {
+  VAT_HINT,
+  VAT_LABEL,
+  VAT_MODES,
+  splitVat,
+  type VatMode,
+} from "@/lib/neander/finance/project";
 
 export function ContractEditor({
   id: initialId,

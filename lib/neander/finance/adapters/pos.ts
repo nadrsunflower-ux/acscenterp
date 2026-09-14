@@ -26,6 +26,11 @@ export interface PosSale {
   /** 상품 요약 ("포도알 50ml 향수 외 1건") */
   items: string;
   total: number;
+  /**
+   * 수량 — 원본에 수량 열이 있을 때만 (페이히어 온라인 시트).
+   * 있으면 매출 적재가 「금액 ÷ 수량」으로 단가를 본다 (sales/resolve.ts).
+   */
+  qty?: number;
   card: number;
   cash: number;
   easy: number;
@@ -33,6 +38,26 @@ export interface PosSale {
   online: number;
   /** 환불 일시가 찍혀 있으면 환불 건 */
   refundedAt?: string;
+  /**
+   * 돌려준 금액 — 원본에 환불금액 열이 있을 때만 (네이버 예약).
+   * 있으면 매출 적재가 전액·부분 환불을 스스로 가른다 (sales/resolve.ts).
+   */
+  refundAmount?: number;
+  /** 취소해도 우리가 받은 금액 (네이버 「취소수수료」) */
+  cancelFee?: number;
+  /**
+   * 한 결제의 품목별 내역 — 원본이 알려줄 때만 (네이버 「가격분류N-…」·「옵션N-…」
+   * 열의 수량과 결제금액). 금액이 0 인 칸(「默认」 입장 인원)은 넣지 않는다.
+   * 있으면 매출 적재가 이 내역대로 줄을 나눈다 (sales/resolve.ts).
+   */
+  options?: PosSaleOption[];
+}
+
+export interface PosSaleOption {
+  /** 옵션 이름 — 「[포도알이벤트] 퍼퓸(50ml)」 · 「퍼퓸세트 (10ml*2ea)」 */
+  label: string;
+  count: number;
+  amount: number;
 }
 
 export interface PosResult {
@@ -142,6 +167,10 @@ export function parsePayhere(wb: WorkBook, fileName?: string): PosResult | null 
       const amt = (k: number) => (k >= 0 ? parseAmount(cellAt(ws, r, k)).amount : 0);
       const total = amt(c.total);
       if (!total) continue;
+      // 환불 일시 — 2026-08 내려받기부터 빈 칸에 「-」가 찍혀 온다. 문자열이
+      // 있다고 환불로 보면 한 달 전부가 환불이 된다 (실제로 그랬다). 일시는
+      // 반드시 숫자를 품는다.
+      const refundRaw = c.refundAt >= 0 ? str(cellAt(ws, r, c.refundAt)) : "";
       sales.push({
         rowNo,
         date: dt.date,
@@ -153,7 +182,7 @@ export function parsePayhere(wb: WorkBook, fileName?: string): PosResult | null 
         easy: amt(c.easy),
         other: amt(c.other),
         online: amt(c.online),
-        refundedAt: c.refundAt >= 0 ? str(cellAt(ws, r, c.refundAt)) || undefined : undefined,
+        refundedAt: /\d/.test(refundRaw) ? refundRaw : undefined,
       });
     }
   } else {

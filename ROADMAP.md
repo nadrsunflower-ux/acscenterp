@@ -164,6 +164,7 @@ npm run finance:verify -- <경로>   # 다른 파일
 | --- | --- |
 | `FIREBASE_SERVICE_ACCOUNT_B64` | 서비스 계정 JSON 을 base64 인코딩. **`NEXT_PUBLIC_` 금지** — 규칙을 우회하는 전체 권한이라 브라우저로 나가면 Firestore 전체가 열린다 |
 | `NEANDER_FINANCE_EMAILS` | 재무 접근 허용 이메일(쉼표 구분). **비우면 NEANDER 팀원 전체**가 회사 재무 원장을 본다 — 채우는 것을 강력 권장 |
+| `NEANDER_XLSX_PASSWORDS` | 암호 걸린 엑셀(토스·카카오뱅크 거래내역, 네이버 예약자관리)의 비밀번호 목록, 쉼표 구분. 서버가 차례로 시도해 풀므로 화면에서 비밀번호를 치지 않는다 — 비우면 화면이 물어본다. (예전 이름 `NEANDER_SALES_XLSX_PASSWORD` 도 함께 읽는다) |
 
 ### 적재 현황 (2026-08-14 기준)
 

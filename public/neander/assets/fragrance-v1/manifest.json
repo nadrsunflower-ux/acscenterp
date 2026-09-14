@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "images": [
+    {
+      "id": "perfume-category",
+      "label": "향수 대표 이미지",
+      "kind": "perfume",
+      "usage": "category-representative-not-actual-sku",
+      "verifiedProductPhoto": false,
+      "variants": {
+        "128": "/neander/assets/fragrance-v1/images/perfume-category-128.webp",
+        "256": "/neander/assets/fragrance-v1/images/perfume-category-256.webp",
+        "512": "/neander/assets/fragrance-v1/images/perfume-category-512.webp"
+      },
+      "width": 1254,
+      "height": 1254,
+      "transparentFraction": 0.6281265182675407,
+      "alt": "향수 대표 이미지 · 분류용 예시",
+      "mappingPolicy": "Only map explicit existing product category. Never infer actual packaging or assign by product code/name."
+    },
+    {
+      "id": "reed-diffuser-category",
+      "label": "리드 디퓨저 대표 이미지",
+      "kind": "reed-diffuser",
+      "usage": "category-representative-not-actual-sku",
+      "verifiedProductPhoto": false,
+      "variants": {
+        "128": "/neander/assets/fragrance-v1/images/reed-diffuser-category-128.webp",
+        "256": "/neander/assets/fragrance-v1/images/reed-diffuser-category-256.webp",
+        "512": "/neander/assets/fragrance-v1/images/reed-diffuser-category-512.webp"
+      },
+      "width": 1254,
+      "height": 1254,
+      "transparentFraction": 0.7841948825957892,
+      "alt": "리드 디퓨저 대표 이미지 · 분류용 예시",
+      "mappingPolicy": "Only map explicit existing product category. Never infer actual packaging or assign by product code/name."
+    },
+    {
+      "id": "room-spray-category",
+      "label": "룸 스프레이 대표 이미지",
+      "kind": "room-spray",
+      "usage": "category-representative-not-actual-sku",
+      "verifiedProductPhoto": false,
+      "variants": {
+        "128": "/neander/assets/fragrance-v1/images/room-spray-category-128.webp",
+        "256": "/neander/assets/fragrance-v1/images/room-spray-category-256.webp",
+        "512": "/neander/assets/fragrance-v1/images/room-spray-category-512.webp"
+      },
+      "width": 1254,
+      "height": 1254,
+      "transparentFraction": 0.8334490714243925,
+      "alt": "룸 스프레이 대표 이미지 · 분류용 예시",
+      "mappingPolicy": "Only map explicit existing product category. Never infer actual packaging or assign by product code/name."
+    }
+  ],
+  "iconManifest": "/neander/assets/fragrance-v1/icons/manifest.json",
+  "iconSprite": "/neander/assets/fragrance-v1/icons/sprite.svg",
+  "fallbackIcon": "fragrance",
+  "actualSkuMappings": {}
+}

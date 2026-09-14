@@ -33,7 +33,14 @@ const DATA_URL = "/api/neander/finance/data";
 const MUTATE_URL = "/api/neander/finance/mutate";
 
 export interface FinanceSnapshot {
+  /** 거래 — 화면이 읽는 필드만 온다 (finance/payload.ts) */
   transactions: FinTransaction[];
+  /** full = 전부 · delta = since 뒤로 바뀐 거래만 (transactionIds 와 함께) */
+  mode?: "full" | "delta";
+  /** 서버가 읽기 시작한 시각 — 다음 since 의 기준 */
+  serverTime?: number;
+  /** delta 일 때 지금 있는 거래 id 전부 — 지운 거래를 알아내는 근거 */
+  transactionIds?: string[];
   accounts: FinAccountDoc[];
   paymentMethods: FinPaymentMethodDoc[];
   vendorRules: FinVendorRuleDoc[];
@@ -65,10 +72,41 @@ async function readError(res: Response): Promise<string> {
   }
 }
 
-export async function fetchFinanceData(): Promise<FinanceSnapshot> {
-  const res = await fetch(DATA_URL, { headers: await authHeaders(), cache: "no-store" });
-  if (!res.ok) throw new Error(await readError(res));
+/**
+ * 재무 데이터. since(ms)를 주면 그 뒤로 바뀐 거래와 전체 id 목록만 온다 (delta).
+ * 실패는 status 를 달아 던진다 — 권한 거부(401·403)면 Provider 가 캐시를 지운다.
+ */
+export async function fetchFinanceData(since?: number): Promise<FinanceSnapshot> {
+  const url = since ? `${DATA_URL}?since=${since}` : DATA_URL;
+  const res = await fetch(url, { headers: await authHeaders(), cache: "no-store" });
+  if (!res.ok) throw Object.assign(new Error(await readError(res)), { status: res.status });
   return (await res.json()) as FinanceSnapshot;
+}
+
+/** id 로 거래 몇 건 — 동기화 중 캐시에 없는 거래를 채울 때 */
+export async function fetchFinanceTransactionsByIds(ids: string[]): Promise<FinTransaction[]> {
+  const res = await fetch(DATA_URL, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ ids }),
+    cache: "no-store",
+  });
+  if (!res.ok) throw Object.assign(new Error(await readError(res)), { status: res.status });
+  return ((await res.json()) as { transactions?: FinTransaction[] }).transactions ?? [];
+}
+
+/**
+ * 적재 중복 검사용 — 이미 있는 거래의 중복 키별 개수.
+ * 거래 목록에는 dedupHash 를 싣지 않으므로 적재 화면이 이것만 따로 받는다.
+ */
+export async function fetchFinDedupCounts(): Promise<Map<string, number>> {
+  const res = await fetch("/api/neander/finance/dedup", {
+    headers: await authHeaders(),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  const body = (await res.json()) as { counts?: Record<string, number> };
+  return new Map(Object.entries(body.counts ?? {}));
 }
 
 async function mutate<T = unknown>(action: string, payload?: unknown): Promise<T> {
@@ -99,19 +137,23 @@ export const updateFinTransaction = (id: string, patch: Partial<FinTransactionIn
   (Object.keys(patch) as (keyof FinTransactionInput)[]).forEach((k) => {
     wire[k] = patch[k] === undefined ? null : patch[k];
   });
-  return mutate("transaction.update", { id, patch: wire });
+  return mutate<{ ok: true; transactions: FinTransaction[] }>("transaction.update", { id, patch: wire });
 };
 
 export const deleteFinTransaction = (id: string) => mutate("transaction.delete", { id });
 
+/** 처리 직전의 거래 전체를 되쓴다 — 검토 대기함 되돌리기 */
+export const restoreFinTransactions = (rows: FinTransaction[]) =>
+  mutate<{ ok: true; restored: number; transactions: FinTransaction[] }>("transaction.restore", { rows });
+
 export const bulkUpdateFinStatus = (ids: string[], status: string) =>
-  mutate("transaction.bulkStatus", { ids, status });
+  mutate<{ ok: true; updated: number; transactions: FinTransaction[] }>("transaction.bulkStatus", { ids, status });
 
 /** 여러 거래에 같은 값을 한 번에 적용 (계정 일괄 교정 등) */
 export const bulkPatchFinTransactions = (
   ids: string[],
   patch: Partial<FinTransactionInput>,
-) => mutate<{ updated: number }>("transaction.bulkPatch", { ids, patch });
+) => mutate<{ updated: number; transactions: FinTransaction[] }>("transaction.bulkPatch", { ids, patch });
 
 /** 원장 시트 일괄 저장 — 행별 패치·신규·삭제를 한 요청에 */
 export const applyFinEdits = (edits: {
@@ -119,7 +161,14 @@ export const applyFinEdits = (edits: {
   inserts: FinTransactionInput[];
   deletes: string[];
 }) =>
-  mutate<{ updated: number; inserted: number; deleted: number }>(
+  mutate<{
+    updated: number;
+    inserted: number;
+    deleted: number;
+    insertedIds: string[];
+    /** 고치거나 새로 넣은 거래 (지운 것은 빠진다) */
+    transactions: FinTransaction[];
+  }>(
     "transaction.applyEdits",
     edits,
   );
@@ -409,20 +458,41 @@ export async function sendFinanceChat(
  * 토스·카카오뱅크 거래내역은 암호가 걸려 있어 브라우저에서 못 읽는다.
  * 서버에 보내 풀어 온다. 파일도 비밀번호도 서버에 남지 않는다.
  */
-export async function decryptFinanceFile(file: File, password: string): Promise<ArrayBuffer> {
+/**
+ * 암호 걸린 은행 파일을 서버에서 푼다. 비밀번호는 보통 서버 환경변수 목록에
+ * 있어 보낼 것이 없다 — 서버가 못 풀었을 때만 password 를 준다.
+ */
+export async function decryptFinanceFile(file: File, password?: string): Promise<ArrayBuffer> {
   const user = getNeanderAuth().currentUser;
   if (!user) throw new Error("로그인이 필요합니다.");
   const form = new FormData();
   form.append("file", file);
-  form.append("password", password);
+  if (password) form.append("password", password);
   const res = await fetch("/api/neander/finance/decrypt", {
     method: "POST",
     headers: { Authorization: `Bearer ${await user.getIdToken()}` },
     body: form,
   });
-  if (!res.ok) throw new Error(await readError(res));
+  if (!res.ok) {
+    let msg = `복호화에 실패했습니다 (HTTP ${res.status})`;
+    let needsPassword = false;
+    try {
+      const body = (await res.json()) as { error?: string; needsPassword?: boolean };
+      msg = body.error || msg;
+      needsPassword = !!body.needsPassword;
+    } catch {
+      /* 본문 없음 */
+    }
+    const err = new Error(msg) as Error & { needsPassword?: boolean };
+    err.needsPassword = needsPassword;
+    throw err;
+  }
   return res.arrayBuffer();
 }
+
+/** 계좌·카드 마스터 한 건 고치기 — 은행 · 월별 적재 대상 (문서 id = 뒷 4자리) */
+export const updateFinPaymentMethod = (id: string, patch: { bank?: string | null; monthly?: boolean | null }) =>
+  mutate("paymentMethod.update", { id, patch });
 
 // ---- 마스터 -------------------------------------------------
 

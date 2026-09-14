@@ -5,33 +5,43 @@
 // ------------------------------------------------------------
 //  데스크톱: 화면 왼쪽에 떠 있는 유리 패널(펼침 248 / 접힘 64).
 //  태블릿: 기본 접힘. 모바일(<768): 같은 내용을 왼쪽 드로어(Sheet)로.
-//  재무 아래에서는 재무 워크스페이스 메뉴로 바뀌고 "전체 ERP" 링크가 붙는다.
+//  재무·매출 아래에서는 그 워크스페이스 메뉴로 바뀌고 "전체 ERP" 링크가
+//  붙는다. 어떤 경로가 워크스페이스인지는 nav-config 의 WORKSPACES 가
+//  정한다 — 여기서 모듈 이름으로 분기하지 않는다.
 //  선택 행은 accent-soft 단색 — 유리 위에 유리를 겹치지 않는다.
 // ============================================================
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRef, useState } from "react";
-import { Briefcase, ChevronLeft, ChevronsUpDown, LayoutGrid, LogOut, PanelLeftClose, PanelLeftOpen, Store } from "lucide-react";
+import { ChevronLeft, ChevronsUpDown, LayoutGrid, LogOut, PanelLeftClose, PanelLeftOpen, Store } from "lucide-react";
 import { useAppData } from "@/components/neander/app-data";
 import { useAuth } from "@/components/neander/auth";
-import { cn, CountBadge, Icon, IconButton, Menu, MemberAvatar, Sheet, Tooltip } from "@/components/neander/ui";
+import {
+  BrandMark,
+  ProductWordmark,
+  cn,
+  CountBadge,
+  Icon,
+  IconButton,
+  Menu,
+  MemberAvatar,
+  Sheet,
+  Tooltip,
+} from "@/components/neander/ui";
 import { useShell } from "./context";
-import { FINANCE_NAV, GLOBAL_NAV, isActive, isFinancePath, type NavItem } from "./nav-config";
+import { GLOBAL_NAV, WORKSPACES, isActive, workspaceOf, type NavItem } from "./nav-config";
 
+/**
+ * 셸 머리의 상표.
+ *
+ * ⚠️ 로고 파일이 저장소에 들어오면 `components/neander/ui/brand.tsx` 의
+ *    `BRAND_LOGO` 에 경로를 채우고, 그때 이 자리가 파일로 바뀐다. 채워지기
+ *    전에는 글자로 둔다 — 다른 브랜드의 로고를 임시로 끼워 넣지 않는다.
+ *    (회사 로고 AC'SCENT 는 매장 브랜드이고, 이 자리는 ERP 제품 자리다)
+ */
 function Wordmark({ compact = false }: { compact?: boolean }) {
-  if (compact) {
-    return (
-      <span className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-nd-inverse text-[13px] font-bold text-white" aria-label="NEANDER ERP">
-        N
-      </span>
-    );
-  }
-  return (
-    <span className="flex items-baseline gap-1.5 px-1">
-      <span className="text-[15px] font-bold tracking-tight text-nd-fg">NEANDER</span>
-      <span className="text-nd-micro font-semibold tracking-wide text-nd-fg-3">ERP</span>
-    </span>
-  );
+  if (compact) return <BrandMark />;
+  return <ProductWordmark height={15} className="px-1" />;
 }
 
 function NavRow({
@@ -89,8 +99,8 @@ export function SidebarContent({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
-  const finance = isFinancePath(pathname);
-  const groups = finance ? FINANCE_NAV : GLOBAL_NAV;
+  const workspace = workspaceOf(pathname);
+  const groups = workspace ? workspace.nav : GLOBAL_NAV;
   const { badges, toggleCollapsed } = useShell();
   const { currentMember } = useAppData();
   const { user, logout } = useAuth();
@@ -100,8 +110,8 @@ export function SidebarContent({
   const userRef = useRef<HTMLButtonElement>(null);
   const [userOpen, setUserOpen] = useState(false);
 
-  const workspaceLabel = finance ? "재무 워크스페이스" : "전체 ERP";
-  const workspaceIcon = finance ? Briefcase : LayoutGrid;
+  const workspaceLabel = workspace ? `${workspace.label} 워크스페이스` : "전체 ERP";
+  const workspaceIcon = workspace ? workspace.icon : LayoutGrid;
 
   return (
     <div className={cn("flex h-full min-h-0 flex-col", collapsed ? "items-center px-3 py-3" : "px-3 py-3")}>
@@ -150,13 +160,19 @@ export function SidebarContent({
         ariaLabel="워크스페이스 선택"
         matchWidth={!collapsed}
         items={[
-          { key: "erp", label: "전체 ERP", icon: LayoutGrid, checked: !finance, onSelect: () => { window.location.assign("/neander"); } },
-          { key: "finance", label: "재무 워크스페이스", icon: Briefcase, checked: finance, onSelect: () => { window.location.assign("/neander/finance"); } },
+          { key: "erp", label: "전체 ERP", icon: LayoutGrid, checked: !workspace, onSelect: () => { window.location.assign("/neander"); } },
+          ...WORKSPACES.map((w) => ({
+            key: w.key,
+            label: `${w.label} 워크스페이스`,
+            icon: w.icon,
+            checked: workspace?.key === w.key,
+            onSelect: () => { window.location.assign(w.href); },
+          })),
         ]}
       />
 
-      {/* 재무 → 전체 ERP 로 돌아가는 길 */}
-      {finance &&
+      {/* 워크스페이스 → 전체 ERP 로 돌아가는 길 */}
+      {workspace &&
         (collapsed ? (
           <Tooltip label="전체 ERP" side="bottom">
             <Link
@@ -180,7 +196,7 @@ export function SidebarContent({
         ))}
 
       {/* 메뉴 — 화면이 낮으면 이 부분만 스크롤 */}
-      <nav aria-label={finance ? "재무 메뉴" : "ERP 메뉴"} className="nd-scroll mt-1 min-h-0 flex-1 overflow-y-auto">
+      <nav aria-label={workspace ? `${workspace.label} 메뉴` : "ERP 메뉴"} className="nd-scroll mt-1 min-h-0 flex-1 overflow-y-auto">
         {groups.map((g, gi) => (
           <div key={g.label ?? gi} className={cn(gi > 0 && (collapsed ? "mt-2 border-t border-nd-line pt-2" : "mt-3"))}>
             {g.label && !collapsed && (

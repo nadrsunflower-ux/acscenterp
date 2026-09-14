@@ -8,7 +8,7 @@
 //  주/월. HIG: 탭은 탐색용이지 동작용이 아니다.
 // ============================================================
 import Link from "next/link";
-import type { KeyboardEvent, ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { cn } from "./cn";
 import { Icon, type LucideIcon } from "./icon";
 import { CountBadge } from "./badge";
@@ -163,18 +163,60 @@ export function SegmentedControl<V extends string>({
       (e.currentTarget.querySelector(`[data-value="${next.value}"]`) as HTMLElement | null)?.focus();
     }
   };
+
+  // ---- 미끄러지는 선택 표시 ----
+  // 흰 알약이 고른 칸으로 옮겨 간다. 칸마다 배경을 켜고 끄면 알약이 순간
+  // 이동해서, 무엇이 무엇으로 바뀌었는지 눈이 좇지 못한다.
+  // 자리를 재기 전(서버 렌더·첫 프레임)에는 예전처럼 버튼이 직접 배경을 칠한다.
+  const groupRef = useRef<HTMLDivElement>(null);
+  const [thumb, setThumb] = useState<{ x: number; w: number } | null>(null);
+  const [glide, setGlide] = useState(false);
+  useLayoutEffect(() => {
+    const g = groupRef.current;
+    if (!g) return;
+    const measure = () => {
+      const el = g.querySelector<HTMLElement>(`[data-value="${CSS.escape(value)}"]`);
+      setThumb((prev) => {
+        const next = el ? { x: el.offsetLeft, w: el.offsetWidth } : null;
+        return prev && next && prev.x === next.x && prev.w === next.w ? prev : next;
+      });
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(g);
+    return () => ro.disconnect();
+  }, [value, options.length]);
+  // 첫 자리에는 미끄러지지 않고 바로 앉는다 — 다음 프레임부터 전환을 켠다
+  useEffect(() => {
+    if (!thumb || glide) return;
+    const r = requestAnimationFrame(() => setGlide(true));
+    return () => cancelAnimationFrame(r);
+  }, [thumb, glide]);
+
   return (
     <div
+      ref={groupRef}
       role="radiogroup"
       aria-label={ariaLabel}
       onKeyDown={onKey}
       className={cn(
-        "inline-flex items-center rounded-full p-0.5",
+        "relative inline-flex items-center rounded-full p-0.5",
         glass ? "nd-glass" : "bg-nd-fg/[.07]",
         fill && "flex w-full",
         className,
       )}
     >
+      {thumb && (
+        <span
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute inset-y-0.5 left-0 rounded-full bg-nd-content shadow-nd-card",
+            glide && "transition-[transform,width] duration-nd ease-nd",
+          )}
+          style={{ transform: `translateX(${thumb.x}px)`, width: thumb.w }}
+        />
+      )}
       {options.map((o) => {
         const active = o.value === value;
         return (
@@ -188,10 +230,12 @@ export function SegmentedControl<V extends string>({
             disabled={o.disabled}
             onClick={() => onChange(o.value)}
             className={cn(
-              "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full font-medium outline-none transition-all duration-nd-fast ease-nd disabled:opacity-40",
+              "relative inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full font-medium outline-none transition-colors duration-nd-fast ease-nd disabled:opacity-40",
               size === "sm" ? "h-6 px-2.5 text-[12px]" : "h-7 px-3 text-[13px]",
               fill && "flex-1",
-              active ? "bg-nd-content text-nd-fg shadow-nd-card" : "text-nd-fg-2 hover:text-nd-fg",
+              active
+                ? cn("text-nd-fg", !thumb && "bg-nd-content shadow-nd-card")
+                : "text-nd-fg-2 hover:text-nd-fg",
             )}
           >
             {o.icon && <Icon icon={o.icon} size={14} />}

@@ -12,7 +12,7 @@ import { useAppData } from "@/components/neander/app-data";
 import { useAuth } from "@/components/neander/auth";
 import { useChat } from "@/components/neander/chat";
 import { seedDefaultMembers } from "@/lib/neander/db/members";
-import { Button } from "@/components/neander/ui";
+import { Button, cn } from "@/components/neander/ui";
 import { ShellProvider, useShell } from "./shell/context";
 import { Sidebar } from "./shell/Sidebar";
 import { Topbar } from "./shell/Topbar";
@@ -65,18 +65,35 @@ function SetupScreen() {
   );
 }
 
-/** 상단바 + 본문 열. 도킹 패널이 있으면 그 폭만큼 오른쪽을 비운다 */
+/**
+ * 상단바 + 본문 열. 도킹 패널이 있으면 그 폭만큼 오른쪽을 비운다.
+ * 집중 모드(useShellFocus)에서는 상단바도 여백도 없다 — 페이지가 창 전체다.
+ */
 function ContentColumn({ children }: { children: ReactNode }) {
-  const { dockWidth } = useShell();
+  const { dockWidth, focus } = useShell();
   return (
     <div
       className="flex min-w-0 flex-1 flex-col transition-[padding] duration-nd ease-nd"
       style={dockWidth > 0 ? { paddingRight: dockWidth } : undefined}
     >
-      <Topbar />
-      <main data-nd-main className="w-full min-w-0 flex-1 px-4 pb-10 pt-3 sm:px-6 lg:px-8">
+      {!focus && <Topbar />}
+      <main
+        data-nd-main
+        className={cn("w-full min-w-0 flex-1", focus ? "p-0" : "px-4 pb-10 pt-3 sm:px-6 lg:px-8")}
+      >
         {children}
       </main>
+    </div>
+  );
+}
+
+/** 셸 뼈대 — 집중 모드면 사이드바를 그리지 않는다 */
+function Frame({ children }: { children: ReactNode }) {
+  const { focus } = useShell();
+  return (
+    <div className={cn("flex min-h-screen", focus ? "bg-nd-content" : "nd-page-bg")} data-nd-focus={focus || undefined}>
+      {!focus && <Sidebar />}
+      <ContentColumn>{children}</ContentColumn>
     </div>
   );
 }
@@ -90,10 +107,7 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <ShellProvider>
       <GlobalBadges />
-      <div className="nd-page-bg flex min-h-screen">
-        <Sidebar />
-        <ContentColumn>{children}</ContentColumn>
-      </div>
+      <Frame>{children}</Frame>
     </ShellProvider>
   );
 }

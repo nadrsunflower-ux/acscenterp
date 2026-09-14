@@ -107,6 +107,11 @@ export interface FinTransaction {
   dedupHash: string;
   /** 이 거래를 넣은 임포트 배치 */
   importBatchId?: string;
+  /**
+   * 은행 내역의 거래후 잔액. 계좌번호가 없는 파일(신한 grid)이 어느 계좌인지
+   * 가려내는 근거다 — 지난달 마지막 잔액과 이번 파일 첫 거래의 잔액이 이어진다.
+   */
+  balanceAfter?: number;
 
   createdAt: number;
   updatedAt?: number;
@@ -128,6 +133,21 @@ export interface FinImportBatch {
   /** 적재한 사람 (팀원 id) */
   byMemberId?: string;
   createdAt: number;
+  /**
+   * 월별 적재 퍼즐의 자리 — 어느 달의 어느 칸을 이 파일이 채웠는가.
+   * (`account:4223` · `card:shinhan-card`). 옛 배치(통합거래장 CLI)에는 없다.
+   */
+  month?: string;
+  slotKey?: string;
+  adapterId?: string;
+  /** 파일이 담은 기간 */
+  from?: string;
+  to?: string;
+  /** 파일에서 읽은 계좌·카드 뒷자리 */
+  last4s?: string[];
+  /** 적재된 수입·지출 합 (방향을 섞어 더하면 뜻이 없어진다) */
+  income?: number;
+  expense?: number;
 }
 
 // ---- 파생 계산 ---------------------------------------------
@@ -190,8 +210,3 @@ export function dedupHashOf(input: {
   ].join("¦");
 }
 
-/** 회계 표기: 음수는 △ 로 (엑셀 사업부손익 시트와 동일한 표기) */
-export function formatSigned(n: number): string {
-  const abs = Math.abs(Math.round(n)).toLocaleString("ko-KR");
-  return n < 0 ? `△${abs}` : abs;
-}

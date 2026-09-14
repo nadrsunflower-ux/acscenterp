@@ -16,7 +16,13 @@
 import "react-datasheet-grid/dist/style.css";
 import "./ledger-sheet.css";
 
-import { useCallback, useMemo, useRef, useState, type Ref } from "react";
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type Ref,
+} from "react";
 import { Ellipsis } from "lucide-react";
 import {
   // ⚠️ 이 라이브러리에서 `DataSheetGrid` 라는 이름으로 나오는 것은 실제로는
@@ -38,11 +44,14 @@ import {
   type Column,
   type DataSheetGridRef,
 } from "react-datasheet-grid";
-import type { FinAccountDoc, FinLedgerColumnDoc, FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
+import type {
+  FinAccountDoc,
+  FinLedgerColumnDoc,
+  FinPaymentMethodDoc,
+} from "@/lib/neander/finance/db-types";
 import {
   STATUS_LABEL,
   TX_TYPES,
-  formatSigned,
   netAmount,
   type FinTransaction,
   type TxType,
@@ -69,7 +78,10 @@ import {
   ColumnHead,
   type SelectOption,
 } from "./sheetCells";
-import { DEFAULT_ROW_HEIGHT, type SheetLayoutHandle } from "./useSheetLayout";
+import {
+  DEFAULT_ROW_HEIGHT,
+  type SheetLayoutHandle,
+} from "./useSheetLayout";
 import { ColumnMenu } from "./ColumnMenu";
 import {
   isActiveFilter,
@@ -78,6 +90,9 @@ import {
   type FilterOption,
   type Filters,
 } from "@/lib/neander/finance/sheetFilter";
+import {
+  formatSigned,
+} from "@/lib/neander/format";
 
 type Col = Column<FinTransaction, any, any>;
 
@@ -231,8 +246,15 @@ export function LedgerSheet({
   sheet: SheetLayoutHandle;
   /** 사람이 덧붙인 열 */
   ledgerColumns?: FinLedgerColumnDoc[];
-  /** 고른 행 범위와 열 — 툴바의 행·열 추가/삭제가 이걸 보고 동작한다 */
-  onSelectionChange?: (sel: { from: number; to: number; colId?: string } | null) => void;
+  /**
+   * 고른 범위 — 툴바의 행·열 추가/삭제가 이걸 보고 동작한다.
+   *
+   * `allColumns` 는 그 사각형이 **모든 열**을 덮는지다. 행 선택인지 열
+   * 선택인지를 가르는 유일한 단서라 반드시 함께 넘긴다 (아래 notifySelection).
+   */
+  onSelectionChange?: (
+    sel: { from: number; to: number; colId?: string; allColumns: boolean } | null,
+  ) => void;
 }) {
   // 열린 드롭다운. anchor 는 머리글 버튼의 화면 좌표.
   const [menu, setMenu] = useState<{ key: FilterKey; label: string; anchor: DOMRect } | null>(null);
@@ -544,19 +566,44 @@ export function LedgerSheet({
    * 시트 안쪽은 본래 픽셀이라, 나누지 않으면 80% 에서 아래 20% 가 빈다.
    */
   /**
+   * 열 개수를 콜백 안에서 읽기 위한 통로.
+   *
+   * notifySelection 의 의존성에 넣으면 열을 하나 감추거나 더할 때마다 콜백
+   * 정체성이 바뀌어 아래 경고에 걸린다. 렌더 중에 넣어 두면 통지가 오는
+   * 시점에는 언제나 최신이다.
+   */
+  const colCountRef = useRef(columns.length);
+  colCountRef.current = columns.length;
+
+  /**
    * 선택 통지. 콜백 정체성이 매 렌더 바뀌면 그리드가 그때마다 다시 알려 오고,
    * 받는 쪽이 새 객체로 상태를 바꾸면 렌더 → 통지 → 렌더 로 끝없이 돈다.
    * (실제로 그렇게 화면이 멎었다.) 그래서 여기서 한 번 고정한다.
+   *
+   * ⚠️ 열 범위(allColumns)를 반드시 함께 넘긴다. 시트는 **머리글을 눌러 열을
+   *    통째로 고른 것**도 "1행부터 끝행까지" 라는 똑같은 사각형으로 알려 준다.
+   *    행만 보면 「－ 행」 이 장부 전체를 고른 것으로 읽어, 열 하나 지우려다
+   *    11,320행 삭제가 오클릭 한 번 거리에 놓였다 — 실제로 그랬다.
+   *    행번호를 눌러·끌어 고른 행 선택은 언제나 모든 열을 덮으므로 이것으로 가른다.
    */
   const notifySelection = useCallback(
     ({
       selection,
     }: {
-      selection: { min: { row: number; colId?: string }; max: { row: number } } | null;
+      selection: {
+        min: { row: number; col: number; colId?: string };
+        max: { row: number; col: number };
+      } | null;
     }) =>
       onSelectionChange?.(
         selection
-          ? { from: selection.min.row, to: selection.max.row, colId: selection.min.colId }
+          ? {
+              from: selection.min.row,
+              to: selection.max.row,
+              colId: selection.min.colId,
+              allColumns:
+                selection.min.col === 0 && selection.max.col >= colCountRef.current - 1,
+            }
           : null,
       ),
     [onSelectionChange],

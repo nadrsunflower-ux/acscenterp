@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { requireFinanceUser, accessErrorResponse } from "@/lib/neander/finance/server/auth";
-import { adminDb } from "@/lib/neander/finance/server/admin";
+import { requireErpUser, accessErrorResponse } from "@/lib/neander/server/auth";
+import { adminDb } from "@/lib/neander/server/admin";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import { readReceipt, MAX_IMAGES } from "@/lib/neander/finance/server/ai-receipt";
 import type { FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
@@ -25,7 +25,7 @@ const MAX_BYTES = 8 * 1024 * 1024;
 
 export async function POST(req: Request) {
   try {
-    await requireFinanceUser(req);
+    await requireErpUser(req);
   } catch (e) {
     const denied = accessErrorResponse(e);
     if (denied) return denied;

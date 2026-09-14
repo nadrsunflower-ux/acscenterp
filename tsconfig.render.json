@@ -1,0 +1,7 @@
+{
+  // 화면 부품을 브라우저 없이 서버 렌더로 검사할 때 쓰는 설정.
+  // 앱 tsconfig 는 jsx="preserve"(Next 가 변환)라 tsx 로 직접 실행할 수 없다.
+  // scripts/neander/verify-ui-parts.tsx 전용이며 빌드에는 영향이 없다.
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "jsx": "react-jsx" }
+}

@@ -8,6 +8,8 @@
 // ============================================================
 import {
   forwardRef,
+  type ElementType,
+  type HTMLAttributes,
   type InputHTMLAttributes,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
@@ -69,6 +71,69 @@ export function Field({
         hint && <span className="text-nd-caption text-nd-fg-3">{hint}</span>
       )}
     </label>
+  );
+}
+
+// ---- FormRow (폼 한 줄) --------------------------------------
+/**
+ * 라벨 · 입력칸 · 힌트가 각각 같은 높이에 서는 한 줄.
+ *
+ * ⚠️ `flex items-end` 로 늘어놓으면 **힌트가 달린 칸만 입력칸이 위로 밀린다.**
+ *    힌트는 Field 높이 안에 있는데 정렬 기준이 아래 끝이라서다. 오류 문구처럼
+ *    붙었다 떨어지는 칸은 타이핑할 때마다 줄 전체가 들썩인다.
+ *
+ * 그래서 줄을 격자로 두고 칸의 **위쪽**을 맞춘다. 라벨이 한 줄인 한 입력칸도
+ * 힌트도 저절로 같은 높이에 선다 — 입력칸 높이가 모두 같기 때문이다.
+ *
+ * 칸 너비는 `className` 의 grid-cols-* 가 정한다. 입력칸에 w-24 를 박으면
+ * 열과 어긋나므로, 너비는 열에 맡기고 입력칸은 기본값(w-full)으로 둔다.
+ */
+export function FormRow({
+  as: Tag = "div",
+  className,
+  children,
+  ...rest
+}: HTMLAttributes<HTMLElement> & { as?: ElementType; className?: string; children?: ReactNode }) {
+  return (
+    <Tag className={cn("grid items-start gap-3", className)} {...rest}>
+      {children}
+    </Tag>
+  );
+}
+
+/**
+ * 라벨 자리를 비워 두고 버튼·표시값을 **입력칸 줄에** 맞춘다.
+ *
+ * FormRow 안에 버튼만 놓으면 라벨 높이만큼 위로 올라붙는다. 빈 라벨을 함께
+ * 두면 라벨 글자 크기가 바뀌어도 저절로 맞는다 — 여백을 숫자로 박으면 그때
+ * 어긋난다.
+ *
+ * `center` 는 글로 된 값(비율·안내)을 입력칸 **높이 가운데**에 놓는다.
+ *
+ * 자식은 제 너비대로 선다. 칸을 가득 채우려면 `w-full` 을 준다 (좁은 화면의
+ * 버튼처럼) — 늘 늘여 두면 넓은 화면에서 버튼만 덩그러니 커진다.
+ */
+export function FieldAction({
+  className,
+  center = false,
+  size = "sm",
+  children,
+}: {
+  className?: string;
+  /** 입력칸 높이만큼의 상자 안에서 세로 가운데 정렬 */
+  center?: boolean;
+  /** 맞출 입력칸 크기 */
+  size?: ControlSize;
+  children: ReactNode;
+}) {
+  const h = size === "sm" ? "h-ctl-sm" : size === "lg" ? "h-ctl-lg" : "h-ctl-md";
+  return (
+    <div className={cn("flex flex-col items-start gap-1.5", className)}>
+      <span className="text-nd-caption font-medium" aria-hidden>
+        {"\u00a0"}
+      </span>
+      {center ? <div className={cn("flex items-center", h)}>{children}</div> : children}
+    </div>
   );
 }
 

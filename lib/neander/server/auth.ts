@@ -1,3 +1,14 @@
+// ============================================================
+//  ERP API 접근 게이트
+// ------------------------------------------------------------
+//  재무·매출 API 가 모두 같은 게이트를 쓴다. 예전에는 이 파일이
+//  lib/neander/finance/server/ 에 있어서 매출 라우트가 재무를 거쳐
+//  인증했다 — 이름도 requireFinanceUser 였다. 게이트는 모듈이 아니라
+//  ERP 전체의 것이므로 중립 자리로 옮기고 이름도 requireErpUser 로 고쳤다.
+//
+//  ⚠️ 허용 목록 환경변수는 NEANDER_FINANCE_EMAILS 그대로다 — 배포 설정에
+//     이미 들어 있는 값이라 이름을 바꾸면 접근이 끊긴다. 코드 이름만 고쳤다.
+// ============================================================
 import "server-only";
 
 // ============================================================
@@ -18,7 +29,7 @@ import "server-only";
 
 import { adminAuth, adminDb } from "./admin";
 
-export interface FinanceUser {
+export interface ErpUser {
   uid: string;
   email: string;
 }
@@ -47,7 +58,7 @@ const financeAllowlist = () =>
  * 요청에서 신원을 확인하고 재무 접근 권한까지 검사한다.
  * 통과하지 못하면 AccessError 를 던진다.
  */
-export async function requireFinanceUser(req: Request): Promise<FinanceUser> {
+export async function requireErpUser(req: Request): Promise<ErpUser> {
   const header = req.headers.get("authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
   if (!token) {

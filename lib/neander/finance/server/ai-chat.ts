@@ -14,12 +14,10 @@
 //     기존 경로(transaction.applyEdits)로 나간다. ai-tools.ts 주석 참고.
 // ============================================================
 
-import type { FinAccountDoc, FinPaymentMethodDoc } from "../db-types";
-import type { FinTransaction } from "../types";
-import { DEFAULT_FIN_AI_MODEL, isFinAiModelId } from "../ai-models";
+import { DEFAULT_FIN_AI_MODEL, isFinAiModelId } from "@/lib/neander/ai/models";
 import { renderAccounts } from "./ai-classify";
 import { TOOL_DEFS, runTool, type ChangeProposal, type ToolContext } from "./ai-tools";
-import type { ExtractedAttachment } from "./attachments";
+import type { ExtractedAttachment } from "@/lib/neander/server/attachments";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 /** 도구 왕복 상한 — 폭주하면 비용이 튄다 */

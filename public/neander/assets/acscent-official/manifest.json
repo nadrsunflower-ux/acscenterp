@@ -1,0 +1,755 @@
+{
+  "source": "https://www.acscent.co.kr",
+  "capturedAt": "2026-09-12T14:49:29.870Z",
+  "method": "Public rendered pages; original image URL decoded from Next image URL; original bytes preserved",
+  "assets": [
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/logo/acscent-wordmark-ink.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/",
+          "alt": "AC'SCENT"
+        },
+        {
+          "page": "https://www.acscent.co.kr/products",
+          "alt": "AC'SCENT"
+        },
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-50ml",
+          "alt": "AC'SCENT"
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/idol-image",
+          "alt": "AC'SCENT"
+        },
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-10ml",
+          "alt": "AC'SCENT"
+        },
+        {
+          "page": "https://www.acscent.co.kr/products/scent-paper",
+          "alt": "AC'SCENT"
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/figure",
+          "alt": "AC'SCENT"
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/sample",
+          "alt": "AC'SCENT"
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/chemistry",
+          "alt": "AC'SCENT"
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/saju",
+          "alt": "AC'SCENT"
+        }
+      ],
+      "file": "e3664875-acscent-wordmark-ink.png",
+      "localUrl": "/neander/assets/acscent-official/images/e3664875-acscent-wordmark-ink.png",
+      "bytes": 37406,
+      "sha256": "e36648753ac0bd732603675eea78cd2a164e8768355f7921d9b184ece882b347",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://ivcjjrzvmmtwkvxcajrg.supabase.co/storage/v1/object/public/admin-content/popups/1775066518391_na3se9.jpg",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/",
+          "alt": "무료배송 이벤트"
+        }
+      ],
+      "file": "5e96b6be-1775066518391_na3se9.jpg",
+      "localUrl": "/neander/assets/acscent-official/images/5e96b6be-1775066518391_na3se9.jpg",
+      "bytes": 507717,
+      "sha256": "5e96b6beb3fff621e9bd9dbe95dfb786ec7f0a82a97a943a6c00b08432eb3c6e",
+      "contentType": "image/jpeg"
+    },
+    {
+      "sourceUrl": "https://ivcjjrzvmmtwkvxcajrg.supabase.co/storage/v1/object/public/admin-content/banners/1777559415346_qzn2a6.jpeg",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/",
+          "alt": "매장공간1"
+        }
+      ],
+      "file": "87a1921f-1777559415346_qzn2a6.jpeg",
+      "localUrl": "/neander/assets/acscent-official/images/87a1921f-1777559415346_qzn2a6.jpeg",
+      "bytes": 2239840,
+      "sha256": "87a1921fdafa417a6421307221e14534400c33ed8b95cc259039bbc5dc64ee6e",
+      "contentType": "image/jpeg"
+    },
+    {
+      "sourceUrl": "https://ivcjjrzvmmtwkvxcajrg.supabase.co/storage/v1/object/public/admin-content/products/idol-image/1776012350435_qlc6z7.jpeg",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/",
+          "alt": "AI 이미지 분석 퍼퓸"
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/idol-image",
+          "alt": ""
+        }
+      ],
+      "file": "86ab7f4f-1776012350435_qlc6z7.jpeg",
+      "localUrl": "/neander/assets/acscent-official/images/86ab7f4f-1776012350435_qlc6z7.jpeg",
+      "bytes": 2665252,
+      "sha256": "86ab7f4f40cc21b0cf4f20889ca762169df9ab6518eb2c54bb4336b2288ff9b4",
+      "contentType": "image/jpeg"
+    },
+    {
+      "sourceUrl": "https://ivcjjrzvmmtwkvxcajrg.supabase.co/storage/v1/object/public/admin-content/products/chemistry/1777901298869_cp1pkk.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/",
+          "alt": "레이어링 퍼퓸 세트"
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/chemistry",
+          "alt": ""
+        }
+      ],
+      "file": "4097994a-1777901298869_cp1pkk.png",
+      "localUrl": "/neander/assets/acscent-official/images/4097994a-1777901298869_cp1pkk.png",
+      "bytes": 1814416,
+      "sha256": "4097994afb34eb8ca9e931d0f9a8da8db4a3bad0651e79c7a338f5151218a670",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/product-detail/saju-lineup-square.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/",
+          "alt": "사주 분석 퍼퓸&디퓨저 클리커 키링"
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/saju",
+          "alt": "제품 이미지 — 사주 퍼퓸 라인업 — 향수와 오행 클리커"
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/saju",
+          "alt": ""
+        }
+      ],
+      "file": "fda34149-saju-lineup-square.png",
+      "localUrl": "/neander/assets/acscent-official/images/fda34149-saju-lineup-square.png",
+      "bytes": 2668493,
+      "sha256": "fda3414926b28d9471f8dab25368b460d65c8155c50a73dd5223ffb09fd47cec",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://ivcjjrzvmmtwkvxcajrg.supabase.co/storage/v1/object/public/admin-content/products/perfume-50ml/1780671700412_aet6f6.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/",
+          "alt": "50ml 향수"
+        },
+        {
+          "page": "https://www.acscent.co.kr/products",
+          "alt": "50ml 향수"
+        },
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-50ml",
+          "alt": ""
+        }
+      ],
+      "file": "3b88fae5-1780671700412_aet6f6.png",
+      "localUrl": "/neander/assets/acscent-official/images/3b88fae5-1780671700412_aet6f6.png",
+      "bytes": 240291,
+      "sha256": "3b88fae51b0d0f6837e46e2d9bf89e86d53f496d72ad40dbe15b87ab770a890e",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://ivcjjrzvmmtwkvxcajrg.supabase.co/storage/v1/object/public/admin-content/products/perfume-10ml/1780674676242_5yl7hc.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/",
+          "alt": "10ml 향수"
+        },
+        {
+          "page": "https://www.acscent.co.kr/products",
+          "alt": "10ml 향수"
+        },
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-10ml",
+          "alt": ""
+        }
+      ],
+      "file": "83c34def-1780674676242_5yl7hc.png",
+      "localUrl": "/neander/assets/acscent-official/images/83c34def-1780674676242_5yl7hc.png",
+      "bytes": 1574782,
+      "sha256": "83c34def8532e6f4fff6abaf8cc5b0ae1391ca88e19db674f29ad1fc0436e2d1",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://ivcjjrzvmmtwkvxcajrg.supabase.co/storage/v1/object/public/admin-content/products/scent-paper/1780672690139_c69j01.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/",
+          "alt": "시향지"
+        },
+        {
+          "page": "https://www.acscent.co.kr/products",
+          "alt": "시향지"
+        },
+        {
+          "page": "https://www.acscent.co.kr/products/scent-paper",
+          "alt": "시향지"
+        },
+        {
+          "page": "https://www.acscent.co.kr/products/scent-paper",
+          "alt": ""
+        }
+      ],
+      "file": "7909492f-1780672690139_c69j01.png",
+      "localUrl": "/neander/assets/acscent-official/images/7909492f-1780672690139_c69j01.png",
+      "bytes": 846609,
+      "sha256": "7909492f357250ddb5993d3c497c9d1b8b6d666933cf3e0e2b32abb325515f92",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/logo/acscent-wordmark-cream.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/",
+          "alt": "AC'SCENT"
+        },
+        {
+          "page": "https://www.acscent.co.kr/products",
+          "alt": "AC'SCENT"
+        },
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-50ml",
+          "alt": "AC'SCENT"
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/idol-image",
+          "alt": "AC'SCENT"
+        },
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-10ml",
+          "alt": "AC'SCENT"
+        },
+        {
+          "page": "https://www.acscent.co.kr/products/scent-paper",
+          "alt": "AC'SCENT"
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/figure",
+          "alt": "AC'SCENT"
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/sample",
+          "alt": "AC'SCENT"
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/chemistry",
+          "alt": "AC'SCENT"
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/saju",
+          "alt": "AC'SCENT"
+        }
+      ],
+      "file": "59f1ab7e-acscent-wordmark-cream.png",
+      "localUrl": "/neander/assets/acscent-official/images/59f1ab7e-acscent-wordmark-cream.png",
+      "bytes": 37416,
+      "sha256": "59f1ab7e774f8c423a8726084329d32156d56a7474b2c8cfb29ef4afeb405f46",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/products/generated/perfume-50ml/perfume-50ml-01.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-50ml",
+          "alt": "50ml 향수 — 마음에 든 향을 넉넉하게 즐기는 AC'SCENT 정규 용량 향수입니다."
+        },
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-50ml",
+          "alt": ""
+        }
+      ],
+      "file": "16f8a5b1-perfume-50ml-01.png",
+      "localUrl": "/neander/assets/acscent-official/images/16f8a5b1-perfume-50ml-01.png",
+      "bytes": 1614687,
+      "sha256": "16f8a5b1649c2bdcf0c33a7dac7c0bdda8abc9fe6f0c4323ebb82cbcefd2c1a3",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/products/generated/perfume-50ml/perfume-50ml-03.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-50ml",
+          "alt": ""
+        },
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-50ml",
+          "alt": "50ml 향수 스프레이 분사구 디테일 연출 컷"
+        }
+      ],
+      "file": "bfb7e6f9-perfume-50ml-03.png",
+      "localUrl": "/neander/assets/acscent-official/images/bfb7e6f9-perfume-50ml-03.png",
+      "bytes": 1681728,
+      "sha256": "bfb7e6f94f428ca1a95433546ec7895781244daf838aabc02d181abbdf5b735b",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/products/generated/perfume-50ml/perfume-50ml-04.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-50ml",
+          "alt": ""
+        },
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-50ml",
+          "alt": "손에 쥔 50ml 향수 크기감 연출 컷"
+        }
+      ],
+      "file": "0cd69e42-perfume-50ml-04.png",
+      "localUrl": "/neander/assets/acscent-official/images/0cd69e42-perfume-50ml-04.png",
+      "bytes": 1827208,
+      "sha256": "0cd69e42cc9be4c17f8c5bfc75285a8452097516d0dbf18efd83305ba60a9f97",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/products/generated/perfume-50ml/perfume-50ml-05.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-50ml",
+          "alt": ""
+        },
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-50ml",
+          "alt": "AC'SCENT 프리미엄 패키지 무드 연출 컷"
+        }
+      ],
+      "file": "4918f7e5-perfume-50ml-05.png",
+      "localUrl": "/neander/assets/acscent-official/images/4918f7e5-perfume-50ml-05.png",
+      "bytes": 1962625,
+      "sha256": "4918f7e55516c00c40004d74483df1cee8b1d871344f9e552d6da36d96ce7604",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://ivcjjrzvmmtwkvxcajrg.supabase.co/storage/v1/object/public/admin-content/products/perfume-50ml/1780753340430_9wwr85.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-50ml",
+          "alt": ""
+        }
+      ],
+      "file": "dc6904c2-1780753340430_9wwr85.png",
+      "localUrl": "/neander/assets/acscent-official/images/dc6904c2-1780753340430_9wwr85.png",
+      "bytes": 1854698,
+      "sha256": "dc6904c2224fb5fd1a1a644001b4882d594df6598962c830ba42e62dd4e2443f",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/product-detail/ai-10ml-report-square.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/programs/idol-image",
+          "alt": "제품 이미지 — 실제 10ml 퍼퓸과 투명 파우치, 맞춤 분석 리포트가 함께 제공되는 구성입니다."
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/idol-image",
+          "alt": ""
+        }
+      ],
+      "file": "cd387b85-ai-10ml-report-square.png",
+      "localUrl": "/neander/assets/acscent-official/images/cd387b85-ai-10ml-report-square.png",
+      "bytes": 1930892,
+      "sha256": "cd387b85dcfbf99b86527149a12e07234bdbcce7f2c3dd99b23aa9b60be0f800",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/product-detail/ai-50ml-report-square.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/programs/idol-image",
+          "alt": ""
+        }
+      ],
+      "file": "f6fc7b39-ai-50ml-report-square.png",
+      "localUrl": "/neander/assets/acscent-official/images/f6fc7b39-ai-50ml-report-square.png",
+      "bytes": 1896165,
+      "sha256": "f6fc7b391c10adaa72756cd10c2d97b5b932e4dba3aa8864279afeb180c318fe",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/product-detail/ai-50ml-full-set-8056-square.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/programs/idol-image",
+          "alt": ""
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/idol-image",
+          "alt": "실제 50ml 퍼퓸과 흰 개별 상자, 분석보고서, 동봉 카드 전체 구성"
+        }
+      ],
+      "file": "7c6c6fb7-ai-50ml-full-set-8056-square.png",
+      "localUrl": "/neander/assets/acscent-official/images/7c6c6fb7-ai-50ml-full-set-8056-square.png",
+      "bytes": 1797434,
+      "sha256": "7c6c6fb7c99c5c338bdaa728448b35e5a1083a159fc4c8c1b63c927084de55a9",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/product-detail/ai-10ml-pouch-bright.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/programs/idol-image",
+          "alt": ""
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/idol-image",
+          "alt": "밝게 보정한 실제 10ml 퍼퓸과 영문 분석보고서, 투명 파우치"
+        }
+      ],
+      "file": "bae275de-ai-10ml-pouch-bright.png",
+      "localUrl": "/neander/assets/acscent-official/images/bae275de-ai-10ml-pouch-bright.png",
+      "bytes": 1733345,
+      "sha256": "bae275de1df2780bd653a18be3233041732e1c12acbe56d25e66a916244f4034",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/product-detail/shipping-outer-box-square.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/programs/idol-image",
+          "alt": ""
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/idol-image",
+          "alt": "개인정보를 제거한 실제 AC'SCENT 외부 택배 상자"
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/chemistry",
+          "alt": ""
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/chemistry",
+          "alt": "개인정보를 제거한 실제 AC'SCENT 외부 택배 상자"
+        }
+      ],
+      "file": "ff8143e7-shipping-outer-box-square.png",
+      "localUrl": "/neander/assets/acscent-official/images/ff8143e7-shipping-outer-box-square.png",
+      "bytes": 1989966,
+      "sha256": "ff8143e73afff6a6e715e5a9fc5ff895f463519fd689c19a17d8ab57994be0de",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/product-detail/shipping-white-open-square.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/programs/idol-image",
+          "alt": ""
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/idol-image",
+          "alt": "실제 흰색 배송 상자와 허니컴 완충재, 동봉 카드"
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/chemistry",
+          "alt": ""
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/chemistry",
+          "alt": "실제 흰색 배송 상자와 허니컴 완충재, 동봉 카드"
+        }
+      ],
+      "file": "c314d24a-shipping-white-open-square.png",
+      "localUrl": "/neander/assets/acscent-official/images/c314d24a-shipping-white-open-square.png",
+      "bytes": 1594618,
+      "sha256": "c314d24a76593d2e7b579b5d18f2a176887e0fd7ee695ce8575eadd8c5c4092a",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://ivcjjrzvmmtwkvxcajrg.supabase.co/storage/v1/object/public/admin-content/products/idol-image/1776012374207_igeus1.jpeg",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/programs/idol-image",
+          "alt": ""
+        }
+      ],
+      "file": "2ea07b30-1776012374207_igeus1.jpeg",
+      "localUrl": "/neander/assets/acscent-official/images/2ea07b30-1776012374207_igeus1.jpeg",
+      "bytes": 2429411,
+      "sha256": "2ea07b30444dc8e6170f99ffa5719d268f8426fd3b18aefa010e96d5681a4440",
+      "contentType": "image/jpeg"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/perfume%20review/1.jpg",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/programs/idol-image",
+          "alt": "리뷰 이미지 1"
+        }
+      ],
+      "file": "cc61b314-1.jpg",
+      "localUrl": "/neander/assets/acscent-official/images/cc61b314-1.jpg",
+      "bytes": 483106,
+      "sha256": "cc61b3146ae5b7cfc6695280d73f4c29c89707f5be5f1dbf79521fba8f55de27",
+      "contentType": "image/jpeg"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/products/generated/perfume-10ml/perfume-10ml-01.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-10ml",
+          "alt": "10ml 향수 — 좋아하는 향을 가볍게 들고 다니는 10ml 미니 스프레이입니다."
+        },
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-10ml",
+          "alt": ""
+        }
+      ],
+      "file": "0e527b2b-perfume-10ml-01.png",
+      "localUrl": "/neander/assets/acscent-official/images/0e527b2b-perfume-10ml-01.png",
+      "bytes": 1517423,
+      "sha256": "0e527b2b0839120efac1fcbc60e14de97d8fc627f0fc046a3619e3d6ce2884c2",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/products/generated/perfume-10ml/perfume-10ml-03.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-10ml",
+          "alt": ""
+        },
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-10ml",
+          "alt": "10ml 향수 분사구 디테일 연출 컷"
+        }
+      ],
+      "file": "387cdc0d-perfume-10ml-03.png",
+      "localUrl": "/neander/assets/acscent-official/images/387cdc0d-perfume-10ml-03.png",
+      "bytes": 1687393,
+      "sha256": "387cdc0d5724c20a3d50e987e38fada20b0aa75b89b92b215a4df02eab31df40",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/products/generated/perfume-10ml/perfume-10ml-04.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-10ml",
+          "alt": ""
+        },
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-10ml",
+          "alt": "한 손에 들어오는 10ml 향수 크기감 연출 컷"
+        }
+      ],
+      "file": "3a5b9e59-perfume-10ml-04.png",
+      "localUrl": "/neander/assets/acscent-official/images/3a5b9e59-perfume-10ml-04.png",
+      "bytes": 1744120,
+      "sha256": "3a5b9e59e9a43d731111f8714af7762bd7a884f4ab58efa6d7d2bd5a1ba311ef",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/products/generated/perfume-10ml/perfume-10ml-05.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-10ml",
+          "alt": ""
+        },
+        {
+          "page": "https://www.acscent.co.kr/products/perfume-10ml",
+          "alt": "파우치에 넣어 휴대하는 10ml 향수 연출 컷"
+        }
+      ],
+      "file": "5c82fdc9-perfume-10ml-05.png",
+      "localUrl": "/neander/assets/acscent-official/images/5c82fdc9-perfume-10ml-05.png",
+      "bytes": 2180507,
+      "sha256": "5c82fdc9e80397c70a1418dbc7e873c3af1d8004b48cc46517a88657369ce9f7",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/products/generated/scent-paper/scent-paper-hand-light-01.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/products/scent-paper",
+          "alt": ""
+        }
+      ],
+      "file": "65e03a8a-scent-paper-hand-light-01.png",
+      "localUrl": "/neander/assets/acscent-official/images/65e03a8a-scent-paper-hand-light-01.png",
+      "bytes": 1616785,
+      "sha256": "65e03a8a4b974627644fb1da5bbc059b73961ca49263474ee7c28fe154d99c64",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://ivcjjrzvmmtwkvxcajrg.supabase.co/storage/v1/object/public/admin-content/products/sample/1780409304037_ai-image-analysis-paper.jpeg",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/programs/sample",
+          "alt": "AI 이미지 분석 시향지"
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/sample",
+          "alt": "AI 이미지 분석 시향지 패키지"
+        }
+      ],
+      "file": "62335d5e-1780409304037_ai-image-analysis-paper.jpeg",
+      "localUrl": "/neander/assets/acscent-official/images/62335d5e-1780409304037_ai-image-analysis-paper.jpeg",
+      "bytes": 2952088,
+      "sha256": "62335d5ecebf4df6f455e53e436d1151834177b6f4ef3061601014ce66e27c14",
+      "contentType": "image/jpeg"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/product-detail/chemistry-10ml-set-square.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/programs/chemistry",
+          "alt": "제품 이미지 — 실제 10ml 퍼퓸 두 병이 투명 인서트에 고정되는 20ml 세트 구성입니다."
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/chemistry",
+          "alt": ""
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/chemistry",
+          "alt": "실제 10ml 레이어링 퍼퓸 두 병과 20ml 세트 패키지"
+        }
+      ],
+      "file": "2a6bdff1-chemistry-10ml-set-square.png",
+      "localUrl": "/neander/assets/acscent-official/images/2a6bdff1-chemistry-10ml-set-square.png",
+      "bytes": 2387564,
+      "sha256": "2a6bdff1998bdfff7eca44041679cdd453688fc0b0a5271b89d51b16af0ea5c6",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/product-detail/chemistry-50ml-set-square.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/programs/chemistry",
+          "alt": ""
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/chemistry",
+          "alt": "실제 50ml 레이어링 퍼퓸 두 병과 100ml 세트 패키지, 분석보고서"
+        }
+      ],
+      "file": "983c045e-chemistry-50ml-set-square.png",
+      "localUrl": "/neander/assets/acscent-official/images/983c045e-chemistry-50ml-set-square.png",
+      "bytes": 1910687,
+      "sha256": "983c045e318a4bf82131a15ba6823f6196bae893c8dfb78deaf875be1adcb146",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/product-detail/chemistry-report-package-square.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/programs/chemistry",
+          "alt": ""
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/chemistry",
+          "alt": "실제 분석보고서 표지와 10ml 레이어링 세트 패키지"
+        }
+      ],
+      "file": "28d0b083-chemistry-report-package-square.png",
+      "localUrl": "/neander/assets/acscent-official/images/28d0b083-chemistry-report-package-square.png",
+      "bytes": 1798041,
+      "sha256": "28d0b083760c5d8429461db47d0ee4c3d54e33f9e4f769d43f0c9f2007619db1",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://ivcjjrzvmmtwkvxcajrg.supabase.co/storage/v1/object/public/admin-content/products/chemistry/1777559733654_7e7jma.jpg",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/programs/chemistry",
+          "alt": ""
+        }
+      ],
+      "file": "2b8fbf27-1777559733654_7e7jma.jpg",
+      "localUrl": "/neander/assets/acscent-official/images/2b8fbf27-1777559733654_7e7jma.jpg",
+      "bytes": 943631,
+      "sha256": "2b8fbf275147003078f5e3a2300391b9fe719b009fc40c0c37decaab08e9d682",
+      "contentType": "image/jpeg"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/product-detail/saju-50ml-report-square.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/programs/saju",
+          "alt": ""
+        }
+      ],
+      "file": "4d85167d-saju-50ml-report-square.png",
+      "localUrl": "/neander/assets/acscent-official/images/4d85167d-saju-50ml-report-square.png",
+      "bytes": 3048631,
+      "sha256": "4d85167dacb0fbd67241aad03d7c07cedcb50a43fbe95bcfdd64545d170e05d4",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/product-detail/saju-10ml-report-square.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/programs/saju",
+          "alt": ""
+        }
+      ],
+      "file": "62893055-saju-10ml-report-square.png",
+      "localUrl": "/neander/assets/acscent-official/images/62893055-saju-10ml-report-square.png",
+      "bytes": 2732631,
+      "sha256": "62893055ada514d4b7bc60c5c5b2d86a27f3d5001a66e157c957b960a6bd5cfd",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/product-detail/saju-clicker-five-square.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/programs/saju",
+          "alt": ""
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/saju",
+          "alt": "오행 문양이 각인된 디퓨저 클리커 키링 5종"
+        }
+      ],
+      "file": "3f9bf7c1-saju-clicker-five-square.png",
+      "localUrl": "/neander/assets/acscent-official/images/3f9bf7c1-saju-clicker-five-square.png",
+      "bytes": 2729106,
+      "sha256": "3f9bf7c15eed157a845a7490af9a5f247f53dd5760a7d6aaa580ec985708a384",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/product-detail/saju-clicker-engraving-square.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/programs/saju",
+          "alt": ""
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/saju",
+          "alt": "금(金) 오행 각인 클로즈업"
+        }
+      ],
+      "file": "8d41994c-saju-clicker-engraving-square.png",
+      "localUrl": "/neander/assets/acscent-official/images/8d41994c-saju-clicker-engraving-square.png",
+      "bytes": 2354507,
+      "sha256": "8d41994cc8de4a10da658f0083a18aa797106b1b8d0fc38bd572bc5e6e317813",
+      "contentType": "image/png"
+    },
+    {
+      "sourceUrl": "https://www.acscent.co.kr/images/product-detail/saju-clicker-both-sides-square.png",
+      "usages": [
+        {
+          "page": "https://www.acscent.co.kr/programs/saju",
+          "alt": ""
+        },
+        {
+          "page": "https://www.acscent.co.kr/programs/saju",
+          "alt": "태극 면과 오행 면 — 클리커 양면"
+        }
+      ],
+      "file": "0b45748d-saju-clicker-both-sides-square.png",
+      "localUrl": "/neander/assets/acscent-official/images/0b45748d-saju-clicker-both-sides-square.png",
+      "bytes": 2624964,
+      "sha256": "0b45748d94e2c8fdda8e9526048fbde22b7c500342c1ba4e390adfadeb59dee3",
+      "contentType": "image/png"
+    }
+  ]
+}

@@ -13,30 +13,55 @@
 //
 //  편집은 원장 시트와 같은 초안 방식이다 — 고칠 때마다 서버에 쓰지 않고
 //  「저장」 한 번에 그 달 예산을 통째로 반영한다.
+//
+//  화면 구성은 형제 화면(지출상세·사업부)과 같은 순서다: 제목 줄 → 리포트
+//  탭 → 조회 조건 줄 → 핵심 지표 → 표. 미저장 상태는 배너가 아니라 제목
+//  줄의 캡슐로 알린다 — 저장 버튼 바로 옆에 있어야 "무엇을 저장하는지"가
+//  붙어 읽히고, 배너로 두면 스크롤 밖으로 밀려 사라진다(승인 목업
+//  all-pages/finance-reports-budget.png).
 // ============================================================
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Copy, Info, Target } from "lucide-react";
 import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import {
+  Copy,
+  Target,
+  TriangleAlert,
+} from "lucide-react";
+import {
+  Badge,
   Button,
   Card,
   Checkbox,
+  cn,
   EmptyState,
-  InlineNotice,
+  FilterBar,
+  Icon,
   Input,
   KpiStrip,
   LoadingState,
+  Meter,
+  Money,
+  MonthStepper,
   PageHeader,
+  PageShell,
+  RatioTile,
   SectionHeader,
+  StatTile,
   TableNote,
-  cn,
   useToast,
 } from "@/components/neander/ui";
 import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
-import { MonthStepper, ReportTabs } from "@/components/neander/finance/ReportTabs";
-import { TreeTable, type TreeColumn } from "@/components/neander/finance/TreeTable";
-import { Money, StatTile, monthLabel } from "@/components/neander/finance/ui";
+import { ReportTabs } from "@/components/neander/finance/ReportTabs";
+import {
+  TreeTable,
+  type TreeColumn,
+} from "@/components/neander/finance/TreeTable";
 import { availableMonths } from "@/lib/neander/finance/aggregate";
 import { saveFinBudget } from "@/lib/neander/finance/client";
 import { ledgerHref } from "@/lib/neander/finance/ledgerLink";
@@ -46,7 +71,13 @@ import {
   expenseMajors,
   rollupBudget,
 } from "@/lib/neander/finance/budget";
-import { buildReport, makeIsCard } from "@/lib/neander/finance/report";
+import {
+  buildReport,
+  makeIsCard,
+} from "@/lib/neander/finance/report";
+import {
+  monthLabel,
+} from "@/lib/neander/format";
 
 /** 예산은 통장에서 나가는 시점이 아니라 비용이 생긴 시점으로 관리한다 */
 const BASIS = "accrual" as const;
@@ -61,11 +92,13 @@ function rateClass(rate: number, hasBudget: boolean): string {
   if (rate > 0.9) return "text-nd-warning-text";
   return "text-nd-fg-2";
 }
-function rateBar(rate: number): string {
-  if (rate > 1) return "bg-nd-danger";
-  if (rate > 0.9) return "bg-nd-warning";
-  return "bg-nd-accent";
-}
+
+/**
+ * 아직 저장하지 않은 입력칸 표시. 편집 중인 칸은 눈에 띄어야 하고,
+ * 같은 뜻을 제목 줄 캡슐이 글자로도 알린다 — 색 하나에 기대지 않는다.
+ * 조합을 여기 한 번만 적어 칸과 캡슐이 같은 톤(warning)을 쓰게 묶는다.
+ */
+const EDITED_CELL = "border-nd-warning bg-nd-warning-soft";
 
 export default function BudgetReport() {
   const { transactions, accounts, paymentMethods, budgets, loading, refresh } = useFinance();
@@ -177,7 +210,7 @@ export default function BudgetReport() {
                 value={lines[node.path] ?? ""}
                 placeholder="0"
                 onChange={(e) => setLine(node.path, Number(e.target.value))}
-                className={cn("nd-num text-right", changed && "border-nd-warning bg-nd-warning-soft")}
+                className={cn("nd-num text-right", changed && EDITED_CELL)}
                 aria-label={`${node.label} 예산`}
               />
             </span>
@@ -201,22 +234,29 @@ export default function BudgetReport() {
       {
         key: "rate",
         label: "집행률",
+        // 막대는 줄 사이 비교를 빠르게 해 주지만 정확한 값을 못 준다 —
+        // 목업처럼 막대와 숫자를 나란히 두고, 100% 초과는 색과 함께 길이로도 드러난다
         render: (node) => {
           const b = rolled[node.path] ?? 0;
           const a = node.value.expensePure;
           if (b === 0) return <span className="text-nd-fg-4">—</span>;
           const rate = a / b;
           return (
-            <span className={`font-medium ${rateClass(rate, true)}`}>
-              {(rate * 100).toFixed(0)}%
+            <span className="inline-flex items-center justify-end gap-2">
+              <Meter value={rate} warnAbove={1} width={64} />
+              <span className={`font-medium ${rateClass(rate, true)}`}>{(rate * 100).toFixed(0)}%</span>
             </span>
           );
         },
-        renderTotal: () => (
-          <span className={rateClass(summary.rate, summary.budget > 0)}>
-            {summary.budget > 0 ? `${(summary.rate * 100).toFixed(0)}%` : "—"}
-          </span>
-        ),
+        renderTotal: () =>
+          summary.budget > 0 ? (
+            <span className="inline-flex items-center justify-end gap-2">
+              <Meter value={summary.rate} warnAbove={1} width={64} />
+              <span className={rateClass(summary.rate, true)}>{(summary.rate * 100).toFixed(0)}%</span>
+            </span>
+          ) : (
+            <span className={rateClass(summary.rate, false)}>—</span>
+          ),
       },
     ],
     [rolled, lines, draft, saved, setLine, summary],
@@ -225,38 +265,43 @@ export default function BudgetReport() {
   if (loading) return <LoadingState label="리포트를 만드는 중…" />;
   if (transactions.length === 0) {
     return (
-      <div>
-        <PageHeader title="리포트" description="지출상세 · 사업부 · 구독 · 예산" />
+      <PageShell>
+        <PageHeader title="예산" description="예산 대비 결산" />
         <ReportTabs className="mb-6" />
         <EmptyState
           icon={Target}
           title="아직 거래가 없습니다"
           description="결산과 비교할 실적이 있어야 예산이 의미를 가집니다."
         />
-      </div>
+      </PageShell>
     );
   }
 
   const noSavedBudget = Object.keys(saved).length === 0 && !draft;
-  const ratePct = summary.budget > 0 ? Math.min(100, Math.round(summary.rate * 100)) : 0;
+  const dirty = dirtyKeys.length > 0;
 
   return (
-    <div>
+    <PageShell>
       <ToolbarPortal order={0}>
         <MonthStepper glass months={months} value={activeMonth} onChange={setMonth} />
       </ToolbarPortal>
 
       <PageHeader
-        title="리포트"
-        description="예산 — 예산 대비 결산"
+        title="예산"
+        description="예산 대비 결산"
+        className="mb-4"
+        /* 미저장은 상태지 안내가 아니다 — 저장 버튼 바로 왼쪽에 캡슐로 붙여
+           둔다. 색만으로 알리지 않도록 ⚠ 아이콘과 줄 수를 함께 적는다. */
+        meta={
+          dirty ? (
+            <Badge tone="warning">
+              <Icon icon={TriangleAlert} size={13} />
+              미저장 변경 {dirtyKeys.length}줄
+            </Badge>
+          ) : undefined
+        }
         actions={
           <>
-            <Checkbox
-              label="예산·지출 없는 계정도 보기"
-              checked={showEmpty}
-              onChange={(e) => setShowEmpty(e.target.checked)}
-              className="text-nd-caption text-nd-fg-2"
-            />
             <Button
               variant="secondary"
               size="sm"
@@ -267,38 +312,61 @@ export default function BudgetReport() {
             >
               지난달 예산 복사
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={dirtyKeys.length === 0 || saving}
-              onClick={() => setDraft(null)}
-            >
-              변경 취소
-            </Button>
-            <Button size="sm" disabled={dirtyKeys.length === 0} loading={saving} onClick={save}>
-              {dirtyKeys.length > 0 ? `저장 (${dirtyKeys.length})` : "저장"}
-            </Button>
+            {/* 되돌릴 것도 저장할 것도 없을 때는 버튼을 아예 두지 않는다 —
+                꺼져 있는 버튼 두 개가 늘 붙어 있으면 저장 여부를 눈으로 못 읽는다 */}
+            {dirty && (
+              <>
+                <Button variant="ghost" size="sm" disabled={saving} onClick={() => setDraft(null)}>
+                  변경 취소
+                </Button>
+                <Button size="sm" loading={saving} onClick={save}>
+                  저장 ({dirtyKeys.length})
+                </Button>
+              </>
+            )}
           </>
         }
       />
 
-      <ReportTabs className="mb-5" />
+      <ReportTabs className="mb-4" />
 
+      {/* 보기 설정은 표 바로 위 조회 조건 줄로 — 제목 줄 오른쪽은 상태·주요 동작 자리다 */}
+      <FilterBar
+        className="mb-4"
+        actions={
+          <Checkbox
+            label="예산·지출 없는 계정도 보기"
+            checked={showEmpty}
+            onChange={(e) => setShowEmpty(e.target.checked)}
+            className="text-nd-caption text-nd-fg-2"
+          />
+        }
+      >
+        <span className="text-nd-caption text-nd-fg-2">
+          {monthLabel(activeMonth)} · 발생 기준 · 예산은 계정소분류에만 입력합니다
+        </span>
+      </FilterBar>
+
+      {/* 예산이 한 줄도 없는 달은 「경고」가 아니라 「아직 시작하지 않은 상태」다.
+          그래서 배너가 아니라 빈 상태로 두고, 시작 버튼을 그 안에 놓는다. */}
       {noSavedBudget && (
-        <InlineNotice tone="warning" icon={Info} className="mb-4 text-nd-caption">
-          {monthLabel(activeMonth)} 예산이 아직 없습니다. 소분류 칸에 금액을 넣거나{" "}
-          {prevMonth ? <b>지난달 예산 복사</b> : "직전 달 예산을 먼저 만든 뒤 복사"}로 시작하세요.
-          예산 없이도 결산은 그대로 보입니다.
-        </InlineNotice>
+        <EmptyState
+          className="mb-4"
+          compact
+          icon={Target}
+          title={`${monthLabel(activeMonth)} 예산이 아직 없습니다`}
+          description="소분류 칸에 금액을 넣으면 바로 초안이 됩니다. 예산 없이도 아래 결산은 그대로 보입니다."
+          action={
+            prevMonth ? (
+              <Button variant="secondary" size="sm" icon={Copy} disabled={saving} onClick={copyPrevious}>
+                {monthLabel(prevMonth)} 예산 복사
+              </Button>
+            ) : undefined
+          }
+        />
       )}
 
-      {dirtyKeys.length > 0 && (
-        <InlineNotice tone="warning" className="mb-4 text-nd-caption">
-          저장 안 된 예산 변경 <b>{dirtyKeys.length}줄</b> — 저장하면 {monthLabel(activeMonth)} 예산이 이 값으로 바뀝니다.
-        </InlineNotice>
-      )}
-
-      <KpiStrip columns={4} className="mb-5">
+      <KpiStrip columns={4} className="mb-4">
         <StatTile label="예산" value={summary.budget} hint={`${monthLabel(activeMonth)} · 지출 계정`} />
         <StatTile label="결산" value={summary.actual} hint="개인사용·환급 차감" />
         <StatTile
@@ -306,36 +374,20 @@ export default function BudgetReport() {
           value={summary.remaining}
           hint={summary.remaining < 0 ? "예산 초과" : "집행 가능"}
         />
-        {/* 집행률 — 숫자 + 막대 (공통화 후보: KpiItem 에 bar 옵션) */}
-        <div className="flex min-w-0 flex-col gap-1 px-4 py-3 sm:px-5 sm:py-4">
-          <div className="text-nd-caption font-medium text-nd-fg-2 sm:mb-1">집행률</div>
-          <div className={`nd-num text-[22px] font-bold leading-tight tracking-[-0.02em] ${rateClass(summary.rate, summary.budget > 0)}`}>
-            {summary.budget > 0 ? `${(summary.rate * 100).toFixed(0)}%` : "—"}
-          </div>
-          <div
-            className="h-1.5 overflow-hidden rounded-full bg-nd-fg/[.08]"
-            role="progressbar"
-            aria-label="집행률"
-            aria-valuenow={ratePct}
-            aria-valuemin={0}
-            aria-valuemax={100}
-          >
-            <div className={`h-full rounded-full ${rateBar(summary.rate)}`} style={{ width: `${ratePct}%` }} />
-          </div>
-          <div className="truncate text-nd-caption text-nd-fg-3">
-            초과 {summary.overCount}개 계정
-            {summary.unbudgetedCount > 0 && ` · 예산 없는 지출 ${summary.unbudgetedCount}개`}
-          </div>
-        </div>
+        {/* 집행률은 형제 화면의 비율 타일과 같은 부품으로 — 100% 초과는 「초과」 글자로도 나온다 */}
+        <RatioTile
+          label="집행률"
+          value={summary.budget > 0 ? summary.rate : null}
+          warnAbove={1}
+          digits={0}
+          hint={
+            <>
+              초과 {summary.overCount}개 계정
+              {summary.unbudgetedCount > 0 && ` · 예산 없는 지출 ${summary.unbudgetedCount}개`}
+            </>
+          }
+        />
       </KpiStrip>
-
-      {summary.unbudgetedCount > 0 && (
-        <InlineNotice tone="neutral" icon={Info} className="mb-4 text-nd-caption">
-          예산을 안 잡았는데 지출이 있는 계정 <b>{summary.unbudgetedCount}개</b> ·{" "}
-          <Money value={summary.unbudgetedAmount} unit={false} />원. 계획에 없던 지출인지, 예산을
-          빠뜨린 것인지 확인하세요 — 「예산·지출 없는 계정도 보기」를 끄면 이 계정들만 보입니다.
-        </InlineNotice>
-      )}
 
       <Card padding="none" className="overflow-hidden">
         <div className="px-5 pt-5">
@@ -363,7 +415,16 @@ export default function BudgetReport() {
           totalLabel="지출 합계"
           emptyMessage="이 달에 지출이 없고 예산도 잡히지 않았습니다."
         />
+        {/* 「예산을 빠뜨린 것인가」는 표를 다 읽고 나서 드는 질문이라 표 아래 각주로.
+            위에 배너로 두면 정작 확인해야 할 표를 밀어낸다. */}
+        {summary.unbudgetedCount > 0 && (
+          <TableNote className="border-t border-nd-line px-5 py-2.5">
+            예산을 안 잡았는데 지출이 있는 계정 <b className="font-medium text-nd-fg-2">{summary.unbudgetedCount}개</b> ·{" "}
+            <Money value={summary.unbudgetedAmount} unit={false} />원. 계획에 없던 지출인지, 예산을
+            빠뜨린 것인지 확인하세요 — 「예산·지출 없는 계정도 보기」를 끄면 이 계정들만 보입니다.
+          </TableNote>
+        )}
       </Card>
-    </div>
+    </PageShell>
   );
 }

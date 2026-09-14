@@ -25,7 +25,12 @@ export interface ToastOptions {
 
 interface ToastItem extends ToastOptions {
   id: number;
+  /** 닫히는 중 — 흐려지며 오른쪽으로 빠진 뒤 목록에서 지운다 */
+  leaving?: boolean;
 }
+
+/** 알림이 빠져나가는 시간 (ms) — duration-nd(200ms)와 맞춘다 */
+const TOAST_EXIT_MS = 200;
 
 interface ToastApi {
   toast: (opts: ToastOptions | string) => number;
@@ -58,10 +63,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const timers = useRef(new Map<number, number>());
 
   const dismiss = useCallback((id: number) => {
-    setItems((xs) => xs.filter((x) => x.id !== id));
     const t = timers.current.get(id);
     if (t) window.clearTimeout(t);
     timers.current.delete(id);
+    // 바로 지우면 알림이 순간 사라진다 — 먼저 빠져나가게 하고 나서 지운다
+    setItems((xs) => xs.map((x) => (x.id === id ? { ...x, leaving: true } : x)));
+    window.setTimeout(() => setItems((xs) => xs.filter((x) => x.id !== id)), TOAST_EXIT_MS);
   }, []);
 
   const toast = useCallback(
@@ -101,7 +108,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             return (
               <div
                 key={t.id}
-                className="nd-glass-strong pointer-events-auto flex w-full max-w-[420px] items-start gap-2.5 rounded-nd-md px-3.5 py-2.5 text-nd-body text-nd-fg animate-in fade-in slide-in-from-bottom-2 duration-nd sm:w-auto sm:min-w-[280px]"
+                className={cn(
+                  "nd-glass-strong pointer-events-auto flex w-full max-w-[420px] items-start gap-2.5 rounded-nd-md px-3.5 py-2.5 text-nd-body text-nd-fg duration-nd sm:w-auto sm:min-w-[280px]",
+                  t.leaving
+                    ? "animate-out fade-out slide-out-to-right-4 fill-mode-forwards"
+                    : "animate-in fade-in slide-in-from-bottom-2",
+                )}
               >
                 <Icon icon={toneIcon[tone]} size={18} className={cn("mt-0.5", toneText[tone])} />
                 <div className="min-w-0 flex-1">

@@ -40,6 +40,8 @@ import {
 import type { DataSheetGridRef } from "react-datasheet-grid";
 import {
   BookOpen,
+  ChevronDown,
+  ChevronUp,
   Columns3,
   FileDown,
   Maximize2,
@@ -48,6 +50,7 @@ import {
   Plus,
   Redo2,
   SearchX,
+  SlidersHorizontal,
   Undo2,
   ZoomIn,
   ZoomOut,
@@ -58,23 +61,28 @@ import {
   ButtonGroup,
   Card,
   Checkbox,
+  cn,
+  Dialog,
   EmptyState,
+  Field,
   IconButton,
   Input,
   LoadingState,
-  Dialog,
-  Field,
+  Money,
   Popover,
+  SearchInput,
   Select,
   Tabs,
-  cn,
   useConfirm,
   useToast,
 } from "@/components/neander/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { useShellFocus } from "@/components/neander/shell/context";
 import { TransactionEditor } from "@/components/neander/finance/TransactionEditor";
-import { LedgerSheet, LEDGER_COLUMNS } from "@/components/neander/finance/LedgerSheet";
+import {
+  LedgerSheet,
+  LEDGER_COLUMNS,
+} from "@/components/neander/finance/LedgerSheet";
 import { isTypingInto } from "@/components/neander/finance/sheetCells";
 import {
   useSheetLayout,
@@ -82,7 +90,6 @@ import {
   DEFAULT_ZOOM,
   type SheetLayoutHandle,
 } from "@/components/neander/finance/useSheetLayout";
-import { Money } from "@/components/neander/finance/ui";
 import {
   applyFinEdits,
   deleteFinLedgerColumn,
@@ -125,7 +132,10 @@ import {
   type ScopeKey,
 } from "@/lib/neander/finance/sheetScope";
 import { todayStr } from "@/lib/neander/format";
-import { totals, plOnly } from "@/lib/neander/finance/aggregate";
+import {
+  totals,
+  plOnly,
+} from "@/lib/neander/finance/aggregate";
 
 /** 연/월로 표현할 수 없는 선택 — 선택기에 그대로 드러낸다 */
 const CUSTOM_PERIOD = "__custom__";
@@ -629,7 +639,13 @@ export default function LedgerPage() {
    * 지운 것 같은데 행은 그대로 남는다 — 그게 "삭제가 안 된다" 의 정체였다.
    * 그래서 「행 추가」 옆에 같은 무게의 버튼을 두고 고른 수를 함께 보여준다.
    */
-  const [selRange, setSelRange] = useState<{ from: number; to: number; colId?: string } | null>(null);
+  const [selRange, setSelRange] = useState<{
+    from: number;
+    to: number;
+    colId?: string;
+    /** 고른 사각형이 모든 열을 덮는가 — 행 선택과 열 선택을 가른다 */
+    allColumns: boolean;
+  } | null>(null);
 
   /**
    * 시트가 알려주는 선택을 받는다. 두 가지를 막아야 한다.
@@ -639,21 +655,53 @@ export default function LedgerPage() {
    * ② 같은 범위면 상태를 그대로 둔다 — 시트는 매번 새 객체를 주므로, 값이
    *    같아도 갱신하면 렌더 → 통지 → 렌더 로 끝없이 돈다.
    */
-  const setSelection = useCallback((r: { from: number; to: number; colId?: string } | null) => {
-    if (!r) return;
-    setSelRange((prev) =>
-      prev && prev.from === r.from && prev.to === r.to && prev.colId === r.colId ? prev : r,
-    );
-  }, []);
+  const setSelection = useCallback(
+    (r: { from: number; to: number; colId?: string; allColumns: boolean } | null) => {
+      if (!r) return;
+      setSelRange((prev) =>
+        prev &&
+        prev.from === r.from &&
+        prev.to === r.to &&
+        prev.colId === r.colId &&
+        prev.allColumns === r.allColumns
+          ? prev
+          : r,
+      );
+    },
+    [],
+  );
+
+  /**
+   * 열만 고른 상태인가.
+   *
+   * 시트는 머리글을 눌러 **열을 통째로** 고른 것도 "1행부터 끝행까지" 라는
+   * 사각형으로 알려 준다. 그래서 행만 세면 열 하나를 고른 사람이 「－ 행
+   * (11,320)」 을 보게 되고, 열 지우려다 한 번 잘못 누르면 장부 전체가
+   * 삭제 대상이 됐다.
+   *
+   * 가르는 기준은 **열 범위**다. 행번호를 눌러·끌어 고른 행 선택과 ⌘A 는
+   * 언제나 모든 열을 덮지만, 머리글로 고른 열 선택은 그 열만 덮는다.
+   * 행이 한 줄뿐이면 어떤 선택이든 "모든 행" 이라 이 판단을 쓰지 않는다.
+   */
+  const columnPicked =
+    !!selRange &&
+    !selRange.allColumns &&
+    rows.length > 1 &&
+    selRange.from === 0 &&
+    selRange.to >= rows.length - 1;
+
+  /** 행 동작(＋행·－행·⌘⌫)이 볼 선택. 열만 고른 상태면 없다 */
+  const rowPick = columnPicked ? null : selRange;
+
   const selectedRows = useMemo(
-    () => (selRange ? rows.slice(selRange.from, selRange.to + 1) : []),
-    [selRange, rows],
+    () => (rowPick ? rows.slice(rowPick.from, rowPick.to + 1) : []),
+    [rowPick, rows],
   );
 
   /** 고른 행이 있으면 그 **바로 위**에, 없으면 맨 아래에 새 행을 넣는다 */
   const addRow = () => {
     const row = createRow();
-    const anchor = selRange ? rows[selRange.from]?.id : undefined;
+    const anchor = rowPick ? rows[rowPick.from]?.id : undefined;
     const at = anchor ? rows.findIndex((r) => r.id === anchor) : -1;
     const index = at >= 0 ? at : rows.length;
     commit((prev) => ({
@@ -713,6 +761,8 @@ export default function LedgerPage() {
     : undefined;
 
   const [addingCol, setAddingCol] = useState(false);
+  /** 표 편집 도구 줄을 폈는가 — 매번 쓰는 컨트롤과 가끔 쓰는 것을 갈라 둔다 */
+  const [tools, setTools] = useState(false);
   const [colBusy, setColBusy] = useState(false);
 
   const addColumn = async (label: string) => {
@@ -868,14 +918,12 @@ export default function LedgerPage() {
               {transactions.length.toLocaleString("ko-KR")}건
             </span>
           </h1>
-          <Input
-            size="sm"
-            type="search"
-            aria-label="거래 검색"
-            placeholder="거래처·계정·비고 검색"
+          <SearchInput
+            className="w-52"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-48"
+            onValueChange={setSearch}
+            placeholder="거래처·계정·비고 검색"
+            ariaLabel="거래 검색"
           />
           {/* 기간 — 거래일 열 필터와 같은 값을 읽고 쓴다.
               따로 상태를 두면 툴바엔 「2026년」인데 실제로는 7월만 걸린 표가 된다. */}
@@ -937,6 +985,86 @@ export default function LedgerPage() {
               active={focus}
               onClick={toggleFocus}
             />
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={Plus}
+              onClick={addRow}
+              aria-label="행 추가"
+              title={
+                selectedRows.length > 0
+                  ? "고른 행 바로 위에 새 행"
+                  : "맨 아래에 새 행 (행을 고르면 그 위에 들어갑니다)"
+              }
+            >
+              행
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={Minus}
+              onClick={() => void deleteSelected()}
+              disabled={selectedRows.length === 0}
+              aria-label="행 삭제"
+              title={
+                columnPicked
+                  ? "열을 고른 상태입니다. 지울 행은 행 번호를 클릭하거나 끌어서 고르세요"
+                  : selectedRows.length === 0
+                    ? "지울 행을 먼저 고르세요 (행 번호를 클릭하거나 끌어서 여러 행)"
+                    : "고른 행 삭제 (⌘⌫)"
+              }
+            >
+              행
+              {selectedRows.length > 0 && (
+                <span className="nd-num">({selectedRows.length.toLocaleString("ko-KR")})</span>
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={discard}
+              disabled={saving || dirtyCount === 0}
+            >
+              변경 취소
+            </Button>
+            <Button
+              size="sm"
+              onClick={save}
+              loading={saving}
+              disabled={dirtyCount === 0 || issues.size > 0}
+            >
+              {dirtyCount > 0 ? `저장 (${dirtyCount.toLocaleString("ko-KR")})` : "저장"}
+            </Button>
+            {/*
+              표를 고치는 도구(되돌리기 · 배율 · 열 · 내보내기)는 접어 둔다.
+              한 줄에 열다섯 개를 늘어놓으면 매번 쓰는 검색·저장이 그 사이에
+              묻힌다 (승인 목업의 「상세 분석 도구」와 같은 처리). 접혀 있어도
+              ⌘Z · ⌘⇧Z · ⌘⌫ 단축키는 그대로 듣는다.
+            */}
+            <Button
+              variant={tools ? "soft" : "secondary"}
+              size="sm"
+              icon={SlidersHorizontal}
+              trailingIcon={tools ? ChevronUp : ChevronDown}
+              onClick={() => setTools((v) => !v)}
+              aria-expanded={tools}
+              aria-controls="ledger-tools"
+              title="되돌리기 · 표 배율 · 열 관리 · 엑셀 내보내기"
+            >
+              표 도구
+            </Button>
+          </div>
+        </div>
+
+        {/* ---- 표 편집 도구 (접힘) -------------------------------------- */}
+        {/* hidden 속성은 UA 기본값(display:none)이라 flex 유틸이 붙으면 이긴다.
+            그래서 감추는 껍데기에는 display 클래스를 두지 않고 안쪽에서 편다. */}
+        <div
+          id="ledger-tools"
+          hidden={!tools}
+          className="shrink-0 border-b border-nd-line bg-nd-sunken px-3 py-2"
+        >
+          <div className="flex flex-wrap items-center gap-2">
             <ButtonGroup label="실행취소">
               <IconButton
                 icon={Undo2}
@@ -987,38 +1115,6 @@ export default function LedgerPage() {
               variant="secondary"
               size="sm"
               icon={Plus}
-              onClick={addRow}
-              aria-label="행 추가"
-              title={
-                selectedRows.length > 0
-                  ? "고른 행 바로 위에 새 행"
-                  : "맨 아래에 새 행 (행을 고르면 그 위에 들어갑니다)"
-              }
-            >
-              행
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={Minus}
-              onClick={() => void deleteSelected()}
-              disabled={selectedRows.length === 0}
-              aria-label="행 삭제"
-              title={
-                selectedRows.length === 0
-                  ? "지울 행을 먼저 고르세요 (행 번호를 클릭하거나 끌어서 여러 행)"
-                  : "고른 행 삭제 (⌘⌫)"
-              }
-            >
-              행
-              {selectedRows.length > 0 && (
-                <span className="nd-num">({selectedRows.length.toLocaleString("ko-KR")})</span>
-              )}
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={Plus}
               onClick={() => setAddingCol(true)}
               disabled={colBusy}
               aria-label="열 추가"
@@ -1063,22 +1159,6 @@ export default function LedgerPage() {
               }
             >
               엑셀 내보내기
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={discard}
-              disabled={saving || dirtyCount === 0}
-            >
-              변경 취소
-            </Button>
-            <Button
-              size="sm"
-              onClick={save}
-              loading={saving}
-              disabled={dirtyCount === 0 || issues.size > 0}
-            >
-              {dirtyCount > 0 ? `저장 (${dirtyCount.toLocaleString("ko-KR")})` : "저장"}
             </Button>
           </div>
         </div>

@@ -65,7 +65,22 @@ export interface FinPaymentMethodMaster {
    * 정산 대상 판정(personal)이 서로 다른 질문이기 때문이다.
    */
   kind: "account" | "card" | "cash";
+  /**
+   * 어느 은행·카드사의 것인가 — 월별 적재 퍼즐이 파일을 칸에 맞출 때 쓴다.
+   * 비어 있으면 별칭의 앞머리(신한·국민·우리·토스·카카오 / (신법)·(국법))로
+   * 추정한다 (finance/import-slots.ts 의 bankOfMethod).
+   */
+  bank?: FinBankId;
+  /**
+   * 매달 거래내역 파일을 올리는 계좌인가 (퍼즐의 한 칸).
+   * 비어 있으면 「통장이고 대출 계좌가 아니면 예」로 본다. 대출·현금·카드
+   * 낱장은 파일이 따로 없으므로 칸이 아니다 (카드는 카드사 단위로 한 칸).
+   */
+  monthly?: boolean;
 }
+
+/** 은행·카드사 식별자 — 어댑터 id 와 1:1 (finance/import-slots.ts 의 FIN_BANKS) */
+export type FinBankId = "kb" | "shinhan" | "woori" | "toss" | "kakao" | "kb-card" | "shinhan-card";
 
 /**
  * 구독 서비스 마스터 — 엑셀 「구독서비스 관리」 + 「구독결제수단 정비」 시트
@@ -532,35 +547,35 @@ export const FIN_ACCOUNTS: FinAccountMaster[] = [
 ];
 
 export const FIN_PAYMENT_METHODS: FinPaymentMethodMaster[] = [
-  { last4: "7069", alias: "신한지원", site: "네안데르", personal: false, kind: "account" },
-  { last4: "4248", alias: "신한입금", site: "네안데르", personal: false, kind: "account" },
-  { last4: "4223", alias: "신한출금", site: "네안데르", personal: false, kind: "account" },
-  { last4: "8804", alias: "국민", site: "네안데르", personal: false, kind: "account" },
-  { last4: "9279", alias: "우리온라인", site: "네안데르", personal: false, kind: "account" },
-  { last4: "3695", alias: "우리지원", site: "네안데르", personal: false, kind: "account" },
-  { last4: "9719", alias: "우리대출", site: "네안데르", personal: false, kind: "account" },
-  { last4: "3470", alias: "신한신보대출", site: "네안데르", personal: false, kind: "account" },
-  { last4: "0429", alias: "토스모임", site: "안다르", personal: false, kind: "account" },
+  { last4: "7069", alias: "신한지원", site: "네안데르", personal: false, kind: "account", bank: "shinhan" },
+  { last4: "4248", alias: "신한입금", site: "네안데르", personal: false, kind: "account", bank: "shinhan" },
+  { last4: "4223", alias: "신한출금", site: "네안데르", personal: false, kind: "account", bank: "shinhan" },
+  { last4: "8804", alias: "국민", site: "네안데르", personal: false, kind: "account", bank: "kb" },
+  { last4: "9279", alias: "우리온라인", site: "네안데르", personal: false, kind: "account", bank: "woori" },
+  { last4: "3695", alias: "우리지원", site: "네안데르", personal: false, kind: "account", bank: "woori" },
+  { last4: "9719", alias: "우리대출", site: "네안데르", personal: false, kind: "account", monthly: false, bank: "woori" },
+  { last4: "3470", alias: "신한신보대출", site: "네안데르", personal: false, kind: "account", monthly: false, bank: "shinhan" },
+  { last4: "0429", alias: "토스모임", site: "안다르", personal: false, kind: "account", bank: "toss" },
   { last4: "9999", alias: "사무실지폐", site: "안다르", personal: false, kind: "cash" },
-  { last4: "1769", alias: "신한일컴", site: "일해라컴퍼니", personal: false, kind: "account" },
-  { last4: "5346", alias: "카카오일컴", site: "일해라컴퍼니", personal: false, kind: "account" },
-  { last4: "7773", alias: "카카오와작", site: "와작홈즈", personal: false, kind: "account" },
-  { last4: "2171", alias: "(신법)이동주", site: "네안데르", personal: false, kind: "card" },
-  { last4: "2392", alias: "(신법)유재영하이", site: "네안데르", personal: false, kind: "card" },
-  { last4: "4306", alias: "(신법)유재영", site: "네안데르", personal: false, kind: "card" },
-  { last4: "1804", alias: "(신법)이동주", site: "네안데르", personal: false, kind: "card" },
-  { last4: "6379", alias: "(신법)김주희", site: "네안데르", personal: false, kind: "card" },
-  { last4: "3847", alias: "(신법)유선화", site: "네안데르", personal: false, kind: "card" },
-  { last4: "7753", alias: "(신법)김주연", site: "네안데르", personal: false, kind: "card" },
-  { last4: "4528", alias: "(신법)유재영-신", site: "네안데르", personal: false, kind: "card" },
-  { last4: "3513", alias: "(신법)김주연-신", site: "네안데르", personal: false, kind: "card" },
-  { last4: "2842", alias: "(신법)유다혜", site: "네안데르", personal: false, kind: "card" },
-  { last4: "0815", alias: "(국법)이동주", site: "네안데르", personal: false, kind: "card" },
-  { last4: "7889", alias: "(국법)유재영", site: "네안데르", personal: false, kind: "card" },
-  { last4: "9806", alias: "(국법)유선화", site: "네안데르", personal: false, kind: "card" },
-  { last4: "3800", alias: "(국법)식대", site: "네안데르", personal: false, kind: "card" },
+  { last4: "1769", alias: "신한일컴", site: "일해라컴퍼니", personal: false, kind: "account", bank: "shinhan" },
+  { last4: "5346", alias: "카카오일컴", site: "일해라컴퍼니", personal: false, kind: "account", bank: "kakao" },
+  { last4: "7773", alias: "카카오와작", site: "와작홈즈", personal: false, kind: "account", bank: "kakao" },
+  { last4: "2171", alias: "(신법)이동주", site: "네안데르", personal: false, kind: "card", bank: "shinhan-card" },
+  { last4: "2392", alias: "(신법)유재영하이", site: "네안데르", personal: false, kind: "card", bank: "shinhan-card" },
+  { last4: "4306", alias: "(신법)유재영", site: "네안데르", personal: false, kind: "card", bank: "shinhan-card" },
+  { last4: "1804", alias: "(신법)이동주", site: "네안데르", personal: false, kind: "card", bank: "shinhan-card" },
+  { last4: "6379", alias: "(신법)김주희", site: "네안데르", personal: false, kind: "card", bank: "shinhan-card" },
+  { last4: "3847", alias: "(신법)유선화", site: "네안데르", personal: false, kind: "card", bank: "shinhan-card" },
+  { last4: "7753", alias: "(신법)김주연", site: "네안데르", personal: false, kind: "card", bank: "shinhan-card" },
+  { last4: "4528", alias: "(신법)유재영-신", site: "네안데르", personal: false, kind: "card", bank: "shinhan-card" },
+  { last4: "3513", alias: "(신법)김주연-신", site: "네안데르", personal: false, kind: "card", bank: "shinhan-card" },
+  { last4: "2842", alias: "(신법)유다혜", site: "네안데르", personal: false, kind: "card", bank: "shinhan-card" },
+  { last4: "0815", alias: "(국법)이동주", site: "네안데르", personal: false, kind: "card", bank: "kb-card" },
+  { last4: "7889", alias: "(국법)유재영", site: "네안데르", personal: false, kind: "card", bank: "kb-card" },
+  { last4: "9806", alias: "(국법)유선화", site: "네안데르", personal: false, kind: "card", bank: "kb-card" },
+  { last4: "3800", alias: "(국법)식대", site: "네안데르", personal: false, kind: "card", bank: "kb-card" },
   // 2026-08 에 생긴 카드. 2608 장부 「계좌카드목록」 34행에 있다.
-  { last4: "2639", alias: "(신법)이동주하이", site: "네안데르", personal: false, kind: "card" },
+  { last4: "2639", alias: "(신법)이동주하이", site: "네안데르", personal: false, kind: "card", bank: "shinhan-card" },
 ];
 
 export const FIN_VENDOR_RULES: FinVendorRuleMaster[] = [

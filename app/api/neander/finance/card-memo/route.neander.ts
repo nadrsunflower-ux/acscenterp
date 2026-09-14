@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { adminDb } from "@/lib/neander/finance/server/admin";
-import { requireFinanceUser, accessErrorResponse } from "@/lib/neander/finance/server/auth";
-import { uploadReceipt, signedUrl, deleteReceipts } from "@/lib/neander/finance/server/storage";
+import { adminDb } from "@/lib/neander/server/admin";
+import { requireErpUser, accessErrorResponse } from "@/lib/neander/server/auth";
+import { uploadReceipt, signedUrl, deleteReceipts } from "@/lib/neander/server/storage";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import type { FinCardMemo, FinCardMemoView } from "@/lib/neander/finance/card-memo";
 
@@ -25,7 +25,7 @@ const MAX_BYTES = 12 * 1024 * 1024;
 export async function GET(req: Request) {
   let user;
   try {
-    user = await requireFinanceUser(req);
+    user = await requireErpUser(req);
   } catch (e) {
     const denied = accessErrorResponse(e);
     if (denied) return denied;
@@ -68,7 +68,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   let user;
   try {
-    user = await requireFinanceUser(req);
+    user = await requireErpUser(req);
   } catch (e) {
     const denied = accessErrorResponse(e);
     if (denied) return denied;
@@ -168,7 +168,7 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    await requireFinanceUser(req);
+    await requireErpUser(req);
   } catch (e) {
     const denied = accessErrorResponse(e);
     if (denied) return denied;

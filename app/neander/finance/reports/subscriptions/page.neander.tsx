@@ -17,32 +17,51 @@
 //  `ANTHROPIC` · `CLAUDE.AI SUBSCRIPTION` 세 가지로 들어온다.
 //
 //  검증 기준 2026-07: 구독 계정 합계 4,180,260 (키워드만 쓰면 9,310,600)
+//
+//  화면 구성은 형제 화면(지출상세·사업부)과 같은 순서다: 제목 줄 → 리포트
+//  탭 → 집계 기준 → 핵심 지표 → 표. 다만 이 화면에는 조회 조건 줄이 없다
+//  — 구독은 「그 달 전체」로만 보는 것이 맞아서 걸 것이 월 스테퍼뿐이다.
+//  없는 필터를 형제와 맞추자고 새로 만들지 않았다.
 // ============================================================
 
-import { useMemo, useState } from "react";
+import {
+  useMemo,
+  useState,
+} from "react";
 import Link from "next/link";
-import { Repeat } from "lucide-react";
+import {
+  Grid3x3,
+  Repeat,
+} from "lucide-react";
 import {
   Badge,
+  BasisLine,
   Card,
+  Disclosure,
   EmptyState,
   KpiStrip,
   LoadingState,
+  Money,
+  MonthStepper,
   PageHeader,
+  PageShell,
+  rampColor,
+  rampTextClass,
+  RatioTile,
   SectionHeader,
+  StatTile,
   Table,
   TableNote,
   TableScroll,
   Td,
   Th,
+  type Tone,
   TotalRow,
   Tr,
-  type Tone,
 } from "@/components/neander/ui";
 import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
-import { MonthStepper, ReportTabs } from "@/components/neander/finance/ReportTabs";
-import { Money, StatTile, monthLabel, rampColor, rampTextClass } from "@/components/neander/finance/ui";
+import { ReportTabs } from "@/components/neander/finance/ReportTabs";
 import { availableMonths } from "@/lib/neander/finance/aggregate";
 import { ledgerHref } from "@/lib/neander/finance/ledgerLink";
 import {
@@ -53,6 +72,9 @@ import {
   type SubscriptionAlert,
 } from "@/lib/neander/finance/report";
 import { netAmount } from "@/lib/neander/finance/types";
+import {
+  monthLabel,
+} from "@/lib/neander/format";
 
 const TREND_MONTHS = 6;
 
@@ -70,32 +92,6 @@ function AlertChip({ alert }: { alert: SubscriptionAlert }) {
     <span title={alert.message}>
       <Badge tone={st.tone} size="sm">{st.label}</Badge>
     </span>
-  );
-}
-
-/** 비율 지표 — 숫자 + 진행 막대. KpiStrip 안에 놓인다 (공통화 후보: KpiItem 에 bar 옵션) */
-function RatioTile({
-  label,
-  percent,
-  hint,
-  tone = "warning",
-}: {
-  label: string;
-  percent: number;
-  hint: React.ReactNode;
-  tone?: "warning" | "danger" | "accent";
-}) {
-  const bar = { warning: "bg-nd-warning", danger: "bg-nd-danger", accent: "bg-nd-accent" }[tone];
-  const pct = Math.max(0, Math.min(100, Math.round(percent)));
-  return (
-    <div className="flex min-w-0 flex-col gap-1 px-4 py-3 sm:px-5 sm:py-4">
-      <div className="text-nd-caption font-medium text-nd-fg-2 sm:mb-1">{label}</div>
-      <div className="nd-num text-[22px] font-bold leading-tight tracking-[-0.02em] text-nd-fg">{pct}%</div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-nd-fg/[.08]" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={label}>
-        <div className={`h-full rounded-full ${bar}`} style={{ width: `${pct}%` }} />
-      </div>
-      <div className="truncate text-nd-caption text-nd-fg-3">{hint}</div>
-    </div>
   );
 }
 
@@ -157,15 +153,15 @@ export default function SubscriptionReport() {
   if (loading) return <LoadingState label="리포트를 만드는 중…" />;
   if (transactions.length === 0) {
     return (
-      <div>
-        <PageHeader title="리포트" description="지출상세 · 사업부 · 구독 · 예산" />
+      <PageShell>
+        <PageHeader title="구독" description="SaaS · 툴 구독 지출" />
         <ReportTabs className="mb-6" />
         <EmptyState
           icon={Repeat}
           title="아직 거래가 없습니다"
           description="임포트 탭에서 장부를 올리면 구독 지출이 나타납니다."
         />
-      </div>
+      </PageShell>
     );
   }
 
@@ -173,18 +169,26 @@ export default function SubscriptionReport() {
     ledgerHref({ month: activeMonth, txTypes: ["지출"], ...extra });
 
   return (
-    <div>
+    <PageShell>
       <ToolbarPortal order={0}>
         <MonthStepper glass months={months} value={activeMonth} onChange={setMonth} />
       </ToolbarPortal>
 
-      <PageHeader title="리포트" description="구독 — SaaS·툴 구독 지출" />
-      <ReportTabs className="mb-5" />
+      <PageHeader title="구독" description="SaaS · 툴 구독 지출" className="mb-4" />
+      <ReportTabs className="mb-4" />
 
-      <p className="mb-4 text-nd-caption text-nd-fg-3">
-        집계 기준: 계정소분류가 <b className="font-medium text-nd-fg-2">{SUBSCRIPTION_ACCOUNTS.join(" · ")}</b> 인 거래
-        중 거래처 규칙에 맞는 것. 계정으로 먼저 좁히므로 이름이 같은 급여 이체가 섞이지 않습니다.
-      </p>
+      {/* 집계 기준은 형제 화면과 같은 자리·같은 모양의 한 줄로 — 문단으로 두면
+          KPI 를 밀어내는데, 매번 읽을 문장은 아니다 */}
+      <BasisLine
+        className="mb-4"
+        items={[
+          <>
+            계정소분류 <b className="font-medium text-nd-fg-2">{SUBSCRIPTION_ACCOUNTS.join(" · ")}</b> 중 거래처 규칙에 맞는 것
+          </>,
+          `${monthLabel(activeMonth)} ${report.count.toLocaleString("ko-KR")}건`,
+          "계정으로 먼저 좁혀 이름이 같은 급여 이체가 섞이지 않음",
+        ]}
+      />
 
       <KpiStrip columns={4} className="mb-5">
         <StatTile label="구독 지출" value={report.total} hint={`${report.count.toLocaleString("ko-KR")}건 · ${monthLabel(activeMonth)}`} />
@@ -192,7 +196,8 @@ export default function SubscriptionReport() {
         <StatTile label="미매칭" value={report.unmatchedTotal} hint={`${report.unmatched.length}건 — 규칙 추가 필요`} />
         <RatioTile
           label="개인카드 결제 비율"
-          percent={cardHealth.ratio * 100}
+          value={cardHealth.ratio}
+          digits={0}
           hint={<>법인카드 전환 대상 <Money value={cardHealth.personalAmt} unit={false} />원</>}
         />
       </KpiStrip>
@@ -237,9 +242,13 @@ export default function SubscriptionReport() {
           />
         </div>
         {report.services.length === 0 ? (
-          <p className="px-5 py-10 text-center text-nd-body text-nd-fg-3">
-            이 달에 구독 계정으로 잡힌 거래가 없습니다.
-          </p>
+          /* 카드 안이라 테두리는 뺀다 — 점선 상자가 이중으로 겹치면 빈 칸이 오류처럼 보인다 */
+          <EmptyState
+            className="border-0"
+            compact
+            title="이 달에 구독 계정으로 잡힌 거래가 없습니다"
+            description="구독 계정으로 분류된 지출이 들어오면 여기에 서비스별로 쌓입니다."
+          />
         ) : (
           <TableScroll>
             <Table minWidth={760}>
@@ -356,15 +365,18 @@ export default function SubscriptionReport() {
         </Card>
       )}
 
-      {/* ---- 월별 추이 ---- */}
+      {/* ---- 월별 추이 ----
+          매달 보는 표가 아니라 "왜 이번 달만 튀었나"를 물을 때 펴는 표다.
+          접힌 채로도 몇 달치인지 보이도록 meta 에 기간을 남긴다. */}
       {trend.length > 0 && trendMonths.length > 1 && (
-        <Card padding="none" className="overflow-hidden">
-          <div className="px-5 pt-5">
-            <SectionHeader
-              title="서비스 × 월"
-              hint="색이 진할수록 지출이 큼 · 빈 칸은 그 달에 결제가 없었다는 뜻"
-            />
-          </div>
+        <Disclosure
+          icon={Grid3x3}
+          title="서비스 × 월"
+          description="색이 진할수록 지출이 큼 · 빈 칸은 그 달에 결제가 없었다는 뜻"
+          defaultOpen={false}
+          meta={`최근 ${trendMonths.length}개월 · ${trend.length}개 서비스`}
+          bodyClassName="!p-0"
+        >
           <TableScroll>
             <Table minWidth={620} dense>
               <thead>
@@ -400,8 +412,8 @@ export default function SubscriptionReport() {
             </Table>
           </TableScroll>
           <TableNote className="border-t border-nd-line px-5 py-2">월별 칸은 천원 단위 · 합계는 원 단위</TableNote>
-        </Card>
+        </Disclosure>
       )}
-    </div>
+    </PageShell>
   );
 }

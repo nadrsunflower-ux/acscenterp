@@ -216,7 +216,12 @@ export function monthlyTrend(rows: FinTransaction[]): MonthPoint[] {
 }
 
 /** 사업장(법인)별 손익 — 네안데르 / 안다르 / 일해라컴퍼니 / 와작홈즈 */
-export function bySite(rows: FinTransaction[]): { site: string; t: Totals }[] {
+/**
+ * 사업장(법인)별 손익. 합계뿐 아니라 **그 합계를 이룬 거래**도 함께 돌려준다 —
+ * 대시보드에서 줄을 눌러 내역 창을 열기 때문이다. 합계만 주면 부르는 쪽이
+ * 같은 분류를 한 번 더 해야 하고, 그러면 표의 숫자와 창의 숫자가 갈릴 수 있다.
+ */
+export function bySite(rows: FinTransaction[]): { site: string; t: Totals; rows: FinTransaction[] }[] {
   const map = new Map<string, FinTransaction[]>();
   plOnly(rows).forEach((t) => {
     const k = t.site || UNSET;
@@ -224,7 +229,7 @@ export function bySite(rows: FinTransaction[]): { site: string; t: Totals }[] {
     map.get(k)!.push(t);
   });
   return [...map.entries()]
-    .map(([site, list]) => ({ site, t: totals(list) }))
+    .map(([site, list]) => ({ site, t: totals(list), rows: list }))
     .sort((a, b) => b.t.expense + b.t.income - (a.t.expense + a.t.income));
 }
 

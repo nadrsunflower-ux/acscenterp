@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
-import { adminDb } from "@/lib/neander/finance/server/admin";
-import { requireFinanceUser, accessErrorResponse } from "@/lib/neander/finance/server/auth";
+import { adminDb } from "@/lib/neander/server/admin";
+import { requireErpUser, accessErrorResponse } from "@/lib/neander/server/auth";
 import { NEANDER_COL } from "@/lib/neander/collections";
+import { FIN_HIDDEN_FIELDS, trimTransaction } from "@/lib/neander/finance/payload";
+import { fillHidden, moveToTrash, readBases } from "@/lib/neander/server/trash";
 import { seedFinanceMasterData } from "@/lib/neander/finance/server/seed";
 import { matchMemos, patchFromMemo, type FinCardMemo } from "@/lib/neander/finance/card-memo";
 import type { FinTransaction } from "@/lib/neander/finance/types";
 import { sanitizeProject } from "@/lib/neander/finance/project";
 import { sanitizeFinDoc, sanitizeFiles } from "@/lib/neander/finance/docs";
-import { deleteFiles } from "@/lib/neander/finance/server/storage";
+import { deleteFiles } from "@/lib/neander/server/storage";
 
 // 재무 쓰기 전체. 액션 하나로 모아둔 이유는 인증 게이트를 한 곳에서만
 // 통과시키기 위해서다 — 라우트가 흩어지면 한 군데 빠뜨리기 쉽다.
@@ -31,10 +33,27 @@ function safeId(s: string): string {
   return /^__.*__$/.test(t) ? `_${t}` : t;
 }
 
+/**
+ * 쓴 거래를 다시 읽어 돌려준다 — 화면이 전체(거래 1만+ · 7MB)를 다시 받지 않고
+ * 바뀐 거래만 바꿔 끼우게 한다 (FinanceProvider.applyTransactions).
+ */
+async function readTransactions(db: FirebaseFirestore.Firestore, ids: string[]) {
+  const col = db.collection(NEANDER_COL.finTransactions);
+  const out: Record<string, unknown>[] = [];
+  const uniq = [...new Set(ids.filter(Boolean))];
+  for (let i = 0; i < uniq.length; i += 300) {
+    const snaps = await db.getAll(...uniq.slice(i, i + 300).map((id) => col.doc(id)));
+    snaps.forEach((snap) => {
+      if (snap.exists) out.push(trimTransaction({ id: snap.id, ...snap.data() }));
+    });
+  }
+  return out;
+}
+
 export async function POST(req: Request) {
   let user;
   try {
-    user = await requireFinanceUser(req);
+    user = await requireErpUser(req);
   } catch (e) {
     const denied = accessErrorResponse(e);
     if (denied) return denied;
@@ -66,7 +85,7 @@ export async function POST(req: Request) {
           data[k] = patch[k] === undefined || patch[k] === null ? null : patch[k];
         });
         await db.collection(NEANDER_COL.finTransactions).doc(id).set(data, { merge: true });
-        return NextResponse.json({ ok: true });
+        return NextResponse.json({ ok: true, transactions: await readTransactions(db, [id]) });
       }
 
       case "ledgerColumn.upsert": {
@@ -102,7 +121,8 @@ export async function POST(req: Request) {
       case "transaction.delete": {
         const { id } = payload as { id: string };
         if (!id) return NextResponse.json({ error: "id 가 필요합니다." }, { status: 400 });
-        await db.collection(NEANDER_COL.finTransactions).doc(id).delete();
+        // 원본을 휴지통에 남긴다 — 되돌리기가 숨긴 필드(dedupHash 등)를 되살린다
+        await moveToTrash(db, NEANDER_COL.finTransactions, NEANDER_COL.finTrash, [id], user.email, now);
         return NextResponse.json({ ok: true });
       }
 
@@ -142,7 +162,11 @@ export async function POST(req: Request) {
           });
           await batch.commit();
         }
-        return NextResponse.json({ ok: true, updated: ids.length });
+        return NextResponse.json({
+          ok: true,
+          updated: ids.length,
+          transactions: await readTransactions(db, ids),
+        });
       }
 
       case "transaction.bulkPatch": {
@@ -164,7 +188,11 @@ export async function POST(req: Request) {
           });
           await batch.commit();
         }
-        return NextResponse.json({ ok: true, updated: ids.length });
+        return NextResponse.json({
+          ok: true,
+          updated: ids.length,
+          transactions: await readTransactions(db, ids),
+        });
       }
 
       case "transaction.applyEdits": {
@@ -187,11 +215,25 @@ export async function POST(req: Request) {
           });
           ops.push((b) => b.set(col.doc(id), data, { merge: true }));
         });
+        const insertedIds: string[] = [];
         (inserts ?? []).forEach((r) => {
-          ops.push((b) => b.set(col.doc(), clean({ ...r, createdAt: now, updatedBy: user.email })));
+          const ref = col.doc();
+          insertedIds.push(ref.id);
+          ops.push((b) => b.set(ref, clean({ ...r, createdAt: now, updatedBy: user.email })));
         });
-        (deletes ?? []).forEach((id) => {
-          if (id) ops.push((b) => b.delete(col.doc(id)));
+        // 지우는 거래는 원본을 휴지통에 남긴다 (server/trash.ts)
+        const delIds = (deletes ?? []).filter(Boolean);
+        if (delIds.length > 0) {
+          const trash = db.collection(NEANDER_COL.finTrash);
+          const delSnaps = await db.getAll(...delIds.map((id) => col.doc(id)));
+          delSnaps.forEach((snap) => {
+            if (!snap.exists) return;
+            const doc = snap.data();
+            ops.push((b) => b.set(trash.doc(snap.id), { doc, deletedAt: now, deletedBy: user.email ?? null }));
+          });
+        }
+        delIds.forEach((id) => {
+          ops.push((b) => b.delete(col.doc(id)));
         });
         for (let i = 0; i < ops.length; i += BATCH_LIMIT) {
           const batch = db.batch();
@@ -203,6 +245,53 @@ export async function POST(req: Request) {
           updated: (updates ?? []).length,
           inserted: (inserts ?? []).length,
           deleted: (deletes ?? []).length,
+          insertedIds,
+          transactions: await readTransactions(db, [
+            ...(updates ?? []).map((u) => u.id),
+            ...insertedIds,
+          ]),
+        });
+      }
+
+      /**
+       * 검토 대기함 되돌리기 — 처리 **직전의 거래 전체**를 그대로 되쓴다.
+       * merge 가 아니라 통째로 덮어야 확정 때 채운 계정·사업구분이 사라진다.
+       * 삭제한 거래도 같은 id 로 다시 생긴다. (매출 line.restore 와 같은 규칙)
+       */
+      case "transaction.restore": {
+        const { rows } = payload as { rows: Record<string, unknown>[] };
+        if (!Array.isArray(rows) || rows.length === 0) {
+          return NextResponse.json({ error: "rows 배열이 필요합니다." }, { status: 400 });
+        }
+        const col = db.collection(NEANDER_COL.finTransactions);
+        const trash = db.collection(NEANDER_COL.finTrash);
+        // 화면이 들고 있던 거래에는 숨긴 필드(dedupHash·importBatchId 등)가 없다.
+        // 지금 문서나 휴지통 원본에서 채워야 되쓰면서 지워지지 않는다 (finance/payload.ts).
+        const bases = await readBases(
+          db,
+          NEANDER_COL.finTransactions,
+          NEANDER_COL.finTrash,
+          rows.map((r) => String((r as { id?: string }).id ?? "")),
+        );
+        // 한 줄에 쓰기 둘(되쓰기 + 휴지통 비우기) — 배치 상한 500 을 넘지 않게 200 씩
+        for (let i = 0; i < rows.length; i += 200) {
+          const batch = db.batch();
+          rows.slice(i, i + 200).forEach((row) => {
+            const { id, ...data } = row as { id?: string } & Record<string, unknown>;
+            if (!id) return;
+            const full = fillHidden(data, bases.get(String(id)), FIN_HIDDEN_FIELDS);
+            batch.set(col.doc(String(id)), clean({ ...full, updatedAt: now, updatedBy: user.email }));
+            batch.delete(trash.doc(String(id)));
+          });
+          await batch.commit();
+        }
+        return NextResponse.json({
+          ok: true,
+          restored: rows.length,
+          transactions: await readTransactions(
+            db,
+            rows.map((r) => String((r as { id?: string }).id ?? "")),
+          ),
         });
       }
 
@@ -264,6 +353,20 @@ export async function POST(req: Request) {
       }
 
       // ---- 구독 마스터 ------------------------------------------
+      /** 계좌·카드 마스터의 은행·월별 적재 대상 — null 이면 필드를 비운다(기본 규칙으로) */
+      case "paymentMethod.update": {
+        const { id, patch } = payload as { id: string; patch: Record<string, unknown> };
+        if (!id) return NextResponse.json({ error: "id 가 필요합니다." }, { status: 400 });
+        const data: Record<string, unknown> = {};
+        if ("bank" in (patch ?? {})) data.bank = patch.bank ?? null;
+        if ("monthly" in (patch ?? {})) data.monthly = patch.monthly ?? null;
+        if (Object.keys(data).length === 0) {
+          return NextResponse.json({ error: "고칠 값이 없습니다." }, { status: 400 });
+        }
+        await db.collection(NEANDER_COL.finPaymentMethods).doc(safeId(id)).set(data, { merge: true });
+        return NextResponse.json({ ok: true });
+      }
+
       case "subscription.upsert": {
         const input = payload as Record<string, unknown>;
         const service = String(input.service ?? "").trim();

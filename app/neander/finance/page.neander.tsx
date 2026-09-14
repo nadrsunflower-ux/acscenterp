@@ -14,32 +14,49 @@
 // ============================================================
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Building2,
   CalendarCheck,
   ChevronRight,
   CreditCard,
   Download,
+  ExternalLink,
   FolderOpen,
   Grid2x2,
   Inbox,
+  TriangleAlert,
   Users,
   type LucideIcon,
 } from "lucide-react";
 import {
   Badge,
+  BasisLine,
   Button,
   Card,
+  ChartValues,
+  cn,
   DateStepper,
   EmptyState,
   Icon,
+  InfoPopover,
   KpiStrip,
   LoadingState,
   Menu,
+  Money,
   PageHeader,
+  PageShell,
+  rampColor,
+  rampTextClass,
   SectionHeader,
   SegmentedControl,
+  SERIES,
+  StatTile,
   StatusDot,
   Table,
   TableNote,
@@ -48,18 +65,9 @@ import {
   Th,
   TotalRow,
   Tr,
-  cn,
 } from "@/components/neander/ui";
 import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
-import {
-  Money,
-  StatTile,
-  SERIES,
-  monthLabel,
-  rampColor,
-  rampTextClass,
-} from "@/components/neander/finance/ui";
 import { TrendChart } from "@/components/neander/finance/TrendChart";
 import {
   availableMonths,
@@ -73,6 +81,8 @@ import {
   topVendors,
   totals,
   plOnly,
+  BIZ_SEP,
+  UNSET,
 } from "@/lib/neander/finance/aggregate";
 import { ledgerHref } from "@/lib/neander/finance/ledgerLink";
 import { AmountBreakdown } from "@/components/neander/finance/AmountBreakdown";
@@ -81,10 +91,33 @@ import {
   subscriptionMatchers,
   subscriptionReport,
 } from "@/lib/neander/finance/report";
-import { formatSigned, type FinTransaction } from "@/lib/neander/finance/types";
+import {
+  netAmount,
+  type FinTransaction,
+} from "@/lib/neander/finance/types";
+import {
+  formatSigned,
+  monthLabel,
+} from "@/lib/neander/format";
 
 /** 빈 칸에 매번 새 배열을 만들지 않는다 (드릴다운의 memo 가 깨진다) */
 const NO_ROWS: FinTransaction[] = [];
+
+/** 손익 한 줄이 품은 거래 — 칸(수입·지출·환급)과 줄 전체 */
+interface PLBucket {
+  all: FinTransaction[];
+  수입: FinTransaction[];
+  지출: FinTransaction[];
+  환급: FinTransaction[];
+}
+const EMPTY_BUCKET: PLBucket = { all: NO_ROWS, 수입: NO_ROWS, 지출: NO_ROWS, 환급: NO_ROWS };
+
+/**
+ * 순손익 칸이 이 거래에서 더하는 값 — 수입·환급은 +, 지출은 −.
+ * 합치면 `수입 − (지출 − 환급)` 이라 표의 순손익과 원 단위로 맞는다.
+ */
+const plDelta = (t: FinTransaction) => (t.txType === "지출" ? -netAmount(t) : netAmount(t));
+const PL_NET_NOTE = "순손익 기준 — 지출이 음수(△), 수입·환급이 양수입니다";
 
 /** 히트맵 위 숫자 색 — 음수(환급이 지출을 넘김)는 △ 와 함께 붉게 */
 function cellTextClass(v: number, max: number): string {
@@ -147,7 +180,31 @@ export default function FinanceDashboard() {
   }, [matrix]);
   const matrixAllRows = useMemo(() => matrixRows(matrix), [matrix]);
 
+  // 사업부 손익도 같은 방식으로 연다 — 줄마다, 그리고 칸마다 무엇이 들어
+  // 있는지. 한 번 훑으면서 줄 전체와 수입·지출·환급을 동시에 모아 둔다.
+  const plRowRows = useMemo(() => {
+    const out: Record<string, PLBucket> = {};
+    plOnly(scoped).forEach((t) => {
+      const key = `${t.bizMajor || UNSET}|${t.bizMinor || UNSET}`;
+      const b = (out[key] ??= { all: [], 수입: [], 지출: [], 환급: [] });
+      b.all.push(t);
+      const bucket = b[t.txType as keyof PLBucket];
+      if (Array.isArray(bucket) && bucket !== b.all) bucket.push(t);
+    });
+    return out;
+  }, [scoped]);
+  const plAllRows = useMemo(() => {
+    const all = plOnly(scoped);
+    return {
+      all,
+      수입: all.filter((t) => t.txType === "수입"),
+      지출: all.filter((t) => t.txType === "지출"),
+      환급: all.filter((t) => t.txType === "환급"),
+    } satisfies PLBucket;
+  }, [scoped]);
+
   const matrixNote = `${monthLabel(activeMonth)} · 환급 차감 반영`;
+  const plNote = `${monthLabel(activeMonth)} · 자금거래·카드대금결제 제외`;
 
   /** 같은 조건이 걸린 채로 원장 열기 (지출·환급만) */
   const matrixHref = (row?: string, col?: string) => {
@@ -160,6 +217,19 @@ export default function FinanceDashboard() {
       bizMinor: biz?.bizMinor,
     });
   };
+
+  /** 사업부 손익 → 원장. 칸을 누르면 그 거래유형까지 걸린다 */
+  const plHref = (biz?: { bizMajor: string; bizMinor: string }, txTypes?: string[]) =>
+    ledgerHref({
+      month: activeMonth,
+      txTypes,
+      bizMajor: biz?.bizMajor,
+      bizMinor: biz?.bizMinor,
+    });
+
+  /** 사업장별 손익 → 원장 */
+  const siteHref = (site?: string, txTypes?: string[]) =>
+    ledgerHref({ month: activeMonth, txTypes, site });
 
   const pending = transactions.filter(
     (x) => x.status === "suggested" || x.status === "needs_review",
@@ -215,7 +285,7 @@ export default function FinanceDashboard() {
   // 아직 아무것도 없는 상태 — 무엇부터 해야 하는지 알려준다
   if (transactions.length === 0) {
     return (
-      <div className="mx-auto w-full max-w-3xl py-6">
+      <PageShell width="form">
         <PageHeader title="재무" description="통합거래장 · 자동분류 · 손익" />
         <EmptyState
           icon={Download}
@@ -238,7 +308,7 @@ export default function FinanceDashboard() {
             </>
           }
         />
-      </div>
+      </PageShell>
     );
   }
 
@@ -250,7 +320,7 @@ export default function FinanceDashboard() {
   const isLoss = t.net < 0;
 
   return (
-    <div className="mx-auto w-full max-w-[1400px]">
+    <PageShell width="wide">
       {/* 상단 툴바: 월 선택 */}
       <ToolbarPortal order={0}>
         <DateStepper
@@ -293,12 +363,16 @@ export default function FinanceDashboard() {
       <PageHeader
         title="재무"
         description="수입과 지출, 사업부 손익을 한눈에."
+        className="mb-3"
         meta={
           pending > 0 ? (
-            <Link href="/neander/finance/review" className="rounded-full">
-              <StatusDot tone="warning" className="text-nd-body font-medium text-nd-warning-text">
-                검토 대기 {pending.toLocaleString("ko-KR")}건
-              </StatusDot>
+            // 미확정 거래가 있으면 캡슐로 눈에 띄게 — 글자와 아이콘이 함께라 색만으로 뜻을 전하지 않는다
+            <Link
+              href="/neander/finance/review"
+              className="inline-flex h-ctl-md items-center gap-1.5 rounded-full border border-nd-warning/40 bg-nd-warning-soft px-3 text-nd-body font-medium text-nd-warning-text transition-colors duration-nd-fast hover:bg-nd-warning/15"
+            >
+              <Icon icon={TriangleAlert} size={15} />
+              검토 대기 {pending.toLocaleString("ko-KR")}건
             </Link>
           ) : (
             <StatusDot tone="success" className="text-nd-body">
@@ -312,6 +386,28 @@ export default function FinanceDashboard() {
           </Link>
         }
       />
+
+      {/* 집계 기준 — 숫자보다 먼저 "무엇을 세고 무엇을 뺐는지" (aggregate.ts 의 plOnly · totals 그대로) */}
+      <BasisLine
+        className="mb-5"
+        items={["자금거래 · 카드대금결제 제외", "환급은 지출에서 차감", `${monthLabel(activeMonth)} 거래일 기준`]}
+      >
+        <InfoPopover
+          label="집계 기준"
+          title="재무 대시보드 집계 기준"
+          terms={[
+            { term: "집계 대상", desc: "거래유형이 수입·지출·환급인 거래만 셉니다. 자금거래(계좌 간 이동)와 카드대금결제는 돈이 자리만 옮긴 것이라 손익에서 완전히 뺍니다." },
+            { term: "금액", desc: "거래의 총액에서 조정액을 뺀 순금액입니다." },
+            { term: "총수입", desc: "수입 거래의 순금액 합계." },
+            { term: "총지출", desc: "지출 거래의 순금액 합계. 환급을 빼기 전 금액입니다." },
+            { term: "환급", desc: "환급 거래의 합계. 순손익에서는 지출에서 차감합니다." },
+            { term: "순손익", desc: "총수입 − (총지출 − 환급). 음수는 △ 로 표시합니다." },
+            { term: "월 기준", desc: "거래일자가 그 달에 속하는 거래. 마감 여부와 무관합니다." },
+            { term: "검토 대기", desc: "자동분류가 제안 상태거나 검토 필요로 표시된 거래 수. 집계에는 이미 들어 있습니다." },
+          ]}
+          footer="이 기준은 원장·리포트·월 마감과 같은 계산 함수를 씁니다."
+        />
+      </BasisLine>
 
       {/* 헤드라인 — 하나의 표면, 얇은 선으로 구분 */}
       <KpiStrip columns={4} className="mb-5">
@@ -354,7 +450,24 @@ export default function FinanceDashboard() {
             }
           />
           {trend.length >= 2 ? (
-            <TrendChart points={trend} />
+            <>
+              <TrendChart points={trend} />
+              {/* 차트와 같은 배열을 표로 — hover 없이도(터치·키보드·낭독기) 정확한 값에 닿는다 */}
+              <ChartValues
+                className="mt-2"
+                note="단위: 원 · 순손익 = 수입 − (지출 − 환급)"
+                columns={[
+                  { key: "income", label: "수입", color: SERIES.income },
+                  { key: "expense", label: "지출", color: SERIES.expense },
+                  { key: "net", label: "순손익" },
+                ]}
+                rows={trend.map((p) => ({
+                  key: p.month,
+                  label: monthLabel(p.month),
+                  values: { income: p.income, expense: p.expense, net: p.net },
+                }))}
+              />
+            </>
           ) : (
             <p className="py-10 text-center text-nd-caption text-nd-fg-3">두 달 이상 쌓이면 추이가 나타납니다.</p>
           )}
@@ -388,18 +501,26 @@ export default function FinanceDashboard() {
               href="/neander/finance/projects"
             />
           </ul>
-          <div className="mt-auto border-t border-nd-line pt-3 text-nd-caption leading-relaxed text-nd-fg-3">
-            <p className="font-medium text-nd-fg-2">집계 기준</p>
-            <p>자금거래·카드대금결제 제외</p>
-            <p>환급은 지출에서 차감</p>
-          </div>
         </Card>
       </div>
 
       {/* 사업부손익 */}
       <Card padding="none" className="mb-5 overflow-hidden">
         <div className="px-5 pt-5">
-          <SectionHeader title="사업부별 손익" hint="사업구분 축" action={<TableNote>단위: 원</TableNote>} />
+          <SectionHeader
+            title="사업부별 손익"
+            hint="금액을 선택하면 세부 거래를 볼 수 있어요 · 사업구분 축"
+            action={
+              <>
+                <TableNote>단위: 원</TableNote>
+                <Link href={plHref()} className="rounded-nd-md">
+                  <Button variant="secondary" size="sm" icon={ExternalLink}>
+                    원장 열기
+                  </Button>
+                </Link>
+              </>
+            }
+          />
         </div>
         <TableScroll>
           <Table minWidth={640}>
@@ -414,24 +535,80 @@ export default function FinanceDashboard() {
               </tr>
             </thead>
             <tbody>
-              {pl.rows.map((r) => (
-                <Tr key={`${r.bizMajor}|${r.bizMinor}`}>
-                  <Td className="pl-5 text-nd-fg-2">{r.bizMajor}</Td>
-                  <Td className="font-medium">{r.bizMinor}</Td>
-                  <Td num><Money value={r.income} unit={false} muted={!r.income} /></Td>
-                  <Td num><Money value={r.expense} unit={false} muted={!r.expense} /></Td>
-                  <Td num><Money value={r.refund} unit={false} muted={!r.refund} /></Td>
-                  <Td num className="pr-5 font-semibold"><Money value={r.net} unit={false} /></Td>
-                </Tr>
-              ))}
+              {pl.rows.map((r) => {
+                const key = `${r.bizMajor}|${r.bizMinor}`;
+                const bucket = plRowRows[key] ?? EMPTY_BUCKET;
+                const name = `${r.bizMajor}${BIZ_SEP}${r.bizMinor}`;
+                return (
+                  <Tr key={key}>
+                    <Td className="pl-5 text-nd-fg-2">{r.bizMajor}</Td>
+                    <Td className="font-medium">
+                      {/* 줄 이름을 누르면 그 사업부의 이번 달 거래가 통째로 열린다 */}
+                      <AmountBreakdown
+                        value={r.net}
+                        rows={bucket.all}
+                        amountOf={plDelta}
+                        amountNote={PL_NET_NOTE}
+                        label={r.bizMinor}
+                        title={`${name} 전체`}
+                        subtitle={plNote}
+                        ledgerHref={plHref(r)}
+                        scope={{ bizKey: name, month: activeMonth }}
+                      />
+                    </Td>
+                    <Td num>
+                      <PLCell value={r.income} rows={bucket.수입} title={`${name} 수입`} subtitle={plNote} href={plHref(r, ["수입"])} bizKey={name} month={activeMonth} />
+                    </Td>
+                    <Td num>
+                      <PLCell value={r.expense} rows={bucket.지출} title={`${name} 지출`} subtitle={plNote} href={plHref(r, ["지출"])} bizKey={name} month={activeMonth} />
+                    </Td>
+                    <Td num>
+                      <PLCell value={r.refund} rows={bucket.환급} title={`${name} 환급`} subtitle={plNote} href={plHref(r, ["환급"])} bizKey={name} month={activeMonth} />
+                    </Td>
+                    <Td num className="pr-5 font-semibold">
+                      <AmountBreakdown
+                        value={r.net}
+                        rows={bucket.all}
+                        amountOf={plDelta}
+                        amountNote={PL_NET_NOTE}
+                        emptyText="0"
+                        title={`${name} 순손익`}
+                        subtitle={plNote}
+                        ledgerHref={plHref(r)}
+                        scope={{ bizKey: name, month: activeMonth }}
+                        className={r.net < 0 ? "text-nd-danger-text" : undefined}
+                      />
+                    </Td>
+                  </Tr>
+                );
+              })}
             </tbody>
             <tfoot>
               <TotalRow>
                 <Td className="pl-5" colSpan={2}>총계</Td>
-                <Td num><Money value={pl.total.income} unit={false} /></Td>
-                <Td num><Money value={pl.total.expense} unit={false} /></Td>
-                <Td num><Money value={pl.total.refund} unit={false} /></Td>
-                <Td num className="pr-5"><Money value={pl.total.net} unit={false} /></Td>
+                <Td num>
+                  <PLCell value={pl.total.income} rows={plAllRows.수입} title="전체 수입" subtitle={plNote} href={plHref(undefined, ["수입"])} month={activeMonth} />
+                </Td>
+                <Td num>
+                  <PLCell value={pl.total.expense} rows={plAllRows.지출} title="전체 지출" subtitle={plNote} href={plHref(undefined, ["지출"])} month={activeMonth} />
+                </Td>
+                <Td num>
+                  <PLCell value={pl.total.refund} rows={plAllRows.환급} title="전체 환급" subtitle={plNote} href={plHref(undefined, ["환급"])} month={activeMonth} />
+                </Td>
+                <Td num className="pr-5">
+                  <AmountBreakdown
+                    value={pl.total.net}
+                    rows={plAllRows.all}
+                    amountOf={plDelta}
+                    amountNote={PL_NET_NOTE}
+                    emptyText="0"
+                    title="전체 순손익"
+                    subtitle={plNote}
+                    ledgerHref={plHref()}
+                    scope={{ month: activeMonth }}
+                    className={pl.total.net < 0 ? "text-nd-danger-text" : undefined}
+                  />
+                </Td>
               </TotalRow>
             </tfoot>
           </Table>
@@ -585,14 +762,50 @@ export default function FinanceDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sites.map((s) => (
-                    <Tr key={s.site}>
-                      <Td className="pl-5 font-medium">{s.site}</Td>
-                      <Td num><Money value={s.t.income} unit={false} muted={!s.t.income} /></Td>
-                      <Td num><Money value={s.t.expense} unit={false} muted={!s.t.expense} /></Td>
-                      <Td num className="pr-5 font-semibold"><Money value={s.t.net} unit={false} /></Td>
-                    </Tr>
-                  ))}
+                  {sites.map((s) => {
+                    // 사업장 이름은 「이 줄 전체」 를 여는 자리다 (AmountBreakdown 의 label).
+                    // 칸마다 따로 열 수도 있어야 해서 수입·지출·순손익도 각각 연다 —
+                    // 사업부 손익 표와 같은 규칙이라 두 표에서 손이 달라지지 않는다.
+                    const inc = s.rows.filter((t) => t.txType === "수입");
+                    const exp = s.rows.filter((t) => t.txType === "지출");
+                    return (
+                      <Tr key={s.site}>
+                        <Td className="pl-5 font-medium">
+                          <AmountBreakdown
+                            value={s.t.net}
+                            rows={s.rows}
+                            amountOf={plDelta}
+                            amountNote={PL_NET_NOTE}
+                            label={s.site}
+                            title={`${s.site} 손익`}
+                            subtitle={plNote}
+                            ledgerHref={siteHref(s.site)}
+                            scope={{ month: activeMonth }}
+                          />
+                        </Td>
+                        <Td num>
+                          <PLCell value={s.t.income} rows={inc} title={`${s.site} 수입`} subtitle={plNote} href={siteHref(s.site, ["수입"])} month={activeMonth} />
+                        </Td>
+                        <Td num>
+                          <PLCell value={s.t.expense} rows={exp} title={`${s.site} 지출`} subtitle={plNote} href={siteHref(s.site, ["지출"])} month={activeMonth} />
+                        </Td>
+                        <Td num className="pr-5 font-semibold">
+                          <AmountBreakdown
+                            value={s.t.net}
+                            rows={s.rows}
+                            amountOf={plDelta}
+                            amountNote={PL_NET_NOTE}
+                            emptyText="0"
+                            title={`${s.site} 순손익`}
+                            subtitle={plNote}
+                            ledgerHref={siteHref(s.site)}
+                            scope={{ month: activeMonth }}
+                            className={s.t.net < 0 ? "text-nd-danger-text" : undefined}
+                          />
+                        </Td>
+                      </Tr>
+                    );
+                  })}
                 </tbody>
               </Table>
             </TableScroll>
@@ -671,11 +884,51 @@ export default function FinanceDashboard() {
           </Card>
         )}
       </div>
-    </div>
+    </PageShell>
   );
 }
 
 // ---- 부품 ------------------------------------------------------
+
+/**
+ * 사업부 손익의 수입·지출·환급 칸.
+ *
+ * 한 칸에는 거래유형이 한 가지뿐이라 금액은 늘 양수다 — 그래서 매트릭스의
+ * 기본값(환급을 음수로 보는 `matrixDelta`) 대신 `netAmount` 를 쓴다.
+ * 그러지 않으면 환급 칸의 창 합계만 부호가 뒤집혀 표와 어긋난다.
+ */
+function PLCell({
+  value,
+  rows,
+  title,
+  subtitle,
+  href,
+  bizKey,
+  month,
+}: {
+  value: number;
+  rows: FinTransaction[];
+  title: string;
+  subtitle: string;
+  href: string;
+  bizKey?: string;
+  month: string;
+}) {
+  return (
+    <AmountBreakdown
+      value={value}
+      rows={rows}
+      amountOf={netAmount}
+      emptyText="0"
+      title={title}
+      subtitle={subtitle}
+      ledgerHref={href}
+      scope={{ bizKey, month }}
+      amountNote=""
+      className={value ? undefined : "text-nd-fg-4"}
+    />
+  );
+}
 
 function ChecklistRow({
   icon,

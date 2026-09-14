@@ -10,7 +10,6 @@
 import * as XLSX from "xlsx";
 import {
   groupLines,
-  lineActual,
   lineEstimate,
   projectSummary,
   formatMargin,

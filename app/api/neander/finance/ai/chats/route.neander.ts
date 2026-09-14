@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { adminDb } from "@/lib/neander/finance/server/admin";
-import { requireFinanceUser, accessErrorResponse } from "@/lib/neander/finance/server/auth";
+import { adminDb } from "@/lib/neander/server/admin";
+import { requireErpUser, accessErrorResponse } from "@/lib/neander/server/auth";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import { summaryOf, type FinChatDoc } from "@/lib/neander/finance/chat-log";
 
@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   let user;
   try {
-    user = await requireFinanceUser(req);
+    user = await requireErpUser(req);
   } catch (e) {
     const denied = accessErrorResponse(e);
     if (denied) return denied;
@@ -62,7 +62,7 @@ export async function GET(req: Request) {
 export async function DELETE(req: Request) {
   let user;
   try {
-    user = await requireFinanceUser(req);
+    user = await requireErpUser(req);
   } catch (e) {
     const denied = accessErrorResponse(e);
     if (denied) return denied;

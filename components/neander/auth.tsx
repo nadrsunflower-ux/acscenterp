@@ -23,6 +23,7 @@ import {
   type User,
 } from "firebase/auth";
 import { getNeanderAuth } from "@/lib/neander/firebase";
+import { cacheClearAll } from "@/lib/neander/browser-cache";
 
 interface AuthValue {
   user: User | null;
@@ -40,6 +41,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     return onAuthStateChanged(getNeanderAuth(), (u) => {
+      // 로그아웃·세션 만료 — 이 브라우저에 남긴 매출·재무 캐시를 지운다
+      if (!u) void cacheClearAll();
       setUser(u);
       setLoading(false);
     });
@@ -52,6 +55,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function logout() {
+    // 로그아웃 전에 지운다 — 공용 PC 에 회사 재무·매출 데이터를 남기지 않는다
+    await cacheClearAll();
     await signOut(getNeanderAuth());
   }
 

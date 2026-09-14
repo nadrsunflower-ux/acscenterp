@@ -39,7 +39,7 @@ import {
   type DataSheetGridRef,
 } from "react-datasheet-grid";
 import { parseAmountInput } from "@/lib/neander/finance/sheet";
-import { Columns3, Minus, Plus, Redo2, RotateCcw, Undo2 } from "lucide-react";
+import { Minus, Plus, Redo2, RotateCcw, Undo2 } from "lucide-react";
 import { Badge, Button, ButtonGroup, Divider, IconButton, useConfirm } from "@/components/neander/ui";
 import {
   KoAddRows,
@@ -653,9 +653,10 @@ export function ChecklistSheet({
           size="sm"
           icon={Plus}
           onClick={addRowAbove}
+          aria-label="행 추가"
           title="고른 줄 바로 위에 새 줄을 넣습니다 (고른 줄이 없으면 맨 끝)"
         >
-          행 추가
+          행
           <span className="ml-1 font-normal text-nd-fg-3">
             {picked ? `${picked.rowMin + 1}행 위` : "맨 끝"}
           </span>
@@ -666,9 +667,10 @@ export function ChecklistSheet({
           icon={Minus}
           onClick={() => void removeRows()}
           disabled={!picked}
+          aria-label="행 삭제"
           title={picked ? "고른 줄을 지웁니다" : "지울 줄을 먼저 고르세요"}
         >
-          행 삭제
+          행
           <span className="ml-1 font-normal text-nd-fg-3">
             {picked
               ? picked.rowMax > picked.rowMin
@@ -683,11 +685,12 @@ export function ChecklistSheet({
         <Button
           variant="secondary"
           size="sm"
-          icon={Columns3}
+          icon={Plus}
           onClick={addColumnLeft}
+          aria-label="열 추가"
           title="고른 열 바로 왼쪽에 새 열을 만듭니다 (고른 열이 없으면 맨 오른쪽)"
         >
-          열 추가
+          열
           <span className="ml-1 font-normal text-nd-fg-3">
             {pickedCol ? `${pickedCol} 왼쪽` : "맨 오른쪽"}
           </span>
@@ -698,6 +701,7 @@ export function ChecklistSheet({
           icon={Minus}
           onClick={() => picked?.colId && void removeColumn(picked.colId.slice(2))}
           disabled={!canRemoveCol}
+          aria-label="열 삭제"
           title={
             canRemoveCol
               ? `${pickedCol} 열을 지웁니다`
@@ -706,11 +710,11 @@ export function ChecklistSheet({
                 : "지울 열을 먼저 고르세요"
           }
         >
-          열 삭제
+          열
           <span className="ml-1 font-normal text-nd-fg-3">{canRemoveCol ? pickedCol : "내가 만든 열"}</span>
         </Button>
 
-        <span className="ml-1 hidden text-nd-fg-3 md:inline">머리글을 누르면 정렬, 옆 화살표를 누르면 필터입니다.</span>
+        <span className="ml-1 hidden text-nd-fg-3 md:inline">머리글 이름을 누르면 그 열이 선택되고, 화살표는 정렬, ⌄ 는 필터입니다.</span>
 
         <div className="ml-auto flex items-center gap-2">
           {filterCount > 0 && (

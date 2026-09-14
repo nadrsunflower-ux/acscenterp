@@ -122,6 +122,12 @@ export type Placement = "bottom-start" | "bottom-end" | "top-start" | "top-end" 
 /**
  * anchor 아래/위에 팝오버를 놓을 좌표. 화면 밖으로 나가면 안쪽으로
  * 밀고, 아래 공간이 모자라면 위로 뒤집는다. (ColumnMenu 의 방식을 공통화)
+ *
+ * `ready` 가 false 인 동안 부르는 쪽은 판을 **그리지 않아야 한다.**
+ * 판의 크기는 내용이 앉으면서 바뀌고(포탈은 한 프레임 뒤에 붙는다), 위쪽
+ * 배치는 그 높이를 빼서 좌표를 잡기 때문에, 첫 프레임 크기로 계산한 자리에
+ * 한 번 그려 버리면 판이 왼쪽 위로 튀었다가 제자리로 돌아온다. 그래서 같은
+ * 값이 두 번 연달아 나올 때까지 재고 나서야 ready 를 켠다.
  */
 export function useAnchorPosition(
   anchorRef: RefObject<HTMLElement | null>,
@@ -129,57 +135,131 @@ export function useAnchorPosition(
   open: boolean,
   { placement = "bottom-start", offset = 6, matchWidth = false }: { placement?: Placement; offset?: number; matchWidth?: boolean } = {},
 ) {
-  const [style, setStyle] = useState<{ top: number; left: number; minWidth?: number; maxHeight?: number }>({
-    top: -9999,
-    left: -9999,
-  });
+  const [style, setStyle] = useState<{
+    top: number;
+    left: number;
+    minWidth?: number;
+    maxHeight?: number;
+    /** 자리가 굳었는가 — 그려도 되는가 */
+    ready: boolean;
+  }>({ top: -9999, left: -9999, ready: false });
 
   useLayoutEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setStyle((s) => (s.ready || s.top !== -9999 ? { top: -9999, left: -9999, ready: false } : s));
+      return;
+    }
     let raf = 0;
-    const compute = () => {
+    let ro: ResizeObserver | null = null;
+
+    /** 좌표를 다시 잡는다. 판이 아직 없으면 null — 부른 쪽이 다음 프레임에 다시 부른다 */
+    const measure = (reveal: boolean): string | null => {
       const a = anchorRef.current?.getBoundingClientRect();
       const p = panelRef.current;
-      if (!a || !p) {
-        // 패널이 아직 안 붙었으면 다음 프레임에 한 번 더
-        raf = requestAnimationFrame(compute);
-        return;
-      }
+      if (!a || !p) return null;
       const pw = p.offsetWidth;
-      const ph = p.offsetHeight;
       const vw = window.innerWidth;
       const vh = window.innerHeight;
       const margin = 8;
 
-      let top = placement.startsWith("top") ? a.top - ph - offset : a.bottom + offset;
-      // 아래로 넘치면 위로, 위로 넘치면 아래로
-      if (placement.startsWith("bottom") && top + ph > vh - margin && a.top - ph - offset >= margin) {
-        top = a.top - ph - offset;
-      } else if (placement.startsWith("top") && top < margin && a.bottom + offset + ph <= vh - margin) {
-        top = a.bottom + offset;
-      }
-      const maxHeight = Math.max(120, vh - Math.max(top, margin) - margin);
+      // 판의 **자연 높이** 를 잰다 — maxHeight 를 잠깐 풀고 잰 값이다.
+      // 눌린 높이(offsetHeight)로 위쪽 좌표를 잡으면 되먹임이 생긴다:
+      // top 은 높이에서 나오고 maxHeight 는 top 에서 나오는데, 그 maxHeight 가
+      // 다시 높이를 누른다. 실제로 판이 한 프레임에 60px 씩 열 번 기어올랐다.
+      const prevMax = p.style.maxHeight;
+      p.style.maxHeight = "none";
+      const natural = p.offsetHeight;
+      p.style.maxHeight = prevMax;
+
+      const spaceAbove = a.top - offset - margin;
+      const spaceBelow = vh - a.bottom - offset - margin;
+      // 부른 쪽을 먼저 쓰고, 거기 안 들어가는데 반대쪽이 더 넓으면 뒤집는다
+      let up = placement.startsWith("top");
+      if (up && natural > spaceAbove && spaceBelow > spaceAbove) up = false;
+      else if (!up && natural > spaceBelow && spaceAbove > spaceBelow) up = true;
+
+      const maxHeight = Math.max(120, up ? spaceAbove : spaceBelow);
+      const ph = Math.min(natural, maxHeight);
+      let top = up ? a.top - offset - ph : a.bottom + offset;
+      top = Math.max(margin, top);
 
       let left: number;
       if (placement.endsWith("end")) left = a.right - pw;
       else if (placement === "bottom" || placement === "top") left = a.left + a.width / 2 - pw / 2;
       else left = a.left;
       left = Math.min(Math.max(margin, left), Math.max(margin, vw - pw - margin));
-      top = Math.max(margin, top);
 
-      setStyle({ top, left, minWidth: matchWidth ? a.width : undefined, maxHeight });
+      const minWidth = matchWidth ? a.width : undefined;
+      setStyle((prev) => {
+        const ready = prev.ready || reveal;
+        if (prev.top === top && prev.left === left && prev.minWidth === minWidth && prev.maxHeight === maxHeight && prev.ready === ready) {
+          return prev;
+        }
+        return { top, left, minWidth, maxHeight, ready };
+      });
+
+      // 판 크기가 나중에 바뀌어도(내용이 앉으면) 따라가게. 자리만 고쳐 잡고
+      // 「보여도 되는가」 는 건드리지 않는다 — 그 판단은 settle 만 한다.
+      // 여기서 reveal 하면 크기가 아직 자라는 중인 자리에서 판이 드러난다.
+      if (!ro && typeof ResizeObserver !== "undefined") {
+        ro = new ResizeObserver(() => measure(false));
+        ro.observe(p);
+      }
+      return `${top},${left},${pw},${ph}`;
     };
-    compute();
-    window.addEventListener("resize", compute);
-    window.addEventListener("scroll", compute, true);
+
+    // 같은 값이 두 번 연달아 나오면 자리가 굳은 것으로 본다.
+    // 안 굳어도 열 프레임이면 포기하고 보여 준다 — 안 보이는 판이 더 나쁘다.
+    let last = "";
+    let tries = 0;
+    const settle = () => {
+      const key = measure(false);
+      if (key !== null && (key === last || ++tries > 10)) {
+        setStyle((s) => (s.ready ? s : { ...s, ready: true }));
+        return;
+      }
+      if (key !== null) last = key;
+      raf = requestAnimationFrame(settle);
+    };
+    settle();
+
+    // ready 는 한 번 켜지면 꺼지지 않는다 — 여기서도 자리만 고쳐 잡는다
+    const reposition = () => measure(false);
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
     return () => {
       cancelAnimationFrame(raf);
-      window.removeEventListener("resize", compute);
-      window.removeEventListener("scroll", compute, true);
+      ro?.disconnect();
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
     };
   }, [open, anchorRef, panelRef, placement, offset, matchWidth]);
 
   return style;
+}
+
+/**
+ * 닫힘 애니메이션을 위한 「조금 더 그려 두기」.
+ *
+ * open 이 false 가 돼도 exitMs 동안은 mounted 를 true 로 두고 closing 을
+ * 켠다 — 부르는 쪽은 그동안 퇴장 애니메이션(animate-out)을 입혀 그리다가
+ * mounted 가 꺼지면 치운다. 그 사이 다시 열리면 그대로 이어서 연다.
+ *
+ * 움직임 줄이기가 켜져 있으면 기다리지 않는다 — 애니메이션이 없는데
+ * 판이 잠깐 남아 있으면 오히려 굼떠 보인다.
+ */
+export function usePresence(open: boolean, exitMs = 140) {
+  const [mounted, setMounted] = useState(open);
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      return;
+    }
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const t = window.setTimeout(() => setMounted(false), reduce ? 0 : exitMs);
+    return () => window.clearTimeout(t);
+  }, [open, exitMs]);
+  return { mounted: open || mounted, closing: !open && mounted };
 }
 
 /** 첫 마운트 이후에만 true — SSR 과 다른 값을 그리는 컴포넌트용 */

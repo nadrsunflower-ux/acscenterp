@@ -1,9 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronRight, ThumbsUp } from "lucide-react";
 import { useAppData } from "@/components/neander/app-data";
+import { useAuth } from "@/components/neander/auth";
+import { fetchSalesSummary, type SalesMonthSummary } from "@/lib/neander/sales/client";
+import { storeLabel } from "@/lib/neander/sales/types";
 import {
   Badge,
   Card,
@@ -16,11 +19,9 @@ import {
   cn,
 } from "@/components/neander/ui";
 import {
-  SALES_CHANNELS,
   taskStatusLabel,
   taskCategoryLabel,
   taskCategoryColor,
-  type SalesChannel,
   type DailyTask,
   type Member,
 } from "@/lib/neander/types";
@@ -31,7 +32,6 @@ import {
   todayStrKST,
   dateStrKST,
   formatDateKo,
-  isInMonth,
   weekDatesOf,
   weekLabelOf,
   addDays,
@@ -62,20 +62,33 @@ function groupByMember(
 }
 
 export default function DashboardPage() {
-  const { sales, tasks, requests, members, currentMember } = useAppData();
+  const { tasks, requests, members, currentMember } = useAppData();
+  const { user } = useAuth();
   const month = thisMonthStr();
   const today = todayStr();
 
-  const monthSales = useMemo(() => sales.filter((s) => isInMonth(s.date, month)), [sales, month]);
-  const totalSales = monthSales.reduce((sum, s) => sum + s.amount, 0);
+  // 매출은 매출 모듈(단위경제)에서 가져온다. 판매 줄 전체가 아니라 이 달
+  // 요약만 받는다 — 타일 하나에 만 건을 끌어올 이유가 없다.
+  const [salesSummary, setSalesSummary] = useState<SalesMonthSummary | null>(null);
+  const [salesError, setSalesError] = useState(false);
+  useEffect(() => {
+    if (!user) return;
+    let alive = true;
+    fetchSalesSummary(month)
+      .then((s) => {
+        if (alive) setSalesSummary(s);
+      })
+      .catch(() => {
+        // 매출 접근 권한이 없을 수도 있다 — 대시보드 전체를 깨뜨리지 않는다
+        if (alive) setSalesError(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [user, month]);
 
-  const byChannel = SALES_CHANNELS.map((c) => ({
-    ...c,
-    amount: monthSales
-      .filter((s) => s.channel === (c.value as SalesChannel))
-      .reduce((sum, s) => sum + s.amount, 0),
-  }));
-  const maxChannel = Math.max(1, ...byChannel.map((c) => c.amount));
+  const byStore = salesSummary?.stores.filter((s) => s.revenue > 0) ?? [];
+  const maxStore = Math.max(1, ...byStore.map((s) => s.revenue));
 
   const myId = currentMember?.id ?? null;
   const todayKST = todayStrKST();
@@ -114,7 +127,16 @@ export default function DashboardPage() {
       {/* 상단 지표 */}
       <KpiStrip columns={4} className="mb-3">
         <Link href="/neander/sales" className={kpiLink}>
-          <KpiItem label="이번 달 매출" value={formatKRW(totalSales)} tone="accent" hint="매출 관리로 이동" />
+          <KpiItem
+            label="이번 달 매출"
+            value={salesSummary ? formatKRW(salesSummary.revenue) : salesError ? "—" : "…"}
+            tone="accent"
+            hint={
+              salesSummary
+                ? `공헌이익률 ${salesSummary.contributionRate === null ? "—" : `${(salesSummary.contributionRate * 100).toFixed(1)}%`}`
+                : "매출로 이동"
+            }
+          />
         </Link>
         <Link href="/neander/tasks" className={kpiLink}>
           <KpiItem label="오늘의 업무" value={myTodayTasks.length} unit="건" hint="일일업무로 이동" />
@@ -209,32 +231,52 @@ export default function DashboardPage() {
       <WeeklyTasks tasks={tasks} members={members} today={today} />
 
       <div className="grid gap-6 lg:grid-cols-2 [&>*]:min-w-0">
-        {/* 채널별 매출 */}
+        {/* 매장별 매출 — 와우 · 아이디 · 온라인 */}
         <Card>
           <SectionHeader
-            title={`채널별 매출 (${month})`}
+            title={`매장별 매출 (${month})`}
+            hint={
+              salesSummary && salesSummary.reviewCount > 0
+                ? `미확정 ${salesSummary.reviewCount.toLocaleString("ko-KR")}건`
+                : undefined
+            }
             action={
               <Link href="/neander/sales" className="text-nd-caption font-medium text-nd-accent-strong hover:underline">
                 자세히 →
               </Link>
             }
           />
-          <div className="flex flex-col gap-3">
-            {byChannel.map((c) => (
-              <div key={c.value}>
-                <div className="mb-1 flex justify-between text-nd-body">
-                  <span className="text-nd-fg-2">{c.label}</span>
-                  <span className="nd-num font-semibold text-nd-fg">{formatKRW(c.amount)}</span>
+          {byStore.length === 0 ? (
+            <p className="text-nd-body text-nd-fg-3">
+              {salesError
+                ? "매출 데이터를 볼 권한이 없습니다."
+                : salesSummary
+                  ? "이 달 적재된 판매가 없습니다."
+                  : "불러오는 중…"}
+            </p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {byStore.map((s) => (
+                <div key={s.store}>
+                  <div className="mb-1 flex justify-between text-nd-body">
+                    <span className="text-nd-fg-2">
+                      {storeLabel(s.store)}
+                      <span className="ml-1.5 text-nd-caption text-nd-fg-3">
+                        공헌 {s.contributionRate === null ? "—" : `${(s.contributionRate * 100).toFixed(0)}%`}
+                      </span>
+                    </span>
+                    <span className="nd-num font-semibold text-nd-fg">{formatKRW(s.revenue)}</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-nd-fg/[.06]">
+                    <div
+                      className="h-full rounded-full bg-nd-accent transition-all"
+                      style={{ width: `${(s.revenue / maxStore) * 100}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-nd-fg/[.06]">
-                  <div
-                    className="h-full rounded-full bg-nd-accent transition-all"
-                    style={{ width: `${(c.amount / maxChannel) * 100}%` }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </Card>
 
         {/* 내 받은 요청 */}

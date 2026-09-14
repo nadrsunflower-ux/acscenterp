@@ -46,6 +46,7 @@
   height: 100%;
   overflow: hidden;
 }
+/* 이름 자리 — 누르면 시트가 열 전체를 고른다 (정렬은 옆 화살표) */
 .ledger-sheet .dsg-head-label {
   display: flex;
   min-width: 0;
@@ -74,11 +75,14 @@
   opacity: 0;
   transition: opacity var(--nd-dur-fast);
 }
-.ledger-sheet .dsg-head-label:hover .dsg-head-arrow {
+/* 머리글 칸 어디에 올려도 정렬 화살표가 나타난다 — 이름 위가 아니라 칸 전체가
+   기준이다. 이름은 이제 정렬 버튼이 아니라 열 선택 자리라서. */
+.ledger-sheet .dsg-cell-header:hover .dsg-head-arrow {
   opacity: 0.45;
 }
+/* 정렬이 걸린 열은 마우스를 올리지 않아도 방향이 보인다 */
 .ledger-sheet .dsg-head-arrow-on,
-.ledger-sheet .dsg-head-label:hover .dsg-head-arrow-on {
+.ledger-sheet .dsg-cell-header:hover .dsg-head-arrow-on {
   opacity: 1;
   color: rgb(var(--nd-accent-strong));
 }

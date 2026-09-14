@@ -202,3 +202,28 @@ export function weekLabelOf(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
   return weekRangeLabel(new Date(y, m - 1, d).getTime());
 }
+
+/**
+ * 부호 있는 금액 — 음수는 △. 색만으로 부호를 전하지 않기 위한 표기다
+ * (재무·매출이 같은 규칙을 써야 두 화면을 번갈아 보는 사람이 헷갈리지 않는다).
+ */
+export function formatSigned(n: number): string {
+  const abs = Math.abs(Math.round(n)).toLocaleString("ko-KR");
+  return n < 0 ? `△${abs}` : abs;
+}
+
+/**
+ * 축 눈금용 축약 — 60,000,000 → "6,000만", 150,000,000 → "1억 5,000만".
+ * 차트 y축처럼 자리가 좁은 곳에서만 쓴다. 표의 금액은 줄이지 않는다.
+ */
+export function shortWon(n: number): string {
+  const a = Math.round(Math.abs(n));
+  if (a === 0) return "0";
+  const eok = Math.floor(a / 100_000_000);
+  const man = Math.round((a % 100_000_000) / 10_000);
+  const parts: string[] = [];
+  if (eok > 0) parts.push(`${eok.toLocaleString("ko-KR")}억`);
+  if (man > 0) parts.push(`${man.toLocaleString("ko-KR")}만`);
+  if (parts.length === 0) return a.toLocaleString("ko-KR");
+  return (n < 0 ? "△" : "") + parts.join(" ");
+}

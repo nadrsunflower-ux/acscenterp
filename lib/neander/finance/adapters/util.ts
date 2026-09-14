@@ -175,6 +175,10 @@ const CARD_BILL = [
  */
 export function looksLikeCardBill(...texts: (string | undefined)[]): boolean {
   const hay = texts.filter(Boolean).join(" ");
+  // 체크카드 결제는 통장에서 바로 나가는 **지출**이다 — 카드대금 결제가 아니다.
+  // 카카오뱅크 와작 통장의 「체크카드결제」 20건이 이 판정에 걸려 손익에서
+  // 사라질 뻔했다 (2026-08 실측). "카드결" 이 "체크카드결제" 에도 들어 있다.
+  if (/체크카드/.test(hay)) return false;
   return CARD_BILL.some((k) => hay.includes(k));
 }
 

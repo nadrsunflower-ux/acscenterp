@@ -11,12 +11,28 @@
 //  편집 중 내용을 잃기 쉬우므로 스크림 클릭으로는 닫지 않는다.
 // ============================================================
 
-import { useEffect, useRef, useState } from "react";
-import { Button, Dialog, Field, Input, Select, Textarea, controlClass, useConfirm } from "@/components/neander/ui";
+import {
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import {
+  Button,
+  controlClass,
+  Dialog,
+  Field,
+  Input,
+  Money,
+  Select,
+  Textarea,
+  useConfirm,
+} from "@/components/neander/ui";
 import { AccountPicker } from "./AccountPicker";
 import { useFinance } from "./FinanceProvider";
-import { Money } from "./ui";
-import type { FinAccountDoc, FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
+import type {
+  FinAccountDoc,
+  FinPaymentMethodDoc,
+} from "@/lib/neander/finance/db-types";
 import {
   TX_TYPES,
   dedupHashOf,

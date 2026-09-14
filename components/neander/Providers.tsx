@@ -5,6 +5,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { AuthProvider, useAuth } from "@/components/neander/auth";
 import { AppDataProvider, useAppData } from "@/components/neander/app-data";
 import { ChatProvider } from "@/components/neander/chat";
+import { FinanceProvider } from "@/components/neander/finance/FinanceProvider";
+import { SalesProvider } from "@/components/neander/sales/SalesProvider";
 import { Shell } from "@/components/neander/Shell";
 import { Lock } from "lucide-react";
 import { Button, ToastProvider, ConfirmProvider } from "@/components/neander/ui";
@@ -43,7 +45,14 @@ function AuthorizedShell({ children }: { children: ReactNode }) {
   if (!authorized) return <NotAuthorized />;
   return (
     <ChatProvider>
-      <Shell>{children}</Shell>
+      {/* 재무·매출 데이터는 워크스페이스 밖에 둔다 — 홈·매출·재무를 오가도 다시
+          받지 않는다. 받기 시작하는 건 그 영역에 처음 들어갈 때다
+          (FinanceActivate · SalesActivate). */}
+      <FinanceProvider>
+        <SalesProvider>
+          <Shell>{children}</Shell>
+        </SalesProvider>
+      </FinanceProvider>
     </ChatProvider>
   );
 }

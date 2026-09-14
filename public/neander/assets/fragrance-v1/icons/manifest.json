@@ -1,0 +1,188 @@
+[
+  {
+    "id": "perfume",
+    "source": "custom",
+    "path": "/neander/assets/fragrance-v1/icons/perfume.svg"
+  },
+  {
+    "id": "reed-diffuser",
+    "source": "custom",
+    "path": "/neander/assets/fragrance-v1/icons/reed-diffuser.svg"
+  },
+  {
+    "id": "room-spray",
+    "source": "custom",
+    "path": "/neander/assets/fragrance-v1/icons/room-spray.svg"
+  },
+  {
+    "id": "fragrance",
+    "source": "custom",
+    "path": "/neander/assets/fragrance-v1/icons/fragrance.svg"
+  },
+  {
+    "id": "scent-strip",
+    "source": "custom",
+    "path": "/neander/assets/fragrance-v1/icons/scent-strip.svg"
+  },
+  {
+    "id": "image-missing",
+    "source": "custom",
+    "path": "/neander/assets/fragrance-v1/icons/image-missing.svg"
+  },
+  {
+    "id": "layout-dashboard",
+    "source": "lucide-react",
+    "export": "LayoutDashboard",
+    "path": "/neander/assets/fragrance-v1/icons/layout-dashboard.svg"
+  },
+  {
+    "id": "book-open",
+    "source": "lucide-react",
+    "export": "BookOpen",
+    "path": "/neander/assets/fragrance-v1/icons/book-open.svg"
+  },
+  {
+    "id": "inbox",
+    "source": "lucide-react",
+    "export": "Inbox",
+    "path": "/neander/assets/fragrance-v1/icons/inbox.svg"
+  },
+  {
+    "id": "credit-card",
+    "source": "lucide-react",
+    "export": "CreditCard",
+    "path": "/neander/assets/fragrance-v1/icons/credit-card.svg"
+  },
+  {
+    "id": "chart-no-axes-column",
+    "source": "lucide-react",
+    "export": "ChartNoAxesColumn",
+    "path": "/neander/assets/fragrance-v1/icons/chart-no-axes-column.svg"
+  },
+  {
+    "id": "folder-kanban",
+    "source": "lucide-react",
+    "export": "FolderKanban",
+    "path": "/neander/assets/fragrance-v1/icons/folder-kanban.svg"
+  },
+  {
+    "id": "calendar-check",
+    "source": "lucide-react",
+    "export": "CalendarCheck",
+    "path": "/neander/assets/fragrance-v1/icons/calendar-check.svg"
+  },
+  {
+    "id": "upload",
+    "source": "lucide-react",
+    "export": "Upload",
+    "path": "/neander/assets/fragrance-v1/icons/upload.svg"
+  },
+  {
+    "id": "database",
+    "source": "lucide-react",
+    "export": "Database",
+    "path": "/neander/assets/fragrance-v1/icons/database.svg"
+  },
+  {
+    "id": "search",
+    "source": "lucide-react",
+    "export": "Search",
+    "path": "/neander/assets/fragrance-v1/icons/search.svg"
+  },
+  {
+    "id": "sliders-horizontal",
+    "source": "lucide-react",
+    "export": "SlidersHorizontal",
+    "path": "/neander/assets/fragrance-v1/icons/sliders-horizontal.svg"
+  },
+  {
+    "id": "plus",
+    "source": "lucide-react",
+    "export": "Plus",
+    "path": "/neander/assets/fragrance-v1/icons/plus.svg"
+  },
+  {
+    "id": "pencil",
+    "source": "lucide-react",
+    "export": "Pencil",
+    "path": "/neander/assets/fragrance-v1/icons/pencil.svg"
+  },
+  {
+    "id": "save",
+    "source": "lucide-react",
+    "export": "Save",
+    "path": "/neander/assets/fragrance-v1/icons/save.svg"
+  },
+  {
+    "id": "x",
+    "source": "lucide-react",
+    "export": "X",
+    "path": "/neander/assets/fragrance-v1/icons/x.svg"
+  },
+  {
+    "id": "chevron-down",
+    "source": "lucide-react",
+    "export": "ChevronDown",
+    "path": "/neander/assets/fragrance-v1/icons/chevron-down.svg"
+  },
+  {
+    "id": "chevron-right",
+    "source": "lucide-react",
+    "export": "ChevronRight",
+    "path": "/neander/assets/fragrance-v1/icons/chevron-right.svg"
+  },
+  {
+    "id": "check",
+    "source": "lucide-react",
+    "export": "Check",
+    "path": "/neander/assets/fragrance-v1/icons/check.svg"
+  },
+  {
+    "id": "circle-alert",
+    "source": "lucide-react",
+    "export": "CircleAlert",
+    "path": "/neander/assets/fragrance-v1/icons/circle-alert.svg"
+  },
+  {
+    "id": "package",
+    "source": "lucide-react",
+    "export": "Package",
+    "path": "/neander/assets/fragrance-v1/icons/package.svg"
+  },
+  {
+    "id": "package-plus",
+    "source": "lucide-react",
+    "export": "PackagePlus",
+    "path": "/neander/assets/fragrance-v1/icons/package-plus.svg"
+  },
+  {
+    "id": "filter",
+    "source": "lucide-react",
+    "export": "Filter",
+    "path": "/neander/assets/fragrance-v1/icons/filter.svg"
+  },
+  {
+    "id": "settings2",
+    "source": "lucide-react",
+    "export": "Settings2",
+    "path": "/neander/assets/fragrance-v1/icons/settings2.svg"
+  },
+  {
+    "id": "receipt",
+    "source": "lucide-react",
+    "export": "Receipt",
+    "path": "/neander/assets/fragrance-v1/icons/receipt.svg"
+  },
+  {
+    "id": "download",
+    "source": "lucide-react",
+    "export": "Download",
+    "path": "/neander/assets/fragrance-v1/icons/download.svg"
+  },
+  {
+    "id": "circle-help",
+    "source": "lucide-react",
+    "export": "CircleHelp",
+    "path": "/neander/assets/fragrance-v1/icons/circle-help.svg"
+  }
+]

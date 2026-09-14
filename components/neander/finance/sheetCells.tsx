@@ -788,14 +788,28 @@ export function ColumnHead({
   }
   return (
     <div className="dsg-head">
+      {/*
+        이름 자리는 **열 전체 선택**이다 — 엑셀에서 열 머리글을 누르는 것과 같다.
+        그래서 버튼이 아니라 그냥 글자다.
+
+        ⚠️ 여기에 onMouseDown stopPropagation 을 걸면 안 된다. 시트는 mousedown
+           을 보고 열을 고르므로, 막으면 눌러도 아무 일이 일어나지 않는다.
+           예전에는 이 자리가 「정렬」 버튼이었는데, 그 stopPropagation 이
+           실제로는 시트를 막지 못해(둘 다 document 에 리스너를 단다 — 같은
+           노드끼리는 전파 중단이 통하지 않는다) 한 번 누르면 정렬과 열 선택이
+           같이 일어났다. 그래서 역할을 갈랐다: 이름=선택, 화살표=정렬.
+      */}
+      <span className="dsg-head-label" title={`${label} — 누르면 열 전체 선택`}>
+        <span className="dsg-head-text">{label}</span>
+      </span>
       <button
         type="button"
-        className="dsg-head-label"
+        className="dsg-head-sort"
         title={`${label} 기준 정렬 (오름차순 → 내림차순 → 해제)`}
+        aria-label={`${label} 기준 정렬`}
         onMouseDown={stop}
         onClick={onSort}
       >
-        <span className="dsg-head-text">{label}</span>
         <span className={`dsg-head-arrow${dir ? " dsg-head-arrow-on" : ""}`} aria-hidden>
           <Icon icon={dir === "desc" ? ArrowDown : ArrowUp} size={11} strokeWidth={2.25} />
         </span>

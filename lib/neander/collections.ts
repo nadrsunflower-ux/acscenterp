@@ -58,4 +58,23 @@ export const NEANDER_COL = {
   finDocs: "neander_fin_docs",
   /** 원장에 사람이 덧붙인 열 (값은 거래 문서의 extra 에 담긴다) */
   finLedgerColumns: "neander_fin_ledger_columns",
+  /** 지운 거래의 원본 — 되돌리기가 숨긴 필드(dedupHash 등)를 되살리는 근거 (server/trash.ts) */
+  finTrash: "neander_fin_trash",
+  // ---- 매출 단위경제 (/neander/sales) ----
+  //  재무와 같은 이유로 서버(Admin SDK)를 거친다 — 보안 규칙을 게시할
+  //  권한이 없어서 새 컬렉션은 클라이언트에서 직접 붙을 수 없다.
+  /** 판매 줄 — POS·예약 한 줄 = 문서 1개 */
+  salesLines: "neander_sales_lines",
+  /** 상품 마스터 (문서 id = 상품코드) */
+  salesProducts: "neander_sales_products",
+  /** 기본가정 — 고정비·시급·수수료율 (문서 1개, id = "current") */
+  salesAssumptions: "neander_sales_assumptions",
+  /** 이벤트 (문서 id = 이벤트코드) */
+  salesEvents: "neander_sales_events",
+  /** 적재 배치 이력 — 되돌리기 단위 */
+  salesImports: "neander_sales_imports",
+  /** 매출 비서와 나눈 대화 (문서 1개 = 대화 1개, 사용자별) */
+  salesChats: "neander_sales_chats",
+  /** 지운 판매 줄의 원본 — 되돌리기가 숨긴 필드(importId 등)를 되살리는 근거 */
+  salesTrash: "neander_sales_trash",
 } as const;

@@ -50,6 +50,13 @@ export interface ImportRow {
   hint?: ClassifyHint;
   /** 외화 원문 — 환산 전 금액을 잃지 않기 위해 */
   foreign?: { currency: string; amount: number };
+  /**
+   * 은행 내역의 잔액 (거래 전·후). 파일 안에 계좌번호가 없는 신한 grid 는
+   * **잔액이 이어지는지**로 어느 계좌인지 가려낸다 — 지난달 마지막 거래의
+   * 거래후 잔액과 이번 파일 첫 거래의 거래전 잔액이 같아야 한다.
+   */
+  balanceBefore?: number;
+  balanceAfter?: number;
 }
 
 export interface ClassifyHint {

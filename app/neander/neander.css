@@ -126,6 +126,29 @@
   }
 }
 
+/* 팝오버 꼬리 — 말풍선처럼 부른 칸을 가리킨다.
+   판(nd-glass-strong)은 overflow 를 자르므로 꼬리는 판 안에 못 둔다.
+   포탈에 형제로 띄우고 좌표를 따로 준다 (popover.tsx). */
+[data-app="neander"] .nd-pop-tail {
+  position: fixed;
+  width: 18px;
+  height: 9px;
+  background-color: var(--nd-glass-bg-strong);
+  -webkit-backdrop-filter: blur(var(--nd-glass-blur)) saturate(160%);
+  backdrop-filter: blur(var(--nd-glass-blur)) saturate(160%);
+  pointer-events: none;
+}
+/* 판이 칸 아래에 있을 때 — 꼬리는 판 윗변에서 위를 가리킨다 */
+[data-app="neander"] .nd-pop-tail-up {
+  transform: translate(-50%, -100%);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+/* 판이 칸 위에 있을 때 — 꼬리는 판 아랫변에서 아래를 가리킨다 */
+[data-app="neander"] .nd-pop-tail-down {
+  transform: translate(-50%, 0);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+
 /* 불투명 콘텐츠 표면 (카드) */
 [data-app="neander"] .nd-surface {
   background-color: rgb(var(--nd-bg-content));
@@ -159,6 +182,169 @@
 [data-app="neander"] .nd-scroll {
   scrollbar-width: thin;
   scrollbar-color: rgba(15, 23, 42, 0.18) transparent;
+}
+
+/* ============================================================
+   매출 적재 퍼즐 조각 — 빠진 칸은 붉게, 채워진 칸은 초록으로
+   ------------------------------------------------------------
+   세 원본 파일이 다 들어와야 한 달이 완성된다. 색은 테두리와 바깥
+   빛(box-shadow)으로만 내고, 안쪽 내용은 그대로 둔다 — 상태가 바뀌어도
+   글이 다시 배치되지 않아야 어느 칸이 바뀌었는지 눈으로 좇을 수 있다.
+   ============================================================ */
+[data-app="neander"] .nd-puzzle-piece {
+  position: relative;
+  border: 1.5px solid var(--nd-border);
+  transition:
+    border-color var(--nd-dur) var(--nd-ease),
+    box-shadow var(--nd-dur) var(--nd-ease),
+    background-color var(--nd-dur) var(--nd-ease);
+}
+[data-app="neander"] .nd-puzzle-piece[data-state="missing"],
+[data-app="neander"] .nd-puzzle-piece[data-state="error"] {
+  border-color: rgb(var(--nd-danger) / 0.55);
+  box-shadow:
+    0 0 0 4px rgb(var(--nd-danger) / 0.08),
+    0 0 28px rgb(var(--nd-danger) / 0.22);
+}
+[data-app="neander"] .nd-puzzle-piece[data-state="missing"] {
+  animation: nd-puzzle-breathe 2.4s var(--nd-ease) infinite;
+}
+[data-app="neander"] .nd-puzzle-piece[data-state="busy"] {
+  border-color: rgb(var(--nd-accent) / 0.5);
+  box-shadow: 0 0 0 4px rgb(var(--nd-accent) / 0.08);
+}
+[data-app="neander"] .nd-puzzle-piece[data-state="done"] {
+  border-color: rgb(var(--nd-success) / 0.6);
+  box-shadow:
+    0 0 0 4px rgb(var(--nd-success) / 0.1),
+    0 0 28px rgb(var(--nd-success) / 0.24);
+}
+[data-app="neander"] .nd-puzzle-piece[data-over="true"] {
+  border-color: rgb(var(--nd-accent));
+  background-color: rgb(var(--nd-accent-soft));
+}
+@keyframes nd-puzzle-breathe {
+  0%, 100% {
+    box-shadow:
+      0 0 0 4px rgb(var(--nd-danger) / 0.08),
+      0 0 22px rgb(var(--nd-danger) / 0.16);
+  }
+  50% {
+    box-shadow:
+      0 0 0 6px rgb(var(--nd-danger) / 0.12),
+      0 0 34px rgb(var(--nd-danger) / 0.3);
+  }
+}
+/* 세 조각이 다 맞으면 띠 전체가 한 번 초록으로 번쩍인다 */
+[data-app="neander"] .nd-puzzle-complete {
+  animation: nd-puzzle-solved 900ms var(--nd-ease) 1;
+}
+@keyframes nd-puzzle-solved {
+  0% { box-shadow: 0 0 0 0 rgb(var(--nd-success) / 0); }
+  35% { box-shadow: 0 0 0 8px rgb(var(--nd-success) / 0.28); }
+  100% { box-shadow: 0 0 0 0 rgb(var(--nd-success) / 0); }
+}
+
+/* ============================================================
+   검토 대기함 — 처리된 묶음이 떠나는 모습 (sales/review LeavingItem)
+   ------------------------------------------------------------
+   바로 목록을 새로 읽으면 카드가 순간 사라지고 아래 카드가 한 번에 튀어
+   올라와, 무엇이 처리됐는지 눈으로 좇을 수 없다. 그래서 세 단계로 떠난다:
+     done     가운데에 결과(「확정되었습니다」)가 떠오르고 카드 내용은 흐려진다
+     fade     카드 전체가 흐려져 사라진다
+     collapse 높이와 아래 틈(gap-3)을 접는다 → 아래 카드가 자연스럽게 올라온다
+   시간은 페이지의 LEAVE_MS 와 맞춘다. 높이 접기는 grid-template-rows
+   1fr → 0fr 로 한다 — 카드 높이를 몰라도 부드럽게 접힌다.
+   ============================================================ */
+[data-app="neander"] .nd-leave {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows 300ms var(--nd-ease),
+    margin-bottom 300ms var(--nd-ease),
+    opacity 250ms var(--nd-ease);
+}
+[data-app="neander"] .nd-leave-inner {
+  position: relative;
+  min-height: 0;
+}
+/* 떠나는 동안만 잘라낸다 — 평소에 잘라내면 카드 안 메뉴·도움말이 잘린다 */
+[data-app="neander"] .nd-leave[data-phase] > .nd-leave-inner {
+  overflow: hidden;
+  pointer-events: none;
+}
+[data-app="neander"] .nd-leave-body {
+  transition:
+    opacity var(--nd-dur) var(--nd-ease),
+    filter var(--nd-dur) var(--nd-ease);
+}
+[data-app="neander"] .nd-leave[data-phase] .nd-leave-body {
+  opacity: 0.3;
+  filter: blur(1.5px) saturate(0.6);
+}
+[data-app="neander"] .nd-leave-mark {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+[data-app="neander"] .nd-leave-mark > * {
+  animation: nd-leave-pop 260ms var(--nd-ease) both;
+}
+[data-app="neander"] .nd-leave[data-phase="fade"],
+[data-app="neander"] .nd-leave[data-phase="collapse"] {
+  opacity: 0;
+}
+[data-app="neander"] .nd-leave[data-phase="collapse"] {
+  grid-template-rows: 0fr;
+  /* 목록의 줄 사이 틈만큼 — 틈까지 접어야 다 올라온 뒤 목록을 새로 읽어도 튀지 않는다.
+     틈은 목록마다 다르다(gap-3 · space-y-2 · divide-y) — LeavingItem 의 gap 이 넣는다 */
+  margin-bottom: calc(-1 * var(--nd-leave-gap, 0.75rem));
+}
+@keyframes nd-leave-pop {
+  from { opacity: 0; transform: translateY(6px) scale(0.92); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ============================================================
+   펼침·접힘 — 높이를 몰라도 부드럽게 (Disclosure · Collapse)
+   ------------------------------------------------------------
+   grid-template-rows 0fr ↔ 1fr 로 높이를 옮긴다. 안쪽 칸이 min-height 0 ·
+   overflow hidden 이어야 0fr 에서 내용이 눌린다. display:grid 는
+   :not([hidden]) 에서만 켠다 — 클래스로 켜면 hidden 속성을 이긴다.
+   시간은 ui/disclosure.tsx 의 EXPAND_MS 와 맞춘다.
+   ============================================================ */
+[data-app="neander"] .nd-expand-body:not([hidden]) {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+[data-app="neander"] .nd-expand-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+[data-app="neander"] .nd-expand-body.nd-expand {
+  animation: nd-expand 220ms var(--nd-ease) both;
+}
+[data-app="neander"] .nd-expand-body.nd-collapse {
+  animation: nd-collapse 220ms var(--nd-ease) both;
+}
+@keyframes nd-expand {
+  from { grid-template-rows: 0fr; opacity: 0; }
+  to { grid-template-rows: 1fr; opacity: 1; }
+}
+@keyframes nd-collapse {
+  from { grid-template-rows: 1fr; opacity: 1; }
+  to { grid-template-rows: 0fr; opacity: 0; }
+}
+
+/* 보기가 바뀔 때(달·매장·탭) 아래 내용이 살짝 떠오르며 바뀐다 — ui FadeSwap */
+[data-app="neander"] .nd-swap {
+  animation: nd-swap 200ms var(--nd-ease) both;
+}
+@keyframes nd-swap {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
 }
 
 /* 움직임 줄이기 — 전환을 사실상 끈다 */

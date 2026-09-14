@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
-import { adminDb } from "@/lib/neander/finance/server/admin";
-import { requireFinanceUser, accessErrorResponse } from "@/lib/neander/finance/server/auth";
+import { adminDb } from "@/lib/neander/server/admin";
+import { requireErpUser, accessErrorResponse } from "@/lib/neander/server/auth";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import { runFinanceChat, type ChatMessage } from "@/lib/neander/finance/server/ai-chat";
 import {
   extractAttachmentText,
   type ExtractedAttachment,
-} from "@/lib/neander/finance/server/attachments";
+} from "@/lib/neander/server/attachments";
 import {
   MAX_ATTACH_FILES,
   MAX_ATTACH_TOTAL_BYTES,
-} from "@/lib/neander/finance/attachment-limits";
+} from "@/lib/neander/ai/attachment-limits";
 import type { FinAccountDoc, FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
 import type { FinTransaction } from "@/lib/neander/finance/types";
 import {
@@ -42,7 +42,7 @@ const MAX_HISTORY = 20;
 export async function POST(req: Request) {
   let user;
   try {
-    user = await requireFinanceUser(req);
+    user = await requireErpUser(req);
   } catch (e) {
     const denied = accessErrorResponse(e);
     if (denied) return denied;

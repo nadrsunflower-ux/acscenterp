@@ -37,6 +37,13 @@ interface ShellValue {
   /** 오른쪽에 도킹된 패널(재무 비서)이 차지하는 폭 — 상단바·본문이 함께 비켜선다 */
   dockWidth: number;
   setDockWidth: (px: number) => void;
+  /**
+   * 집중 모드 — 사이드바·상단바·본문 여백을 전부 걷어내고 페이지가 창을
+   * 꽉 채운다 (원장을 엑셀처럼 쓰고 싶을 때). 페이지가 useShellFocus 로
+   * 켜고, 페이지를 떠나면 저절로 꺼진다.
+   */
+  focus: boolean;
+  setFocus: (v: boolean) => void;
 }
 
 const ShellContext = createContext<ShellValue | null>(null);
@@ -83,6 +90,7 @@ export function ShellProvider({ children }: { children: ReactNode }) {
 
   const [toolbarEl, setToolbarEl] = useState<HTMLElement | null>(null);
   const [dockWidth, setDockWidth] = useState(0);
+  const [focus, setFocus] = useState(false);
 
   const value = useMemo<ShellValue>(
     () => ({
@@ -97,8 +105,10 @@ export function ShellProvider({ children }: { children: ReactNode }) {
       setToolbarEl,
       dockWidth,
       setDockWidth,
+      focus,
+      setFocus,
     }),
-    [isMobile, collapsed, restored, toggleCollapsed, drawerOpen, badges, setBadge, toolbarEl, dockWidth],
+    [isMobile, collapsed, restored, toggleCollapsed, drawerOpen, badges, setBadge, toolbarEl, dockWidth, focus],
   );
 
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
@@ -139,6 +149,20 @@ export function useDockReservation(px: number) {
     set?.(px);
     return () => set?.(0);
   }, [set, px]);
+}
+
+/**
+ * 페이지가 집중 모드를 켠다. 켜져 있는 동안 셸이 사이드바·상단바를 감추고
+ * 본문 여백을 없앤다. 페이지가 언마운트되면(다른 메뉴로 가면) 꺼진다 —
+ * 원장에서 켠 전체화면이 대시보드까지 따라오면 길을 잃는다.
+ */
+export function useShellFocus(enabled: boolean) {
+  const shell = useShellOptional();
+  const set = shell?.setFocus;
+  useEffect(() => {
+    set?.(enabled);
+    return () => set?.(false);
+  }, [set, enabled]);
 }
 
 /** 모듈 레이아웃이 사이드바 배지를 갱신할 때 */

@@ -12,16 +12,22 @@
 //  **확정하지는 않는다** — 카드대금·이자처럼 표현이 확실한 것만 유형을
 //  정하고, 나머지 계정 판단은 classify.ts 에 넘긴다.
 //
-//  네 은행의 차이:
+//  다섯 은행의 차이:
 //    국민   요약 6줄 뒤 헤더. 출금액/입금액 두 열.
 //    신한   헤더 1행. `적요`는 거래 방식(BZ뱅크), `내용`이 실제 상대방.
-//           **파일 안에 계좌번호가 없어** 파일명이나 사용자 선택이 필요하다.
+//           **파일 안에 계좌번호가 없어** 잔액·거래처 이력으로 가려내거나
+//           사람이 고른다 (finance/import-slots.ts 의 guessAccount).
+//    우리   제목 3줄 뒤 헤더. `지급(원)`/`입금(원)` 두 열, `기재내용`이 상대방.
 //    토스   B열부터. 금액에 부호가 있고 `구분`(수입/지출)도 준다.
-//    카카오 B열부터. 금액은 양수, `구분`으로 방향을 판단한다.
+//    카카오 B열부터. 2026-06 양식은 금액 양수 + `구분` 수입/지출, 2026-09
+//           양식은 금액에 부호 + `구분` 입금/출금 — 둘 다 읽는다.
+//
+//  잔액 열은 숫자로도 남긴다(balanceBefore/After). 계좌번호 없는 파일이
+//  어느 계좌인지, 지난달 마지막 잔액과 이어지는지로 판정하기 때문이다.
 // ============================================================
 
 import type { WorkBook } from "xlsx";
-import type { AdapterResult, ImportError, ImportRow, ParseOptions, SourceAdapter } from "./types";
+import type { AdapterResult, ImportError, ImportRow, SourceAdapter } from "./types";
 import {
   CARD_BILL_HINT,
   INTEREST_HINT,
@@ -114,6 +120,11 @@ function bankRow(args: {
     .filter(Boolean)
     .join(" · ");
 
+  // 잔액 — 문자열은 note 에, 숫자는 계좌 판정용으로. 빈 칸이면 남기지 않는다
+  const balanceAfter = args.balance?.trim() ? parseAmount(args.balance).amount : undefined;
+  const balanceBefore =
+    balanceAfter === undefined ? undefined : balanceAfter - inAmount + outAmount;
+
   return finishRow({
     rowNo,
     date,
@@ -125,6 +136,7 @@ function bankRow(args: {
     adjust: 0,
     note: note || undefined,
     hint,
+    ...(balanceAfter === undefined ? {} : { balanceAfter, balanceBefore }),
   });
 }
 
@@ -422,11 +434,16 @@ export const kakaoBankAdapter: SourceAdapter = {
         continue;
       }
       const dir = c.dir >= 0 ? str(cellAt(ws, r, c.dir)) : "";
-      if (!dir) {
+      // 2026-06 양식은 `구분` 수입/지출 + 양수 금액, 2026-09 양식은 입금/출금 +
+      // 부호 있는 금액. 어느 쪽이든 `구분`을 먼저 믿고, 없으면 부호를 본다.
+      let isOut: boolean;
+      if (/지출|출금/.test(dir)) isOut = true;
+      else if (/수입|입금/.test(dir)) isOut = false;
+      else if (amount < 0) isOut = true;
+      else {
         errors.push({ rowNo, reason: "수입/지출 구분이 비어 있어 방향을 알 수 없습니다." });
         continue;
       }
-      const isOut = dir === "지출";
       const abs = Math.abs(amount);
 
       rows.push(
@@ -458,6 +475,90 @@ export const kakaoBankAdapter: SourceAdapter = {
   },
 };
 
+// ============================================================
+//  우리은행 (인터넷뱅킹 거래내역조회)
+//    제목·계좌번호·조회기간 3줄 뒤 헤더:
+//    No. | 거래일시 | 적요 | 기재내용 | 지급(원) | 입금(원) | 거래후 잔액(원)
+//        | 취급점 | 메모 | 수표·어음·증권금액(원)
+//    `기재내용`이 상대방, `적요`는 거래 방식(타행대량·인터넷·수수료),
+//    `취급점`은 상대 은행. 마지막 줄은 「총 N건」 합계.
+// ============================================================
+
+export const wooriBankAdapter: SourceAdapter = {
+  id: "woori-bank",
+  label: "우리은행 거래내역",
+  kind: "bank",
+
+  detect(wb) {
+    // `기재내용`·`지급`·`거래후잔액` 조합은 우리뿐이다 (신한은 `내용`·`출금액`)
+    return hasLabels(wb, ["거래일시", "기재내용", "지급", "입금", "거래후잔액"]) ? 0.95 : 0;
+  },
+
+  parse(wb, opts) {
+    const picked = pickSheet(wb, "Sheet");
+    if (!picked) return fail("시트를 찾지 못했습니다.", "");
+    const { name, ws } = picked;
+    const head = findHeaderRow(ws, ["거래일시", "기재내용", "지급", "입금"]);
+    if (!head) return fail("거래일시·기재내용·지급·입금 열을 찾지 못했습니다.", name);
+
+    const c = {
+      date: col(head.cols, "거래일시"),
+      brief: col(head.cols, "적요"),
+      content: col(head.cols, "기재내용"),
+      out: col(head.cols, "지급"),
+      in: col(head.cols, "입금"),
+      balance: col(head.cols, "거래후 잔액", "거래후잔액"),
+      branch: col(head.cols, "취급점"),
+      memo: col(head.cols, "메모"),
+    };
+
+    // 계좌번호는 위쪽 요약 줄에 있다 (`계좌번호 : 1005204549279   예금주 : …`)
+    const fileLast4 = scanAccountNumber(wb, name) ?? last4FromFileName(opts.fileName, opts.knownLast4);
+    const last4 = opts.last4 ?? fileLast4;
+
+    const rows: ImportRow[] = [];
+    const errors: ImportError[] = [];
+    const range = sheetRange(ws);
+    for (let r = head.row + 1; r <= range.e.r; r++) {
+      const rowNo = r + 1;
+      const dt = parseDateTime(cellAt(ws, r, c.date));
+      if (!dt) continue; // 「총 N건」 합계 줄
+      const out = parseAmount(cellAt(ws, r, c.out)).amount;
+      const inn = parseAmount(cellAt(ws, r, c.in)).amount;
+      if (!out && !inn) {
+        errors.push({ rowNo, reason: "지급·입금이 모두 0 입니다." });
+        continue;
+      }
+      rows.push(
+        bankRow({
+          rowNo,
+          date: dt.date,
+          datetime: dt.datetime,
+          last4,
+          vendor: str(cellAt(ws, r, c.content)),
+          memos: [
+            c.brief >= 0 ? str(cellAt(ws, r, c.brief)) : undefined,
+            c.branch >= 0 ? str(cellAt(ws, r, c.branch)) : undefined,
+            c.memo >= 0 ? str(cellAt(ws, r, c.memo)) : undefined,
+          ],
+          inAmount: inn,
+          outAmount: out,
+          knownLast4: opts.knownLast4,
+          ownEntities: opts.ownEntities,
+          balance: c.balance >= 0 ? str(cellAt(ws, r, c.balance)) : undefined,
+        }),
+      );
+    }
+
+    return {
+      rows, errors, sheetName: name, headerRowNo: head.row + 1,
+      detectedLast4: fileLast4 ? [fileLast4] : [],
+      needs: { account: !last4 },
+      warnings: [],
+    };
+  },
+};
+
 function fail(reason: string, sheetName: string): AdapterResult {
   return {
     rows: [],
@@ -470,4 +571,4 @@ function fail(reason: string, sheetName: string): AdapterResult {
   };
 }
 
-export const bankAdapters = [kbBankAdapter, shinhanBankAdapter, tossBankAdapter, kakaoBankAdapter];
+export const bankAdapters = [kbBankAdapter, shinhanBankAdapter, wooriBankAdapter, tossBankAdapter, kakaoBankAdapter];

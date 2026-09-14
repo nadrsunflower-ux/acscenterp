@@ -7,7 +7,7 @@
 //  (유리 아님) — 읽을 내용이 있는 곳이다.
 // ============================================================
 import type { ReactNode } from "react";
-import { cn, Icon, Spinner, type LucideIcon, type Tone, toneCls } from "@/components/neander/ui";
+import { BrandMark, ProductWordmark, cn, Icon, Spinner, type LucideIcon, type Tone, toneCls } from "@/components/neander/ui";
 
 export function StatusScreen({ children, className }: { children: ReactNode; className?: string }) {
   return (
@@ -17,14 +17,15 @@ export function StatusScreen({ children, className }: { children: ReactNode; cla
   );
 }
 
+/**
+ * 로그인·불러오는 중·권한 없음 화면의 머리. 로고 파일이 들어오면
+ * `ProductWordmark` 가 글자 대신 그 파일을 그린다 (brand.tsx 의 BRAND_LOGO).
+ */
 export function Brand({ className }: { className?: string }) {
   return (
-    <div className={cn("flex items-center justify-center gap-2", className)}>
-      <span className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-nd-inverse text-[13px] font-bold text-white">
-        N
-      </span>
-      <span className="text-[15px] font-bold tracking-tight text-nd-fg">NEANDER</span>
-      <span className="text-nd-micro font-semibold tracking-wide text-nd-fg-3">ERP</span>
+    <div className={cn("flex flex-col items-center gap-1.5", className)}>
+      <BrandMark />
+      <ProductWordmark height={16} />
     </div>
   );
 }

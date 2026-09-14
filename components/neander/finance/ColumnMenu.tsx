@@ -47,6 +47,7 @@ export function ColumnMenu({
   options,
   onFilterChange,
   onHide,
+  overDialog,
   onClose,
 }: {
   /** 열 id. 원장은 FilterKey, 체크리스트는 `x:<id>` 같은 자유 문자열도 온다 */
@@ -64,6 +65,8 @@ export function ColumnMenu({
   onFilterChange: (next: ColumnFilter | null) => void;
   /** 이 열을 화면에서 감춘다 (값은 그대로). 없으면 항목이 나오지 않는다 */
   onHide?: () => void;
+  /** 대화상자 안의 표에서 열 때 — 창보다 위 층에 놓는다 */
+  overDialog?: boolean;
   onClose: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -172,6 +175,7 @@ export function ColumnMenu({
       onClose={onClose}
       anchorRef={anchorRef}
       placement="bottom-end"
+      overDialog={overDialog}
       ariaLabel={`${label} 정렬·필터`}
       autoFocus={false}
       unpadded

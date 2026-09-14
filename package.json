@@ -30,7 +30,11 @@
     "finance:verify-card-memo": "tsx scripts/neander/verify-card-memo.ts",
     "ui:login": "node e2e/login.mjs",
     "ui:capture": "node e2e/capture.mjs",
-    "test:e2e": "playwright test -c e2e/playwright.config.ts"
+    "ui:verify-parts": "tsx --tsconfig tsconfig.render.json scripts/neander/verify-ui-parts.tsx",
+    "test:e2e": "playwright test -c e2e/playwright.config.ts",
+    "sales:verify": "tsx scripts/neander/verify-sales-resolve.ts",
+    "sales:import": "tsx scripts/neander/import-sales-xlsx.ts",
+    "sales:verify-db": "tsx scripts/neander/verify-sales-db.ts"
   },
   "dependencies": {
     "firebase": "10.14.1",

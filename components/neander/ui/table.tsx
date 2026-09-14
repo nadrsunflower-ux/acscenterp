@@ -7,7 +7,9 @@
 //  같은 톤을 내는 원소(Th/Td/…)를 제공한다.
 // ============================================================
 import type { HTMLAttributes, ReactNode, TdHTMLAttributes, ThHTMLAttributes } from "react";
+import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
 import { cn } from "./cn";
+import { Icon } from "./icon";
 
 /** 가로 스크롤 컨테이너. minWidth 는 표가 찌그러지지 않는 하한 */
 export function TableScroll({
@@ -79,6 +81,75 @@ export function Th({
     >
       {children}
     </th>
+  );
+}
+
+// ---- 정렬 머리글 -------------------------------------------------
+
+export type SortDir = "asc" | "desc";
+export interface SortState<K extends string = string> {
+  key: K;
+  dir: SortDir;
+}
+
+/**
+ * 누르면 그 열로 정렬하는 머리글. 같은 열을 다시 누르면 방향이 뒤집힌다.
+ *
+ * 처음 누를 때의 방향: 숫자 열(오른쪽 정렬)은 **큰 값부터**, 글자 열은
+ * 가나다순부터 — 금액 열을 누르는 사람은 대개 「제일 큰 게 뭐냐」를 묻는다.
+ * 정렬 상태는 색만이 아니라 화살표와 aria-sort 로도 알린다.
+ *
+ * 재무 시트(ColumnMenu)는 필터·열 숨기기까지 있는 무거운 판이라 따로 두고,
+ * 일반 표는 이것 하나로 맞춘다.
+ */
+export function SortTh<K extends string>({
+  sortKey,
+  sort,
+  onSort,
+  firstDir,
+  align = "left",
+  sticky,
+  className,
+  children,
+}: {
+  sortKey: K;
+  sort: SortState<K> | null;
+  onSort: (next: SortState<K>) => void;
+  /** 처음 누를 때 방향 — 없으면 숫자 열 desc · 글자 열 asc */
+  firstDir?: SortDir;
+  align?: Align;
+  sticky?: "left" | "top" | "both" | "right" | "top-right";
+  className?: string;
+  children: ReactNode;
+}) {
+  const active = sort?.key === sortKey;
+  const dir = active ? sort!.dir : undefined;
+  const next: SortDir = active ? (dir === "asc" ? "desc" : "asc") : (firstDir ?? (align === "right" ? "desc" : "asc"));
+  return (
+    <Th
+      align={align}
+      sticky={sticky}
+      className={className}
+      aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <button
+        type="button"
+        onClick={() => onSort({ key: sortKey, dir: next })}
+        className={cn(
+          "group inline-flex items-center gap-1 rounded-[4px] outline-none transition-colors duration-nd-fast hover:text-nd-fg focus-visible:ring-2 focus-visible:ring-nd-accent/50",
+          // 숫자 열은 글자 끝을 숫자 끝에 맞추려고 화살표를 왼쪽에 둔다
+          align === "right" && "flex-row-reverse",
+          active && "text-nd-fg",
+        )}
+      >
+        <span>{children}</span>
+        <Icon
+          icon={!active ? ChevronsUpDown : dir === "asc" ? ArrowUp : ArrowDown}
+          size={12}
+          className={cn(!active && "opacity-35 group-hover:opacity-70")}
+        />
+      </button>
+    </Th>
   );
 }
 
