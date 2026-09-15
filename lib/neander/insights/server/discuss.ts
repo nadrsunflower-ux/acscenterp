@@ -24,6 +24,7 @@ import {
 } from "@/lib/neander/sales/server/ai-tools";
 import { TOOL_DEFS as FIN_TOOL_DEFS, runTool as runFinanceTool, type ToolContext } from "@/lib/neander/finance/server/ai-tools";
 import { SECTION_LABEL, itemLabel } from "@/lib/neander/insights/edit";
+import { INSIGHT_AI_MODEL, isFinAiModelId } from "@/lib/neander/ai/models";
 import { NARRATIVE_LIMITS } from "./generate";
 import type {
   InsightDraft,
@@ -298,6 +299,7 @@ export async function runInsightDiscussion(args: {
       referer: `https://neander-erp.local/${module}/insights`,
       title: "NEANDER ERP Insight Editor",
     },
-    { messages: args.messages, model: args.model },
+    // 비서 기본값(Flash)이 아니라 인사이트 모델 — 허용 목록에 없는 요청 모델도 이걸로
+    { messages: args.messages, model: isFinAiModelId(args.model) ? args.model : INSIGHT_AI_MODEL },
   );
 }

@@ -54,6 +54,13 @@ export const FIN_AI_MODELS: FinAiModelOption[] = [
 
 export const DEFAULT_FIN_AI_MODEL = "google/gemini-3.7-flash";
 
+/**
+ * 월간 인사이트(만들기 · AI 와 고치기) 기본 모델 — 비서와 따로 둔다 (2026-09-15 사용자 결정).
+ * 달에 몇 번만 쓰고 대표 보고 문장이라 판단 품질이 비용보다 중요하다 (1회 약 $0.03).
+ * OPENROUTER_MODEL 환경변수의 영향을 받지 않는다 — 그건 비서 기본값이다.
+ */
+export const INSIGHT_AI_MODEL = "anthropic/claude-sonnet-5";
+
 /** 허용 목록에 있는 모델 ID 인가 — 서버가 요청 본문을 검증할 때 쓴다 */
 export const isFinAiModelId = (id: unknown): id is string =>
   typeof id === "string" && FIN_AI_MODELS.some((m) => m.id === id);

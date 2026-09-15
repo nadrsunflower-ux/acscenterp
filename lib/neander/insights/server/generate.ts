@@ -14,7 +14,7 @@
 // ============================================================
 import "server-only";
 
-import { DEFAULT_FIN_AI_MODEL, isFinAiModelId } from "@/lib/neander/ai/models";
+import { INSIGHT_AI_MODEL, isFinAiModelId } from "@/lib/neander/ai/models";
 import { shortWon } from "@/lib/neander/format";
 import {
   sortSignals,
@@ -241,7 +241,7 @@ export async function generateInsightNarrative(args: {
     console.error("[insights/generate] OPENROUTER_API_KEY 가 없어 규칙 초안으로 만듭니다.");
     return buildFallbackNarrative(signals);
   }
-  const model = isFinAiModelId(args.model) ? args.model : process.env.OPENROUTER_MODEL || DEFAULT_FIN_AI_MODEL;
+  const model = isFinAiModelId(args.model) ? args.model : INSIGHT_AI_MODEL;
 
   try {
     const res = await fetch(OPENROUTER_URL, {
