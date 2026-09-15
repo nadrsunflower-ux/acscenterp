@@ -22,12 +22,24 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
+import {
+  ASSISTANT_STATE_EVENT,
+  callAssistant,
+  setAssistantContext,
+  type AssistantState,
+} from "@/components/neander/assistant/events";
 
 export interface DeckSlide {
   id: string;
   /** 하단에 표시되는 챕터 라벨 (예: "스모트 — 마케팅") */
   chapter?: string;
   render: () => ReactNode;
+  /**
+   * 슬라이드 안에서 커서를 쓰는가 (막대에 커서 → 설명 판 등).
+   * 켜면 좌·우 클릭존(각 18%)을 치운다 — 클릭존이 슬라이드 위에 깔려 가장자리
+   * 막대에 커서가 닿지 않았다. 넘기기는 방향키·하단 버튼으로 그대로 된다.
+   */
+  interactive?: boolean;
 }
 
 export interface DeckMeta {
@@ -42,6 +54,11 @@ export interface DeckMeta {
   accent: string;
   /** Esc / 닫기 버튼으로 돌아갈 경로 */
   exitHref: string;
+  /**
+   * 비서에게 알릴 발표 맥락 — 주면 비서가 기간 없는 질문을 이 달 기준으로 답한다
+   * (지금 보는 장 이름은 Deck 이 붙인다). 재무·매출 보고 슬라이드가 준다.
+   */
+  assistantContext?: { module: "finance" | "sales"; month: string };
 }
 
 const W = 1280;
@@ -52,6 +69,17 @@ export function Deck({ meta, slides }: { meta: DeckMeta; slides: DeckSlide[] }) 
   const rootRef = useRef<HTMLDivElement>(null);
   const [index, setIndex] = useState(0);
   const [scale, setScale] = useState(0); // 0 = 측정 전 (초기 플래시 방지)
+  // 이 화면에 붙은 비서(재무·매출) — 발표 중 나온 질문에 슬라이드를 떠나지 않고 답한다.
+  // 모듈 레이아웃의 비서가 이름을 알려 오면 오른쪽 위에 버튼이 생긴다 (assistant/events.ts)
+  const [assistant, setAssistant] = useState<AssistantState>({ name: null, open: false });
+  useEffect(() => {
+    const onState = (e: Event) => setAssistant((e as CustomEvent<AssistantState>).detail);
+    window.addEventListener(ASSISTANT_STATE_EVENT, onState);
+    // 비서가 먼저 마운트됐으면 이름을 다시 알려 달라고 한다
+    callAssistant("ping");
+    return () => window.removeEventListener(ASSISTANT_STATE_EVENT, onState);
+  }, []);
+  const toggleAssistant = useCallback(() => callAssistant("toggle"), []);
 
   const count = slides.length;
   const clamp = useCallback(
@@ -73,7 +101,9 @@ export function Deck({ meta, slides }: { meta: DeckMeta; slides: DeckSlide[] }) 
 
   const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement) void document.exitFullscreen();
-    else void rootRef.current?.requestFullscreen?.();
+    // 문서 전체를 전체화면으로 — 발표 화면(dk-root)만 올리면 그 밖에 붙는 비서 창·
+    // 숫자 미리보기가 전체화면에서 보이지 않는다. dk-root 는 fixed 라 모양은 같다.
+    else void (document.documentElement.requestFullscreen?.() ?? rootRef.current?.requestFullscreen?.());
   }, []);
 
   const exit = useCallback(() => {
@@ -86,7 +116,18 @@ export function Deck({ meta, slides }: { meta: DeckMeta; slides: DeckSlide[] }) 
     const onKey = (e: KeyboardEvent) => {
       // 브라우저 단축키(Ctrl+F 찾기, Alt/Cmd+화살표 히스토리 등)는 가로채지 않는다
       if (e.ctrlKey || e.metaKey || e.altKey) return;
+      // 비서 입력칸·내역 창 검색처럼 글자를 치는 중이면 넘기기·Esc 나가기를 하지 않는다
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      // 발표 위에 띄운 ERP 창(인사이트 관리 등) 안에서는 Enter·Space·방향키가 그 창의 몫이다
+      if (el?.closest?.("#nd-portal-root, [role='dialog']")) return;
       switch (e.key) {
+        case "a":
+        case "A":
+          if (!assistant.name) break;
+          e.preventDefault();
+          toggleAssistant();
+          break;
         case "ArrowRight":
         case "ArrowDown":
         case "PageDown":
@@ -121,7 +162,17 @@ export function Deck({ meta, slides }: { meta: DeckMeta; slides: DeckSlide[] }) 
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [next, prev, go, count, toggleFullscreen, exit]);
+  }, [next, prev, go, count, toggleFullscreen, exit, assistant.name, toggleAssistant]);
+
+  // 비서에게 발표 맥락(달·지금 장)을 알린다 — 장을 넘기거나 달을 바꾸면 다시, 나가면 지운다
+  const ctxModule = meta.assistantContext?.module;
+  const ctxMonth = meta.assistantContext?.month;
+  const chapterNow = count > 0 ? slides[clamp(index)]?.chapter : undefined;
+  useEffect(() => {
+    if (!ctxModule || !ctxMonth) return;
+    setAssistantContext({ module: ctxModule, month: ctxMonth, chapter: chapterNow });
+  }, [ctxModule, ctxMonth, chapterNow]);
+  useEffect(() => () => setAssistantContext(null), []);
 
   // 빈 덱 방어 + slides 가 줄어들어도 범위 밖 접근 금지
   if (count === 0) return null;
@@ -157,9 +208,31 @@ export function Deck({ meta, slides }: { meta: DeckMeta; slides: DeckSlide[] }) 
           {slide.render()}
         </div>
 
-        {/* 좌/우 클릭존 (푸터 컨트롤보다 아래 레이어) */}
-        <button className="dk-zone dk-zone-left" onClick={prev} aria-label="이전 슬라이드" tabIndex={-1} />
-        <button className="dk-zone dk-zone-right" onClick={next} aria-label="다음 슬라이드" tabIndex={-1} />
+        {/* 좌/우 클릭존 (푸터 컨트롤보다 아래 레이어) — 커서를 쓰는 슬라이드에서는 치운다 */}
+        {!slide.interactive && (
+          <>
+            <button className="dk-zone dk-zone-left" onClick={prev} aria-label="이전 슬라이드" tabIndex={-1} />
+            <button className="dk-zone dk-zone-right" onClick={next} aria-label="다음 슬라이드" tabIndex={-1} />
+          </>
+        )}
+
+        {/* 비서 호출 — 오른쪽 위. 이 화면에 비서가 붙어 있을 때만 (A 키로도 연다) */}
+        {assistant.name && (
+          <button
+            className={`dk-assist${assistant.open ? " dk-assist-on" : ""}`}
+            onClick={toggleAssistant}
+            aria-pressed={assistant.open}
+            aria-label={assistant.open ? `${assistant.name} 닫기 (A)` : `${assistant.name} 열기 (A)`}
+            title={`${assistant.name} — 발표 중 나온 질문에 바로 답합니다 (A)`}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              <path d="M8 9h8M8 13h5" />
+            </svg>
+            {assistant.name}
+            <kbd>A</kbd>
+          </button>
+        )}
 
         {/* 하단 크롬 */}
         <footer className="dk-footer">
@@ -210,6 +283,33 @@ export function Deck({ meta, slides }: { meta: DeckMeta; slides: DeckSlide[] }) 
 // ---- 스타일 -------------------------------------------------
 // 1280×720 캔버스 안에서만 쓰는 dk- 접두 클래스. px 단위 고정(스케일 일괄 적용).
 const DECK_CSS = `
+/* 슬라이드 안 숫자에서 여는 ERP 미리보기·창은 발표 화면(z 100) 위에 떠야 한다.
+   포탈(#nd-portal-root)의 기본 층(50·60·70)은 발표 화면 뒤로 숨는다. */
+body:has(.dk-root) #nd-portal-root .z-nd-popover { z-index: 150; }
+body:has(.dk-root) #nd-portal-root .z-nd-dialog { z-index: 160; }
+body:has(.dk-root) #nd-portal-root .z-nd-popover-over { z-index: 165; }
+body:has(.dk-root) #nd-portal-root .z-nd-toast { z-index: 170; }
+/* 비서 창(도킹 패널)도 발표 화면 위로 — 미리보기(150)보다는 아래 */
+body:has(.dk-root) .z-nd-dock { z-index: 140; }
+
+/* 비서 호출 버튼 — 캔버스 오른쪽 위, 진행바 바로 아래 */
+.dk-assist {
+  position: absolute; top: 16px; right: 24px; z-index: 35;
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 32px; padding: 0 10px 0 12px; border-radius: 999px;
+  border: 1px solid rgba(148,163,184,.28); background: rgba(15,18,28,.72);
+  color: rgba(238,240,233,.82); font-size: 13px; font-weight: 600; letter-spacing: -.01em;
+  cursor: pointer; transition: all .2s ease;
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+}
+.dk-assist:hover { color: #eef0e9; border-color: var(--dk-accent); background: rgba(15,18,28,.9); }
+.dk-assist-on { color: #04060a; background: var(--dk-accent); border-color: var(--dk-accent); }
+.dk-assist-on:hover { color: #04060a; background: var(--dk-accent); }
+.dk-assist kbd {
+  font: inherit; font-size: 10.5px; font-weight: 700; line-height: 1;
+  padding: 3px 5px; border-radius: 5px; border: 1px solid currentColor; opacity: .55;
+}
+
 .dk-root {
   position: fixed; inset: 0; z-index: 100;
   background: #04060a;

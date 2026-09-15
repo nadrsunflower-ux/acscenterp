@@ -68,6 +68,7 @@ import {
 } from "@/components/neander/ui";
 import { LeavingItem, useLeaving } from "@/components/neander/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
+import { ProjectTag } from "@/components/neander/finance/ProjectTag";
 import { TransactionEditor } from "@/components/neander/finance/TransactionEditor";
 import {
   AccountPicker,
@@ -89,6 +90,7 @@ import {
   netAmount,
   type ClassificationStatus,
   type FinTransaction,
+  txFlow,
 } from "@/lib/neander/finance/types";
 
 const ALL = "__all__";
@@ -819,7 +821,7 @@ export default function ReviewPage() {
                                 {t.vendor || "(거래처 없음)"}
                               </span>
                               <span className="text-nd-section">
-                                <Money value={netAmount(t)} />
+                                <Money value={netAmount(t)} flow={txFlow(t.txType)} />
                               </span>
                             </p>
                             <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-nd-caption text-nd-fg-2">
@@ -828,6 +830,7 @@ export default function ReviewPage() {
                               </Badge>
                               <span className="nd-num">{t.date}</span>
                               <span>{t.txType}</span>
+                              <ProjectTag code={t.projectCode} />
                             </p>
                             {t.classReason && (
                               <p className="mt-1.5 text-nd-caption leading-relaxed text-nd-fg-3">{t.classReason}</p>

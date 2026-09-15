@@ -27,6 +27,8 @@ interface ShellValue {
   /** <768: 사이드바 대신 드로어 */
   isMobile: boolean;
   collapsed: boolean;
+  /** 저장된 접힘 상태를 읽어 들였는가 — 그 전에는 폭 전환을 움직이지 않는다 */
+  sidebarReady: boolean;
   toggleCollapsed: () => void;
   drawerOpen: boolean;
   setDrawerOpen: (v: boolean) => void;
@@ -96,6 +98,7 @@ export function ShellProvider({ children }: { children: ReactNode }) {
     () => ({
       isMobile,
       collapsed: restored ? collapsed : false,
+      sidebarReady: restored,
       toggleCollapsed,
       drawerOpen,
       setDrawerOpen,

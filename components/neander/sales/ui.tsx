@@ -16,3 +16,4 @@ export { COST_LEGEND, COST_SERIES, HATCH, PNL_BAR, STORE_SERIES, STORE_TOTAL_COL
 export { Rate, RateTile, ReviewBadge, StoreBadge } from "./format";
 export { PnlBar, PnlBarLegend, pnlBarExtent, type PnlBarInput } from "./PnlBar";
 export { ProductCell, ProductHero, ProductThumb } from "./ProductMedia";
+export { SalesDrill, type SalesDrillProps } from "./SalesDrill";

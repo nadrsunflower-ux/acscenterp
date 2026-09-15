@@ -50,6 +50,14 @@
   --nd-danger: 220 38 38;    --nd-danger-soft: 254 242 242;   --nd-danger-text: 185 28 28;
   --nd-info: 2 132 199;      --nd-info-soft: 236 247 254;     --nd-info-text: 3 105 161;
 
+  /* 금액 글자색 — 수입(들어온 돈)은 초록, 지출(나간 돈)은 빨강. ERP 전체가 이 둘만 쓴다.
+     흰 바탕 대비 4.5:1 이상. 부호는 색만으로 전하지 않는다 — 음수는 「-」 를 함께 단다. */
+  --nd-income-text: 21 128 61;   /* #15803D */
+  --nd-expense-text: 185 28 28;  /* #B91C1C */
+
+  /* 형광펜 — 이번 달에 튄 지출 (components/neander/finance/Anomaly.tsx) */
+  --nd-marker: 253 224 71;
+
   /* ---- 차트 --------------------------------------------------- */
   --nd-series-income: 42 120 214;   /* SERIES.income 과 동일 */
   --nd-series-expense: 235 104 52;  /* SERIES.expense */
@@ -371,4 +379,20 @@ html[data-pwa-card] [data-nd-topbar] {
 html[data-pwa-card] [data-nd-main] {
   padding-top: max(0.75rem, env(safe-area-inset-top));
   padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+/* 형광펜 — 글자 아래쪽 2/3 만 칠해 손으로 그은 느낌. 글자색(수입 초록·지출 빨강)은 그대로 둔다 */
+.nd-marker {
+  color: inherit;
+  background: linear-gradient(
+    180deg,
+    transparent 22%,
+    rgb(var(--nd-marker) / 0.6) 22%,
+    rgb(var(--nd-marker) / 0.6) 92%,
+    transparent 92%
+  );
+  border-radius: 2px;
+  padding: 0 2px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }

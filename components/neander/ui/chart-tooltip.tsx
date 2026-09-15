@@ -33,7 +33,7 @@ export interface ChartTooltipRow {
   label: string;
   /** 계열 색 — 있으면 점으로 찍어 막대와 잇는다 */
   color?: string;
-  /** 이미 서식을 입힌 값 (천 단위 쉼표·△ 까지) */
+  /** 이미 서식을 입힌 값 (천 단위 쉼표·음수 - 까지) */
   value: string;
   /** 음수 — 빨강으로 */
   negative?: boolean;

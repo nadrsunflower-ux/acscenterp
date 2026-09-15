@@ -41,6 +41,7 @@ import {
   type FinTransactionInput,
   type TxType,
   type ClassificationStatus,
+  txFlow,
 } from "@/lib/neander/finance/types";
 
 const BIZ_MAJORS = ["B2C", "B2B", "공용", "해당없음"];
@@ -285,7 +286,7 @@ export function TransactionEditor({
         <div className="flex flex-col gap-1.5">
           <span className="text-nd-caption font-medium text-nd-fg-2">순금액</span>
           <span className="flex h-ctl-md items-center text-nd-title">
-            <Money value={net} />
+            <Money value={net} flow={txFlow(form.txType)} />
           </span>
           <span className="text-nd-caption text-nd-fg-3">원금액 − 조정금액</span>
         </div>

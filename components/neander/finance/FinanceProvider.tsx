@@ -45,6 +45,7 @@ import type {
   FinPaymentMethodDoc,
   FinSubscriptionDoc,
   FinLedgerColumnDoc,
+  FinAnomalyIgnoreDoc,
   FinVendorRuleDoc,
 } from "@/lib/neander/finance/db-types";
 import type { FinTransaction, FinImportBatch } from "@/lib/neander/finance/types";
@@ -65,6 +66,8 @@ interface FinanceValue {
   imports: FinImportBatch[];
   /** 원장에 사람이 덧붙인 열 */
   ledgerColumns: FinLedgerColumnDoc[];
+  /** 형광펜 끄기 — 신뢰 거래처 · 이 달 확인한 계정 */
+  anomalyIgnores: FinAnomalyIgnoreDoc[];
   /** 마감된 달 (문서 id = YYYY-MM) */
   closes: MonthCloseDoc[];
   /** 프로젝트 손익 (행사·납품 건별 체크리스트 + 계약금액) */
@@ -102,6 +105,7 @@ const EMPTY = {
   budgets: [] as FinBudgetDoc[],
   imports: [] as FinImportBatch[],
   ledgerColumns: [] as FinLedgerColumnDoc[],
+  anomalyIgnores: [] as FinAnomalyIgnoreDoc[],
   closes: [] as MonthCloseDoc[],
   projects: [] as FinProjectDoc[],
   docs: [] as FinDoc[],
@@ -156,6 +160,7 @@ const pick = (snap: FinanceSnapshot, transactions: FinTransaction[]): FinanceDat
   budgets: snap.budgets ?? [],
   imports: snap.imports ?? [],
   ledgerColumns: snap.ledgerColumns ?? [],
+  anomalyIgnores: snap.anomalyIgnores ?? [],
   closes: snap.closes ?? [],
   projects: snap.projects ?? [],
   docs: snap.docs ?? [],
@@ -281,7 +286,9 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       const cached = await cacheGet<CacheEntry>(cacheKey);
       if (cancelled) return;
       if (cached && cached.v === CACHE_VERSION && cached.data && cached.meta) {
-        commit(cached.data);
+        // 캐시가 만들어진 뒤에 새로 생긴 칸(anomalyIgnores 등)은 빈 값으로 채운다 —
+        // 없는 칸을 그대로 넘기면 화면이 undefined 를 읽다 멈춘다
+        commit({ ...EMPTY, ...cached.data });
         metaRef.current = cached.meta;
         setLoaded(true);
       }

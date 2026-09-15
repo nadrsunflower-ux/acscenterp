@@ -87,7 +87,7 @@ import {
 } from "@/components/neander/ui";
 import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useSales } from "@/components/neander/sales/SalesProvider";
-import { StoreBadge } from "@/components/neander/sales/ui";
+import { SalesDrill, StoreBadge } from "@/components/neander/sales/ui";
 import {
   looksEncrypted,
   parseReconcileSource,
@@ -123,6 +123,7 @@ import {
   routeLabel,
   type PayRoute,
   type SalesImportBatch,
+  type SalesLine,
   type SalesLineInput,
   type SalesStore,
 } from "@/lib/neander/sales/types";
@@ -136,6 +137,37 @@ type PieceActivity =
   | { kind: "error"; message: string; fileName?: string };
 
 const won = (n: number) => n.toLocaleString("ko-KR");
+
+/**
+ * 적재 한 건의 줄 — 화면의 줄에는 importId 가 없다 (payload.ts 가 뺀다).
+ * 그래서 같은 매장·경로·기간으로 찾는다. 같은 칸의 옛 적재는 되돌려져
+ * 줄이 지워졌으므로 대개 같지만, 손으로 넣은 줄이나 검토 대기함에서 지운
+ * 줄이 있으면 적재 당시 합계(loadedTotal)와 다를 수 있다.
+ */
+function batchLines(lines: SalesLine[], b: SalesImportBatch): SalesLine[] {
+  if (!b.from || !b.to) return [];
+  const from = b.from;
+  const to = b.to;
+  return lines.filter(
+    (l) => l.store === b.store && l.route === b.route && l.date >= from && l.date <= to,
+  );
+}
+
+/** 적재 합계 — 되돌린 적재·기간 없는 적재는 줄을 찾을 수 없어 드릴 없이 둔다 */
+function BatchTotal({ batch, lines, unit = false }: { batch: SalesImportBatch; lines: SalesLine[]; unit?: boolean }) {
+  const money = <Money value={batch.loadedTotal} unit={unit} flow="income" />;
+  if (batch.undone || batch.loadedTotal === 0 || !batch.from || !batch.to) return money;
+  return (
+    <SalesDrill
+      title={`${batch.fileName} · 적재 합계`}
+      subtitle="적재된 줄 — 같은 매장·경로·기간 · 지금 장부 기준"
+      lines={() => batchLines(lines, batch)}
+      flow="income"
+    >
+      {money}
+    </SalesDrill>
+  );
+}
 
 export default function SalesImportPage() {
   const { lines, events, products, assumptions, imports, masterEmpty, loading, error, refresh } =
@@ -633,7 +665,7 @@ export default function SalesImportPage() {
                       <Td num className={b.needsReview > 0 ? "text-nd-warning-text" : undefined}>
                         {won(b.needsReview)}
                       </Td>
-                      <Td num><Money value={b.loadedTotal} unit={false} /></Td>
+                      <Td num><BatchTotal batch={b} lines={lines} /></Td>
                       <Td className="pr-5">
                         {/* 퍼즐 칸의 되돌리기와 **같은 함수** — 확인 문구가 갈라지지 않게 */}
                         {!b.undone && (
@@ -686,6 +718,7 @@ function Piece({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
+  const { lines } = useSales();
 
   const state: "missing" | "optional" | "busy" | "error" | "done" =
     activity.kind === "busy"
@@ -806,7 +839,7 @@ function Piece({
               />
             </div>
             <p className="nd-num text-nd-caption text-nd-fg">
-              합계 <Money value={batch.loadedTotal} />
+              합계 <BatchTotal batch={batch} lines={lines} unit />
             </p>
             {gap !== 0 && (
               <p className="flex items-start gap-1 text-nd-micro text-nd-warning-text">

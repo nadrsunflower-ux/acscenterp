@@ -250,14 +250,15 @@ export default function ClosePage() {
       {/* ---- 그 달의 숫자 ---- */}
       {current && (
         <KpiStrip columns={4} className="mb-4">
-          <StatTile label="수입" value={current.income} accent={SERIES.income} />
+          <StatTile label="수입" value={current.income} flow="income" accent={SERIES.income} />
           <StatTile
             label="지출"
             value={current.expense}
+            flow="expense"
             hint={current.refund ? `환급 ${current.refund.toLocaleString("ko-KR")}원 차감 전` : undefined}
             accent={SERIES.expense}
           />
-          <StatTile label="순손익" value={current.net} tone="accent" />
+          <StatTile label="순손익" value={current.net} flow="net" tone="accent" />
           <StatTile label="거래 건수" value={current.count} tone="neutral" />
         </KpiStrip>
       )}

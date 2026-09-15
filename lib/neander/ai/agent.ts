@@ -45,6 +45,11 @@ export interface AgentSpec<P> {
    * (재무는 계정 마스터 ≈4천 토큰, 매출은 상품 마스터)
    */
   cachedContext?: string;
+  /**
+   * 요청마다 달라질 수 있는 짧은 안내 (예: 발표 중인 달 — ai/presentation.ts).
+   * 캐시 블록 뒤에 따로 붙여, 이게 바뀌어도 앞의 긴 캐시가 깨지지 않게 한다.
+   */
+  note?: string;
   /** OpenAI function calling 형식의 도구 정의 */
   tools: unknown[];
   runTool: (name: string, args: Record<string, unknown>) => AgentToolOutcome<P>;
@@ -122,6 +127,7 @@ export async function runAgent<P>(
           text: spec.cachedContext ? `${spec.system}\n\n${spec.cachedContext}` : spec.system,
           cache_control: { type: "ephemeral" },
         },
+        ...(spec.note ? [{ type: "text", text: spec.note }] : []),
       ],
     },
     ...args.messages.map((m, idx) =>

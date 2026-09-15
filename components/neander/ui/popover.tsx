@@ -45,6 +45,11 @@ export interface PopoverProps {
   overDialog?: boolean;
   /** 부른 칸을 가리키는 꼬리 (말풍선) */
   arrow?: boolean;
+  /**
+   * 닫힐 때 부른 컨트롤로 포커스를 돌려줄지. 마우스를 올려 연 미리보기는
+   * 끄는 게 맞다 — 커서가 지나갔을 뿐인데 포커스가 옮겨 오면 안 된다.
+   */
+  returnFocus?: boolean;
 }
 
 export function Popover({
@@ -61,6 +66,7 @@ export function Popover({
   unpadded = false,
   overDialog = false,
   arrow = false,
+  returnFocus = true,
 }: PopoverProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   // 닫힐 때 제자리에서 흐려지며 사라진다. 그동안 자리(style)는 붙잡아 둬야
@@ -142,9 +148,9 @@ export function Popover({
       }
     } else if (wasOpen.current) {
       wasOpen.current = false;
-      anchorRef.current?.focus({ preventScroll: true });
+      if (returnFocus) anchorRef.current?.focus({ preventScroll: true });
     }
-  }, [open, autoFocus, anchorRef]);
+  }, [open, autoFocus, anchorRef, returnFocus]);
 
   if (!mounted) return null;
   const layer = overDialog ? "z-nd-popover-over" : "z-nd-popover";
@@ -285,11 +291,17 @@ export function Tooltip({
   children,
   side = "top",
   delay = 350,
+  disabled = false,
+  className,
 }: {
   label: ReactNode;
   children: ReactNode;
   side?: "top" | "bottom";
   delay?: number;
+  /** 감싼 요소는 그대로 두고 설명만 끈다 — 조건마다 감쌌다 풀면 안쪽이 다시 그려진다 */
+  disabled?: boolean;
+  /** 앵커 span 의 클래스 (기본 inline-flex) */
+  className?: string;
 }) {
   const anchorRef = useRef<HTMLSpanElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -299,6 +311,7 @@ export function Tooltip({
   const style = useAnchorPosition(anchorRef, panelRef, open, { placement: side, offset: 6 });
 
   const show = () => {
+    if (disabled) return;
     if (timer.current) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => setOpen(true), delay);
   };
@@ -307,12 +320,17 @@ export function Tooltip({
     setOpen(false);
   };
   useEscape(open, hide);
+  useEffect(() => {
+    if (!disabled) return;
+    if (timer.current) window.clearTimeout(timer.current);
+    setOpen(false);
+  }, [disabled]);
 
   return (
     <>
       <span
         ref={anchorRef}
-        className="inline-flex"
+        className={className ?? "inline-flex"}
         onMouseEnter={show}
         onMouseLeave={hide}
         onFocus={show}

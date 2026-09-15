@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { parsePresentation, type PresentationContext } from "@/lib/neander/ai/presentation";
 import { adminDb } from "@/lib/neander/server/admin";
 import { requireErpUser, accessErrorResponse } from "@/lib/neander/server/auth";
 import { NEANDER_COL } from "@/lib/neander/collections";
@@ -54,6 +55,8 @@ export async function POST(req: Request) {
     let rawMessages: unknown;
     let model: string | undefined;
     let conversationId: string | undefined;
+    /** 보고 슬라이드 발표 중이면 그 달 — 검사를 통과한 것만 (ai/presentation.ts) */
+    let presentation: PresentationContext | undefined;
     const files: File[] = [];
     if ((req.headers.get("content-type") ?? "").includes("multipart/form-data")) {
       const form = await req.formData();
@@ -67,15 +70,18 @@ export async function POST(req: Request) {
       const m = form.get("model");
       if (typeof m === "string" && m) model = m;
       for (const f of form.getAll("files")) if (f instanceof File) files.push(f);
+      presentation = parsePresentation(form.get("context"));
     } else {
       const body = (await req.json()) as {
         messages?: ChatMessage[];
         model?: string;
         conversationId?: string;
+        context?: unknown;
       };
       conversationId = body.conversationId;
       rawMessages = body.messages;
       model = body.model;
+      presentation = parsePresentation(body.context);
     }
     const messages = Array.isArray(rawMessages) ? (rawMessages as ChatMessage[]) : [];
     if (messages.length === 0) {
@@ -130,7 +136,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const result = await runFinanceChat({ messages: trimmed, ctx, model, attachments });
+    const result = await runFinanceChat({ messages: trimmed, ctx, model, attachments, presentation });
 
     // 답을 만든 뒤 기록한다. 화면이 저장하게 하면 브라우저가 닫히거나 중간에
     // 끊겼을 때 정작 무엇을 제안받았는지가 사라진다. 서버는 답을 만든 그

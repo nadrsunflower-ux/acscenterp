@@ -19,15 +19,20 @@
 // ============================================================
 
 import {
+  useEffect,
   useMemo,
   useState,
+  type ReactNode,
 } from "react";
+import { useRouter } from "next/navigation";
 import {
   BarChart3,
   Calculator,
+  Presentation,
 } from "lucide-react";
 import {
   BasisLine,
+  Button,
   Card,
   Checkbox,
   Disclosure,
@@ -49,6 +54,8 @@ import {
 import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { ReportTabs } from "@/components/neander/finance/ReportTabs";
+import { InsightPanel } from "@/components/neander/insights/InsightPanel";
+import { nodeDrill, TxDrill } from "@/components/neander/finance/NodePreview";
 import {
   TreeTable,
   type TreeColumn,
@@ -69,11 +76,11 @@ import {
 const ALL = "__all__";
 
 const COLUMNS: TreeColumn[] = [
-  { key: "income", label: "수입금액", value: (v) => v.income },
-  { key: "expense", label: "지출금액", value: (v) => v.expense },
-  { key: "expensePure", label: "지출(순수)", hint: "개인·환급 차감", value: (v) => v.expensePure },
+  { key: "income", label: "수입금액", flow: "income", value: (v) => v.income },
+  { key: "expense", label: "지출금액", flow: "expense", value: (v) => v.expense },
+  { key: "expensePure", label: "지출(순수)", hint: "개인·환급 차감", flow: "expense", value: (v) => v.expensePure },
   { key: "diff", label: "차이", hint: "개인·환급", value: (v) => v.diff },
-  { key: "net", label: "순금액", value: (v) => v.net },
+  { key: "net", label: "순금액", flow: "net", value: (v) => v.net },
   { key: "count", label: "건수", value: (v) => v.count },
 ];
 
@@ -85,6 +92,17 @@ export default function ExpenseDetailReport() {
   const [basis, setBasis] = useState<Basis>("accrual");
   const [site, setSite] = useState(ALL);
   const [showEmpty, setShowEmpty] = useState(false);
+  const router = useRouter();
+
+  // 슬라이드에서 돌아오면 보던 달·기준·사업장을 그대로 잇는다 (?month=&basis=&site=)
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const m = q.get("month");
+    if (m) setMonth(m);
+    if (q.get("basis") === "cash") setBasis("cash");
+    const s = q.get("site");
+    if (s) setSite(s);
+  }, []);
 
   const activeMonth = month || months[0] || "";
   const sites = useMemo(
@@ -106,7 +124,7 @@ export default function ExpenseDetailReport() {
   if (transactions.length === 0) {
     return (
       <PageShell>
-        <PageHeader title="지출상세" description="계정 3단으로 본 수입·지출" />
+        <PageHeader title="리포트" description="계정 3단으로 본 수입·지출" />
         <ReportTabs className="mb-6" />
         <EmptyState
           icon={BarChart3}
@@ -120,13 +138,40 @@ export default function ExpenseDetailReport() {
   const t = report.total;
   const scopeQuery = { month: activeMonth || undefined, site: site === ALL ? undefined : site };
 
+  /** KPI 숫자 → 이 달 전체 계정의 그 열 거래 */
+  const kpiDrill = (colKey: string, label: string) => (money: ReactNode) => (
+    <TxDrill
+      title={`${monthLabel(activeMonth)} 전체`}
+      subtitle={label}
+      href={ledgerHref(scopeQuery)}
+      {...nodeDrill({ children: report.roots, rows: [] }, colKey)}
+    >
+      {money}
+    </TxDrill>
+  );
+
+  const openDeck = () => {
+    const q = new URLSearchParams({ month: activeMonth, basis });
+    if (site !== ALL) q.set("site", site);
+    router.push(`/neander/finance/reports/deck?${q.toString()}`);
+  };
+
   return (
     <PageShell>
       <ToolbarPortal order={0}>
         <MonthStepper glass months={months} value={activeMonth} onChange={setMonth} />
       </ToolbarPortal>
 
-      <PageHeader title="지출상세" description="계정 3단으로 본 수입·지출" className="mb-4" />
+      <PageHeader
+        title="리포트"
+        description="계정 3단으로 본 수입·지출"
+        className="mb-4"
+        actions={
+          <Button variant="primary" icon={Presentation} onClick={openDeck} title="임원 회의용 월간 보고 슬라이드 · F 전체화면">
+            슬라이드로 보기
+          </Button>
+        }
+      />
 
       <ReportTabs className="mb-4" />
 
@@ -177,18 +222,21 @@ export default function ExpenseDetailReport() {
       />
 
       <KpiStrip columns={5} className="mb-4">
-        <StatTile label="수입금액" value={t.income} hint={`${t.count.toLocaleString("ko-KR")}건 기준`} />
-        <StatTile label="지출금액" value={t.expense} hint={BASIS_LABEL[basis]} />
-        <StatTile label="지출(순수)" value={t.expensePure} hint="개인사용·환급 차감" />
-        <StatTile label="차이" value={t.diff} hint={`개인 ${t.personal.toLocaleString("ko-KR")} · 환급 ${t.refund.toLocaleString("ko-KR")}`} />
-        <StatTile label="순금액" value={t.net} hint="수입 − 순수지출" />
+        <StatTile label="수입금액" value={t.income} flow="income" wrapValue={kpiDrill("income", "수입금액")} hint={`${t.count.toLocaleString("ko-KR")}건 기준`} />
+        <StatTile label="지출금액" value={t.expense} flow="expense" wrapValue={kpiDrill("expense", "지출금액")} hint={BASIS_LABEL[basis]} />
+        <StatTile label="지출(순수)" value={t.expensePure} flow="expense" wrapValue={kpiDrill("expensePure", "지출(순수)")} hint="개인사용·환급 차감" />
+        <StatTile label="차이" value={t.diff} wrapValue={kpiDrill("diff", "차이")} hint={`개인 ${t.personal.toLocaleString("ko-KR")} · 환급 ${t.refund.toLocaleString("ko-KR")}`} />
+        <StatTile label="순금액" value={t.net} flow="net" wrapValue={kpiDrill("net", "순금액")} hint="수입 − 순수지출" />
       </KpiStrip>
+
+      {/* 이번 달 인사이트 — 사업장을 고르면 그 사업장 해설. 발표 슬라이드와 같은 문서 */}
+      <InsightPanel module="finance" month={activeMonth} scope={site === ALL ? undefined : site} />
 
       <Card padding="none" className="mb-3 overflow-hidden">
         <div className="px-5 pt-5">
           <SectionHeader
             title="계정별 수입·지출"
-            hint="통합_MAP 순서 · 숫자를 누르면 원장이 그 조건으로 열립니다"
+            hint="통합_MAP 순서 · 숫자에 커서를 두면 거래를 미리 보고, 누르면 전체 내역이 열립니다"
             action={<TableNote>단위: 원</TableNote>}
           />
         </div>
@@ -197,6 +245,8 @@ export default function ExpenseDetailReport() {
           total={report.total}
           columns={COLUMNS}
           showEmpty={showEmpty}
+          preview
+          highlight={{ month: activeMonth, scope: { site: site === ALL ? undefined : site } }}
           hrefFor={(node) =>
             ledgerHref({
               ...scopeQuery,

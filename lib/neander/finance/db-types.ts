@@ -29,6 +29,25 @@ export interface FinVendorRuleDoc extends FinVendorRuleMaster {
  * 손댈 수 없다. 그 옆에 자기 열을 하나 더 두고 싶을 때 쓴다 — 값은 거래 문서의
  * `extra[id]` 에 문자열로 담기고, 집계에는 들어가지 않는다.
  */
+/**
+ * 형광펜 끄기 (lib/neander/finance/anomaly.ts).
+ *
+ *   vendor  — 신뢰한 거래처. 앞으로 이 거래처 거래는 칠하지 않고, 계정 급증
+ *             계산에서도 뺀다 (매달 나가는 믿을 만한 큰돈이 계정을 튀게 하지 않게).
+ *             key 는 거래처 비교 키(띄어쓰기·대소문자 무시)
+ *   account — 그 달 그 계정은 확인했다. key 는 계정 경로(`대|중|소`), month 필수
+ */
+export interface FinAnomalyIgnoreDoc {
+  id: string;
+  kind: "vendor" | "account";
+  key: string;
+  /** 사람이 읽는 이름 (거래처 원문 · 계정 이름) */
+  label?: string;
+  month?: string;
+  createdAt: number;
+  createdBy?: string;
+}
+
 export interface FinLedgerColumnDoc {
   id: string;
   label: string;

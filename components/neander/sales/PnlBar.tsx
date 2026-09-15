@@ -31,6 +31,7 @@ import {
   Th,
   Tr,
   type ChartTooltipRow,
+  type MoneyFlow,
 } from "@/components/neander/ui";
 import type {
   PnlDetail,
@@ -101,8 +102,12 @@ const TOOLTIP_HEAD = 5;
 const HIT_CLS =
   "cursor-pointer outline-none transition-[filter] duration-nd-fast hover:brightness-110 focus-visible:brightness-110 focus-visible:ring-2 focus-visible:ring-nd-accent focus-visible:ring-offset-1";
 
-/** 영업이익·손실은 계산 과정이라 줄을 자르지 않는다 */
-const isFormula = (d: PnlDetail) => d.key === "op" || d.key === "loss";
+/** 영업이익·손실·공헌이익은 계산 과정이라 줄을 자르지 않는다 */
+export const isFormula = (d: PnlDetail) =>
+  d.formula ?? (d.key === "op" || d.key === "loss" || d.key === "contribution");
+/** 칸의 돈 방향 — 매출 칸은 수입, 비용 칸은 지출, 계산은 순손익 */
+export const flowOf = (d: PnlDetail): MoneyFlow =>
+  d.direction ?? (isFormula(d) ? "net" : d.key === "confirmed" || d.key === "pending" ? "income" : "expense");
 
 function tooltipRows(d: PnlDetail): ChartTooltipRow[] {
   // 묶음이 있는 칸(인건비)은 커서 요약에 합계만 — 나눠 보는 건 창에서
@@ -315,13 +320,8 @@ export function PnlBar({
             <span className="text-nd-caption text-nd-fg-2">
               {isFormula(openDetail) ? openDetail.title : "합계"}
             </span>
-            <span
-              className={cn(
-                "nd-num text-nd-section font-semibold",
-                openDetail.total < 0 ? "text-nd-danger-text" : "text-nd-fg",
-              )}
-            >
-              <Money value={Math.round(openDetail.total)} unit={false} />원
+            <span className="nd-num text-nd-section font-semibold text-nd-fg">
+              <Money value={Math.round(openDetail.total)} unit={false} flow={flowOf(openDetail)} />원
             </span>
           </div>
 
@@ -336,15 +336,15 @@ export function PnlBar({
   );
 }
 
-/** 창에 그릴 묶음 — 묶음이 없는 칸은 전체를 한 묶음으로 */
-function blocksOf(d: PnlDetail): PnlDetailSection[] {
+/** 창에 그릴 묶음 — 묶음이 없는 칸은 전체를 한 묶음으로 (SalesDrill 도 쓴다) */
+export function blocksOf(d: PnlDetail): PnlDetailSection[] {
   return (
     d.sections ?? [{ key: "main", title: d.title, total: d.total, rows: d.rows, people: d.people }]
   );
 }
 
 /** 묶음 하나 — 소계 머리(묶음이 여럿일 때) · 내역 표 · 직원별 표 */
-function DetailBlock({
+export function DetailBlock({
   detail: d,
   block: b,
   titled,
@@ -366,7 +366,7 @@ function DetailBlock({
             {b.basis && <span className="ml-2 text-nd-micro text-nd-fg-3">{b.basis}</span>}
           </span>
           <span className="nd-num text-nd-body font-semibold text-nd-fg">
-            <Money value={Math.round(b.total)} unit={false} />원
+            <Money value={Math.round(b.total)} unit={false} flow={flowOf(d)} />원
             {d.total ? (
               <span className="ml-1.5 text-nd-micro font-normal text-nd-fg-3">
                 {((b.total / d.total) * 100).toFixed(1)}%

@@ -79,6 +79,7 @@ import {
   type ColumnFilter,
 } from "@/lib/neander/finance/sheetFilter";
 import { useFinance } from "./FinanceProvider";
+import { ProjectTag } from "./ProjectTag";
 import {
   BIZ_SEP,
   UNSET,
@@ -91,7 +92,8 @@ import {
 } from "@/lib/neander/finance/client";
 import { BIZ_MAJORS } from "@/lib/neander/finance/sheet";
 import type { FinTransaction } from "@/lib/neander/finance/types";
-import { lookupKeyOf } from "@/lib/neander/finance/types";
+import { lookupKeyOf, txFlow } from "@/lib/neander/finance/types";
+import { flowTextClass, type MoneyFlow } from "@/components/neander/ui";
 import {
   formatSigned,
 } from "@/lib/neander/format";
@@ -103,7 +105,7 @@ const PREVIEW_ROWS = 6;
 /** 손으로 고친 거래에 남기는 근거 — 나중에 "누가 왜" 를 물을 수 있어야 한다 */
 const MANUAL_REASON = "사람이 교정 — 재무 대시보드 내역 창";
 /** 창 아래 설명의 부호 규칙 — 기본은 매트릭스(환급을 지출에서 뺀다) */
-const DEFAULT_AMOUNT_NOTE = "환급은 지출에서 차감되어 음수(△)로 표시됩니다";
+const DEFAULT_AMOUNT_NOTE = "환급은 지출에서 차감되어 음수(-)로 표시됩니다";
 
 const shortDate = (d: string) => (d?.length >= 10 ? `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}` : d);
 
@@ -152,6 +154,11 @@ export interface AmountBreakdownProps {
   ledgerHref?: string;
   /** 숫자에 입힐 색 (히트맵 대비) */
   className?: string;
+  /**
+   * 돈의 방향 — 숫자 글자색 (수입 초록·지출 빨강·순손익은 부호로).
+   * className 을 주면 그쪽이 이긴다. 미리보기·창의 거래 한 줄은 거래유형을 따른다.
+   */
+  flow?: MoneyFlow;
   /** 합계가 0 일 때 찍을 글자 */
   emptyText?: string;
   /** 고친 행이 이 숫자에서 빠지는지 판단할 조건 */
@@ -170,6 +177,17 @@ export interface AmountBreakdownProps {
   amountNote?: string;
 }
 
+/**
+ * 거래 한 줄의 글자색. 순손익 합계(plDelta — 지출이 음수)면 부호가 곧 방향이고,
+ * 합계에 방향이 없으면(매트릭스처럼 섞인 합) 음수만 붉게 둔다.
+ * 그 밖에는 거래유형을 따른다 — 수입 칸이면 수입, 환급 칸이면 환급.
+ */
+function rowFlow(t: FinTransaction, flow: MoneyFlow | undefined): MoneyFlow | undefined {
+  if (!flow) return undefined;
+  if (flow === "net") return "net";
+  return txFlow(t.txType) ?? flow;
+}
+
 export function AmountBreakdown({
   value,
   rows,
@@ -177,6 +195,7 @@ export function AmountBreakdown({
   subtitle,
   ledgerHref,
   className,
+  flow,
   emptyText = "—",
   scope,
   amountOf = matrixDelta,
@@ -248,8 +267,8 @@ export function AmountBreakdown({
               "max-w-full truncate text-left underline decoration-dotted decoration-nd-fg-4"
             : "nd-num w-[calc(100%+0.5rem)] text-right",
           // 색을 따로 받지 않은 숫자는 링크 색 — 표 안에서 누를 수 있는 금액이 한눈에 드러난다.
-          // 히트맵 칸(램프 위 글자색)·음수(△ 붉은 글자)·0 은 부르는 쪽이 색을 준다.
-          !label && !className && "text-nd-accent-strong",
+          // 히트맵 칸(램프 위 글자색)·음수(- 붉은 글자)·0 은 부르는 쪽이 색을 준다.
+          !label && !className && (value !== 0 && flow ? flowTextClass(value, flow) : "text-nd-accent-strong"),
           className,
         )}
       >
@@ -277,10 +296,11 @@ export function AmountBreakdown({
               {preview.map((t) => (
                 <li key={t.id} className="flex items-baseline gap-2 text-nd-caption">
                   <span className="nd-num w-9 shrink-0 text-nd-fg-3">{shortDate(t.date)}</span>
-                  <span className="min-w-0 flex-1 truncate text-nd-fg">
-                    {t.vendor || acctTail(t) || "(거래처 없음)"}
+                  <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+                    <span className="min-w-0 truncate text-nd-fg">{t.vendor || acctTail(t) || "(거래처 없음)"}</span>
+                    <ProjectTag code={t.projectCode} />
                   </span>
-                  <Money value={amountOf(t)} unit={false} className="shrink-0" />
+                  <Money value={amountOf(t)} unit={false} flow={rowFlow(t, flow)} className="shrink-0" />
                 </li>
               ))}
             </ul>
@@ -292,7 +312,7 @@ export function AmountBreakdown({
                   : `모두 ${sorted.length.toLocaleString("ko-KR")}건`}
               </span>
               <span className="font-semibold">
-                <Money value={value} unit={false} />원
+                <Money value={value} unit={false} flow={flow} />원
               </span>
             </div>
             <p className="mt-1.5 text-nd-micro text-nd-fg-3">누르면 창이 열리고, 거기서 분류를 고칠 수 있습니다</p>
@@ -328,6 +348,7 @@ export function AmountBreakdown({
           scope={scope}
           amountOf={amountOf}
           amountNote={amountNote}
+          flow={flow}
           onEdited={() => setDirty(true)}
         />
       </Dialog>
@@ -402,6 +423,7 @@ function BreakdownBody({
   scope,
   amountOf,
   amountNote,
+  flow,
   onEdited,
 }: {
   rows: FinTransaction[];
@@ -410,6 +432,7 @@ function BreakdownBody({
   scope?: BreakdownScope;
   amountOf: (t: FinTransaction) => number;
   amountNote: string;
+  flow?: MoneyFlow;
   onEdited: () => void;
 }) {
   const { accounts, transactions, closes } = useFinance();
@@ -618,7 +641,7 @@ function BreakdownBody({
               : `${rows.length.toLocaleString("ko-KR")}건`}
           </span>
           <span className="font-semibold text-nd-fg">
-            합계 <Money value={shownTotal} unit={false} />원
+            합계 <Money value={shownTotal} unit={false} flow={flow} />원
           </span>
           {movedIds.size > 0 && (
             <Badge tone="accent" size="sm">
@@ -697,6 +720,7 @@ function BreakdownBody({
                   edit={edits[t.id]}
                   memo={[t.acctNote, t.note].filter(Boolean).join(" · ")}
                   amount={amountOf(t)}
+                  flow={rowFlow(t, flow)}
                   busy={busy === t.id}
                   editing={editing?.id === t.id ? editing.field : null}
                   onOpenEdit={(field) => setEditing({ id: t.id, field })}
@@ -729,7 +753,7 @@ function BreakdownBody({
                   sticky="right"
                   className="!bg-nd-sunken pr-5 shadow-[-8px_0_8px_-8px_rgba(15,23,42,0.18)] sm:pr-6"
                 >
-                  <Money value={shownTotal} unit={false} />
+                  <Money value={shownTotal} unit={false} flow={flow} />
                 </Td>
               </TotalRow>
             </tfoot>
@@ -782,6 +806,7 @@ function ItemRows({
   edit,
   memo,
   amount,
+  flow,
   busy,
   editing,
   onOpenEdit,
@@ -802,6 +827,7 @@ function ItemRows({
   edit?: RowEdit;
   memo: string;
   amount: number;
+  flow?: MoneyFlow;
   busy: boolean;
   editing: "acct" | "biz" | null;
   onOpenEdit: (f: "acct" | "biz") => void;
@@ -837,6 +863,7 @@ function ItemRows({
                 개인사용
               </Badge>
             )}
+            <ProjectTag code={tx.projectCode} />
           </span>
         </Td>
         <Td>
@@ -902,7 +929,7 @@ function ItemRows({
               </Badge>
             )}
             <span className={cn(out && "line-through")}>
-              <Money value={amount} unit={false} muted={out} />
+              <Money value={amount} unit={false} muted={out} flow={out ? undefined : flow} />
             </span>
             {edit && (
               <IconButton icon={Undo2} label="되돌리기" size="sm" onClick={onUndo} disabled={busy} className="-mr-1" />

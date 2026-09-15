@@ -205,11 +205,12 @@ export default function ProjectsPage() {
           </FilterBar>
 
           <KpiStrip columns={4} className="mb-4">
-            <StatTile label="수입 합계" value={head.revenue} hint={`취소 제외 ${head.count}건 · 공급가액(부가세 제외)`} />
-            <StatTile label="실제 원가 합계" value={head.actual} hint="실제금액 없는 줄은 견적으로" />
+            <StatTile label="수입 합계" value={head.revenue} flow="income" hint={`취소 제외 ${head.count}건 · 공급가액(부가세 제외)`} />
+            <StatTile label="실제 원가 합계" value={head.actual} flow="expense" hint="실제금액 없는 줄은 견적으로" />
             <StatTile
               label="실질 이익 합계"
               value={head.profit}
+              flow="net"
               hint={head.revenue > 0 ? `이익률 ${formatMargin(head.profit / head.revenue)}` : undefined}
             />
             <StatTile
@@ -322,11 +323,11 @@ export default function ProjectsPage() {
                           {p.startDate ?? "—"}
                           {p.endDate && p.endDate !== p.startDate ? ` ~ ${p.endDate}` : ""}
                         </Td>
-                        <Td num><Money value={s.revenue} unit={false} /></Td>
+                        <Td num><Money value={s.revenue} unit={false} flow="income" /></Td>
                         <Td num><Money value={s.estimate} unit={false} muted /></Td>
-                        <Td num><Money value={s.actual} unit={false} /></Td>
-                        <Td num className="font-medium"><Money value={s.profitActual} unit={false} /></Td>
-                        <Td num className={s.marginActual !== null && s.marginActual < 0 ? "text-nd-danger-text" : "text-nd-fg-2"}>
+                        <Td num><Money value={s.actual} unit={false} flow="expense" /></Td>
+                        <Td num className="font-medium"><Money value={s.profitActual} unit={false} flow="net" /></Td>
+                        <Td num className={s.marginActual !== null && s.marginActual < 0 ? "text-nd-expense-text" : "text-nd-fg-2"}>
                           {formatMargin(s.marginActual)}
                         </Td>
                         <Td num>

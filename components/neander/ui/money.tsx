@@ -1,8 +1,14 @@
 // ============================================================
 //  금액 표시 — Money · StatTile
 // ------------------------------------------------------------
-//  금액의 부호는 색에만 맡기지 않는다. 음수는 △ 표기를 함께 단다.
+//  금액의 부호는 색에만 맡기지 않는다. 음수는 「-」 를 함께 단다.
 //  숫자는 tabular-nums(nd-num)라 자릿수가 위아래로 맞는다.
+//
+//  색 규칙 (ERP 전체 공통) — flow 로 준다:
+//    income  수입(들어온 돈)   → 초록
+//    expense 지출(나간 돈)     → 빨강
+//    net     순손익·차액       → 0 이상 초록, 음수 빨강
+//    (없음)  단가·예산 같은 그냥 금액 → 기본 글자색, 음수만 빨강
 //
 //  ⚠️ 재무 폴더에 있던 것을 여기로 옮겼다. 같은 회사의 같은 성격의
 //     숫자를 매출도 찍는데, 두 모듈이 다른 서체·다른 음수 표기를 쓰면
@@ -14,24 +20,38 @@ import { cn } from "./cn";
 import { KpiItem } from "./metric";
 import type { Tone } from "./badge";
 
-/** 금액 표시. 음수는 △ + 붉은 글씨(색 단독에 의존하지 않음). */
+/** 돈의 방향 — 글자색을 정한다 (위 주석) */
+export type MoneyFlow = "income" | "expense" | "net";
+
+/** 금액 글자색 클래스 — Money 를 못 쓰는 자리(시트 셀·차트 툴팁)도 같은 색을 쓰게 */
+export function flowTextClass(value: number, flow?: MoneyFlow): string | undefined {
+  if (flow === "income") return "text-nd-income-text";
+  if (flow === "expense") return "text-nd-expense-text";
+  if (flow === "net") return Math.round(value) < 0 ? "text-nd-expense-text" : "text-nd-income-text";
+  return Math.round(value) < 0 ? "text-nd-expense-text" : undefined;
+}
+
+/** 금액 표시. 음수는 「-」 + 색(색 단독에 의존하지 않음). */
 export function Money({
   value,
   className,
   unit = true,
   muted = false,
+  flow,
 }: {
   value: number;
   className?: string;
   unit?: boolean;
   muted?: boolean;
+  flow?: MoneyFlow;
 }) {
-  const neg = value < 0;
+  // 0 은 들어오지도 나가지도 않았다 — 색을 입히지 않는다
+  const tone = Math.round(value) === 0 ? undefined : flowTextClass(value, flow);
   return (
     <span
       className={cn(
         "nd-num",
-        neg ? "text-nd-danger-text" : muted ? "text-nd-fg-3" : "text-nd-fg",
+        tone ?? (muted ? "text-nd-fg-3" : "text-nd-fg"),
         className,
       )}
     >
@@ -54,9 +74,16 @@ export function StatTile({
   tone,
   size = "md",
   tag,
+  flow,
+  wrapValue,
 }: {
-  label: string;
+  /** 보통 글자. 용어 풀이(물음표)를 붙일 때는 노드 */
+  label: ReactNode;
   value: number;
+  /** 돈의 방향 — 숫자 색 (Money 와 같은 규칙) */
+  flow?: MoneyFlow;
+  /** 숫자를 감싼다 — 눌러서 내역을 여는 드릴 등 */
+  wrapValue?: (money: ReactNode) => ReactNode;
   hint?: ReactNode;
   /** 계열 식별 점 색 (hex) */
   accent?: string;
@@ -65,11 +92,12 @@ export function StatTile({
   /** 숫자 옆 작은 태그 (예: 손실) */
   tag?: ReactNode;
 }) {
+  const money = <Money value={value} unit={false} flow={flow} />;
   return (
     <KpiItem
       tag={tag}
       label={label}
-      value={<Money value={value} unit={false} />}
+      value={wrapValue && value !== 0 ? wrapValue(money) : money}
       unit="원"
       hint={hint}
       marker={accent}

@@ -136,6 +136,7 @@ export const SALES_NAV: NavGroup[] = [
   {
     label: "분석 및 관리",
     items: [
+      { href: "/neander/sales/reports", label: "리포트", icon: ChartColumn },
       { href: "/neander/sales/products", label: "상품 수익성", icon: Boxes },
       { href: "/neander/sales/catalog", label: "상품 관리", icon: Package },
       { href: "/neander/sales/reconcile", label: "장부 대사", icon: Scale },

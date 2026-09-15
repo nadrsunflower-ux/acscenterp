@@ -9,14 +9,14 @@
 // ============================================================
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu as MenuIcon, PanelLeft } from "lucide-react";
+import { Menu as MenuIcon } from "lucide-react";
 import { cn, IconButton } from "@/components/neander/ui";
 import { useShell } from "./context";
 import { describePath } from "./nav-config";
 
 export function Topbar() {
   const pathname = usePathname();
-  const { isMobile, collapsed, toggleCollapsed, setDrawerOpen, setToolbarEl } = useShell();
+  const { isMobile, setDrawerOpen, setToolbarEl } = useShell();
   const crumb = describePath(pathname);
 
   return (
@@ -24,19 +24,9 @@ export function Topbar() {
       data-nd-topbar
       className="sticky top-0 z-nd-sticky flex h-[var(--nd-topbar-h)] items-center gap-2 bg-nd-page/80 px-3 backdrop-blur-md sm:gap-3 sm:px-5 lg:px-6"
     >
-      {/* 사이드바 토글 — 모바일은 드로어, 그 외는 접기/펼치기 */}
-      {isMobile ? (
+      {/* 모바일은 드로어를 연다. 데스크톱 접기·펼치기는 사이드바 변의 동그라미 버튼 */}
+      {isMobile && (
         <IconButton icon={MenuIcon} label="메뉴 열기" variant="secondary" pill onClick={() => setDrawerOpen(true)} />
-      ) : (
-        <IconButton
-          icon={PanelLeft}
-          label={collapsed ? "사이드바 펼치기" : "사이드바 접기"}
-          variant="secondary"
-          pill
-          onClick={toggleCollapsed}
-          aria-expanded={!collapsed}
-          className="nd-glass border-0"
-        />
       )}
 
       {/* 브레드크럼 */}

@@ -10,6 +10,7 @@
 // ============================================================
 import { useId, useState, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
+import { formatSigned } from "@/lib/neander/format";
 import { cn } from "./cn";
 import { Icon } from "./icon";
 import { Table, TableScroll, Td, Th, TotalRow, Tr } from "./table";
@@ -28,10 +29,7 @@ export interface ChartValueRow {
   values: Record<string, number | null | undefined>;
 }
 
-const defaultFormat = (v: number) => {
-  const abs = Math.abs(Math.round(v)).toLocaleString("ko-KR");
-  return v < 0 ? `△${abs}` : abs;
-};
+const defaultFormat = formatSigned;
 
 export function ChartValues({
   columns,

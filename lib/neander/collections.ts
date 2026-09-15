@@ -58,6 +58,10 @@ export const NEANDER_COL = {
   finDocs: "neander_fin_docs",
   /** 원장에 사람이 덧붙인 열 (값은 거래 문서의 extra 에 담긴다) */
   finLedgerColumns: "neander_fin_ledger_columns",
+  /** 형광펜 끄기 — 신뢰한 거래처(영구) · 이 달 확인한 계정 (finance/anomaly.ts) */
+  finAnomalyIgnores: "neander_fin_anomaly_ignores",
+  /** 월간 인사이트 — 매출·재무 보고의 AI 해설 (문서 id = `${module}_${month}`, insights/types.ts) */
+  insights: "neander_insights",
   /** 지운 거래의 원본 — 되돌리기가 숨긴 필드(dedupHash 등)를 되살리는 근거 (server/trash.ts) */
   finTrash: "neander_fin_trash",
   // ---- 매출 단위경제 (/neander/sales) ----

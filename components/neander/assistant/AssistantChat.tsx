@@ -48,6 +48,13 @@ import {
   X,
 } from "lucide-react";
 import { ToolbarPortal, useDockReservation } from "@/components/neander/shell/context";
+import {
+  ASSISTANT_CONTEXT_EVENT,
+  ASSISTANT_EVENT,
+  announceAssistant,
+  type AssistantAction,
+  type PresentationContext,
+} from "./events";
 import type { AgentMessage, AgentResult } from "@/lib/neander/ai/agent";
 import type { AssistantChatDoc, AssistantChatSummary } from "@/lib/neander/ai/chat-log";
 import {
@@ -88,6 +95,8 @@ export interface AssistantAdapter<P> {
     model: string,
     files: File[],
     conversationId?: string,
+    /** 보고 슬라이드 발표 중이면 그 달·장 — 서버가 기간 없는 질문의 기준으로 쓴다 */
+    context?: PresentationContext,
   ) => Promise<AssistantResult<P>>;
   listChats: () => Promise<AssistantChatSummary[]>;
   loadChat: (id: string) => Promise<AssistantChatDoc<P>>;
@@ -153,6 +162,32 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
   const MODEL_KEY = `${adapter.storagePrefix}.model`;
   const LAYOUT_KEY = `${adapter.storagePrefix}.layout`;
   const fullScreen = panelMode === "docked" && narrow;
+
+  // 도구 막대가 가려진 화면(발표 화면 Deck)에서도 부를 수 있게 — 창 이벤트로 열고 닫고,
+  // 지금 이름·열림 상태를 알린다 (assistant/events.ts)
+  useEffect(() => {
+    const onCall = (e: Event) => {
+      const action = (e as CustomEvent<{ action?: AssistantAction }>).detail?.action;
+      if (action === "toggle") setOpen((v) => !v);
+      else if (action === "open") setOpen(true);
+      else if (action === "close") setOpen(false);
+      else if (action === "ping") announceAssistant({ name: adapter.name, open });
+    };
+    window.addEventListener(ASSISTANT_EVENT, onCall);
+    return () => window.removeEventListener(ASSISTANT_EVENT, onCall);
+  }, [adapter.name, open]);
+  useEffect(() => {
+    announceAssistant({ name: adapter.name, open });
+  }, [adapter.name, open]);
+  useEffect(() => () => announceAssistant({ name: null, open: false }), []);
+
+  // 보고 슬라이드 발표 중이면 그 달·장 — 질문과 함께 서버로 보낸다 (Deck 이 알려 온다)
+  const [presentation, setPresentation] = useState<PresentationContext | null>(null);
+  useEffect(() => {
+    const onCtx = (e: Event) => setPresentation((e as CustomEvent<PresentationContext | null>).detail);
+    window.addEventListener(ASSISTANT_CONTEXT_EVENT, onCtx);
+    return () => window.removeEventListener(ASSISTANT_CONTEXT_EVENT, onCtx);
+  }, []);
 
   const addFiles = (list: FileList | File[] | null) => {
     if (!list || busy) return;
@@ -387,7 +422,7 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
         role: t.role,
         content: t.wireContent ?? t.content,
       }));
-      const res = await adapter.send(history, model, files, conversationId);
+      const res = await adapter.send(history, model, files, conversationId, presentation ?? undefined);
       if (res.conversationId) setConversationId(res.conversationId);
       const settled = res.sentUserContent
         ? next.map((t, k) => (k === next.length - 1 ? { ...t, wireContent: res.sentUserContent } : t))
@@ -514,7 +549,18 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
           >
             <div className="min-w-0">
               <p className="text-nd-section text-nd-fg">{adapter.name}</p>
-              <p className="truncate text-nd-caption text-nd-fg-3">{adapter.subtitle}</p>
+              {presentation ? (
+                // 발표 중 — 기간을 말하지 않은 질문이 어느 달 기준으로 답해지는지 늘 보이게
+                <p
+                  className="truncate text-nd-caption font-medium text-nd-accent-strong"
+                  title="기간을 말하지 않으면 이 달 기준으로 답합니다. 「2025년」·「3월」처럼 기간을 말하면 그 기간으로 답합니다."
+                >
+                  발표 중 · {Number(presentation.month.slice(0, 4))}년 {Number(presentation.month.slice(5, 7))}월 기준
+                  {presentation.chapter ? ` · ${presentation.chapter}` : ""}
+                </p>
+              ) : (
+                <p className="truncate text-nd-caption text-nd-fg-3">{adapter.subtitle}</p>
+              )}
             </div>
             <div className="flex shrink-0 items-center gap-0.5">
               <IconButton

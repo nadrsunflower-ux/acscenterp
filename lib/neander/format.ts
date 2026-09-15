@@ -204,12 +204,14 @@ export function weekLabelOf(dateStr: string): string {
 }
 
 /**
- * 부호 있는 금액 — 음수는 △. 색만으로 부호를 전하지 않기 위한 표기다
+ * 부호 있는 금액 — 음수는 「-」. 색만으로 부호를 전하지 않기 위한 표기다
  * (재무·매출이 같은 규칙을 써야 두 화면을 번갈아 보는 사람이 헷갈리지 않는다).
+ * 예전에는 회계식 △ 를 썼지만 읽는 사람 대부분에게 낯설어 2026-09 에 뺐다.
  */
 export function formatSigned(n: number): string {
-  const abs = Math.abs(Math.round(n)).toLocaleString("ko-KR");
-  return n < 0 ? `△${abs}` : abs;
+  const r = Math.round(n);
+  const abs = Math.abs(r).toLocaleString("ko-KR");
+  return r < 0 ? `-${abs}` : abs;
 }
 
 /**
@@ -224,6 +226,8 @@ export function shortWon(n: number): string {
   const parts: string[] = [];
   if (eok > 0) parts.push(`${eok.toLocaleString("ko-KR")}억`);
   if (man > 0) parts.push(`${man.toLocaleString("ko-KR")}만`);
-  if (parts.length === 0) return a.toLocaleString("ko-KR");
-  return (n < 0 ? "△" : "") + parts.join(" ");
+  // 1만원 미만도 부호를 붙인다 — 빠뜨리면 -5,000 이 5,000 으로 보인다
+  const sign = n < 0 ? "-" : "";
+  if (parts.length === 0) return sign + a.toLocaleString("ko-KR");
+  return sign + parts.join(" ");
 }

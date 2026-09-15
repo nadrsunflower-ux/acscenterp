@@ -147,6 +147,7 @@ import {
   netAmount,
   type FinTransaction,
   type FinTransactionInput,
+  txFlow,
 } from "@/lib/neander/finance/types";
 
 /** 상태 → 의미 색 (목록 화면과 같은 표) */
@@ -743,23 +744,26 @@ export default function ProjectDetailPage() {
             <StatTile
               label="수입 (공급가액)"
               value={summary.revenue}
+              flow="income"
               hint={
                 summary.revenueVat > 0
                   ? `부가세 ${summary.revenueVat.toLocaleString("ko-KR")} 별도 · 총액 ${summary.revenueTotal.toLocaleString("ko-KR")}`
                   : "면세 — 부가세 없음"
               }
             />
-            <StatTile label="견적 원가" value={summary.estimate} hint={`${summary.lineCount}줄 · 수량 × 단가`} />
-            <StatTile label="예상 이익" value={summary.profitEstimate} hint={`이익률 ${formatMargin(summary.marginEstimate)}`} />
+            <StatTile label="견적 원가" value={summary.estimate} flow="expense" hint={`${summary.lineCount}줄 · 수량 × 단가`} />
+            <StatTile label="예상 이익" value={summary.profitEstimate} flow="net" hint={`이익률 ${formatMargin(summary.marginEstimate)}`} />
             <StatTile
               label="실제 원가"
               value={summary.actual}
+              flow="expense"
               tone={unfilled > 0 && summary.actualFilled > 0 ? "warning" : undefined}
               hint={summary.lineCount === 0 ? "줄 없음" : unfilled > 0 ? `실제금액 미입력 ${unfilled}줄은 견적으로` : "모든 줄 실제금액 입력됨"}
             />
             <StatTile
               label="실질 이익"
               value={summary.profitActual}
+              flow="net"
               hint={`이익률 ${formatMargin(summary.marginActual)}`}
               tag={
                 <Badge tone={isLoss ? "danger" : "success"} size="sm">
@@ -857,7 +861,7 @@ export default function ProjectDetailPage() {
                         <Td num>{g.lines.length}</Td>
                         <Td num muted>{g.doneCount}/{g.lines.length}</Td>
                         <Td num><Money value={g.estimate} unit={false} muted /></Td>
-                        <Td num><Money value={g.actual} unit={false} /></Td>
+                        <Td num><Money value={g.actual} unit={false} flow="expense" /></Td>
                         <Td num muted className="pr-5">{summary.revenue > 0 ? `${((g.actual / summary.revenue) * 100).toFixed(1)}%` : "—"}</Td>
                       </Tr>
                     ))}
@@ -867,8 +871,8 @@ export default function ProjectDetailPage() {
                       <Td className="pl-5">총계</Td>
                       <Td num>{summary.lineCount}</Td>
                       <Td num muted>{summary.doneCount}/{summary.lineCount}</Td>
-                      <Td num><Money value={summary.estimate} unit={false} /></Td>
-                      <Td num><Money value={summary.actual} unit={false} /></Td>
+                      <Td num><Money value={summary.estimate} unit={false} flow="expense" /></Td>
+                      <Td num><Money value={summary.actual} unit={false} flow="expense" /></Td>
                       <Td num muted className="pr-5">{summary.revenue > 0 ? `${((summary.actual / summary.revenue) * 100).toFixed(1)}%` : "—"}</Td>
                     </TotalRow>
                   </tfoot>
@@ -940,10 +944,10 @@ export default function ProjectDetailPage() {
 
           <div className="flex flex-wrap items-center justify-end gap-6 border-t border-nd-line px-5 py-2.5 text-nd-caption">
             <span className="text-nd-fg-2">
-              견적 합계 <b className="ml-1 text-nd-body"><Money value={summary.estimate} unit={false} /></b>
+              견적 합계 <b className="ml-1 text-nd-body"><Money value={summary.estimate} unit={false} flow="expense" /></b>
             </span>
             <span className="text-nd-fg-2">
-              실제 합계 <b className="ml-1 text-nd-body"><Money value={summary.actual} unit={false} /></b>
+              실제 합계 <b className="ml-1 text-nd-body"><Money value={summary.actual} unit={false} flow="expense" /></b>
               {unfilled > 0 && <span className="ml-1 text-nd-fg-3">(미입력 {unfilled}줄은 견적으로)</span>}
             </span>
           </div>
@@ -1257,10 +1261,10 @@ export default function ProjectDetailPage() {
                 거래 <b className="nd-num text-nd-fg">{ledgerRows.length}</b>건
               </span>
               <span className="text-nd-fg-2">
-                수입 <Money value={summary.ledger.income} unit={false} className="font-medium" />
+                수입 <Money value={summary.ledger.income} unit={false} flow="income" className="font-medium" />
               </span>
               <span className="text-nd-fg-2">
-                지출 <Money value={ledgerNet} unit={false} className="font-medium" />
+                지출 <Money value={ledgerNet} unit={false} flow="expense" className="font-medium" />
                 {summary.ledger.refund > 0 && (
                   <span className="ml-1 text-nd-caption text-nd-fg-3">(환급 {summary.ledger.refund.toLocaleString("ko-KR")} 차감)</span>
                 )}
@@ -1315,7 +1319,7 @@ export default function ProjectDetailPage() {
                           {[t.acctMajor, t.acctMid, t.acctMinor].filter(Boolean).join(" › ")}
                         </span>
                       </Td>
-                      <Td num><Money value={netAmount(t)} unit={false} /></Td>
+                      <Td num><Money value={netAmount(t)} unit={false} flow={txFlow(t.txType)} /></Td>
                       <Td align="right" className="pr-5">
                         <Button
                           variant="ghost"
@@ -1377,7 +1381,7 @@ export default function ProjectDetailPage() {
                                   <span className="block max-w-[16rem] truncate" title={t.vendor ?? ""}>{t.vendor ?? ""}</span>
                                 </Td>
                                 <Td muted>{[t.acctMid, t.acctMinor].filter(Boolean).join(" › ")}</Td>
-                                <Td num><Money value={netAmount(t)} unit={false} /></Td>
+                                <Td num><Money value={netAmount(t)} unit={false} flow={txFlow(t.txType)} /></Td>
                                 <Td align="right" className="w-24">
                                   <Button variant="soft" size="sm" icon={Link2} disabled={attaching} onClick={() => void attachTx(t)}>
                                     붙이기

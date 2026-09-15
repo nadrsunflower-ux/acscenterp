@@ -832,8 +832,8 @@ export default function ImportPage() {
                     <Td num className={r.errors > 0 ? "text-nd-danger-text" : undefined}>
                       {r.errors > 0 ? won(r.errors) : "—"}
                     </Td>
-                    <Td num><Money value={r.income} unit={false} muted={!r.income} /></Td>
-                    <Td num className="pr-5"><Money value={r.expense} unit={false} muted={!r.expense} /></Td>
+                    <Td num><Money value={r.income} unit={false} flow="income" muted={!r.income} /></Td>
+                    <Td num className="pr-5"><Money value={r.expense} unit={false} flow="expense" muted={!r.expense} /></Td>
                   </Tr>
                 ))}
               </tbody>
@@ -1058,12 +1058,13 @@ function PosCard({
         </FormRow>
       )}
 
-      {/* 금액은 StatTile(재무 다른 화면과 같은 「원」 표기·음수 △), 건수는 KpiItem */}
+      {/* 금액은 StatTile(재무 다른 화면과 같은 「원」 표기·음수 -), 건수는 KpiItem */}
       <KpiStrip columns={4} className="mt-3">
-        <StatTile label={`${pos.sourceLabel} 실매출`} value={rec.posNet} hint={`${rec.posCount}건`} />
+        <StatTile label={`${pos.sourceLabel} 실매출`} value={rec.posNet} flow="income" hint={`${rec.posCount}건`} />
         <StatTile
           label="장부 매출"
           value={rec.ledgerSales}
+          flow="income"
           hint={`${rec.ledgerCount}건 · ${unit.acctMinor ?? "계정 미선택"}`}
         />
         <StatTile

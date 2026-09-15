@@ -248,12 +248,14 @@ export async function sendSalesChat(
   model?: string,
   files?: File[],
   conversationId?: string,
+  /** 보고 슬라이드 발표 중이면 그 달 — 기간 없는 질문의 기준 (ai/presentation.ts) */
+  context?: import("@/lib/neander/ai/presentation").PresentationContext,
 ): Promise<SalesChatResult> {
   if (!files || files.length === 0) {
     const res = await fetch(CHAT_URL, {
       method: "POST",
       headers: await authHeaders(),
-      body: JSON.stringify({ messages, model, conversationId }),
+      body: JSON.stringify({ messages, model, conversationId, context }),
     });
     if (!res.ok) throw new Error(await readError(res));
     return (await res.json()) as SalesChatResult;
@@ -264,6 +266,7 @@ export async function sendSalesChat(
   form.append("messages", JSON.stringify(messages));
   if (model) form.append("model", model);
   if (conversationId) form.append("conversationId", conversationId);
+  if (context) form.append("context", JSON.stringify(context));
   for (const f of files) form.append("files", f);
   const res = await fetch(CHAT_URL, {
     method: "POST",

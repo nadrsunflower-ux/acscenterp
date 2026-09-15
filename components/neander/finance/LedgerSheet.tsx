@@ -55,7 +55,9 @@ import {
   netAmount,
   type FinTransaction,
   type TxType,
+  txFlow,
 } from "@/lib/neander/finance/types";
+import { flowTextClass } from "@/components/neander/ui";
 import {
   BIZ_MAJORS,
   STATUSES,
@@ -398,7 +400,8 @@ export function LedgerSheet({
         ...createDerivedColumn<FinTransaction>({
           render: (t) => {
             const n = netAmount(t);
-            return <span className={n < 0 ? "text-nd-danger-text" : undefined}>{formatSigned(n)}</span>;
+            // 수입 초록·지출 빨강 — 0 은 들어오지도 나가지도 않았으니 색을 입히지 않는다
+            return <span className={n === 0 ? undefined : flowTextClass(n, txFlow(t.txType))}>{formatSigned(n)}</span>;
           },
           copy: (t) => netAmount(t),
           alignRight: true,

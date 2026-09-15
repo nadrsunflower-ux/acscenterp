@@ -68,8 +68,8 @@ export function FinanceChat() {
       inputPlaceholder: "거래·계정·구독에 대해 물어보세요 (Enter 전송 · Shift+Enter 줄바꿈)",
       busyLabel: "장부를 보고 있습니다…",
 
-      send: (messages, model, files, conversationId) =>
-        sendFinanceChat(messages, model, files, conversationId),
+      send: (messages, model, files, conversationId, context) =>
+        sendFinanceChat(messages, model, files, conversationId, context),
       listChats: fetchChatList,
       loadChat: fetchChat,
       deleteChat,

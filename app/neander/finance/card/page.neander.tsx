@@ -479,7 +479,7 @@ export default function CardMemoPage() {
                       </p>
                     </div>
                     <div className="shrink-0 text-right">
-                      <Money value={m.amount} className="text-nd-body font-semibold" />
+                      <Money value={m.amount} flow="expense" className="text-nd-body font-semibold" />
                       <p className="mt-0.5">
                         {m.matchedTxId ? (
                           <StatusDot tone="success" className="text-nd-success-text">장부에 반영됨</StatusDot>

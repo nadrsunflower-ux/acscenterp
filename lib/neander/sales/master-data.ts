@@ -390,6 +390,38 @@ export const SEED_PRODUCTS: SalesProduct[] = [
     aliases: ["시향지"],
     note: "공헌이익률 10% — 팔아도 남지 않는다",
   },
+  // ---- 2026-09 온라인에서도 사주 상품을 판다 (사용자 확인 · 8월 온라인 적재에서 추가) ----
+  //  온라인 가격은 오프라인과 다르다 — 사주 50ml 44,000 · 10ml 22,000 · 클리커 12,900.
+  //  재료비는 같은 용량의 온라인 향수(포장·택배 포함)와 같다고 가정한다.
+  {
+    id: "ONL-005", store: "online", kind: "regular", name: "오행 퍼퓸", option: "50ml",
+    price: 44_000, material: 8_218, timeMin: 0, makeMin: 10, bottles: 1,
+    aliases: ["오행 퍼퓸 50ml", "사주 50ml"],
+    unconfirmed: true,
+    note: "사주 · 재료비는 온라인 50ml(ONL-002)와 같다고 가정",
+  },
+  {
+    id: "ONL-006", store: "online", kind: "regular", name: "오행 퍼퓸", option: "10ml",
+    price: 22_000, material: 5_116, timeMin: 0, makeMin: 10, bottles: 1,
+    aliases: ["오행 퍼퓸 10ml", "사주 10ml"],
+    unconfirmed: true,
+    note: "사주 · 재료비는 온라인 10ml(ONL-001)와 같다고 가정",
+  },
+  {
+    id: "ONL-007", store: "online", kind: "regular", name: "사주 클리커", option: "기본",
+    price: 12_900, material: 0, timeMin: 0, makeMin: 0, bottles: 1,
+    aliases: ["디퓨저 클리커", "사주 클리커", "음양오행 클리커"],
+    unconfirmed: true,
+    note: "사주 · 재료비·포장 미확인 (택배비 넣지 않음 — 향수와 함께 보내는 경우가 많다고 가정)",
+  },
+  {
+    // 원문 「set_10ml」 44,000 — 사주 50ml 과 금액이 같지만 사주가 아니다 (사용자 확인)
+    id: "ONL-008", store: "online", kind: "regular", name: "10ml 세트", option: "10ml×2",
+    price: 44_000, material: 6_960, timeMin: 0, makeMin: 20, bottles: 2,
+    aliases: ["set_10ml"],
+    unconfirmed: true,
+    note: "사주 아님 · 재료비 = 오프라인 10ml 세트(IDI-011 3,536원) + 온라인 포장·택배 몫 3,424원 (가정)",
+  },
 ];
 
 /**

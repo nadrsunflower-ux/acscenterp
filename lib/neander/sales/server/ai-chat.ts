@@ -27,6 +27,7 @@ import {
   type SalesProposal,
   type SalesToolContext,
 } from "./ai-tools";
+import { presentationNote, type PresentationContext } from "@/lib/neander/ai/presentation";
 
 export type SalesChatResult = AgentResult<SalesProposal>;
 
@@ -113,11 +114,15 @@ export async function runSalesChat(args: {
   ctx: SalesToolContext;
   model?: string;
   attachments?: ExtractedAttachment[];
+  /** 보고 슬라이드 발표 중이면 그 달 — 기간 없는 질문의 기준 */
+  presentation?: PresentationContext;
 }): Promise<SalesChatResult> {
   return runAgent<SalesProposal>(
     {
       system: SYSTEM,
       cachedContext: `${renderProducts(args.ctx.products, args.ctx.events)}\n\n${renderAssumptions(args.ctx)}`,
+      // 발표 맥락은 캐시 뒤에 따로 — 달·장이 바뀌어도 앞의 긴 부분 캐시가 깨지지 않는다
+      note: args.presentation ? presentationNote(args.presentation) : undefined,
       tools: SALES_TOOL_DEFS,
       runTool: (name, a) => runSalesTool(name, a, args.ctx),
       summarize: summarizeSalesTool,

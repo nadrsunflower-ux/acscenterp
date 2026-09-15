@@ -28,6 +28,7 @@
 import {
   useMemo,
   useState,
+  type ReactNode,
 } from "react";
 import Link from "next/link";
 import {
@@ -68,6 +69,7 @@ import {
   TreeTable,
   type TreeColumn,
 } from "@/components/neander/finance/TreeTable";
+import { columnAmount, nodeDrill, TxDrill } from "@/components/neander/finance/NodePreview";
 import { availableMonths } from "@/lib/neander/finance/aggregate";
 import { ledgerHref } from "@/lib/neander/finance/ledgerLink";
 import {
@@ -78,6 +80,8 @@ import {
   BASIS_HINT,
   BASIS_LABEL,
   buildReport,
+  inBasis,
+  inScope,
   makeIsCard,
   summarize,
   type Basis,
@@ -89,10 +93,10 @@ import {
 const ALL_UNITS = "__all__";
 
 const COLUMNS: TreeColumn[] = [
-  { key: "income", label: "수입금액", value: (v) => v.income },
-  { key: "expense", label: "지출금액", value: (v) => v.expense },
-  { key: "refund", label: "환급", value: (v) => v.refund },
-  { key: "net", label: "순손익", value: (v) => v.net },
+  { key: "income", label: "수입금액", flow: "income", value: (v) => v.income },
+  { key: "expense", label: "지출금액", flow: "expense", value: (v) => v.expense },
+  { key: "refund", label: "환급", flow: "income", value: (v) => v.refund },
+  { key: "net", label: "순손익", flow: "net", value: (v) => v.net },
   { key: "count", label: "건수", value: (v) => v.count },
 ];
 
@@ -192,6 +196,43 @@ export default function UnitReport() {
   const movedTotal = alloc.lines.reduce((s, l) => s + l.amount, 0);
   const selectedLabel = selected ? `${selected.bizMajor} · ${selected.bizMinor}` : "전체 사업부";
   const selectedDelta = selected ? alloc.delta[selected.key] ?? 0 : 0;
+  /** KPI 숫자 → 고른 사업부의 그 열 거래 (배분은 거래가 아니라 배분 전 기준) */
+  const kpiDrill = (colKey: string, label: string) => (money: ReactNode) => (
+    <TxDrill
+      title={`${monthLabel(activeMonth)} · ${selectedLabel}`}
+      subtitle={label}
+      href={ledgerHref({ month: activeMonth, bizMajor: selected?.bizMajor, bizMinor: selected?.bizMinor })}
+      {...nodeDrill({ children: report.roots, rows: [] }, colKey)}
+    >
+      {money}
+    </TxDrill>
+  );
+
+  /** 사업부 목록 숫자 → 그 사업부의 순손익을 이루는 거래. unitTotals 와 같은 거름 */
+  const unitDrill = (key: string, name: string, money: ReactNode) => {
+    const u = units.find((x) => x.key === key);
+    return (
+      <TxDrill
+        title={`${monthLabel(activeMonth)} · ${u ? `${u.bizMajor} · ${u.bizMinor}` : name}`}
+        subtitle="순손익 (배분 전)"
+        href={ledgerHref({ month: activeMonth, bizMajor: u?.bizMajor, bizMinor: u?.bizMinor })}
+        rows={() =>
+          transactions.filter(
+            (t) =>
+              inScope(t, { month: activeMonth }) &&
+              inBasis(t, basis, isCard) &&
+              (!u || ((t.bizMajor || "(미정)") === u.bizMajor && (t.bizMinor || "(미정)") === u.bizMinor)) &&
+              columnAmount("net", t) !== null,
+          )
+        }
+        amountOf={(t) => columnAmount("net", t) ?? 0}
+        flow="net"
+      >
+        {money}
+      </TxDrill>
+    );
+  };
+
   /** 전체 줄과 사업부 줄을 한 번에 그린다 — 두 벌로 나누면 생김새가 갈라진다 */
   const rows = [
     { key: ALL_UNITS, name: "전체", major: "", net: grand.net, before: grand.net },
@@ -298,17 +339,21 @@ export default function UnitReport() {
         <StatTile
           label="수입금액"
           value={report.total.income}
+          flow="income"
+          wrapValue={kpiDrill("income", "수입금액")}
           hint={`${report.total.count.toLocaleString("ko-KR")}건 기준`}
         />
-        <StatTile label="지출금액" value={report.total.expense} hint={BASIS_LABEL[basis]} />
-        <StatTile label="환급" value={report.total.refund} hint="지출에서 되돌아온 금액" />
+        <StatTile label="지출금액" value={report.total.expense} flow="expense" wrapValue={kpiDrill("expense", "지출금액")} hint={BASIS_LABEL[basis]} />
+        <StatTile label="환급" value={report.total.refund} flow="income" wrapValue={kpiDrill("refund", "환급")} hint="지출에서 되돌아온 금액" />
         <StatTile
           label="순손익"
           value={report.total.net}
+          flow="net"
+          wrapValue={kpiDrill("net", "순손익 (배분 전)")}
           hint={
             selected && showAlloc && selectedDelta !== 0 ? (
               <>
-                배분 후 <Money value={report.total.net + selectedDelta} unit={false} />원
+                배분 후 <Money value={report.total.net + selectedDelta} unit={false} flow="net" />원
               </>
             ) : (
               selectedLabel
@@ -365,10 +410,18 @@ export default function UnitReport() {
                       </button>
                     </Td>
                     <Td num className="pr-4">
-                      <Money value={r.net} unit={false} />
+                      {/* 배분 후 숫자는 거래로 설명되지 않는다 — 옮겨졌으면 배분 전 숫자로 연다 */}
+                      {moved || r.net === 0 ? (
+                        <Money value={r.net} unit={false} flow="net" />
+                      ) : (
+                        unitDrill(r.key, r.name, <Money value={r.net} unit={false} flow="net" />)
+                      )}
                       {moved && (
                         <span className="block text-nd-micro font-normal text-nd-fg-3">
-                          배분 전 {r.before.toLocaleString("ko-KR")}
+                          배분 전{" "}
+                          {r.before === 0
+                            ? "0"
+                            : unitDrill(r.key, r.name, <span className="nd-num">{r.before.toLocaleString("ko-KR")}</span>)}
                         </span>
                       )}
                     </Td>
@@ -380,7 +433,9 @@ export default function UnitReport() {
               <TotalRow>
                 <Td className="pl-4">합계</Td>
                 <Td num className="pr-4">
-                  <Money value={grand.net} unit={false} />
+                  {grand.net === 0
+                    ? <Money value={grand.net} unit={false} flow="net" />
+                    : unitDrill(ALL_UNITS, "전체", <Money value={grand.net} unit={false} flow="net" />)}
                 </Td>
               </TotalRow>
             </tfoot>
@@ -392,7 +447,7 @@ export default function UnitReport() {
           <div className="px-5 pt-5">
             <SectionHeader
               title={`${selectedLabel} 수입·지출 상세`}
-              hint="숫자를 누르면 원장이 그 조건으로 열립니다"
+              hint="숫자에 커서를 두면 거래를 미리 보고, 누르면 전체 내역이 열립니다"
               action={<TableNote>단위: 원</TableNote>}
             />
 
@@ -405,7 +460,7 @@ export default function UnitReport() {
                     const incoming = l.to === selected.key;
                     return (
                       <li key={`${l.rule}-${i}`} className="flex flex-wrap items-baseline gap-x-2">
-                        <span className={incoming ? "text-nd-danger-text" : "text-nd-success-text"}>
+                        <span className={incoming ? "text-nd-expense-text" : "text-nd-income-text"}>
                           {incoming ? "받음" : "내보냄"}
                         </span>
                         <span className="nd-num font-medium">
@@ -430,6 +485,8 @@ export default function UnitReport() {
             columns={COLUMNS}
             showEmpty={showEmpty}
             summaryFor={summarize}
+            preview
+            highlight={{ month: activeMonth, scope: { bizMajor: selected?.bizMajor, bizMinor: selected?.bizMinor } }}
             hrefFor={(node) =>
               ledgerHref({
                 month: activeMonth,

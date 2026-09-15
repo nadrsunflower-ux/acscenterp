@@ -172,6 +172,17 @@ export function refundAmount(t: FinTransaction): number {
   return t.txType === "환급" ? netAmount(t) : 0;
 }
 
+/**
+ * 거래 한 건의 돈 방향 — 금액 글자색(Money 의 flow)을 정한다.
+ * 수입·환급(지출이 되돌아옴)은 들어온 돈, 지출·카드대금결제는 나간 돈,
+ * 자금거래(계좌간 이동)는 방향이 없다.
+ */
+export function txFlow(txType: TxType): "income" | "expense" | undefined {
+  if (txType === "수입" || txType === "환급") return "income";
+  if (txType === "지출" || txType === "카드대금결제") return "expense";
+  return undefined;
+}
+
 /** 계정 조회키 `거래유형|대|중|소` — 계정 마스터 조인에 사용 */
 export function lookupKeyOf(
   t: Pick<FinTransaction, "txType" | "acctMajor" | "acctMid" | "acctMinor">,

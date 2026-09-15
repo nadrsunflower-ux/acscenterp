@@ -15,6 +15,7 @@
 // ============================================================
 
 import { DEFAULT_FIN_AI_MODEL, isFinAiModelId } from "@/lib/neander/ai/models";
+import { presentationNote, type PresentationContext } from "@/lib/neander/ai/presentation";
 import { renderAccounts } from "./ai-classify";
 import { TOOL_DEFS, runTool, type ChangeProposal, type ToolContext } from "./ai-tools";
 import type { ExtractedAttachment } from "@/lib/neander/server/attachments";
@@ -106,6 +107,8 @@ export async function runFinanceChat(args: {
   model?: string;
   /** 마지막 사용자 메시지에 붙일 첨부 (라우트가 추출을 끝낸 상태) */
   attachments?: ExtractedAttachment[];
+  /** 보고 슬라이드 발표 중이면 그 달 — 기간 없는 질문의 기준 */
+  presentation?: PresentationContext;
 }): Promise<ChatResult> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -136,6 +139,8 @@ export async function runFinanceChat(args: {
           text: `${SYSTEM}\n\n== 계정 마스터 ==\n${renderAccounts(args.ctx.accounts)}`,
           cache_control: { type: "ephemeral" },
         },
+        // 발표 맥락은 캐시 뒤에 따로 — 달·장이 바뀌어도 앞의 긴 부분 캐시가 깨지지 않는다
+        ...(args.presentation ? [{ type: "text", text: presentationNote(args.presentation) }] : []),
       ],
     },
     ...args.messages.map((m, idx) =>

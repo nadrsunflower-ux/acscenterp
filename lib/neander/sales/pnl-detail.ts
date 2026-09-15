@@ -33,7 +33,11 @@ export type PnlSegmentKey =
   | "fee"
   | "fixed"
   | "op"
-  | "loss";
+  | "loss"
+  // 막대에는 없고 표에만 있는 칸 — 매장별 손익 표의 인건비·상시 인건비·공헌이익
+  | "variableLabor"
+  | "regularLabor"
+  | "contribution";
 
 export interface PnlDetailRow {
   key: string;
@@ -57,8 +61,16 @@ export interface PnlDetailSection {
 }
 
 export interface PnlDetail {
-  key: PnlSegmentKey;
+  /** 손익 칸이면 PnlSegmentKey. 화면이 직접 만든 내역(이벤트·상품·합계 줄)은 아무 문자열 */
+  key: PnlSegmentKey | (string & {});
   title: string;
+  /**
+   * 계산 과정(A − B − C)인가 — 줄을 자르지 않고 비중을 매기지 않는다.
+   * 비우면 key 로 판정한다 (영업이익·손실·공헌이익).
+   */
+  formula?: boolean;
+  /** 돈 방향 — 비우면 key 로 판정한다 (매출 칸은 수입, 계산은 순손익, 나머지 지출) */
+  direction?: "income" | "expense" | "net";
   /** 막대의 그 칸 금액 (손실이면 음수 영업이익) */
   total: number;
   rows: PnlDetailRow[];
@@ -301,6 +313,49 @@ export function pnlSegmentDetail(key: PnlSegmentKey, s: StorePnl, ctx: PnlDetail
           "이벤트·제작 인건비는 판매·행사에 따라 늘고 줄고, 상시 인건비는 매장을 지키는 고정비입니다. 막대에서는 하나로 묶었습니다.",
       };
     }
+
+    case "variableLabor": {
+      const sec = variableLabor();
+      return { key, title: sec.title, total: sec.total, rows: sec.rows, basis: sec.basis };
+    }
+
+    case "regularLabor": {
+      const sec = regularLabor();
+      return {
+        key,
+        title: sec.title,
+        total: sec.total,
+        rows: sec.rows,
+        basis: sec.basis,
+        people: sec.people,
+        note: sec.note,
+      };
+    }
+
+    case "contribution":
+      return {
+        key,
+        title: "공헌이익",
+        total: s.contribution,
+        rows: [
+          { key: "rev", label: "확정 매출", value: s.confirmedRevenue },
+          { key: "material", label: "재료비", value: v.material, sign: "minus" },
+          {
+            key: "labor",
+            label: "이벤트·제작 인건비",
+            value: v.eventLabor + v.makeLabor + v.serviceLabor,
+            sign: "minus",
+          },
+          { key: "supplies", label: "준비물", value: v.supplies, sign: "minus" },
+          { key: "fee", label: "수수료", value: v.fee, sign: "minus" },
+        ],
+        basis:
+          s.contributionRate === null ? "확정 매출 기준" : `확정 매출 기준 · 공헌이익률 ${pctText(s.contributionRate)}`,
+        note:
+          s.pendingRevenue > 0
+            ? `미확정 ${won(s.pendingRevenue)}원은 원가를 몰라 넣지 않았습니다.`
+            : undefined,
+      };
 
     case "supplies":
       return {

@@ -68,7 +68,8 @@ export function SalesChat() {
       inputPlaceholder: "판매·상품·이벤트에 대해 물어보세요 (Enter 전송 · Shift+Enter 줄바꿈)",
       busyLabel: "판매 데이터를 보고 있습니다…",
 
-      send: (messages, model, files, conversationId) => sendSalesChat(messages, model, files, conversationId),
+      send: (messages, model, files, conversationId, context) =>
+        sendSalesChat(messages, model, files, conversationId, context),
       listChats: fetchSalesChatList,
       loadChat: fetchSalesChat,
       deleteChat: deleteSalesChat,

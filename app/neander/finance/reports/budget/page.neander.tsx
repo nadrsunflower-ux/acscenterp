@@ -222,12 +222,14 @@ export default function BudgetReport() {
         key: "actual",
         label: "결산",
         hint: "순수 지출",
+        flow: "expense",
         value: (v) => v.expensePure,
-        renderTotal: () => <Money value={summary.actual} unit={false} />,
+        renderTotal: () => <Money value={summary.actual} unit={false} flow="expense" />,
       },
       {
         key: "remaining",
         label: "남은 예산",
+        drill: false,
         value: (v, node) => (rolled[node.path] ?? 0) - v.expensePure,
         renderTotal: () => <Money value={summary.remaining} unit={false} />,
       },
@@ -368,7 +370,7 @@ export default function BudgetReport() {
 
       <KpiStrip columns={4} className="mb-4">
         <StatTile label="예산" value={summary.budget} hint={`${monthLabel(activeMonth)} · 지출 계정`} />
-        <StatTile label="결산" value={summary.actual} hint="개인사용·환급 차감" />
+        <StatTile label="결산" value={summary.actual} flow="expense" hint="개인사용·환급 차감" />
         <StatTile
           label="남은 예산"
           value={summary.remaining}
@@ -393,7 +395,7 @@ export default function BudgetReport() {
         <div className="px-5 pt-5">
           <SectionHeader
             title="계정별 예산 대비 결산"
-            hint="지출 계정만 · 결산 숫자를 누르면 원장이 그 조건으로 열립니다"
+            hint="지출 계정만 · 결산 숫자에 커서를 두면 거래를 미리 보고, 누르면 전체 내역이 열립니다"
             action={<TableNote>단위: 원</TableNote>}
           />
         </div>
@@ -403,6 +405,8 @@ export default function BudgetReport() {
           columns={columns}
           showEmpty={showEmpty}
           filterRoot={(node) => majors.has(node.major)}
+          preview
+          highlight={{ month: activeMonth }}
           hrefFor={(node) =>
             ledgerHref({
               month: activeMonth,

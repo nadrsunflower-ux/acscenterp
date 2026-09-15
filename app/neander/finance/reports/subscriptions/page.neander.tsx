@@ -71,7 +71,11 @@ import {
   subscriptionMonthView,
   type SubscriptionAlert,
 } from "@/lib/neander/finance/report";
-import { netAmount } from "@/lib/neander/finance/types";
+import { netAmount, type FinTransaction } from "@/lib/neander/finance/types";
+import { TxDrill } from "@/components/neander/finance/NodePreview";
+
+/** 구독 순지출에 더해지는 값 — 환급은 뺀다 (subscriptionReport 와 같은 부호) */
+const subAmount = (t: FinTransaction) => (t.txType === "환급" ? -netAmount(t) : netAmount(t));
 import {
   monthLabel,
 } from "@/lib/neander/format";
@@ -191,14 +195,48 @@ export default function SubscriptionReport() {
       />
 
       <KpiStrip columns={4} className="mb-5">
-        <StatTile label="구독 지출" value={report.total} hint={`${report.count.toLocaleString("ko-KR")}건 · ${monthLabel(activeMonth)}`} />
+        <StatTile
+          label="구독 지출"
+          value={report.total}
+          flow="expense"
+          wrapValue={(m) => (
+            <TxDrill
+              title={`${monthLabel(activeMonth)} 구독 지출`}
+              subtitle="순지출 · 환급 차감"
+              href={subsHref()}
+              rows={() => [...report.services.flatMap((s) => s.rows), ...report.unmatched]}
+              amountOf={subAmount}
+              flow="expense"
+            >
+              {m}
+            </TxDrill>
+          )}
+          hint={`${report.count.toLocaleString("ko-KR")}건 · ${monthLabel(activeMonth)}`}
+        />
         <StatTile label="서비스 수" value={report.services.length} hint="규칙에 잡힌 것" />
-        <StatTile label="미매칭" value={report.unmatchedTotal} hint={`${report.unmatched.length}건 — 규칙 추가 필요`} />
+        <StatTile
+          label="미매칭"
+          value={report.unmatchedTotal}
+          flow="expense"
+          wrapValue={(m) => (
+            <TxDrill
+              title={`${monthLabel(activeMonth)} 분류 안 된 구독비`}
+              subtitle="거래처 규칙에 없는 거래"
+              href={subsHref()}
+              rows={() => report.unmatched}
+              amountOf={subAmount}
+              flow="expense"
+            >
+              {m}
+            </TxDrill>
+          )}
+          hint={`${report.unmatched.length}건 — 규칙 추가 필요`}
+        />
         <RatioTile
           label="개인카드 결제 비율"
           value={cardHealth.ratio}
           digits={0}
-          hint={<>법인카드 전환 대상 <Money value={cardHealth.personalAmt} unit={false} />원</>}
+          hint={<>법인카드 전환 대상 <Money value={cardHealth.personalAmt} unit={false} flow="expense" />원</>}
         />
       </KpiStrip>
 
@@ -223,7 +261,7 @@ export default function SubscriptionReport() {
                 <span className="min-w-0 flex-1 text-nd-caption text-nd-fg-2">{v.alerts[0].message}</span>
                 {v.current && (
                   <span className="shrink-0">
-                    <Money value={v.current.net} unit={false} />
+                    <Money value={v.current.net} unit={false} flow="expense" />
                   </span>
                 )}
               </li>
@@ -237,7 +275,7 @@ export default function SubscriptionReport() {
         <div className="px-5 pt-5">
           <SectionHeader
             title="서비스별 구독비"
-            hint="순지출 기준 · 결제수단이 여러 개면 카드가 흩어져 있다는 뜻"
+            hint="순지출 기준 · 결제수단이 여러 개면 카드가 흩어져 있다는 뜻 · 숫자를 누르면 전체 내역"
             action={<TableNote>단위: 원</TableNote>}
           />
         </div>
@@ -302,11 +340,44 @@ export default function SubscriptionReport() {
                         </div>
                       </Td>
                       <Td num muted>{s.count}</Td>
-                      <Td num><Money value={s.expense} unit={false} /></Td>
                       <Td num>
-                        {s.refund ? <Money value={s.refund} unit={false} /> : <span className="text-nd-fg-4">—</span>}
+                        <TxDrill
+                          title={s.service}
+                          subtitle="지출"
+                          href={subsHref({ vendor: s.keywords[0] })}
+                          rows={() => s.rows.filter((t) => t.txType !== "환급")}
+                          flow="expense"
+                        >
+                          <Money value={s.expense} unit={false} flow="expense" />
+                        </TxDrill>
                       </Td>
-                      <Td num className="font-medium"><Money value={s.net} unit={false} /></Td>
+                      <Td num>
+                        {s.refund ? (
+                          <TxDrill
+                            title={s.service}
+                            subtitle="환급"
+                            href={subsHref({ vendor: s.keywords[0] })}
+                            rows={() => s.rows.filter((t) => t.txType === "환급")}
+                            flow="income"
+                          >
+                            <Money value={s.refund} unit={false} flow="income" />
+                          </TxDrill>
+                        ) : (
+                          <span className="text-nd-fg-4">—</span>
+                        )}
+                      </Td>
+                      <Td num className="font-medium">
+                        <TxDrill
+                          title={s.service}
+                          subtitle="순지출 · 환급 차감"
+                          href={subsHref({ vendor: s.keywords[0] })}
+                          rows={() => s.rows}
+                          amountOf={subAmount}
+                          flow="expense"
+                        >
+                          <Money value={s.net} unit={false} flow="expense" />
+                        </TxDrill>
+                      </Td>
                       <Td num muted className="pr-5">{(share * 100).toFixed(1)}%</Td>
                     </Tr>
                   );
@@ -317,7 +388,18 @@ export default function SubscriptionReport() {
                   <Td className="pl-5" colSpan={2}>소계 (규칙에 잡힌 것)</Td>
                   <Td num>{report.services.reduce((s, x) => s + x.count, 0)}</Td>
                   <Td colSpan={2} />
-                  <Td num><Money value={report.total - report.unmatchedTotal} unit={false} /></Td>
+                  <Td num>
+                    <TxDrill
+                      title={`${monthLabel(activeMonth)} 구독 소계`}
+                      subtitle="규칙에 잡힌 것 · 환급 차감"
+                      href={subsHref()}
+                      rows={() => report.services.flatMap((s) => s.rows)}
+                      amountOf={subAmount}
+                      flow="expense"
+                    >
+                      <Money value={report.total - report.unmatchedTotal} unit={false} flow="expense" />
+                    </TxDrill>
+                  </Td>
                   <Td className="pr-5" />
                 </TotalRow>
               </tfoot>
@@ -356,7 +438,7 @@ export default function SubscriptionReport() {
                       </Link>
                     </Td>
                     <Td muted>{t.acctMinor}</Td>
-                    <Td num className="pr-5"><Money value={netAmount(t)} unit={false} /></Td>
+                    <Td num className="pr-5"><Money value={netAmount(t)} unit={false} flow="expense" /></Td>
                   </Tr>
                 ))}
               </tbody>
@@ -405,7 +487,7 @@ export default function SubscriptionReport() {
                         </Td>
                       );
                     })}
-                    <Td num className="pr-5 font-medium"><Money value={r.total} unit={false} /></Td>
+                    <Td num className="pr-5 font-medium"><Money value={r.total} unit={false} flow="expense" /></Td>
                   </Tr>
                 ))}
               </tbody>

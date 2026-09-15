@@ -22,7 +22,7 @@ export { Spinner, LoadingState, Skeleton, EmptyState, ErrorState, InlineNotice }
 export { KpiStrip, KpiItem, Metric, RatioTile } from "./metric";
 export { DateStepper } from "./date-nav";
 export { MonthStepper } from "./month-nav";
-export { Money, StatTile, Legend } from "./money";
+export { Money, StatTile, Legend, flowTextClass, type MoneyFlow } from "./money";
 export { SERIES, BLUE_RAMP, rampColor, rampTextClass } from "./series";
 export { PageHeader, PageShell, type PageWidth } from "./page";
 export { MemberAvatar, CategoryPicker } from "./member";

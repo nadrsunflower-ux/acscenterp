@@ -4,7 +4,7 @@
 //  재무 대시보드 — 엑셀 「사업부손익」·「핵심대시보드」 시트의 재현
 // ------------------------------------------------------------
 //  검증 기준: 2026-07 총수입 41,656,602 / 총지출 58,896,728 /
-//             환급 143,700 / 순손익 △17,096,426
+//             환급 143,700 / 순손익 -17,096,426
 //  이 수치가 엑셀과 원 단위로 맞아야 이관이 성공한 것이다.
 //
 //  화면 구성은 승인 목업을 따른다: 제목 줄(검토 대기·검토하기) →
@@ -95,6 +95,7 @@ import {
   netAmount,
   type FinTransaction,
 } from "@/lib/neander/finance/types";
+import type { MoneyFlow } from "@/components/neander/ui";
 import {
   formatSigned,
   monthLabel,
@@ -117,11 +118,11 @@ const EMPTY_BUCKET: PLBucket = { all: NO_ROWS, 수입: NO_ROWS, 지출: NO_ROWS,
  * 합치면 `수입 − (지출 − 환급)` 이라 표의 순손익과 원 단위로 맞는다.
  */
 const plDelta = (t: FinTransaction) => (t.txType === "지출" ? -netAmount(t) : netAmount(t));
-const PL_NET_NOTE = "순손익 기준 — 지출이 음수(△), 수입·환급이 양수입니다";
+const PL_NET_NOTE = "순손익 기준 — 지출이 음수(-), 수입·환급이 양수입니다";
 
-/** 히트맵 위 숫자 색 — 음수(환급이 지출을 넘김)는 △ 와 함께 붉게 */
+/** 히트맵 위 숫자 색 — 음수(환급이 지출을 넘김)는 - 와 함께 붉게 */
 function cellTextClass(v: number, max: number): string {
-  if (v < 0) return "text-nd-danger-text";
+  if (v < 0) return "text-nd-expense-text";
   if (v > 0) return rampTextClass(v, max);
   return "text-nd-fg-4";
 }
@@ -401,7 +402,7 @@ export default function FinanceDashboard() {
             { term: "총수입", desc: "수입 거래의 순금액 합계." },
             { term: "총지출", desc: "지출 거래의 순금액 합계. 환급을 빼기 전 금액입니다." },
             { term: "환급", desc: "환급 거래의 합계. 순손익에서는 지출에서 차감합니다." },
-            { term: "순손익", desc: "총수입 − (총지출 − 환급). 음수는 △ 로 표시합니다." },
+            { term: "순손익", desc: "총수입 − (총지출 − 환급). 음수는 - 로 표시합니다." },
             { term: "월 기준", desc: "거래일자가 그 달에 속하는 거래. 마감 여부와 무관합니다." },
             { term: "검토 대기", desc: "자동분류가 제안 상태거나 검토 필요로 표시된 거래 수. 집계에는 이미 들어 있습니다." },
           ]}
@@ -411,12 +412,13 @@ export default function FinanceDashboard() {
 
       {/* 헤드라인 — 하나의 표면, 얇은 선으로 구분 */}
       <KpiStrip columns={4} className="mb-5">
-        <StatTile label="총수입" value={t.income} accent={SERIES.income} size="lg" />
-        <StatTile label="총지출" value={t.expense} accent={SERIES.expense} size="lg" />
-        <StatTile label="환급" value={t.refund} accent={SERIES.neutral} hint="지출에서 차감" size="lg" />
+        <StatTile label="총수입" value={t.income} flow="income" accent={SERIES.income} size="lg" />
+        <StatTile label="총지출" value={t.expense} flow="expense" accent={SERIES.expense} size="lg" />
+        <StatTile label="환급" value={t.refund} flow="income" accent={SERIES.neutral} hint="지출에서 차감" size="lg" />
         <StatTile
           label="순손익"
           value={t.net}
+          flow="net"
           accent={isLoss ? "#dc2626" : "#16a34a"}
           hint="수입 − 지출 + 환급"
           size="lg"
@@ -557,13 +559,13 @@ export default function FinanceDashboard() {
                       />
                     </Td>
                     <Td num>
-                      <PLCell value={r.income} rows={bucket.수입} title={`${name} 수입`} subtitle={plNote} href={plHref(r, ["수입"])} bizKey={name} month={activeMonth} />
+                      <PLCell flow="income" value={r.income} rows={bucket.수입} title={`${name} 수입`} subtitle={plNote} href={plHref(r, ["수입"])} bizKey={name} month={activeMonth} />
                     </Td>
                     <Td num>
-                      <PLCell value={r.expense} rows={bucket.지출} title={`${name} 지출`} subtitle={plNote} href={plHref(r, ["지출"])} bizKey={name} month={activeMonth} />
+                      <PLCell flow="expense" value={r.expense} rows={bucket.지출} title={`${name} 지출`} subtitle={plNote} href={plHref(r, ["지출"])} bizKey={name} month={activeMonth} />
                     </Td>
                     <Td num>
-                      <PLCell value={r.refund} rows={bucket.환급} title={`${name} 환급`} subtitle={plNote} href={plHref(r, ["환급"])} bizKey={name} month={activeMonth} />
+                      <PLCell flow="income" value={r.refund} rows={bucket.환급} title={`${name} 환급`} subtitle={plNote} href={plHref(r, ["환급"])} bizKey={name} month={activeMonth} />
                     </Td>
                     <Td num className="pr-5 font-semibold">
                       <AmountBreakdown
@@ -576,7 +578,7 @@ export default function FinanceDashboard() {
                         subtitle={plNote}
                         ledgerHref={plHref(r)}
                         scope={{ bizKey: name, month: activeMonth }}
-                        className={r.net < 0 ? "text-nd-danger-text" : undefined}
+                        flow="net"
                       />
                     </Td>
                   </Tr>
@@ -587,13 +589,13 @@ export default function FinanceDashboard() {
               <TotalRow>
                 <Td className="pl-5" colSpan={2}>총계</Td>
                 <Td num>
-                  <PLCell value={pl.total.income} rows={plAllRows.수입} title="전체 수입" subtitle={plNote} href={plHref(undefined, ["수입"])} month={activeMonth} />
+                  <PLCell flow="income" value={pl.total.income} rows={plAllRows.수입} title="전체 수입" subtitle={plNote} href={plHref(undefined, ["수입"])} month={activeMonth} />
                 </Td>
                 <Td num>
-                  <PLCell value={pl.total.expense} rows={plAllRows.지출} title="전체 지출" subtitle={plNote} href={plHref(undefined, ["지출"])} month={activeMonth} />
+                  <PLCell flow="expense" value={pl.total.expense} rows={plAllRows.지출} title="전체 지출" subtitle={plNote} href={plHref(undefined, ["지출"])} month={activeMonth} />
                 </Td>
                 <Td num>
-                  <PLCell value={pl.total.refund} rows={plAllRows.환급} title="전체 환급" subtitle={plNote} href={plHref(undefined, ["환급"])} month={activeMonth} />
+                  <PLCell flow="income" value={pl.total.refund} rows={plAllRows.환급} title="전체 환급" subtitle={plNote} href={plHref(undefined, ["환급"])} month={activeMonth} />
                 </Td>
                 <Td num className="pr-5">
                   <AmountBreakdown
@@ -606,7 +608,7 @@ export default function FinanceDashboard() {
                     subtitle={plNote}
                     ledgerHref={plHref()}
                     scope={{ month: activeMonth }}
-                    className={pl.total.net < 0 ? "text-nd-danger-text" : undefined}
+                    flow="net"
                   />
                 </Td>
               </TotalRow>
@@ -784,10 +786,10 @@ export default function FinanceDashboard() {
                           />
                         </Td>
                         <Td num>
-                          <PLCell value={s.t.income} rows={inc} title={`${s.site} 수입`} subtitle={plNote} href={siteHref(s.site, ["수입"])} month={activeMonth} />
+                          <PLCell flow="income" value={s.t.income} rows={inc} title={`${s.site} 수입`} subtitle={plNote} href={siteHref(s.site, ["수입"])} month={activeMonth} />
                         </Td>
                         <Td num>
-                          <PLCell value={s.t.expense} rows={exp} title={`${s.site} 지출`} subtitle={plNote} href={siteHref(s.site, ["지출"])} month={activeMonth} />
+                          <PLCell flow="expense" value={s.t.expense} rows={exp} title={`${s.site} 지출`} subtitle={plNote} href={siteHref(s.site, ["지출"])} month={activeMonth} />
                         </Td>
                         <Td num className="pr-5 font-semibold">
                           <AmountBreakdown
@@ -800,7 +802,7 @@ export default function FinanceDashboard() {
                             subtitle={plNote}
                             ledgerHref={siteHref(s.site)}
                             scope={{ month: activeMonth }}
-                            className={s.t.net < 0 ? "text-nd-danger-text" : undefined}
+                            flow="net"
                           />
                         </Td>
                       </Tr>
@@ -836,7 +838,7 @@ export default function FinanceDashboard() {
                           <span className="block max-w-[28rem] truncate" title={v.vendor}>{v.vendor}</span>
                         </Td>
                         <Td num muted>{v.count}건</Td>
-                        <Td num className="pr-5 font-medium"><Money value={v.amount} unit={false} /></Td>
+                        <Td num className="pr-5 font-medium"><Money value={v.amount} unit={false} flow="expense" /></Td>
                       </Tr>
                     ))}
                   </tbody>
@@ -866,7 +868,7 @@ export default function FinanceDashboard() {
                     <span className="min-w-0 truncate text-nd-fg" title={s.service}>{s.service}</span>
                     <span className="flex shrink-0 items-center gap-3">
                       <span className="nd-num text-nd-caption text-nd-fg-3">{s.count}건</span>
-                      <Money value={s.net} unit={false} />
+                      <Money value={s.net} unit={false} flow="expense" />
                     </span>
                   </div>
                 ))}
@@ -874,7 +876,7 @@ export default function FinanceDashboard() {
             )}
             {subs.unmatched.length > 0 && (
               <p className="mt-3 text-nd-caption text-nd-fg-2">
-                규칙에 없는 구독 {subs.unmatched.length}건 <Money value={subs.unmatchedTotal} unit={false} />원 —{" "}
+                규칙에 없는 구독 {subs.unmatched.length}건 <Money value={subs.unmatchedTotal} unit={false} flow="expense" />원 —{" "}
                 <Link href="/neander/finance/master" className="font-medium text-nd-accent-strong hover:underline">
                   마스터에서 거래처 규칙을 추가
                 </Link>
@@ -905,6 +907,7 @@ function PLCell({
   href,
   bizKey,
   month,
+  flow,
 }: {
   value: number;
   rows: FinTransaction[];
@@ -913,6 +916,8 @@ function PLCell({
   href: string;
   bizKey?: string;
   month: string;
+  /** 수입 칸은 수입, 지출 칸은 지출, 환급 칸은 되돌아온 돈이라 수입 */
+  flow: MoneyFlow;
 }) {
   return (
     <AmountBreakdown
@@ -925,6 +930,7 @@ function PLCell({
       ledgerHref={href}
       scope={{ bizKey, month }}
       amountNote=""
+      flow={flow}
       className={value ? undefined : "text-nd-fg-4"}
     />
   );

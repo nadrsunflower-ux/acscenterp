@@ -118,6 +118,46 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: true });
       }
 
+      case "anomalyIgnore.add": {
+        // 형광펜 끄기 — 신뢰 거래처(영구) · 이 달 확인한 계정. 같은 대상은 같은 문서라
+        // 여러 번 눌러도 하나만 남는다.
+        const { kind, key, label, month } = payload as {
+          kind?: string;
+          key?: string;
+          label?: string;
+          month?: string;
+        };
+        const k = String(key ?? "").trim();
+        if ((kind !== "vendor" && kind !== "account") || !k) {
+          return NextResponse.json({ error: "끌 대상이 올바르지 않습니다." }, { status: 400 });
+        }
+        if (kind === "account" && !/^\d{4}-\d{2}$/.test(String(month ?? ""))) {
+          return NextResponse.json({ error: "계정은 달(YYYY-MM)이 필요합니다." }, { status: 400 });
+        }
+        const id = safeId(kind === "vendor" ? `vendor:${k}` : `account:${month}:${k}`);
+        await db
+          .collection(NEANDER_COL.finAnomalyIgnores)
+          .doc(id)
+          .set(
+            clean({
+              kind,
+              key: k.slice(0, 300),
+              label: label ? String(label).slice(0, 120) : undefined,
+              month: kind === "account" ? month : undefined,
+              createdAt: now,
+              createdBy: user.email,
+            }),
+          );
+        return NextResponse.json({ ok: true, id });
+      }
+
+      case "anomalyIgnore.delete": {
+        const { id } = payload as { id: string };
+        if (!id) return NextResponse.json({ error: "id 가 필요합니다." }, { status: 400 });
+        await db.collection(NEANDER_COL.finAnomalyIgnores).doc(id).delete();
+        return NextResponse.json({ ok: true });
+      }
+
       case "transaction.delete": {
         const { id } = payload as { id: string };
         if (!id) return NextResponse.json({ error: "id 가 필요합니다." }, { status: 400 });

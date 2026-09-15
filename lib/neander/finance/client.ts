@@ -26,8 +26,11 @@ import type {
   FinPaymentMethodDoc,
   FinSubscriptionDoc,
   FinLedgerColumnDoc,
+  FinAnomalyIgnoreDoc,
   FinVendorRuleDoc,
 } from "./db-types";
+
+import type { PresentationContext } from "@/lib/neander/ai/presentation";
 
 const DATA_URL = "/api/neander/finance/data";
 const MUTATE_URL = "/api/neander/finance/mutate";
@@ -46,6 +49,8 @@ export interface FinanceSnapshot {
   vendorRules: FinVendorRuleDoc[];
   /** 원장에 사람이 덧붙인 열 */
   ledgerColumns: FinLedgerColumnDoc[];
+  /** 형광펜 끄기 — 신뢰 거래처 · 이 달 확인한 계정 */
+  anomalyIgnores?: FinAnomalyIgnoreDoc[];
   subscriptions: FinSubscriptionDoc[];
   allocations: FinAllocationDoc[];
   budgets: FinBudgetDoc[];
@@ -427,12 +432,15 @@ export async function sendFinanceChat(
   model?: string,
   files?: File[],
   conversationId?: string,
+  /** 보고 슬라이드 발표 중이면 그 달 — 기간 없는 질문의 기준 (ai/presentation.ts) */
+  context?: PresentationContext,
 ): Promise<ChatResult> {
   if (!files || files.length === 0) {
     return mutateJson<ChatResult>("/api/neander/finance/ai/chat", {
       messages,
       model,
       conversationId,
+      context,
     });
   }
   const user = getNeanderAuth().currentUser;
@@ -441,6 +449,7 @@ export async function sendFinanceChat(
   form.append("messages", JSON.stringify(messages));
   if (model) form.append("model", model);
   if (conversationId) form.append("conversationId", conversationId);
+  if (context) form.append("context", JSON.stringify(context));
   for (const f of files) form.append("files", f);
   const res = await fetch("/api/neander/finance/ai/chat", {
     method: "POST",
@@ -605,3 +614,14 @@ export const upsertFinLedgerColumn = (col: { id?: string; label: string; before?
 
 /** 열 정의를 지운다. 거래에 남은 값은 건드리지 않는다 (되살리면 다시 보인다) */
 export const deleteFinLedgerColumn = (id: string) => mutate("ledgerColumn.delete", { id });
+
+/** 형광펜 끄기 — 신뢰 거래처(영구) 또는 그 달 그 계정 */
+export const addFinAnomalyIgnore = (ignore: {
+  kind: "vendor" | "account";
+  key: string;
+  label?: string;
+  month?: string;
+}) => mutate<{ id: string }>("anomalyIgnore.add", ignore);
+
+/** 형광펜 다시 켜기 */
+export const deleteFinAnomalyIgnore = (id: string) => mutate("anomalyIgnore.delete", { id });

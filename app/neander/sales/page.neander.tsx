@@ -27,6 +27,7 @@
 import {
   useMemo,
   useState,
+  type ReactNode,
 } from "react";
 import Link from "next/link";
 import {
@@ -74,24 +75,31 @@ import {
 } from "@/components/neander/ui";
 import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useSales } from "@/components/neander/sales/SalesProvider";
-import { pnlSegmentDetail } from "@/lib/neander/sales/pnl-detail";
+import { pnlSegmentDetail, type PnlDetail } from "@/lib/neander/sales/pnl-detail";
 import {
   PnlBar,
   PnlBarLegend,
   ProductCell,
   Rate,
+  SalesDrill,
   STORE_SERIES,
   STORE_TOTAL_COLOR,
   StoreBadge,
   pnlBarExtent,
+  type SalesDrillProps,
 } from "@/components/neander/sales/ui";
+import { TermLabel } from "@/components/neander/sales/TermHint";
 import { MonthTrendChart } from "@/components/neander/sales/MonthTrendChart";
 import {
   TREND_METRICS,
   availableMonths,
   buildPnl,
   buildProductPerf,
+  inMonth,
+  lineFee,
+  lineMaterial,
   monthlyTrend,
+  productIndex,
   type StorePnl,
   type TrendMetric,
 } from "@/lib/neander/sales/aggregate";
@@ -99,6 +107,7 @@ import {
   SALES_STORES,
   pct,
   storeLabel,
+  type SalesLine,
   type SalesStore,
 } from "@/lib/neander/sales/types";
 import { monthLabel } from "@/lib/neander/format";
@@ -245,10 +254,10 @@ function LaborBreakdown({
                             </Td>
                             <Td num>{hoursText(p.hours)}</Td>
                             <Td num>
-                              <Money value={p.paid} unit={false} muted={p.paid === 0} />
+                              <Money value={p.paid} unit={false} muted={p.paid === 0} flow="expense" />
                             </Td>
                             <Td num>
-                              <Money value={p.holiday} unit={false} muted={p.holiday === 0} />
+                              <Money value={p.holiday} unit={false} muted={p.holiday === 0} flow="expense" />
                             </Td>
                             <Td num className="pr-0">
                               {p.staffHours > 0 ? (
@@ -278,6 +287,15 @@ function LaborBreakdown({
   );
 }
 
+/** 드릴 설정 — children 만 뺀다 (lines·detail 두 갈래가 섞이지 않게 갈래마다) */
+type DrillSpec = SalesDrillProps extends infer T ? (T extends unknown ? Omit<T, "children"> : never) : never;
+
+/** 0 이면 드릴 없이 그대로 — 열어 볼 내역이 없다 */
+function drill(value: number, node: ReactNode, spec: DrillSpec): ReactNode {
+  if (Math.round(value) === 0) return node;
+  return <SalesDrill {...(spec as SalesDrillProps)}>{node}</SalesDrill>;
+}
+
 /** 추이 표시 범위 — 달이 많으면 막대가 가늘어져 최근 12개월이 기본 */
 type TrendRange = "6" | "12" | "all";
 
@@ -301,6 +319,7 @@ export default function SalesDashboard() {
   // 근무 일지 실측 — 손익·추이·이벤트 세 집계가 같은 맥락을 받아야 숫자가 갈라지지 않는다
   const laborCtx = useMemo(() => ({ actuals: labor }), [labor]);
   const months = useMemo(() => availableMonths(lines, events), [lines, events]);
+  const idx = useMemo(() => productIndex(products), [products]);
   const [month, setMonth] = useState<string>("");
   const activeMonth = month || months[0] || "";
 
@@ -434,6 +453,59 @@ export default function SalesDashboard() {
   const laborNote = `제작${assumptions.laborMode === "excel" ? " · 접객(엑셀 재현 모드 · 추정 달만)" : ""} · 이벤트 스태프(근무 일지 실측 · 없으면 가정값)`;
   const alloc = `${Math.round(assumptions.allocation.wow * 100)}:${Math.round(assumptions.allocation.id * 100)}`;
 
+  // ---- 숫자 드릴 — 커서를 두면 내역, 누르면 전체 창 -----------------------
+  //  ⚠️ 창 합계 = 칸의 숫자 (원 단위). 거름은 buildPnl · buildEventPerf ·
+  //     buildProductPerf 와 똑같이 — 이 달 · 이 매장 · 확정만(원가·수수료).
+  const sub = monthLabel(activeMonth);
+  const detailCtx = { month: activeMonth, lines, products, events, assumptions };
+  const monthLines = () => lines.filter((l) => inMonth(l.date, activeMonth));
+  const storeLines = (store: SalesStore) => monthLines().filter((l) => l.store === store);
+  const isConfirmed = (l: SalesLine) => l.status !== "needs_review";
+  const materialOf = (l: SalesLine) => lineMaterial(l, idx);
+  const feeOf = (l: SalesLine) => lineFee(l, assumptions);
+  const pendingHref = { href: "/neander/sales/review", hrefLabel: "검토 대기함" };
+  /** 매장 한 칸의 계산 내역 (막대 창과 같은 표) */
+  const segment = (key: Parameters<typeof pnlSegmentDetail>[0], s: StorePnl) => () =>
+    pnlSegmentDetail(key, s, detailCtx);
+  /** 합계 줄의 계산 칸 — 매장별로 나눠 본다 */
+  const perStore = (
+    key: string,
+    title: string,
+    valueOf: (s: StorePnl) => number,
+    direction: "expense" | "net",
+  ) => (): PnlDetail => ({
+    key: `total-${key}`,
+    title,
+    formula: false,
+    direction,
+    total: pnl.stores.reduce((a, s) => a + valueOf(s), 0),
+    rows: pnl.stores
+      .map((s) => ({ key: s.store, label: storeLabel(s.store), value: valueOf(s) }))
+      .filter((r) => r.value !== 0),
+    basis: "매장별 합",
+  });
+  const variableLabor = (s: { variable: StorePnl["variable"] }) =>
+    s.variable.eventLabor + s.variable.makeLabor + s.variable.serviceLabor;
+  // 이벤트 합계 줄 — 이 달에 시작한 이벤트에 붙은 판매
+  const eventIds = new Set(eventPerf.map((e) => e.event.id));
+  const eventLines = () => monthLines().filter((l) => !!l.eventId && eventIds.has(l.eventId));
+  /** 합계 줄의 계산 칸 — 이벤트별로 (합계 줄과 같이 원 단위로 반올림한 값을 더한다) */
+  const perEvent = (key: string, title: string, valueOf: (e: EventPerf) => number, direction: "expense" | "net") =>
+    (): PnlDetail => {
+      const rows = eventPerf
+        .map((e) => ({ key: e.event.id, label: e.event.name, value: Math.round(valueOf(e)) }))
+        .filter((r) => r.value !== 0);
+      return {
+        key: `events-${key}`,
+        title,
+        formula: false,
+        direction,
+        total: rows.reduce((a, r) => a + r.value, 0),
+        rows,
+        basis: "이벤트별 합",
+      };
+    };
+
   return (
     <PageShell width="wide">
       <ToolbarPortal order={0}>
@@ -494,8 +566,14 @@ export default function SalesDashboard() {
         <StatTile
           label="총매출"
           value={t.revenue}
+          flow="income"
           accent={STORE_SERIES.id}
           size="lg"
+          wrapValue={(money) => (
+            <SalesDrill title="총매출" subtitle={sub} lines={monthLines} flow="income">
+              {money}
+            </SalesDrill>
+          )}
           hint={
             <>
               확정 <Money value={t.confirmedRevenue} unit={false} className="text-nd-fg-2" />원 ·{" "}
@@ -503,25 +581,43 @@ export default function SalesDashboard() {
             </>
           }
         />
-        <KpiItem
-          label="공헌이익률"
+        {/* 금액이 먼저, 비율은 아래 — 옆 칸 총매출·영업이익이 모두 금액이라 같은 줄에서 비교된다 */}
+        <StatTile
+          label={<TermLabel term="공헌이익" />}
+          value={t.contribution}
+          flow="net"
           size="lg"
           tag={
             <Badge tone={t.pendingRevenue > 0 ? "warning" : "neutral"} size="sm">
               확정 기준
             </Badge>
           }
-          value={<span className="nd-num">{pct(t.contributionRate)}</span>}
+          wrapValue={(money) => (
+            <SalesDrill
+              title="공헌이익"
+              subtitle={sub}
+              detail={perStore("contribution", "공헌이익", (s) => s.contribution, "net")}
+            >
+              {money}
+            </SalesDrill>
+          )}
           hint={
-            <>
-              공헌이익 <Money value={t.contribution} unit={false} className="text-nd-fg-2" />원
-            </>
+            <span className="inline-flex items-center gap-1">
+              <TermLabel term="공헌이익률" />
+              <span className="nd-num">{pct(t.contributionRate)}</span>
+            </span>
           }
         />
         <StatTile
-          label="영업이익"
+          label={<TermLabel term="영업이익" />}
           value={t.operating}
+          flow="net"
           size="lg"
+          wrapValue={(money) => (
+            <SalesDrill title="영업이익" subtitle={sub} detail={perStore("op", "영업이익", (s) => s.operating, "net")}>
+              {money}
+            </SalesDrill>
+          )}
           tone={t.operating < 0 ? "danger" : undefined}
           tag={t.operating < 0 ? <Badge tone="danger" size="sm">손실</Badge> : undefined}
           hint={`확정 매출 기준 · 영업이익률 ${pct(t.operatingRate)}`}
@@ -666,7 +762,12 @@ export default function SalesDashboard() {
                     </div>
                     <span className="text-right">
                       <span className="block">
-                        <Money value={s.revenue} unit={false} />
+                        {drill(s.revenue, <Money value={s.revenue} unit={false} flow="income" />, {
+                          title: `${storeLabel(s.store)} · 총매출`,
+                          subtitle: sub,
+                          lines: () => storeLines(s.store),
+                          flow: "income",
+                        })}
                         <span className="text-nd-caption text-nd-fg-3">원</span>
                       </span>
                       <span className="nd-num block text-nd-caption text-nd-fg-3">{pct(share)}</span>
@@ -711,12 +812,26 @@ export default function SalesDashboard() {
                   <Rate value={s.operatingRate} className="font-semibold" />
                   {s.operating < 0 && (
                     <span className="block text-nd-micro text-nd-danger-text">
-                      손실 <Money value={s.operating} unit={false} className="text-nd-danger-text" />원
+                      손실{" "}
+                      <SalesDrill title={`${storeLabel(s.store)} · 영업이익`} subtitle={sub} detail={segment("op", s)}>
+                        <Money value={s.operating} unit={false} flow="net" />
+                      </SalesDrill>
+                      원
                     </span>
                   )}
                   {s.pendingRevenue > 0 && (
                     <span className="block text-nd-micro text-nd-warning-text">
-                      미확정 {s.pendingRevenue.toLocaleString("ko-KR")}원 제외
+                      미확정{" "}
+                      <SalesDrill
+                        title={`${storeLabel(s.store)} · 미확정`}
+                        subtitle={sub}
+                        lines={() => storeLines(s.store).filter((l) => !isConfirmed(l))}
+                        flow="income"
+                        {...pendingHref}
+                      >
+                        <span className="nd-num">{s.pendingRevenue.toLocaleString("ko-KR")}</span>
+                      </SalesDrill>
+                      원 제외
                     </span>
                   )}
                   {s.revenue === 0 && s.fixedTotal > 0 && (
@@ -736,7 +851,7 @@ export default function SalesDashboard() {
       {/* 손익 표 */}
       <Card padding="none" className="mb-5 overflow-hidden">
         <div className="px-5 pt-4">
-          <SectionHeader title="매장별 손익" hint={`${monthLabel(activeMonth)} · 단위: 원`} />
+          <SectionHeader title="매장별 손익" hint={`${monthLabel(activeMonth)} · 단위: 원 · 숫자에 커서를 두면 내역, 누르면 자세히`} />
         </div>
         <TableScroll>
           <Table minWidth={1260}>
@@ -750,12 +865,12 @@ export default function SalesDashboard() {
                 <Th align="right">인건비</Th>
                 <Th align="right">준비물</Th>
                 <Th align="right">수수료</Th>
-                <Th align="right">공헌이익</Th>
-                <Th align="right">공헌이익률</Th>
+                <Th align="right"><TermLabel term="공헌이익" /></Th>
+                <Th align="right"><TermLabel term="공헌이익률" /></Th>
                 {/* 고정비를 둘로 — 상시 인건비를 섞으면 아이디만 인건비가 없는 것처럼 보였다 */}
                 <Th align="right">상시 인건비</Th>
                 <Th align="right">배부 고정비</Th>
-                <Th align="right">영업이익</Th>
+                <Th align="right"><TermLabel term="영업이익" /></Th>
                 <Th align="right" className="pr-5">BEP 달성률</Th>
               </tr>
             </thead>
@@ -767,33 +882,83 @@ export default function SalesDashboard() {
                       <StoreBadge store={s.store} size="sm" />
                     </div>
                   </Td>
-                  <Td num className="font-medium"><Money value={s.revenue} unit={false} /></Td>
-                  <Td num><Money value={s.confirmedRevenue} unit={false} /></Td>
+                  <Td num className="font-medium">
+                    {drill(s.revenue, <Money value={s.revenue} unit={false} flow="income" />, {
+                      title: `${storeLabel(s.store)} · 총매출`,
+                      subtitle: sub,
+                      lines: () => storeLines(s.store),
+                      flow: "income",
+                    })}
+                  </Td>
+                  <Td num>
+                    {drill(s.confirmedRevenue, <Money value={s.confirmedRevenue} unit={false} flow="income" />, {
+                      title: `${storeLabel(s.store)} · 확정 매출`,
+                      subtitle: sub,
+                      lines: () => storeLines(s.store).filter(isConfirmed),
+                      flow: "income",
+                    })}
+                  </Td>
                   <Td num>
                     {s.pendingRevenue > 0 ? (
-                      <span className="text-nd-warning-text">
-                        {s.pendingRevenue.toLocaleString("ko-KR")}
-                        <span className="ml-1 text-nd-micro">{s.reviewCount}건</span>
-                      </span>
+                      <SalesDrill
+                        title={`${storeLabel(s.store)} · 미확정`}
+                        subtitle={sub}
+                        lines={() => storeLines(s.store).filter((l) => !isConfirmed(l))}
+                        flow="income"
+                        {...pendingHref}
+                      >
+                        <span className="text-nd-warning-text">
+                          {s.pendingRevenue.toLocaleString("ko-KR")}
+                          <span className="ml-1 text-nd-micro">{s.reviewCount}건</span>
+                        </span>
+                      </SalesDrill>
                     ) : (
                       <span className="text-nd-fg-4">0</span>
                     )}
                   </Td>
-                  <Td num><Money value={s.variable.material} unit={false} muted /></Td>
+                  <Td num>
+                    {drill(s.variable.material, <Money value={s.variable.material} unit={false} flow="expense" />, {
+                      title: `${storeLabel(s.store)} · 재료비`,
+                      subtitle: sub,
+                      lines: () => storeLines(s.store).filter((l) => isConfirmed(l) && materialOf(l) !== 0),
+                      amountOf: materialOf,
+                      flow: "expense",
+                    })}
+                  </Td>
                   <Td num>
                     {/* 출처(실측·추정)를 금액 옆에 — 같은 칸이 달마다 다른 근거에서 온다 */}
                     <span className="inline-flex items-center justify-end gap-1.5">
                       {s.store !== "online" && <LaborTag labor={s.labor} />}
-                      <Money
-                        value={s.variable.eventLabor + s.variable.makeLabor + s.variable.serviceLabor}
-                        unit={false}
-                        muted
-                      />
+                      {drill(variableLabor(s), <Money value={variableLabor(s)} unit={false} flow="expense" />, {
+                        title: `${storeLabel(s.store)} · 인건비`,
+                        subtitle: sub,
+                        detail: segment("variableLabor", s),
+                      })}
                     </span>
                   </Td>
-                  <Td num><Money value={s.variable.supplies} unit={false} muted /></Td>
-                  <Td num><Money value={s.variable.fee} unit={false} muted /></Td>
-                  <Td num className="font-semibold"><Money value={s.contribution} unit={false} /></Td>
+                  <Td num>
+                    {drill(s.variable.supplies, <Money value={s.variable.supplies} unit={false} flow="expense" />, {
+                      title: `${storeLabel(s.store)} · 준비물`,
+                      subtitle: sub,
+                      detail: segment("supplies", s),
+                    })}
+                  </Td>
+                  <Td num>
+                    {drill(s.variable.fee, <Money value={s.variable.fee} unit={false} flow="expense" />, {
+                      title: `${storeLabel(s.store)} · 수수료`,
+                      subtitle: sub,
+                      lines: () => storeLines(s.store).filter((l) => isConfirmed(l) && feeOf(l) !== 0),
+                      amountOf: feeOf,
+                      flow: "expense",
+                    })}
+                  </Td>
+                  <Td num className="font-semibold">
+                    {drill(s.contribution, <Money value={s.contribution} unit={false} flow="net" />, {
+                      title: `${storeLabel(s.store)} · 공헌이익`,
+                      subtitle: sub,
+                      detail: segment("contribution", s),
+                    })}
+                  </Td>
                   <Td num><Rate value={s.contributionRate} /></Td>
                   <Td num>
                     <span className="inline-flex items-center justify-end gap-1.5">
@@ -801,14 +966,32 @@ export default function SalesDashboard() {
                         <LaborTag labor={s.labor} />
                       )}
                       {s.regularLabor > 0 ? (
-                        <Money value={s.regularLabor} unit={false} muted />
+                        <SalesDrill
+                          title={`${storeLabel(s.store)} · 상시 인건비`}
+                          subtitle={sub}
+                          detail={segment("regularLabor", s)}
+                        >
+                          <Money value={s.regularLabor} unit={false} flow="expense" />
+                        </SalesDrill>
                       ) : (
                         <span className="text-nd-fg-4">0</span>
                       )}
                     </span>
                   </Td>
-                  <Td num><Money value={s.allocatedFixed} unit={false} muted /></Td>
-                  <Td num className="font-semibold"><Money value={s.operating} unit={false} /></Td>
+                  <Td num>
+                    {drill(s.allocatedFixed, <Money value={s.allocatedFixed} unit={false} flow="expense" />, {
+                      title: `${storeLabel(s.store)} · 배부 고정비`,
+                      subtitle: sub,
+                      detail: segment("fixed", s),
+                    })}
+                  </Td>
+                  <Td num className="font-semibold">
+                    {drill(s.operating, <Money value={s.operating} unit={false} flow="net" />, {
+                      title: `${storeLabel(s.store)} · 영업이익`,
+                      subtitle: sub,
+                      detail: segment("op", s),
+                    })}
+                  </Td>
                   <Td num className={cn("pr-5", s.bepAchieved === null && "text-nd-fg-4")}>{pct(s.bepAchieved, 0)}</Td>
                 </Tr>
               ))}
@@ -816,33 +999,106 @@ export default function SalesDashboard() {
             <tfoot>
               <TotalRow>
                 <Td sticky="left" className="!bg-nd-sunken pl-5">합계</Td>
-                <Td num><Money value={t.revenue} unit={false} /></Td>
-                <Td num><Money value={t.confirmedRevenue} unit={false} /></Td>
+                <Td num>
+                  {drill(t.revenue, <Money value={t.revenue} unit={false} flow="income" />, {
+                    title: "합계 · 총매출",
+                    subtitle: sub,
+                    lines: monthLines,
+                    flow: "income",
+                  })}
+                </Td>
+                <Td num>
+                  {drill(t.confirmedRevenue, <Money value={t.confirmedRevenue} unit={false} flow="income" />, {
+                    title: "합계 · 확정 매출",
+                    subtitle: sub,
+                    lines: () => monthLines().filter(isConfirmed),
+                    flow: "income",
+                  })}
+                </Td>
                 <Td num>
                   {t.pendingRevenue > 0 ? (
-                    <span className="text-nd-warning-text">{t.pendingRevenue.toLocaleString("ko-KR")}</span>
+                    <SalesDrill
+                      title="합계 · 미확정"
+                      subtitle={sub}
+                      lines={() => monthLines().filter((l) => !isConfirmed(l))}
+                      flow="income"
+                      {...pendingHref}
+                    >
+                      <span className="text-nd-warning-text">{t.pendingRevenue.toLocaleString("ko-KR")}</span>
+                    </SalesDrill>
                   ) : (
                     <span className="text-nd-fg-4">0</span>
                   )}
                 </Td>
-                <Td num><Money value={t.variable.material} unit={false} /></Td>
                 <Td num>
-                  <Money
-                    value={t.variable.eventLabor + t.variable.makeLabor + t.variable.serviceLabor}
-                    unit={false}
-                  />
+                  {drill(t.variable.material, <Money value={t.variable.material} unit={false} flow="expense" />, {
+                    title: "합계 · 재료비",
+                    subtitle: sub,
+                    lines: () => monthLines().filter((l) => isConfirmed(l) && materialOf(l) !== 0),
+                    amountOf: materialOf,
+                    flow: "expense",
+                  })}
                 </Td>
-                <Td num><Money value={t.variable.supplies} unit={false} /></Td>
-                <Td num><Money value={t.variable.fee} unit={false} /></Td>
-                <Td num><Money value={t.contribution} unit={false} /></Td>
+                <Td num>
+                  {drill(variableLabor(t), <Money value={variableLabor(t)} unit={false} flow="expense" />, {
+                    title: "합계 · 인건비",
+                    subtitle: sub,
+                    detail: perStore("variableLabor", "인건비", variableLabor, "expense"),
+                  })}
+                </Td>
+                <Td num>
+                  {drill(t.variable.supplies, <Money value={t.variable.supplies} unit={false} flow="expense" />, {
+                    title: "합계 · 준비물",
+                    subtitle: sub,
+                    detail: perStore("supplies", "준비물", (s) => s.variable.supplies, "expense"),
+                  })}
+                </Td>
+                <Td num>
+                  {drill(t.variable.fee, <Money value={t.variable.fee} unit={false} flow="expense" />, {
+                    title: "합계 · 수수료",
+                    subtitle: sub,
+                    lines: () => monthLines().filter((l) => isConfirmed(l) && feeOf(l) !== 0),
+                    amountOf: feeOf,
+                    flow: "expense",
+                  })}
+                </Td>
+                <Td num>
+                  {drill(t.contribution, <Money value={t.contribution} unit={false} flow="net" />, {
+                    title: "합계 · 공헌이익",
+                    subtitle: sub,
+                    detail: perStore("contribution", "공헌이익", (s) => s.contribution, "net"),
+                  })}
+                </Td>
                 <Td num><Rate value={t.contributionRate} /></Td>
                 <Td num>
-                  <Money value={pnl.stores.reduce((a, s) => a + s.regularLabor, 0)} unit={false} />
+                  {drill(
+                    pnl.stores.reduce((a, s) => a + s.regularLabor, 0),
+                    <Money value={pnl.stores.reduce((a, s) => a + s.regularLabor, 0)} unit={false} flow="expense" />,
+                    {
+                      title: "합계 · 상시 인건비",
+                      subtitle: sub,
+                      detail: perStore("regularLabor", "상시 인건비", (s) => s.regularLabor, "expense"),
+                    },
+                  )}
                 </Td>
                 <Td num>
-                  <Money value={pnl.stores.reduce((a, s) => a + s.allocatedFixed, 0)} unit={false} />
+                  {drill(
+                    pnl.stores.reduce((a, s) => a + s.allocatedFixed, 0),
+                    <Money value={pnl.stores.reduce((a, s) => a + s.allocatedFixed, 0)} unit={false} flow="expense" />,
+                    {
+                      title: "합계 · 배부 고정비",
+                      subtitle: sub,
+                      detail: perStore("fixed", "배부 고정비", (s) => s.allocatedFixed, "expense"),
+                    },
+                  )}
                 </Td>
-                <Td num><Money value={t.operating} unit={false} /></Td>
+                <Td num>
+                  {drill(t.operating, <Money value={t.operating} unit={false} flow="net" />, {
+                    title: "합계 · 영업이익",
+                    subtitle: sub,
+                    detail: perStore("op", "영업이익", (s) => s.operating, "net"),
+                  })}
+                </Td>
                 <Td num className={cn("pr-5", t.bepAchieved === null && "text-nd-fg-4")}>{pct(t.bepAchieved, 0)}</Td>
               </TotalRow>
             </tfoot>
@@ -897,8 +1153,22 @@ export default function SalesDashboard() {
                   .map((s) => (
                     <Tr key={s.store}>
                       <Td className="pl-5"><StoreBadge store={s.store} size="sm" /></Td>
-                      <Td num><Money value={s.revenueRegular} unit={false} /></Td>
-                      <Td num><Money value={s.revenueEvent} unit={false} /></Td>
+                      <Td num>
+                        {drill(s.revenueRegular, <Money value={s.revenueRegular} unit={false} flow="income" />, {
+                          title: `${storeLabel(s.store)} · 상시 매출`,
+                          subtitle: sub,
+                          lines: () => storeLines(s.store).filter((l) => !l.eventId),
+                          flow: "income",
+                        })}
+                      </Td>
+                      <Td num>
+                        {drill(s.revenueEvent, <Money value={s.revenueEvent} unit={false} flow="income" />, {
+                          title: `${storeLabel(s.store)} · 이벤트 매출`,
+                          subtitle: sub,
+                          lines: () => storeLines(s.store).filter((l) => !!l.eventId),
+                          flow: "income",
+                        })}
+                      </Td>
                       <Td num className="pr-5">
                         {s.revenue ? pct(s.revenueEvent / s.revenue) : "—"}
                       </Td>
@@ -952,7 +1222,7 @@ export default function SalesDashboard() {
                       변동비
                     </SortTh>
                     <SortTh sticky="top" align="right" sortKey="contribution" sort={eventSort} onSort={setEventSort}>
-                      공헌이익
+                      <TermLabel term="공헌이익" />
                     </SortTh>
                     <SortTh sticky="top" align="right" sortKey="rate" sort={eventSort} onSort={setEventSort}>
                       이익률
@@ -977,49 +1247,144 @@ export default function SalesDashboard() {
                         </span>
                       </Td>
                       <Td num>
-                        <Money value={ep.revenue} unit={false} />
+                        {drill(ep.revenue, <Money value={ep.revenue} unit={false} flow="income" />, {
+                          title: `${ep.event.name} · 매출`,
+                          subtitle: sub,
+                          lines: () => monthLines().filter((l) => l.eventId === ep.event.id),
+                          flow: "income",
+                        })}
                         {/* 미확정은 이익률에서 빠진다 — 얼마가 빠졌는지 옆에 둔다 */}
                         {ep.pendingRevenue > 0 && (
                           <span className="block text-nd-micro text-nd-warning-text">
-                            미확정 <Money value={ep.pendingRevenue} unit={false} />
+                            미확정{" "}
+                            <SalesDrill
+                              title={`${ep.event.name} · 미확정`}
+                              subtitle={sub}
+                              lines={() => monthLines().filter((l) => l.eventId === ep.event.id && !isConfirmed(l))}
+                              flow="income"
+                              {...pendingHref}
+                            >
+                              <Money value={ep.pendingRevenue} unit={false} />
+                            </SalesDrill>
                           </span>
                         )}
                       </Td>
                       <Td num>
-                        <Money value={ep.variable} unit={false} />
+                        {drill(ep.variable, <Money value={ep.variable} unit={false} flow="expense" />, {
+                          title: `${ep.event.name} · 변동비`,
+                          subtitle: sub,
+                          detail: () => ({
+                            key: "event-variable",
+                            title: "변동비",
+                            formula: false,
+                            direction: "expense",
+                            total: ep.variable,
+                            rows: [
+                              { key: "material", label: "재료비", value: ep.material },
+                              {
+                                key: "labor",
+                                label: "인건비",
+                                value: ep.labor,
+                                sub: `이벤트 스태프(${ep.laborSource === "actual" ? "근무 일지 실측" : "가정값"}) + 제작`,
+                              },
+                              { key: "supplies", label: "준비물", value: ep.supplies },
+                              { key: "fee", label: "수수료", value: ep.fee },
+                            ].filter((r) => r.value !== 0),
+                            basis: "확정 판매 · 이벤트 기간 비용",
+                          }),
+                        })}
                       </Td>
-                      <Td num className={ep.contribution < 0 ? "font-semibold text-nd-danger-text" : "font-semibold"}>
-                        <Money value={ep.contribution} unit={false} />
+                      <Td num className="font-semibold">
+                        {drill(ep.contribution, <Money value={ep.contribution} unit={false} flow="net" />, {
+                          title: `${ep.event.name} · 공헌이익`,
+                          subtitle: sub,
+                          detail: () => ({
+                            key: "event-contribution",
+                            title: "공헌이익",
+                            formula: true,
+                            direction: "net",
+                            total: ep.contribution,
+                            rows: [
+                              { key: "rev", label: "확정 매출", value: ep.confirmedRevenue },
+                              { key: "material", label: "재료비", value: ep.material, sign: "minus" },
+                              { key: "labor", label: "인건비", value: ep.labor, sign: "minus" },
+                              { key: "supplies", label: "준비물", value: ep.supplies, sign: "minus" },
+                              { key: "fee", label: "수수료", value: ep.fee, sign: "minus" },
+                            ],
+                            basis: "확정 매출 기준",
+                            note:
+                              ep.pendingRevenue > 0
+                                ? `미확정 ${ep.pendingRevenue.toLocaleString("ko-KR")}원은 원가를 몰라 넣지 않았습니다.`
+                                : undefined,
+                          }),
+                        })}
                       </Td>
                       <Td num>
                         <Rate value={ep.contributionRate} tone="auto" />
                       </Td>
                       <Td num className="pr-5">
-                        <Money value={ep.contributionPerDay} unit={false} />
+                        {drill(ep.contributionPerDay, <Money value={ep.contributionPerDay} unit={false} flow="net" />, {
+                          title: `${ep.event.name} · 일당`,
+                          subtitle: sub,
+                          detail: () => ({
+                            key: "event-per-day",
+                            title: "일당 공헌이익",
+                            formula: true,
+                            direction: "net",
+                            total: ep.contributionPerDay,
+                            rows: [
+                              { key: "contribution", label: "공헌이익", value: ep.contribution },
+                              { key: "days", label: "÷ 운영일수", sub: "원이 아니라 일수", value: ep.days },
+                            ],
+                            basis: "공헌이익 ÷ 운영일수 · 원 단위 반올림",
+                          }),
+                        })}
                       </Td>
                     </Tr>
                   ))}
                   <TotalRow>
                     <Td className="pl-5">합계</Td>
                     <Td num>
-                      <Money value={eventTotal.revenue} unit={false} />
+                      {drill(eventTotal.revenue, <Money value={eventTotal.revenue} unit={false} flow="income" />, {
+                        title: "이벤트 합계 · 매출",
+                        subtitle: sub,
+                        lines: eventLines,
+                        flow: "income",
+                      })}
                       {eventTotal.pending > 0 && (
                         <span className="block text-nd-micro font-normal text-nd-warning-text">
-                          미확정 <Money value={eventTotal.pending} unit={false} />
+                          미확정{" "}
+                          <SalesDrill
+                            title="이벤트 합계 · 미확정"
+                            subtitle={sub}
+                            lines={() => eventLines().filter((l) => !isConfirmed(l))}
+                            flow="income"
+                            {...pendingHref}
+                          >
+                            <Money value={eventTotal.pending} unit={false} />
+                          </SalesDrill>
                         </span>
                       )}
                     </Td>
                     <Td num>
-                      <Money value={eventTotal.variable} unit={false} />
+                      {drill(eventTotal.variable, <Money value={eventTotal.variable} unit={false} flow="expense" />, {
+                        title: "이벤트 합계 · 변동비",
+                        subtitle: sub,
+                        detail: perEvent("variable", "변동비", (e) => e.variable, "expense"),
+                      })}
                     </Td>
-                    <Td num className={eventTotal.contribution < 0 ? "text-nd-danger-text" : undefined}>
-                      <Money value={eventTotal.contribution} unit={false} />
+                    <Td num>
+                      {drill(eventTotal.contribution, <Money value={eventTotal.contribution} unit={false} flow="net" />, {
+                        title: "이벤트 합계 · 공헌이익",
+                        subtitle: sub,
+                        detail: perEvent("contribution", "공헌이익", (e) => e.contribution, "net"),
+                      })}
                     </Td>
                     <Td num>
                       <Rate value={eventTotal.rate} tone="auto" />
                     </Td>
                     <Td num className="pr-5">
-                      <Money value={eventTotal.perDay} unit={false} />
+                      <Money value={eventTotal.perDay} unit={false} flow="net" />
                     </Td>
                   </TotalRow>
                 </tbody>
@@ -1063,7 +1428,7 @@ export default function SalesDashboard() {
                     <Th className="pl-5">상품</Th>
                     <Th align="right">수량</Th>
                     <Th align="right">매출</Th>
-                    <Th align="right">공헌이익</Th>
+                    <Th align="right"><TermLabel term="공헌이익" /></Th>
                     <Th align="right" className="pr-5">이익률</Th>
                   </tr>
                 </thead>
@@ -1074,8 +1439,46 @@ export default function SalesDashboard() {
                         <ProductCell product={p.product} className="max-w-[16rem]" />
                       </Td>
                       <Td num>{p.qty.toLocaleString("ko-KR")}</Td>
-                      <Td num><Money value={p.revenue} unit={false} /></Td>
-                      <Td num className="font-semibold"><Money value={p.contribution} unit={false} /></Td>
+                      <Td num>
+                        {drill(p.revenue, <Money value={p.revenue} unit={false} flow="income" />, {
+                          title: `${p.product.name} ${p.product.option}`.trim() + " · 매출",
+                          subtitle: sub,
+                          lines: () => monthLines().filter((l) => l.status === "resolved" && l.productId === p.product.id),
+                          flow: "income",
+                        })}
+                      </Td>
+                      <Td num className="font-semibold">
+                        {drill(p.contribution, <Money value={p.contribution} unit={false} flow="net" />, {
+                          title: `${p.product.name} ${p.product.option}`.trim() + " · 공헌이익",
+                          subtitle: sub,
+                          detail: () => {
+                            // buildProductPerf 와 같은 인건비 규칙 — 엑셀 모드만 접객을 넣는다
+                            const excel = assumptions.laborMode === "excel";
+                            const labor = excel
+                              ? p.labor
+                              : (p.product.makeMin / 60) * p.qty * assumptions.wage.puddi;
+                            return {
+                              key: "product-contribution",
+                              title: "공헌이익",
+                              formula: true,
+                              direction: "net",
+                              total: p.contribution,
+                              rows: [
+                                { key: "rev", label: "매출", value: p.revenue, sub: `${p.qty.toLocaleString("ko-KR")}개` },
+                                { key: "material", label: "재료비", value: p.material, sign: "minus" },
+                                {
+                                  key: "labor",
+                                  label: excel ? "인건비 (접객·제작)" : "제작 인건비",
+                                  value: labor,
+                                  sign: "minus",
+                                },
+                                { key: "fee", label: "수수료", value: p.fee, sign: "minus" },
+                              ],
+                              basis: "확정 판매만",
+                            };
+                          },
+                        })}
+                      </Td>
                       <Td num className="pr-5"><Rate value={p.contributionRate} tone="auto" /></Td>
                     </Tr>
                   ))}

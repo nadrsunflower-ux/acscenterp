@@ -48,6 +48,8 @@ const config: Config = {
           "warning-text": "rgb(var(--nd-warning-text) / <alpha-value>)",
           "danger-text": "rgb(var(--nd-danger-text) / <alpha-value>)",
           "info-text": "rgb(var(--nd-info-text) / <alpha-value>)",
+          "income-text": "rgb(var(--nd-income-text) / <alpha-value>)",
+          "expense-text": "rgb(var(--nd-expense-text) / <alpha-value>)",
           income: "rgb(var(--nd-series-income) / <alpha-value>)",
           expense: "rgb(var(--nd-series-expense) / <alpha-value>)",
         },

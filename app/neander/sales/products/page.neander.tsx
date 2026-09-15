@@ -22,6 +22,7 @@
 import {
   useMemo,
   useState,
+  type ReactNode,
 } from "react";
 import Link from "next/link";
 import {
@@ -58,16 +59,28 @@ import { useSales } from "@/components/neander/sales/SalesProvider";
 import {
   ProductCell,
   Rate,
+  SalesDrill,
   StoreBadge,
 } from "@/components/neander/sales/ui";
+import { TermLabel } from "@/components/neander/sales/TermHint";
 import {
   availableMonths,
   buildProductPerf,
+  inMonth,
+  lineFee,
+  lineMaterial,
   productEconomics,
+  productIndex,
+  type ProductEconomics,
+  type ProductPerf,
 } from "@/lib/neander/sales/aggregate";
+import type { PnlDetail } from "@/lib/neander/sales/pnl-detail";
 import {
   SALES_STORES,
+  feeRateOf,
   kindLabel,
+  routeLabel,
+  type SalesAssumptions,
   type SalesStore,
 } from "@/lib/neander/sales/types";
 import { monthLabel } from "@/lib/neander/format";
@@ -82,6 +95,86 @@ const STORE_OPTIONS = [
   { value: "all" as const, label: "전체" },
   ...SALES_STORES.map((s) => ({ value: s.value, label: s.label })),
 ];
+
+/** 0원 칸은 드릴 없이 — 열어 볼 내역이 없다 */
+function Drilled({
+  value,
+  flow,
+  children,
+}: {
+  value: number;
+  flow: "income" | "expense" | "net";
+  children: (money: ReactNode) => ReactNode;
+}) {
+  const money = <Money value={value} unit={false} flow={flow} />;
+  return <>{value === 0 ? money : children(money)}</>;
+}
+
+const wonText = (n: number) => Math.round(n).toLocaleString("ko-KR");
+
+/** 이 달 실적의 공헌이익 — buildProductPerf 와 같은 인건비 규칙(laborMode) */
+function perfContributionDetail(p: ProductPerf, a: SalesAssumptions): PnlDetail {
+  const labor = a.laborMode === "excel" ? p.labor : (p.product.makeMin / 60) * p.qty * a.wage.puddi;
+  return {
+    key: "contribution",
+    title: "공헌이익",
+    total: p.contribution,
+    formula: true,
+    direction: "net",
+    basis: "확정 판매만",
+    rows: [
+      { key: "revenue", label: "매출", value: p.revenue },
+      { key: "material", label: "재료비", value: p.material, sign: "minus" },
+      {
+        key: "labor",
+        label: "인건비",
+        value: labor,
+        sign: "minus",
+        sub:
+          a.laborMode === "excel"
+            ? `접객 ${p.product.timeMin}분 · 제작 ${p.product.makeMin}분 × ${p.qty.toLocaleString("ko-KR")}개`
+            : `제작 ${p.product.makeMin}분 × ${p.qty.toLocaleString("ko-KR")}개 × 시급 ${wonText(a.wage.puddi)}원`,
+      },
+      { key: "fee", label: "수수료", value: p.fee, sign: "minus" },
+    ],
+  };
+}
+
+/** 1개당 구조의 공헌이익 — productEconomics 와 같은 경로·인건비 규칙 */
+function economicsDetail(e: ProductEconomics, a: SalesAssumptions): PnlDetail {
+  const p = e.product;
+  const route = p.bottles > 1 ? "naver" : p.store === "online" ? "online" : "payhere";
+  const rate = feeRateOf(route, a.fee);
+  return {
+    key: "contribution",
+    title: "공헌이익",
+    total: e.contribution,
+    formula: true,
+    direction: "net",
+    basis: "상품 마스터 기준 1개",
+    rows: [
+      { key: "price", label: "판매가", value: e.price },
+      { key: "material", label: "재료비", value: e.material, sign: "minus" },
+      {
+        key: "labor",
+        label: "인건비",
+        value: e.labor,
+        sign: "minus",
+        sub:
+          a.laborMode === "excel"
+            ? `접객 ${p.timeMin}분 × ${wonText(a.wage.idRegular)}원/시 + 제작 ${p.makeMin}분 × ${wonText(a.wage.puddi)}원/시`
+            : `제작 ${p.makeMin}분 × ${wonText(a.wage.puddi)}원/시 (접객은 고정비)`,
+      },
+      {
+        key: "fee",
+        label: "수수료",
+        value: e.fee,
+        sign: "minus",
+        sub: `${routeLabel(route)} ${(rate * 100).toFixed(2)}%`,
+      },
+    ],
+  };
+}
 
 export default function SalesProductsPage() {
   const { lines, products, events, assumptions, loading, masterEmpty, error } = useSales();
@@ -110,6 +203,17 @@ export default function SalesProductsPage() {
       ),
     [activeMonth, lines, products, assumptions, store],
   );
+
+  const idx = useMemo(() => productIndex(products), [products]);
+  /** 실적 한 줄을 이루는 판매 줄 — buildProductPerf 와 같은 거름(이 달·확정·이 상품·이 매장) */
+  const perfLines = (p: ProductPerf) =>
+    lines.filter(
+      (l) =>
+        inMonth(l.date, activeMonth) &&
+        l.status === "resolved" &&
+        l.productId === p.product.id &&
+        (store === "all" || l.store === store),
+    );
 
   if (loading) return <LoadingState label="상품을 불러오는 중…" />;
 
@@ -241,8 +345,8 @@ export default function SalesProductsPage() {
                   <Th sticky="top" align="right">재료비</Th>
                   <Th sticky="top" align="right">인건비</Th>
                   <Th sticky="top" align="right">수수료</Th>
-                  <Th sticky="top" align="right">공헌이익</Th>
-                  <Th sticky="top" align="right" className="pr-5">공헌이익률</Th>
+                  <Th sticky="top" align="right"><TermLabel term="공헌이익" /></Th>
+                  <Th sticky="top" align="right" className="pr-5"><TermLabel term="공헌이익률" /></Th>
                 </tr>
               </thead>
               <tbody>
@@ -259,10 +363,22 @@ export default function SalesProductsPage() {
                       </span>
                     </Td>
                     <Td num><Money value={e.price} unit={false} /></Td>
-                    <Td num muted><Money value={e.material} unit={false} muted /></Td>
-                    <Td num muted><Money value={Math.round(e.labor)} unit={false} muted /></Td>
-                    <Td num muted><Money value={e.fee} unit={false} muted /></Td>
-                    <Td num className="font-semibold"><Money value={e.contribution} unit={false} /></Td>
+                    <Td num muted><Money value={e.material} unit={false} flow="expense" /></Td>
+                    <Td num muted><Money value={Math.round(e.labor)} unit={false} flow="expense" /></Td>
+                    <Td num muted><Money value={e.fee} unit={false} flow="expense" /></Td>
+                    <Td num className="font-semibold">
+                      {e.contribution === 0 ? (
+                        <Money value={0} unit={false} flow="net" />
+                      ) : (
+                        <SalesDrill
+                          title={`${e.product.name} ${e.product.option}`.trim() + " · 1개당 공헌이익"}
+                          subtitle="판매 실적과 무관한 구조"
+                          detail={() => economicsDetail(e, assumptions)}
+                        >
+                          <Money value={e.contribution} unit={false} flow="net" />
+                        </SalesDrill>
+                      )}
+                    </Td>
                     <Td num className="pr-5">
                       <Rate value={e.contributionRate} tone="auto" />
                       {(e.contributionRate ?? 1) < THIN_MARGIN && (
@@ -314,27 +430,100 @@ export default function SalesProductsPage() {
                     <Th sticky="top" align="right">매출</Th>
                     <Th sticky="top" align="right">재료비</Th>
                     <Th sticky="top" align="right">수수료</Th>
-                    <Th sticky="top" align="right">공헌이익</Th>
+                    <Th sticky="top" align="right"><TermLabel term="공헌이익" /></Th>
                     <Th sticky="top" align="right">1개당</Th>
                     <Th sticky="top" align="right" className="pr-5">이익률</Th>
                   </tr>
                 </thead>
                 <tbody>
-                  {perf.map((p) => (
-                    <Tr key={p.product.id}>
-                      <Td className="pl-5">
-                        <ProductCell product={p.product} />
-                      </Td>
-                      <Td><StoreBadge store={p.product.store} size="sm" /></Td>
-                      <Td num>{p.qty.toLocaleString("ko-KR")}</Td>
-                      <Td num><Money value={p.revenue} unit={false} /></Td>
-                      <Td num><Money value={p.material} unit={false} muted /></Td>
-                      <Td num><Money value={p.fee} unit={false} muted /></Td>
-                      <Td num className="font-semibold"><Money value={p.contribution} unit={false} /></Td>
-                      <Td num><Money value={p.unitContribution} unit={false} /></Td>
-                      <Td num className="pr-5"><Rate value={p.contributionRate} tone="auto" /></Td>
-                    </Tr>
-                  ))}
+                  {perf.map((p) => {
+                    const name = `${p.product.name} ${p.product.option}`.trim();
+                    const sub = monthLabel(activeMonth);
+                    return (
+                      <Tr key={p.product.id}>
+                        <Td className="pl-5">
+                          <ProductCell product={p.product} />
+                        </Td>
+                        <Td><StoreBadge store={p.product.store} size="sm" /></Td>
+                        <Td num>{p.qty.toLocaleString("ko-KR")}</Td>
+                        <Td num>
+                          <Drilled value={p.revenue} flow="income">
+                            {(money) => (
+                              <SalesDrill title={`${name} · 매출`} subtitle={sub} lines={() => perfLines(p)} flow="income">
+                                {money}
+                              </SalesDrill>
+                            )}
+                          </Drilled>
+                        </Td>
+                        <Td num>
+                          <Drilled value={p.material} flow="expense">
+                            {(money) => (
+                              <SalesDrill
+                                title={`${name} · 재료비`}
+                                subtitle={sub}
+                                lines={() => perfLines(p)}
+                                amountOf={(l) => lineMaterial(l, idx)}
+                                flow="expense"
+                              >
+                                {money}
+                              </SalesDrill>
+                            )}
+                          </Drilled>
+                        </Td>
+                        <Td num>
+                          <Drilled value={p.fee} flow="expense">
+                            {(money) => (
+                              <SalesDrill
+                                title={`${name} · 수수료`}
+                                subtitle={sub}
+                                lines={() => perfLines(p)}
+                                amountOf={(l) => lineFee(l, assumptions)}
+                                flow="expense"
+                              >
+                                {money}
+                              </SalesDrill>
+                            )}
+                          </Drilled>
+                        </Td>
+                        <Td num className="font-semibold">
+                          <Drilled value={p.contribution} flow="net">
+                            {(money) => (
+                              <SalesDrill
+                                title={`${name} · 공헌이익`}
+                                subtitle={sub}
+                                detail={() => perfContributionDetail(p, assumptions)}
+                              >
+                                {money}
+                              </SalesDrill>
+                            )}
+                          </Drilled>
+                        </Td>
+                        <Td num>
+                          <Drilled value={p.unitContribution} flow="net">
+                            {(money) => (
+                              <SalesDrill
+                                title={`${name} · 1개당 공헌이익`}
+                                subtitle={sub}
+                                detail={() => ({
+                                  key: "unitContribution",
+                                  title: "1개당 공헌이익",
+                                  total: p.unitContribution,
+                                  formula: true,
+                                  direction: "net",
+                                  basis: `공헌이익 ÷ 수량 ${p.qty.toLocaleString("ko-KR")}개 (원 단위 반올림)`,
+                                  rows: [{ key: "contribution", label: "공헌이익", value: p.contribution }],
+                                  note: `공헌이익 ${Math.round(p.contribution).toLocaleString("ko-KR")}원을 이 달 확정 수량 ${p.qty.toLocaleString("ko-KR")}개로 나눈 값입니다.`,
+                                })}
+                              >
+                                {money}
+                              </SalesDrill>
+                            )}
+                          </Drilled>
+                        </Td>
+                        <Td num className="pr-5"><Rate value={p.contributionRate} tone="auto" /></Td>
+                      </Tr>
+                    );
+                  })}
                 </tbody>
               </Table>
             </TableScroll>

@@ -215,12 +215,12 @@ export function PuzzlePiece({
             <p className="nd-num flex flex-wrap gap-x-2 text-nd-micro">
               {status.income > 0 && (
                 <span className="text-nd-fg-2">
-                  수입 <Money value={status.income} unit={false} />
+                  수입 <Money value={status.income} unit={false} flow="income" />
                 </span>
               )}
               {status.expense !== 0 && (
                 <span className="text-nd-fg-2">
-                  지출 <Money value={status.expense} unit={false} />
+                  지출 <Money value={status.expense} unit={false} flow="expense" />
                 </span>
               )}
             </p>

@@ -87,11 +87,14 @@ import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useSales } from "@/components/neander/sales/SalesProvider";
 import {
   Rate,
+  SalesDrill,
   StoreBadge,
 } from "@/components/neander/sales/ui";
+import { TermLabel } from "@/components/neander/sales/TermHint";
 import {
   availableMonths,
   buildEventPerf,
+  inMonth,
   type EventPerf,
 } from "@/lib/neander/sales/aggregate";
 import {
@@ -510,7 +513,7 @@ export default function EventEntryPage() {
                         {perf && (
                           <span className="nd-num flex flex-wrap gap-x-2 text-nd-micro">
                             <span className="text-nd-fg-2">매출 {won(perf.revenue)}</span>
-                            <span className={perf.contribution < 0 ? "text-nd-danger-text" : "text-nd-fg-2"}>
+                            <span className={perf.contribution < 0 ? "text-nd-expense-text" : "text-nd-fg-2"}>
                               공헌 {won(perf.contribution)}
                             </span>
                             {perf.reviewCount > 0 && (
@@ -532,6 +535,7 @@ export default function EventEntryPage() {
               draft={draft}
               onChange={setDraft}
               perf={perfById.get(draft.id)}
+              month={activeMonth}
               recent={recentSupplies}
               dirty={dirty}
               saving={saving}
@@ -571,6 +575,7 @@ function Editor({
   draft,
   onChange,
   perf,
+  month,
   recent,
   dirty,
   saving,
@@ -583,6 +588,8 @@ function Editor({
   draft: Draft;
   onChange: (d: Draft) => void;
   perf?: EventPerf;
+  /** perf 를 계산한 달 — 드릴 줄을 buildEventPerf 와 같은 달로 거른다 */
+  month: string;
   recent: { name: string; unitPrice: number; category?: string }[];
   dirty: boolean;
   saving: boolean;
@@ -594,6 +601,7 @@ function Editor({
 }) {
   /** 편집기 안의 탭 — 화면 상태 하나뿐이고 저장 값과 무관하다 */
   const [tab, setTab] = useState<TabKey>("basic");
+  const { lines } = useSales();
   const set = (patch: Partial<Draft>) => onChange({ ...draft, ...patch });
   const days = eventDays(draft);
   const labor = laborOf(draft);
@@ -867,7 +875,7 @@ function Editor({
                           />
                         </Td>
                         <Td num>
-                          <Money value={supplyAmount(it)} unit={false} />
+                          <Money value={supplyAmount(it)} unit={false} flow="expense" />
                         </Td>
                         <Td>
                           <Input
@@ -889,7 +897,7 @@ function Editor({
                       <Td num>{items.reduce((s, i) => s + (Number(i.qty) || 0), 0)}</Td>
                       <Td />
                       <Td num>
-                        <Money value={total} unit={false} />
+                        <Money value={total} unit={false} flow="expense" />
                       </Td>
                       <Td />
                       <Td className="pr-5" />
@@ -1058,12 +1066,107 @@ function Editor({
                   }
                 />
                 <KpiStrip columns={4}>
-                  <StatTile label="매출" value={perf.revenue} hint={perf.pendingRevenue > 0 ? `미확정 ${won(perf.pendingRevenue)}원 포함` : `수량 ${won(perf.qty)}`} />
-                  <StatTile label="변동비" value={perf.variable} hint={`재료 ${won(perf.material)} · 인건비 ${won(perf.labor)} · 준비물 ${won(perf.supplies)} · 수수료 ${won(perf.fee)}`} />
-                  <StatTile label="공헌이익" value={perf.contribution} hint={`확정 매출 기준 ${pct(perf.contributionRate)}`} />
+                  <StatTile
+                    label="매출"
+                    value={perf.revenue}
+                    flow="income"
+                    hint={perf.pendingRevenue > 0 ? `미확정 ${won(perf.pendingRevenue)}원 포함` : `수량 ${won(perf.qty)}`}
+                    wrapValue={(money) => (
+                      <SalesDrill
+                        title={`${perf.event.name} · 매출`}
+                        subtitle={`${monthLabel(month)} · 미확정 포함`}
+                        // buildEventPerf 와 같은 거름 — 그 달 줄 중 이 행사에 붙은 것
+                        lines={() => lines.filter((l) => inMonth(l.date, month) && l.eventId === perf.event.id)}
+                        flow="income"
+                      >
+                        {money}
+                      </SalesDrill>
+                    )}
+                  />
+                  <StatTile
+                    label="변동비"
+                    value={perf.variable}
+                    flow="expense"
+                    hint={`재료 ${won(perf.material)} · 인건비 ${won(perf.labor)} · 준비물 ${won(perf.supplies)} · 수수료 ${won(perf.fee)}`}
+                    wrapValue={(money) => (
+                      <SalesDrill
+                        title={`${perf.event.name} · 변동비`}
+                        subtitle={monthLabel(month)}
+                        detail={() => ({
+                          key: "variable",
+                          title: "변동비",
+                          total: perf.variable,
+                          direction: "expense",
+                          basis: "재료비·수수료는 확정 줄만",
+                          rows: [
+                            { key: "material", label: "재료비", value: perf.material },
+                            { key: "labor", label: "인건비", value: perf.labor, sub: "행사 인건비 + 제작 인건비" },
+                            { key: "supplies", label: "준비물", value: perf.supplies },
+                            { key: "fee", label: "수수료", value: perf.fee },
+                          ],
+                        })}
+                      >
+                        {money}
+                      </SalesDrill>
+                    )}
+                  />
+                  <StatTile
+                    label={<TermLabel term="공헌이익" />}
+                    value={perf.contribution}
+                    flow="net"
+                    hint={`확정 매출 기준 ${pct(perf.contributionRate)}`}
+                    wrapValue={(money) => (
+                      <SalesDrill
+                        title={`${perf.event.name} · 공헌이익`}
+                        subtitle={monthLabel(month)}
+                        detail={() => ({
+                          key: "contribution",
+                          title: "공헌이익",
+                          total: perf.contribution,
+                          formula: true,
+                          direction: "net",
+                          basis: "확정 매출 기준",
+                          rows: [
+                            { key: "confirmed", label: "확정 매출", value: perf.confirmedRevenue },
+                            { key: "material", label: "재료비", value: perf.material, sign: "minus" },
+                            { key: "labor", label: "인건비", value: perf.labor, sign: "minus" },
+                            { key: "supplies", label: "준비물", value: perf.supplies, sign: "minus" },
+                            { key: "fee", label: "수수료", value: perf.fee, sign: "minus" },
+                          ],
+                          note:
+                            perf.pendingRevenue > 0
+                              ? `미확정 매출 ${won(perf.pendingRevenue)}원은 빠져 있습니다 — 확정하면 들어갑니다.`
+                              : undefined,
+                        })}
+                      >
+                        {money}
+                      </SalesDrill>
+                    )}
+                  />
                   <KpiItem
                     label="일당 공헌이익"
-                    value={<Money value={perf.contributionPerDay} unit={false} />}
+                    value={
+                      perf.contributionPerDay === 0 ? (
+                        <Money value={0} unit={false} flow="net" />
+                      ) : (
+                        <SalesDrill
+                          title={`${perf.event.name} · 일당 공헌이익`}
+                          subtitle={monthLabel(month)}
+                          detail={() => ({
+                            key: "contributionPerDay",
+                            title: "일당 공헌이익",
+                            total: perf.contributionPerDay,
+                            formula: true,
+                            direction: "net",
+                            basis: `공헌이익 ÷ 운영 ${perf.days}일 (원 단위 반올림)`,
+                            rows: [{ key: "contribution", label: "공헌이익", value: perf.contribution }],
+                            note: `운영 ${perf.days}일로 나눔`,
+                          })}
+                        >
+                          <Money value={perf.contributionPerDay} unit={false} flow="net" />
+                        </SalesDrill>
+                      )
+                    }
                     unit="원"
                     hint={`${perf.days}일 운영`}
                     tone={perf.contributionPerDay < 0 ? "danger" : undefined}

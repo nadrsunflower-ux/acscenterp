@@ -57,19 +57,23 @@ import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useSales } from "@/components/neander/sales/SalesProvider";
 import {
   Rate,
+  SalesDrill,
   StoreBadge,
 } from "@/components/neander/sales/ui";
 import {
   availableMonths,
   buildReconcile,
   inMonth,
+  lineFee,
 } from "@/lib/neander/sales/aggregate";
 import { ledgerHref } from "@/lib/neander/finance/ledgerLink";
 import { EXCEL_BASELINE } from "@/lib/neander/sales/master-data";
 import {
+  SALES_STORES,
   feeRateOf,
   routeLabel,
   type PayRoute,
+  type SalesLine,
   type SalesStore,
 } from "@/lib/neander/sales/types";
 import { monthLabel } from "@/lib/neander/format";
@@ -80,6 +84,33 @@ const LEDGER_UNIT: Record<SalesStore, { bizMinor: string; acctMinor: string }> =
   id: { bizMinor: "아이디", acctMinor: "아이디판매" },
   online: { bizMinor: "아이디", acctMinor: "온라인판매" },
 };
+
+const storeName = (s: SalesStore) => SALES_STORES.find((x) => x.value === s)?.label ?? s;
+
+/** 표 칸의 금액 — 0원이 아니면 올리면 미리보기, 누르면 판매 줄 창 */
+function Drill({
+  value,
+  flow,
+  title,
+  subtitle,
+  lines,
+  amountOf,
+}: {
+  value: number;
+  flow: "income" | "expense";
+  title: string;
+  subtitle: string;
+  lines: () => SalesLine[];
+  amountOf?: (l: SalesLine) => number;
+}) {
+  const money = <Money value={value} unit={false} flow={flow} />;
+  if (value === 0) return money;
+  return (
+    <SalesDrill title={title} subtitle={subtitle} lines={lines} amountOf={amountOf} flow={flow}>
+      {money}
+    </SalesDrill>
+  );
+}
 
 export default function SalesReconcilePage() {
   const { lines, events, assumptions, loading, error } = useSales();
@@ -106,6 +137,21 @@ export default function SalesReconcilePage() {
       });
     return [...acc.entries()].map(([route, v]) => ({ route, ...v }));
   }, [lines, activeMonth, assumptions]);
+
+  // ---- 드릴 — 창 합계가 칸과 원 단위로 같도록 buildReconcile·byRoute 와 같은 거름 ----
+  const recStores = new Set(rows.map((r) => r.store));
+  /** 매장 하나(없으면 대사 대상 매장 전부)의 이 달 줄 */
+  const storeLines = (store?: SalesStore) => () =>
+    lines.filter(
+      (l) => inMonth(l.date, activeMonth) && (store ? l.store === store : recStores.has(l.store)),
+    );
+  const routeLines = (route: PayRoute) => () =>
+    lines.filter((l) => inMonth(l.date, activeMonth) && l.route === route);
+  const feeOf = (l: SalesLine) => lineFee(l, assumptions);
+  const depositOf = (l: SalesLine) => l.amount - lineFee(l, assumptions);
+  /** 결제 경로별 표의 수수료 — 표가 쓰는 식(경로 요율만) 그대로 */
+  const routeFeeOf = (l: SalesLine) => Math.round(l.amount * feeRateOf(l.route, assumptions.fee));
+  const sub = monthLabel(activeMonth);
 
   if (loading) return <LoadingState label="매출을 불러오는 중…" />;
 
@@ -207,17 +253,35 @@ export default function SalesReconcilePage() {
         <StatTile
           label={`${monthLabel(activeMonth)} POS 합계`}
           value={total.posTotal}
+          flow="income"
           hint="적재된 판매 줄의 합"
+          wrapValue={(money) => (
+            <SalesDrill title="POS 합계" subtitle={sub} lines={storeLines()} flow="income">
+              {money}
+            </SalesDrill>
+          )}
         />
         <StatTile
           label="결제 수수료"
           value={total.fee}
+          flow="expense"
           hint={`실효 ${total.posTotal ? ((total.fee / total.posTotal) * 100).toFixed(2) : "0"}%`}
+          wrapValue={(money) => (
+            <SalesDrill title="결제 수수료" subtitle={sub} lines={storeLines()} amountOf={feeOf} flow="expense">
+              {money}
+            </SalesDrill>
+          )}
         />
         <StatTile
           label="예상 입금액"
           value={total.expectedDeposit}
+          flow="income"
           hint="장부의 정산 입금과 맞춰 볼 금액"
+          wrapValue={(money) => (
+            <SalesDrill title="예상 입금액" subtitle={`${sub} · 줄마다 금액 − 수수료`} lines={storeLines()} amountOf={depositOf} flow="income">
+              {money}
+            </SalesDrill>
+          )}
         />
       </KpiStrip>
 
@@ -256,10 +320,14 @@ export default function SalesReconcilePage() {
                     <Td className="pl-5">
                       <StoreBadge store={r.store} size="sm" />
                     </Td>
-                    <Td num><Money value={r.posTotal} unit={false} /></Td>
-                    <Td num><Money value={r.fee} unit={false} muted /></Td>
+                    <Td num>
+                      <Drill value={r.posTotal} flow="income" title={`${storeName(r.store)} · POS 합계`} subtitle={sub} lines={storeLines(r.store)} />
+                    </Td>
+                    <Td num>
+                      <Drill value={r.fee} flow="expense" title={`${storeName(r.store)} · 수수료`} subtitle={sub} lines={storeLines(r.store)} amountOf={feeOf} />
+                    </Td>
                     <Td num className="font-semibold">
-                      <Money value={r.expectedDeposit} unit={false} />
+                      <Drill value={r.expectedDeposit} flow="income" title={`${storeName(r.store)} · 예상 입금액`} subtitle={`${sub} · 줄마다 금액 − 수수료`} lines={storeLines(r.store)} amountOf={depositOf} />
                     </Td>
                     {isBaselineMonth && (
                       <Td num muted><Money value={excelTotal} unit={false} muted /></Td>
@@ -292,10 +360,14 @@ export default function SalesReconcilePage() {
               })}
               <TotalRow>
                 <Td className="pl-5 font-semibold">합계</Td>
-                <Td num className="font-semibold"><Money value={total.posTotal} unit={false} /></Td>
-                <Td num><Money value={total.fee} unit={false} /></Td>
                 <Td num className="font-semibold">
-                  <Money value={total.expectedDeposit} unit={false} />
+                  <Drill value={total.posTotal} flow="income" title="POS 합계" subtitle={sub} lines={storeLines()} />
+                </Td>
+                <Td num>
+                  <Drill value={total.fee} flow="expense" title="수수료" subtitle={sub} lines={storeLines()} amountOf={feeOf} />
+                </Td>
+                <Td num className="font-semibold">
+                  <Drill value={total.expectedDeposit} flow="income" title="예상 입금액" subtitle={`${sub} · 줄마다 금액 − 수수료`} lines={storeLines()} amountOf={depositOf} />
                 </Td>
                 {isBaselineMonth && <Td />}
                 {isBaselineMonth && <Td />}
@@ -331,7 +403,9 @@ export default function SalesReconcilePage() {
                 <Tr key={r.route}>
                   <Td className="pl-5 text-nd-fg">{routeLabel(r.route)}</Td>
                   <Td num>{r.count.toLocaleString("ko-KR")}</Td>
-                  <Td num><Money value={r.amount} unit={false} /></Td>
+                  <Td num>
+                    <Drill value={r.amount} flow="income" title={`${routeLabel(r.route)} · 금액`} subtitle={sub} lines={routeLines(r.route)} />
+                  </Td>
                   <Td num>
                     <Rate value={feeRateOf(r.route, assumptions.fee)} digits={1} />
                     {r.route === "naver" && (
@@ -341,7 +415,9 @@ export default function SalesReconcilePage() {
                       </span>
                     )}
                   </Td>
-                  <Td num className="pr-5"><Money value={r.fee} unit={false} /></Td>
+                  <Td num className="pr-5">
+                    <Drill value={r.fee} flow="expense" title={`${routeLabel(r.route)} · 수수료`} subtitle={sub} lines={routeLines(r.route)} amountOf={routeFeeOf} />
+                  </Td>
                 </Tr>
               ))}
             </tbody>

@@ -1181,10 +1181,10 @@ export default function LedgerPage() {
           )}
         >
           <Stat label="검색 결과">{rows.length.toLocaleString("ko-KR")}건</Stat>
-          <Stat label="수입"><Money value={sum.income} unit={false} /></Stat>
-          <Stat label="지출"><Money value={sum.expense} unit={false} /></Stat>
-          <Stat label="환급"><Money value={sum.refund} unit={false} /></Stat>
-          <Stat label="순손익"><Money value={sum.net} unit={false} className="font-semibold" /></Stat>
+          <Stat label="수입"><Money value={sum.income} unit={false} flow="income" /></Stat>
+          <Stat label="지출"><Money value={sum.expense} unit={false} flow="expense" /></Stat>
+          <Stat label="환급"><Money value={sum.refund} unit={false} flow="income" /></Stat>
+          <Stat label="순손익"><Money value={sum.net} unit={false} flow="net" className="font-semibold" /></Stat>
 
           <span className="ml-auto flex flex-wrap items-center gap-x-3" role="status" aria-live="polite">
             {dirtyCount > 0 ? (
