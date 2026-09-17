@@ -1167,6 +1167,7 @@ export default function SalesDashboard() {
                           subtitle: sub,
                           lines: () => storeLines(s.store).filter((l) => !!l.eventId),
                           flow: "income",
+                          byProduct: true,
                         })}
                       </Td>
                       <Td num className="pr-5">
@@ -1252,6 +1253,7 @@ export default function SalesDashboard() {
                           subtitle: sub,
                           lines: () => monthLines().filter((l) => l.eventId === ep.event.id),
                           flow: "income",
+                          byProduct: true,
                         })}
                         {/* 미확정은 이익률에서 빠진다 — 얼마가 빠졌는지 옆에 둔다 */}
                         {ep.pendingRevenue > 0 && (
@@ -1350,6 +1352,7 @@ export default function SalesDashboard() {
                         subtitle: sub,
                         lines: eventLines,
                         flow: "income",
+                        byProduct: true,
                       })}
                       {eventTotal.pending > 0 && (
                         <span className="block text-nd-micro font-normal text-nd-warning-text">

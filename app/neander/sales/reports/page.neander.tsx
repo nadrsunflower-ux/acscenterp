@@ -40,6 +40,7 @@ import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useSales } from "@/components/neander/sales/SalesProvider";
 import { ProductCell, Rate, StoreBadge } from "@/components/neander/sales/ui";
 import { TermLabel } from "@/components/neander/sales/TermHint";
+import { EventDrill } from "@/components/neander/sales/DeckDrills";
 import { InsightPanel } from "@/components/neander/insights/InsightPanel";
 import { availableMonths } from "@/lib/neander/sales/aggregate";
 import { buildSalesDeck } from "@/lib/neander/sales/monthlyDeck";
@@ -310,10 +311,26 @@ export default function SalesReportPage() {
                       </div>
                     </Td>
                     <Td muted>{e.event.from.slice(5)} ~ {e.event.to.slice(5)} · {e.days}일</Td>
-                    <Td num><Money value={e.revenue} unit={false} flow="income" /></Td>
-                    <Td num className="font-semibold"><Money value={e.contribution} unit={false} flow="net" /></Td>
-                    <Td num><Rate value={e.contributionRate} tone="auto" /></Td>
-                    <Td num className="pr-5">{n(e.contributionPerDay)}</Td>
+                    <Td num>
+                      <EventDrill month={activeMonth} perf={e} cell="revenue" tone="light">
+                        <Money value={e.revenue} unit={false} flow="income" />
+                      </EventDrill>
+                    </Td>
+                    <Td num className="font-semibold">
+                      <EventDrill month={activeMonth} perf={e} cell="contribution" tone="light">
+                        <Money value={e.contribution} unit={false} flow="net" />
+                      </EventDrill>
+                    </Td>
+                    <Td num>
+                      <EventDrill month={activeMonth} perf={e} cell="rate" tone="light">
+                        <Rate value={e.contributionRate} tone="auto" />
+                      </EventDrill>
+                    </Td>
+                    <Td num className="pr-5">
+                      <EventDrill month={activeMonth} perf={e} cell="perDay" tone="light">
+                        {n(e.contributionPerDay)}
+                      </EventDrill>
+                    </Td>
                   </Tr>
                 ))}
               </tbody>

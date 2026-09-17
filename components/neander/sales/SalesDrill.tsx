@@ -78,6 +78,8 @@ export type SalesDrillProps = Common &
         amountOf?: (l: SalesLine) => number;
         /** 돈 방향 — 줄 금액·합계 색 */
         flow?: MoneyFlow;
+        /** 맨 위에 상품별 요약(무엇이 몇 개·얼마) — 이벤트 매출처럼 여러 상품이 섞인 칸 */
+        byProduct?: boolean;
         detail?: never;
       }
     | {
@@ -86,6 +88,7 @@ export type SalesDrillProps = Common &
         lines?: never;
         amountOf?: never;
         flow?: never;
+        byProduct?: never;
       }
   );
 
@@ -219,6 +222,53 @@ function useLineText() {
   }, [products, events]);
 }
 
+interface ProductSum {
+  key: string;
+  name: string;
+  /** 확정 줄의 수량만 — 미확정 줄은 상품이 정해지지 않아 수량을 믿을 수 없다 */
+  qty: number;
+  amount: number;
+  count: number;
+  pending: boolean;
+  /** 실제로 받은 개당 가격(결제 금액 ÷ 수량)의 최저·최고 — 기간별 가격·할인이 있어 하나가 아닐 수 있다 */
+  priceMin: number | null;
+  priceMax: number | null;
+}
+
+/** 38,000 · 할인 등으로 갈리면 36,000~38,000 */
+const priceText = (x: ProductSum) => {
+  if (x.priceMin === null || x.priceMax === null) return "—";
+  const f = (v: number) => Math.round(v).toLocaleString("ko-KR");
+  return x.priceMin === x.priceMax ? f(x.priceMin) : `${f(x.priceMin)}~${f(x.priceMax)}`;
+};
+
+/** 판매 줄을 상품별로 묶는다 — 큰 금액 순. 상품이 없는 줄은 원본 내역 이름으로 */
+function summarizeByProduct(
+  rows: SalesLine[],
+  name: (l: SalesLine) => string,
+  amountOf: (l: SalesLine) => number,
+): ProductSum[] {
+  const map = new Map<string, ProductSum>();
+  for (const l of rows) {
+    const key = l.productId ? `p:${l.productId}` : `r:${name(l)}`;
+    const cur =
+      map.get(key) ?? { key, name: name(l), qty: 0, amount: 0, count: 0, pending: false, priceMin: null, priceMax: null };
+    cur.amount += amountOf(l);
+    cur.count += 1;
+    if (l.status === "needs_review") cur.pending = true;
+    else {
+      cur.qty += l.qty;
+      if (l.qty > 0 && l.amount > 0) {
+        const unit = Math.round(l.amount / l.qty);
+        cur.priceMin = cur.priceMin === null ? unit : Math.min(cur.priceMin, unit);
+        cur.priceMax = cur.priceMax === null ? unit : Math.max(cur.priceMax, unit);
+      }
+    }
+    map.set(key, cur);
+  }
+  return [...map.values()].sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+}
+
 const detailNum = (value: number, minus?: boolean) =>
   `${minus ? "−" : ""}${Math.round(value).toLocaleString("ko-KR")}`;
 
@@ -293,6 +343,7 @@ function PreviewBody(props: SalesDrillProps & { onMore: () => void }) {
   const rows = props.lines!();
   const shown = [...rows].sort((a, b) => Math.abs(amountOf(b)) - Math.abs(amountOf(a))).slice(0, LIMIT);
   const rest = rows.length - shown.length;
+  const summary = props.byProduct ? summarizeByProduct(rows, text.name, amountOf) : null;
   return (
     <div className="flex min-h-0 flex-1 flex-col text-nd-caption">
       <div className="shrink-0 border-b border-nd-line px-3.5 pb-2 pt-3">
@@ -308,6 +359,29 @@ function PreviewBody(props: SalesDrillProps & { onMore: () => void }) {
         <p className="px-3.5 py-4 text-center text-nd-fg-3">이 숫자에 잡힌 판매가 없습니다.</p>
       ) : (
         <ul className="nd-scroll max-h-[26rem] min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
+          {summary && (
+            <>
+              <li className="px-3.5 pb-1 pt-1.5 text-nd-micro font-medium text-nd-fg-3">
+                상품별 요약 · {summary.length.toLocaleString("ko-KR")}종
+              </li>
+              {summary.map((x) => (
+                <li key={x.key} className="flex items-center gap-2.5 px-3.5 py-1">
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1.5">
+                      <span className="truncate text-nd-fg">{x.name}</span>
+                      {x.pending && <Tag label="미확정" />}
+                    </span>
+                    <span className="nd-num block truncate text-nd-micro text-nd-fg-3">개당 {priceText(x)}</span>
+                  </span>
+                  <span className="nd-num shrink-0 text-nd-fg-2">{x.qty ? `${x.qty.toLocaleString("ko-KR")}개` : "—"}</span>
+                  <Money value={x.amount} unit={false} flow={props.flow} className="w-20 shrink-0 text-right font-medium" />
+                </li>
+              ))}
+              <li className="mt-1.5 border-t border-nd-line px-3.5 pb-1 pt-2 text-nd-micro font-medium text-nd-fg-3">
+                판매 줄
+              </li>
+            </>
+          )}
           {shown.map((l) => {
             const tag = text.tag(l);
             return (
@@ -394,11 +468,13 @@ function LinesDialog({
   lines,
   amountOf = (l) => l.amount,
   flow,
+  byProduct,
   onClose,
 }: Common & {
   lines: () => SalesLine[];
   amountOf?: (l: SalesLine) => number;
   flow?: MoneyFlow;
+  byProduct?: boolean;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -423,6 +499,12 @@ function LinesDialog({
   }, [all, query, sort, amountOf, text]);
   const sum = rows.reduce((s, l) => s + amountOf(l), 0);
   const qty = rows.reduce((s, l) => s + (l.status === "needs_review" ? 0 : l.qty), 0);
+  // 요약은 검색과 상관없이 이 칸 전체 — 검색은 아래 줄 목록만 좁힌다
+  const summary = useMemo(
+    () => (byProduct ? summarizeByProduct(all, text.name, amountOf) : null),
+    [byProduct, all, text, amountOf],
+  );
+  const allSum = summary ? summary.reduce((s, x) => s + x.amount, 0) : 0;
 
   return (
     <Dialog
@@ -447,6 +529,55 @@ function LinesDialog({
         </>
       }
     >
+      {summary && summary.length > 0 && (
+        <section className="mb-4">
+          <p className="mb-1.5 text-nd-caption font-medium text-nd-fg-2">
+            상품별 요약 · {summary.length.toLocaleString("ko-KR")}종
+          </p>
+          <TableScroll className="rounded-nd-md border border-nd-line">
+            <Table minWidth={600} dense>
+              <thead>
+                <tr>
+                  <Th>상품</Th>
+                  <Th align="right">줄</Th>
+                  <Th align="right">개당 가격</Th>
+                  <Th align="right">수량</Th>
+                  <Th align="right">금액</Th>
+                  <Th align="right">비중</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary.map((x) => (
+                  <Tr key={x.key}>
+                    <Td className="max-w-[320px]">
+                      <span className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setQuery(x.name)}
+                          className="truncate text-left hover:underline"
+                          title="이 상품의 판매 줄만 보기"
+                        >
+                          {x.name}
+                        </button>
+                        {x.pending && <Tag label="미확정" />}
+                      </span>
+                    </Td>
+                    <Td num className="text-nd-fg-3">{x.count.toLocaleString("ko-KR")}</Td>
+                    <Td num className="whitespace-nowrap text-nd-fg-2">{priceText(x)}</Td>
+                    <Td num className="text-nd-fg-2">{x.qty ? x.qty.toLocaleString("ko-KR") : "—"}</Td>
+                    <Td num className="whitespace-nowrap font-medium">
+                      <Money value={x.amount} unit={false} flow={flow} />
+                    </Td>
+                    <Td num className="text-nd-fg-2">
+                      {allSum ? `${((x.amount / allSum) * 100).toFixed(1)}%` : "—"}
+                    </Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
+          </TableScroll>
+        </section>
+      )}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <SearchInput
           value={query}

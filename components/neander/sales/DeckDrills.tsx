@@ -392,12 +392,25 @@ const eventFormula = (e: EventPerf, note?: string): PnlDetail => ({
   note,
 });
 
-export function EventDrill({ month, perf: e, cell, children }: { month: string; perf: EventPerf; cell: EventCell; children: ReactNode }) {
+export function EventDrill({
+  month,
+  perf: e,
+  cell,
+  tone = "dark",
+  children,
+}: {
+  month: string;
+  perf: EventPerf;
+  cell: EventCell;
+  /** 리포트 화면처럼 밝은 바탕 위면 "light" */
+  tone?: "dark" | "light";
+  children: ReactNode;
+}) {
   const { sub, monthLines } = useDeckCtx(month);
-  const common = { subtitle: `${storeLabel(e.event.store)} · ${sub}`, tone: "dark" as const };
+  const common = { subtitle: `${storeLabel(e.event.store)} · ${sub}`, tone: tone === "dark" ? ("dark" as const) : undefined };
   if (cell === "revenue") {
     return (
-      <SalesDrill {...common} title={`${e.event.name} · 매출`} lines={() => monthLines().filter((l) => l.eventId === e.event.id)} flow="income">
+      <SalesDrill {...common} title={`${e.event.name} · 매출`} lines={() => monthLines().filter((l) => l.eventId === e.event.id)} flow="income" byProduct>
         {children}
       </SalesDrill>
     );
@@ -437,7 +450,7 @@ export function EventTotalDrill({
   const common = { subtitle: sub, tone: "dark" as const };
   if (cell === "revenue") {
     return (
-      <SalesDrill {...common} title="이벤트 합계 · 매출" lines={() => monthLines().filter((l) => !!l.eventId && ids.has(l.eventId))} flow="income">
+      <SalesDrill {...common} title="이벤트 합계 · 매출" lines={() => monthLines().filter((l) => !!l.eventId && ids.has(l.eventId))} flow="income" byProduct>
         {children}
       </SalesDrill>
     );
