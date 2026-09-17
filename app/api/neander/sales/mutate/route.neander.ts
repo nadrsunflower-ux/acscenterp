@@ -219,11 +219,15 @@ export async function POST(req: Request) {
 
       /** 대기함에서 여러 줄을 같은 상품으로 한 번에 확정 */
       case "line.bulkResolve": {
-        const { ids, productId, qty } = payload as {
+        const { ids, productId, qty, discount } = payload as {
           ids: string[];
           productId: string;
           qty?: number;
+          discount?: { list: number; rate: number };
         };
+        if (discount && !(Number(discount.list) > 0 && Number(discount.rate) > 0 && Number(discount.rate) < 1)) {
+          return NextResponse.json({ error: "할인은 정가 합계와 0~100% 사이 할인율이 필요합니다." }, { status: 400 });
+        }
         if (!Array.isArray(ids) || ids.length === 0) {
           return NextResponse.json({ error: "ids 배열이 필요합니다." }, { status: 400 });
         }
@@ -240,6 +244,8 @@ export async function POST(req: Request) {
                 qty: qty ?? 1,
                 status: "resolved",
                 reason: null,
+                // 할인 없이 확정하면 예전 기록을 지운다 (같은 줄을 다시 확정할 때)
+                discount: discount ? { list: Number(discount.list), rate: Number(discount.rate) } : null,
                 updatedAt: now,
                 updatedBy: user.email,
               }),

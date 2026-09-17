@@ -22,6 +22,7 @@ import type {
   SalesEvent,
   SalesImportBatch,
   SalesLine,
+  SalesLineDiscount,
   SalesLineInput,
   SalesProduct,
   SalesStore,
@@ -169,8 +170,14 @@ export const updateSalesLine = (id: string, patch: Partial<SalesLine>) =>
 
 export const deleteSalesLine = (id: string) => mutate("line.delete", { id });
 
-export const bulkResolveSalesLines = (ids: string[], productId: string, qty?: number) =>
-  mutate<{ ok: true; count: number; lines: SalesLine[] }>("line.bulkResolve", { ids, productId, qty });
+/** discount 를 주면 할인해서 받은 줄로 확정한다 (매출은 결제액 그대로) */
+export const bulkResolveSalesLines = (
+  ids: string[],
+  productId: string,
+  qty?: number,
+  discount?: SalesLineDiscount,
+) =>
+  mutate<{ ok: true; count: number; lines: SalesLine[] }>("line.bulkResolve", { ids, productId, qty, discount });
 
 /**
  * 처리 직전의 줄 전체를 되쓴다 — 대기함의 확정·직접입력·삭제·조합 되돌리기.

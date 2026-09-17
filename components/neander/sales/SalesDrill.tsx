@@ -45,6 +45,7 @@ import {
   type MoneyFlow,
 } from "@/components/neander/ui";
 import { productIndex } from "@/lib/neander/sales/aggregate";
+import { rateLabel } from "@/lib/neander/sales/discount";
 import type { PnlDetail } from "@/lib/neander/sales/pnl-detail";
 import { routeLabel, storeLabel, type SalesLine } from "@/lib/neander/sales/types";
 import { useSales } from "./SalesProvider";
@@ -217,7 +218,13 @@ function useLineText() {
           .filter(Boolean)
           .join(" · "),
       tag: (l: SalesLine) =>
-        l.status === "needs_review" ? "미확정" : l.status === "manual" ? "직접입력" : undefined,
+        l.status === "needs_review"
+          ? "미확정"
+          : l.status === "manual"
+            ? "직접입력"
+            : l.discount
+              ? `할인 ${rateLabel(l.discount.rate)}`
+              : undefined,
     };
   }, [products, events]);
 }

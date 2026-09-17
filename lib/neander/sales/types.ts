@@ -726,6 +726,14 @@ export const REASON_HINT: Record<SalesLineReason, string> = {
   refunded: "환불된 건이라 매출에서 빼야 합니다.",
 };
 
+/** 할인 적용 기록 — 정가 합계와 할인율 (할인액 = list − amount) */
+export interface SalesLineDiscount {
+  /** 그 날짜 정가 × 수량 */
+  list: number;
+  /** 0.1 = 10% · 할인액 ÷ 정가 합계 */
+  rate: number;
+}
+
 /** 적재된 판매 한 줄 */
 export interface SalesLine {
   id: string;
@@ -775,6 +783,12 @@ export interface SalesLine {
    * 이벤트 손님이 아닌 판매가 섞인다.
    */
   eventOptOut?: boolean;
+  /**
+   * 할인해서 받은 줄 — 검토 대기함 「할인 적용」으로 확정했을 때만 붙는다.
+   * 매출은 여전히 amount(실제 결제액)다. 정가와 할인율을 남기는 이유는
+   * "왜 69,300 인가"를 나중에 되짚고, 할인 행사의 크기를 셀 수 있게 하려는 것.
+   */
+  discount?: SalesLineDiscount | null;
   memo?: string;
   createdAt?: number;
   updatedAt?: number;

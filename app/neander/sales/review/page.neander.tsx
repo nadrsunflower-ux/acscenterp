@@ -33,6 +33,7 @@ import {
   Info,
   Layers,
   PackagePlus,
+  Percent,
   Plus,
   Trash2,
   UserRound,
@@ -116,6 +117,13 @@ import {
   type SalesStore,
 } from "@/lib/neander/sales/types";
 import { monthLabel } from "@/lib/neander/format";
+import {
+  naverTrend,
+  rateLabel,
+  suggestDiscounts,
+  type NaverTrend,
+} from "@/lib/neander/sales/discount";
+import type { SalesLineDiscount } from "@/lib/neander/sales/types";
 
 /**
  * 같은 원본 문구 · 같은 금액 · 같은 매장 · **같은 이벤트**를 한 묶음으로.
@@ -353,6 +361,21 @@ export default function SalesReviewPage() {
       scope: `${storeLabel(b.store)} ${monthLabel(month)} 전체`,
     };
   };
+  /**
+   * 매장·달마다 네이버 예약 할인 분포 — 할인 추천의 근거. 이 쪽에 보이는
+   * 묶음이 걸친 (매장, 달)만 센다 (판매 줄 전체를 훑으므로 묶음마다 하지 않는다).
+   */
+  const trends = useMemo(() => {
+    const m = new Map<string, NaverTrend | null>();
+    pageBuckets.forEach((b) => {
+      const month = (b.lines[0]?.date ?? activeMonth).slice(0, 7);
+      const k = `${b.store}|${month}`;
+      if (!m.has(k)) m.set(k, naverTrend(lines, products, b.store, month));
+    });
+    return m;
+  }, [pageBuckets, lines, products, activeMonth]);
+  const trendFor = (b: Bucket) => trends.get(`${b.store}|${(b.lines[0]?.date ?? activeMonth).slice(0, 7)}`) ?? null;
+
   useEffect(() => {
     setPage(1);
   }, [activeMonth, storeFilter, pageSize]);
@@ -363,15 +386,17 @@ export default function SalesReviewPage() {
     [lines, activeMonth],
   );
 
-  async function resolveBucket(b: Bucket, productId: string, qty: number) {
+  async function resolveBucket(b: Bucket, productId: string, qty: number, discount?: SalesLineDiscount) {
     setBusy(b.key);
     try {
       const res = await bulkResolveSalesLines(
         b.lines.map((l) => l.id),
         productId,
         qty,
+        discount,
       );
-      undoLog.record(`${b.lines.length.toLocaleString("ko-KR")}건을 확정했습니다.`, `「${b.raw}」 ${b.lines.length.toLocaleString("ko-KR")}건 → ${productName(productId)} 확정`, b.lines);
+      const how = discount ? ` ×${qty} · ${rateLabel(discount.rate)} 할인` : "";
+      undoLog.record(`${b.lines.length.toLocaleString("ko-KR")}건을 확정했습니다.`, `「${b.raw}」 ${b.lines.length.toLocaleString("ko-KR")}건 → ${productName(productId)}${how} 확정`, b.lines);
       await leaveThenApply(b.key, "확정되었습니다", () => applyLines({ upsert: res.lines }));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "확정에 실패했습니다.");
@@ -597,8 +622,9 @@ export default function SalesReviewPage() {
                 eventsById={eventsById}
                 assumptions={assumptions}
                 evidence={evidenceFor(b)}
+                trend={trendFor(b)}
                 busy={busy === b.key}
-                onResolve={(pid, qty) => void resolveBucket(b, pid, qty)}
+                onResolve={(pid, qty, discount) => void resolveBucket(b, pid, qty, discount)}
                 onManual={(m) => void keepAsManual(b, m)}
                 onSplit={(parts) => void splitBucket(b, parts)}
               onEventOptOut={(v) => void setEventOptOut(b, v)}
@@ -642,6 +668,7 @@ function BucketCard({
   eventsById,
   assumptions,
   evidence,
+  trend,
   busy,
   onResolve,
   onManual,
@@ -655,8 +682,10 @@ function BucketCard({
   assumptions: SalesAssumptions;
   /** 같은 이벤트·매장에서 이미 확정된 상품 분포 */
   evidence: { rows: Map<string, { rows: number; qty: number }>; scope: string };
+  /** 같은 매장·달 네이버 예약의 할인 분포 (네이버 예약이 없으면 null) */
+  trend: NaverTrend | null;
   busy: boolean;
-  onResolve: (productId: string, qty: number) => void;
+  onResolve: (productId: string, qty: number, discount?: SalesLineDiscount) => void;
   onManual: (material: number) => void;
   onSplit: (parts: ComboPart[]) => void;
   /** true = 이벤트 매출에서 떼어 일반 매출로 · false = 이벤트로 되돌리기 */
@@ -766,6 +795,8 @@ function BucketCard({
    * 뿌디가 같아 금액만으로는 정할 수 없다. 사람이 고른다.
    */
   const [combo, setCombo] = useState<{ productId: string; qty: string }[] | null>(null);
+  /** 할인 적용 판 — 조합 판과 한 번에 하나만 연다 */
+  const [discounting, setDiscounting] = useState(false);
   const comboDate = bucket.lines[0]?.date ?? "";
   const comboParts = (combo ?? []).map((r) => {
     const p = pool.find((x) => x.id === r.productId);
@@ -856,7 +887,7 @@ function BucketCard({
       <div className="flex flex-wrap items-start gap-3 border-t border-nd-line pt-3">
         <Field
           label="상품"
-          className="min-w-[16rem] flex-1"
+          className="min-w-[13rem] flex-1"
           hint={
             candidates.length === 0
               ? "금액이 맞는 상품이 없습니다 — 아래 목록에서 직접 고르세요"
@@ -993,7 +1024,8 @@ function BucketCard({
             icon={Layers}
             disabled={busy}
             aria-expanded={combo !== null}
-            onClick={() =>
+            onClick={() => {
+              setDiscounting(false);
               setCombo((c) =>
                 c
                   ? null
@@ -1001,10 +1033,26 @@ function BucketCard({
                       { productId: "", qty: "1" },
                       { productId: "", qty: "1" },
                     ],
-              )
-            }
+              );
+            }}
           >
             {combo ? "조합 닫기" : "조합으로 나누기"}
+          </Button>
+        </FieldAction>
+        <FieldAction>
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={Percent}
+            disabled={busy}
+            aria-expanded={discounting}
+            title="상품 × 수량에서 할인을 빼면 결제액이 되는지 맞춰 보고 확정합니다"
+            onClick={() => {
+              setCombo(null);
+              setDiscounting((v) => !v);
+            }}
+          >
+            {discounting ? "할인 닫기" : "할인 적용"}
           </Button>
         </FieldAction>
 
@@ -1137,6 +1185,17 @@ function BucketCard({
         </div>
       )}
 
+      {discounting && (
+        <DiscountPanel
+          bucket={bucket}
+          pool={pool}
+          evidence={evidence.rows}
+          trend={trend}
+          busy={busy}
+          onResolve={onResolve}
+        />
+      )}
+
       {creating && (
         <NewProductDialog
           bucket={bucket}
@@ -1195,6 +1254,246 @@ function BucketCard({
         </span>
       </TableNote>
     </Card>
+  );
+}
+
+// ============================================================
+//  할인 적용 — 상품 × 수량 − 할인 = 결제액
+// ------------------------------------------------------------
+//  「금액 입력 69,300」처럼 어느 상품의 정수배도 아닌 금액은 대개 할인이
+//  섞였다. 「금액이 맞지 않는 상품에서 고르기」로 확정하면 금액은 맞게
+//  들어가지만 **왜 그 금액인지**가 남지 않는다. 여기서는 정가와 할인을 함께
+//  적고, 정가 − 할인이 결제액과 원 단위로 같을 때만 확정한다.
+//
+//  추천은 lib/neander/sales/discount.ts — 같은 달 네이버 예약의 할인 행사가
+//  가장 강한 근거다. 추천은 입력칸을 채울 뿐 확정하지 않는다.
+// ============================================================
+
+type DiscountMode = "rate" | "won";
+
+function DiscountPanel({
+  bucket,
+  pool,
+  evidence,
+  trend,
+  busy,
+  onResolve,
+}: {
+  bucket: Bucket;
+  pool: SalesProduct[];
+  evidence: Map<string, { rows: number; qty: number }>;
+  trend: NaverTrend | null;
+  busy: boolean;
+  onResolve: (productId: string, qty: number, discount?: SalesLineDiscount) => void;
+}) {
+  const date = bucket.lines[0]?.date ?? "";
+  const month = date.slice(0, 7);
+  const [productId, setProductId] = useState("");
+  const [qty, setQty] = useState("1");
+  const [mode, setMode] = useState<DiscountMode>("rate");
+  const [value, setValue] = useState("");
+  const [allSuggestions, setAllSuggestions] = useState(false);
+
+  const suggestions = useMemo(
+    () => suggestDiscounts({ amount: bucket.amount, date, pool, trend, evidence, raw: bucket.raw, limit: 12 }),
+    [bucket.amount, date, pool, trend, evidence, bucket.raw],
+  );
+  const shown = allSuggestions ? suggestions : suggestions.slice(0, 4);
+
+  const product = pool.find((p) => p.id === productId);
+  const unit = product ? valueAt(product, date).price : 0;
+  const q = Number(qty) || 0;
+  const list = unit * q;
+  const off = mode === "rate" ? Math.round((list * (Number(value) || 0)) / 100) : Number(value) || 0;
+  const net = list - off;
+  const ok = !!product && q > 0 && off > 0 && off < list && net === bucket.amount;
+  const rate = list > 0 ? off / list : 0;
+  const gap = bucket.amount - net;
+
+  const naverText = !trend
+    ? `${storeLabel(bucket.store)}에는 ${monthLabel(month)} 네이버 예약이 없어 행사 근거가 없습니다.`
+    : trend.rates.length === 0
+      ? `네이버 예약 ${monthLabel(month)}: 할인 없음 (정가 ${trend.full.toLocaleString("ko-KR")}건)`
+      : `네이버 예약 ${monthLabel(month)}: ${trend.rates
+          .map((r) => `${rateLabel(r.rate)} 할인 ${r.count.toLocaleString("ko-KR")}건`)
+          .join(" · ")} · 정가 ${trend.full.toLocaleString("ko-KR")}건`;
+
+  return (
+    <div className="mt-3 rounded-nd-md border border-nd-border bg-nd-sunken px-3 py-3">
+      <p className="text-nd-caption text-nd-fg-2">
+        결제액 <b className="nd-num text-nd-fg">{bucket.amount.toLocaleString("ko-KR")}원</b>이 어떤 상품을 몇 개,
+        얼마 할인해서 받은 금액인지 적으세요. 정가 − 할인이 결제액과 같아지면 확정할 수 있습니다. 정가는 {date} 기준입니다.
+      </p>
+      <p className="mt-1 text-nd-caption text-nd-fg-3">{naverText}</p>
+
+      {/* 추천 — 누르면 아래 칸이 채워진다 */}
+      <div className="mt-3">
+        <p className="mb-1.5 text-nd-caption font-medium text-nd-fg-2">
+          {suggestions.length === 0
+            ? "5% 단위 할인으로 이 금액이 나오는 상품이 없습니다 — 아래에 원 단위로 직접 적으세요"
+            : `할인으로 이 금액이 나오는 조합 ${suggestions.length}개 · 근거 순`}
+        </p>
+        {suggestions.length > 0 && (
+          <div className="grid gap-1.5 sm:grid-cols-2">
+            {shown.map((sg) => {
+              const on =
+                productId === sg.product.id && q === sg.qty && mode === "rate" && Number(value) === Number((sg.rate * 100).toFixed(1));
+              return (
+                <button
+                  key={`${sg.product.id}-${sg.qty}-${sg.rate}`}
+                  type="button"
+                  onClick={() => {
+                    setProductId(sg.product.id);
+                    setQty(String(sg.qty));
+                    setMode("rate");
+                    setValue(String(Number((sg.rate * 100).toFixed(1))));
+                  }}
+                  className={cn(
+                    "flex items-center gap-2.5 rounded-nd-md border px-2.5 py-2 text-left transition-colors duration-nd-fast",
+                    on ? "border-nd-accent bg-nd-accent-soft" : "border-nd-border bg-nd-content hover:bg-nd-sunken",
+                  )}
+                >
+                  <ProductThumb product={sg.product} size="sm" />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex min-w-0 flex-wrap items-center gap-x-1.5">
+                      <span className="truncate text-nd-body text-nd-fg">{sg.product.name}</span>
+                      <span className="text-nd-caption text-nd-fg-2">
+                        {sg.product.option} ×{sg.qty}
+                      </span>
+                    </span>
+                    <span className="nd-num block text-nd-micro text-nd-fg-3">
+                      정가 {sg.list.toLocaleString("ko-KR")} − {rateLabel(sg.rate)} = {sg.amount.toLocaleString("ko-KR")}
+                    </span>
+                    <span className="mt-0.5 flex flex-wrap gap-1">
+                      {sg.naverCount > 0 && (
+                        <Badge tone="success" size="sm">
+                          네이버 {monthLabel(month)} {rateLabel(sg.rate)} {sg.naverCount}건
+                        </Badge>
+                      )}
+                      {sg.coupon && <Badge size="sm">쿠폰 할인율</Badge>}
+                      {sg.rows > 0 && (
+                        <Badge tone="success" size="sm">
+                          이 범위에서 {sg.rows}줄 확정
+                        </Badge>
+                      )}
+                      {sg.naverCount === 0 && !sg.coupon && sg.rows === 0 && <Badge size="sm">근거 없음</Badge>}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {suggestions.length > shown.length && (
+          <button
+            type="button"
+            onClick={() => setAllSuggestions(true)}
+            className="mt-1.5 h-8 w-full rounded-nd-md border border-dashed border-nd-border text-nd-caption font-medium text-nd-fg-2 transition-colors duration-nd-fast hover:bg-nd-content hover:text-nd-fg"
+          >
+            조합 {suggestions.length - shown.length}개 더 보기
+          </button>
+        )}
+      </div>
+
+      {/* 직접 입력 — 칸 위쪽을 맞추고 버튼은 FieldAction 으로 같은 줄에 */}
+      <div className="mt-3 flex flex-wrap items-start gap-3 border-t border-nd-line pt-3">
+        <Field
+          label="상품"
+          className="min-w-[16rem] flex-1"
+          hint={product ? `정가 ${unit.toLocaleString("ko-KR")}원 (${date})` : "할인 전 상품"}
+        >
+          <Select size="sm" value={productId} onChange={(e) => setProductId(e.target.value)}>
+            <option value="">— 상품을 고르세요 —</option>
+            {pool.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} {p.option} · {valueAt(p, date).price.toLocaleString("ko-KR")}원
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="수량" hint={list > 0 ? `정가 합계 ${list.toLocaleString("ko-KR")}` : " "}>
+          <Input
+            size="sm"
+            inputMode="numeric"
+            className="nd-num w-20"
+            value={qty}
+            onChange={(e) => setQty(e.target.value.replace(/[^\d]/g, ""))}
+          />
+        </Field>
+        <Field
+          label="할인"
+          hint={list > 0 && off > 0 ? (mode === "rate" ? `${off.toLocaleString("ko-KR")}원` : rateLabel(rate)) : " "}
+        >
+          <div className="flex items-center gap-1.5">
+            <Input
+              size="sm"
+              inputMode="decimal"
+              className="nd-num w-24"
+              aria-label={mode === "rate" ? "할인율(%)" : "할인액(원)"}
+              value={value}
+              placeholder="0"
+              onChange={(e) => setValue(e.target.value.replace(mode === "rate" ? /[^\d.]/g : /[^\d]/g, ""))}
+            />
+            <SegmentedControl<DiscountMode>
+              size="sm"
+              ariaLabel="할인 단위"
+              value={mode}
+              onChange={(m) => {
+                // 단위를 바꿔도 같은 할인이 되게 옮겨 적는다
+                if (list > 0 && off > 0) {
+                  setValue(m === "won" ? String(off) : String(Number(((off / list) * 100).toFixed(2))));
+                }
+                setMode(m);
+              }}
+              options={[
+                { value: "rate", label: "%" },
+                { value: "won", label: "원" },
+              ]}
+            />
+          </div>
+        </Field>
+        <FieldAction>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!product || list <= bucket.amount}
+            title="정가 합계와 결제액의 차이를 전부 할인으로 적습니다"
+            onClick={() => {
+              setMode("won");
+              setValue(String(list - bucket.amount));
+            }}
+          >
+            차액을 할인으로
+          </Button>
+        </FieldAction>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <span className={cn("nd-num text-nd-body", ok ? "text-nd-success" : "text-nd-fg-2")}>
+          {product && q > 0 ? (
+            <>
+              정가 <Money value={list} unit={false} /> − 할인 <Money value={off} unit={false} />
+              {off > 0 ? ` (${rateLabel(rate)})` : ""} = <Money value={net} unit={false} /> / 결제{" "}
+              <Money value={bucket.amount} unit={false} />
+              {!ok && off > 0 && gap !== 0
+                ? ` · ${Math.abs(gap).toLocaleString("ko-KR")}원 ${gap > 0 ? "모자람" : "넘침"}`
+                : ""}
+            </>
+          ) : (
+            "상품과 수량을 고르면 계산됩니다"
+          )}
+        </span>
+        <Button
+          size="sm"
+          icon={CheckCheck}
+          loading={busy}
+          disabled={!ok}
+          onClick={() => onResolve(productId, q, { list, rate: Math.round(rate * 10000) / 10000 })}
+        >
+          {bucket.lines.length}건 할인 적용 확정
+        </Button>
+      </div>
+    </div>
   );
 }
 
