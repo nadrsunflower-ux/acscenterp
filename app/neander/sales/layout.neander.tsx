@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { SalesActivate } from "@/components/neander/sales/SalesProvider";
 import { SalesShellBridge } from "@/components/neander/sales/SalesShellBridge";
 import { SalesChat } from "@/components/neander/sales/SalesChat";
+import { SmoatProvider } from "@/components/neander/smoat/SmoatProvider";
 
 // 매출 영역(/neander/sales/*) 공통 레이아웃.
 // 판매 줄·상품·이벤트는 ERP 공통 Providers 의 SalesProvider 가 들고 있고,
@@ -10,7 +11,7 @@ import { SalesChat } from "@/components/neander/sales/SalesChat";
 // (components/neander/shell/nav-config.ts 의 WORKSPACES) — 재무와 같다.
 export default function SalesLayout({ children }: { children: ReactNode }) {
   return (
-    <>
+    <SmoatProvider>
       <SalesActivate />
       <SalesShellBridge />
       {/* 비서를 도킹해 열면 SalesChat 이 오른쪽에 자리를 차지해 본문이 밀린다.
@@ -19,6 +20,6 @@ export default function SalesLayout({ children }: { children: ReactNode }) {
         <div className="min-w-0 flex-1">{children}</div>
         <SalesChat />
       </div>
-    </>
+    </SmoatProvider>
   );
 }

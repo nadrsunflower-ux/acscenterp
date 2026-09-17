@@ -363,6 +363,15 @@ export const SEED_PRODUCTS: SalesProduct[] = [
   },
 
   // ---- 온라인 (ONL) -----------------------------------------
+  //  ⚠️ 별칭에 `상품유형/옵션` 꼴의 문자열이 섞여 있는 것은 오타가 아니다.
+  //     acscent.co.kr 주문을 자동으로 받을 때(lib/neander/sync) 그 사이트의
+  //     상품 키가 그대로 별칭으로 걸린다. 매칭 표를 코드에 두지 않고 **마스터
+  //     에서 고칠 수 있게** 하려는 것이다 — 사이트에 새 상품이 생기면 상품
+  //     관리 화면에서 별칭 한 줄만 더하면 된다.
+  //
+  //     긴 별칭이 이기므로(resolve.ts byAlias) `saju_perfume/50ml` 가 `50ml`
+  //     보다 먼저 걸린다. 그래야 사주 50ml(44,000)이 일반 50ml(48,000)로
+  //     잘못 잡히지 않는다.
   //  ⚠️ 판매가가 시트마다 다르다. 기본가정 시트는 「10ml 28,000 · 50ml
   //     38,000(배송비 포함)」인데, 온라인 시트의 7월 실적은 10ml 7건
   //     168,000원(= 24,000/개) · 50ml 6건 288,000원(= 48,000/개) 이다.
@@ -370,24 +379,40 @@ export const SEED_PRODUCTS: SalesProduct[] = [
   {
     id: "ONL-001", store: "online", kind: "regular", name: "온라인향수", option: "10ml",
     price: 24_000, material: 5_116, timeMin: 0, makeMin: 10, bottles: 1,
-    aliases: ["10ml"],
+    aliases: [
+      "10ml",
+      "image_analysis/10ml",
+      "personal_scent/10ml",
+      "today_scent/10ml",
+      "signature/10ml",
+      "graduation/10ml",
+    ],
     conflict: "기본가정 시트는 28,000원(배송비 포함). 7월 실적은 24,000원으로 팔렸다.",
   },
   {
     id: "ONL-002", store: "online", kind: "regular", name: "온라인향수", option: "50ml",
     price: 48_000, material: 8_218, timeMin: 0, makeMin: 10, bottles: 1,
-    aliases: ["50ml"],
+    aliases: [
+      "50ml",
+      "image_analysis/50ml",
+      "personal_scent/50ml",
+      "today_scent/50ml",
+      "signature/50ml",
+      "graduation/50ml",
+    ],
     conflict: "기본가정 시트는 38,000원(무료배송). 7월 실적은 48,000원으로 팔렸다.",
   },
   {
     id: "ONL-003", store: "online", kind: "regular", name: "온라인뿌디", option: "기본",
     price: 48_000, material: 9_412, timeMin: 0, makeMin: 30, bottles: 1,
-    aliases: ["뿌디"],
+    aliases: ["뿌디", "figure_diffuser/set"],
   },
   {
     id: "ONL-004", store: "online", kind: "regular", name: "온라인시향지", option: "기본",
     price: 4_000, material: 3_597, timeMin: 0, makeMin: 0, bottles: 1,
-    aliases: ["시향지"],
+    // `/scent_paper` 는 상품유형을 가리지 않는 꼬리 매칭이다 — 어느 향수를
+    // 사든 시향지 옵션은 같은 품목이다 (image_analysis/scent_paper 등)
+    aliases: ["시향지", "/scent_paper"],
     note: "공헌이익률 10% — 팔아도 남지 않는다",
   },
   // ---- 2026-09 온라인에서도 사주 상품을 판다 (사용자 확인 · 8월 온라인 적재에서 추가) ----
@@ -396,21 +421,21 @@ export const SEED_PRODUCTS: SalesProduct[] = [
   {
     id: "ONL-005", store: "online", kind: "regular", name: "오행 퍼퓸", option: "50ml",
     price: 44_000, material: 8_218, timeMin: 0, makeMin: 10, bottles: 1,
-    aliases: ["오행 퍼퓸 50ml", "사주 50ml"],
+    aliases: ["오행 퍼퓸 50ml", "사주 50ml", "saju_perfume/50ml"],
     unconfirmed: true,
     note: "사주 · 재료비는 온라인 50ml(ONL-002)와 같다고 가정",
   },
   {
     id: "ONL-006", store: "online", kind: "regular", name: "오행 퍼퓸", option: "10ml",
     price: 22_000, material: 5_116, timeMin: 0, makeMin: 10, bottles: 1,
-    aliases: ["오행 퍼퓸 10ml", "사주 10ml"],
+    aliases: ["오행 퍼퓸 10ml", "사주 10ml", "saju_perfume/10ml"],
     unconfirmed: true,
     note: "사주 · 재료비는 온라인 10ml(ONL-001)와 같다고 가정",
   },
   {
     id: "ONL-007", store: "online", kind: "regular", name: "사주 클리커", option: "기본",
     price: 12_900, material: 0, timeMin: 0, makeMin: 0, bottles: 1,
-    aliases: ["디퓨저 클리커", "사주 클리커", "음양오행 클리커"],
+    aliases: ["디퓨저 클리커", "사주 클리커", "음양오행 클리커", "/clicker"],
     unconfirmed: true,
     note: "사주 · 재료비·포장 미확인 (택배비 넣지 않음 — 향수와 함께 보내는 경우가 많다고 가정)",
   },
@@ -418,9 +443,19 @@ export const SEED_PRODUCTS: SalesProduct[] = [
     // 원문 「set_10ml」 44,000 — 사주 50ml 과 금액이 같지만 사주가 아니다 (사용자 확인)
     id: "ONL-008", store: "online", kind: "regular", name: "10ml 세트", option: "10ml×2",
     price: 44_000, material: 6_960, timeMin: 0, makeMin: 20, bottles: 2,
-    aliases: ["set_10ml"],
+    aliases: ["set_10ml", "chemistry_set/set_10ml"],
     unconfirmed: true,
     note: "사주 아님 · 재료비 = 오프라인 10ml 세트(IDI-011 3,536원) + 온라인 포장·택배 몫 3,424원 (가정)",
+  },
+  {
+    // 자사몰의 레이어링 50ml 세트 (chemistry_set/set_50ml · 88,000).
+    // 2026-09 자동 적재를 켜면서 추가했다 — 그 전에는 온라인 50ml 세트가
+    // 마스터에 없어 전부 검토 대기함으로 갔다.
+    id: "ONL-009", store: "online", kind: "regular", name: "50ml 세트", option: "50ml×2",
+    price: 88_000, material: 8_830, timeMin: 0, makeMin: 20, bottles: 2,
+    aliases: ["set_50ml", "chemistry_set/set_50ml"],
+    unconfirmed: true,
+    note: "재료비 = 오프라인 레이어링 50ml 세트(IDI-014 5,406원) + 온라인 포장·택배 몫 3,424원 (ONL-008 과 같은 가정)",
   },
 ];
 

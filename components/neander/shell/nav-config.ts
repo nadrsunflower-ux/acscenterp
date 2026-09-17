@@ -27,10 +27,12 @@ import {
   ListChecks,
   MessageCircle,
   Package,
+  RefreshCw,
   Rocket,
   Scale,
   ScrollText,
   Send,
+  Server,
   TrendingUp,
   Users,
   Wallet,
@@ -131,7 +133,13 @@ export const FINANCE_NAV: NavGroup[] = [
 export const SALES_NAV: NavGroup[] = [
   {
     label: "매출",
-    items: [{ href: "/neander/sales", label: "월 손익", icon: ChartNoAxesColumn, exact: true }],
+    items: [
+      { href: "/neander/sales", label: "월 손익", icon: ChartNoAxesColumn, exact: true },
+      // SMOAT 은 향수 매장과 성격이 달라 매장 축에 끼우지 않았다. 같은
+      // 워크스페이스 안의 **다른 사업**이라 메뉴에서도 옆자리에 둔다
+      // (lib/neander/smoat/types.ts 주석).
+      { href: "/neander/sales/smoat", label: "SMOAT", icon: Server },
+    ],
   },
   {
     label: "분석 및 관리",
@@ -146,6 +154,7 @@ export const SALES_NAV: NavGroup[] = [
     label: "데이터",
     items: [
       { href: "/neander/sales/import", label: "매출 적재", icon: Download },
+      { href: "/neander/sales/sync", label: "자동 동기화", icon: RefreshCw },
       { href: "/neander/sales/event-entry", label: "이벤트 입력", icon: CalendarPlus },
       { href: "/neander/sales/review", label: "검토 대기함", icon: Inbox, badge: "sales-review" },
       { href: "/neander/sales/master", label: "마스터", icon: Database },

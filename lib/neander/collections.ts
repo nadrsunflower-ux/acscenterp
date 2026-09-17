@@ -81,4 +81,25 @@ export const NEANDER_COL = {
   salesChats: "neander_sales_chats",
   /** 지운 판매 줄의 원본 — 되돌리기가 숨긴 필드(importId 등)를 되살리는 근거 */
   salesTrash: "neander_sales_trash",
+  // ---- 사이트 자동 동기화 (/neander/sales/sync) ----
+  //  우리 사이트(acscent.co.kr · smoat.co.kr)의 매출을 피드로 끌어온다.
+  //  lib/neander/sync/contract.ts 가 그 계약이다.
+  /** 피드별 커서·마지막 결과 (문서 id = FeedSource) */
+  syncState: "neander_sync_state",
+  /**
+   * 사람이 봐야 할 것 — 적재하지 못한 주문, 사람이 고친 줄과 어긋난 사이트 값.
+   * (문서 id = `${source}_${주문·결제 id}`)
+   *
+   * 실행 결과(lastRun)에만 남기면 다음 실행이 덮어써 한 시간 뒤에 사라진다.
+   * 그 주문은 커서가 이미 지나갔으니 다시 오지도 않는다 — 조용히 잃는다.
+   * 그래서 풀릴 때까지 따로 남긴다. 그 주문이 나중에 제대로 적재되면 지운다.
+   */
+  syncIssues: "neander_sync_issues",
+  // ---- SMOAT 매출 (/neander/sales/smoat) ----
+  //  향수 매장과 성격이 달라 판매 줄(salesLines)에 섞지 않는다. 같은
+  //  워크스페이스 안의 **다른 사업**이다 (lib/neander/smoat/types.ts 주석).
+  /** SMOAT 결제 한 건 = 문서 1개 (id = `${kind}_${사이트 id}`) */
+  smoatSales: "neander_smoat_sales",
+  /** SMOAT 월별 AI 원가·크레딧 (문서 id = YYYY-MM) */
+  smoatCosts: "neander_smoat_costs",
 } as const;

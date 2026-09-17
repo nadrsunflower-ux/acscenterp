@@ -34,7 +34,9 @@
     "test:e2e": "playwright test -c e2e/playwright.config.ts",
     "sales:verify": "tsx scripts/neander/verify-sales-resolve.ts",
     "sales:import": "tsx scripts/neander/import-sales-xlsx.ts",
-    "sales:verify-db": "tsx scripts/neander/verify-sales-db.ts"
+    "sales:verify-db": "tsx scripts/neander/verify-sales-db.ts",
+    "sync:verify": "tsx scripts/neander/verify-sync-online.ts",
+    "sync:site-keys": "tsx scripts/neander/add-site-keys.ts"
   },
   "dependencies": {
     "firebase": "10.14.1",

@@ -6,9 +6,14 @@
 //  조용히 작아지므로, 화면은 빠진 칸을 **붉게** 드러내고 채워진 칸을
 //  초록으로 보여준다.
 //
-//  네 번째 칸 — 페이히어 온라인(2026-09-15 추가)은 **있을 때만** 올리는 칸이다
+//  네 번째 칸 — 온라인(2026-09-15 추가)은 **있을 때만** 올리는 칸이다
 //  (optional). 온라인 판매가 없던 달(2025-12·2026-01)도 있어서, 필수로 두면 그
 //  달 퍼즐이 영영 완성되지 않는다. 완성 판정·「n/3」은 필수 칸만 센다.
+//
+//  ⚠️ 2026-09 부터 온라인 칸은 **자동으로 채워진다** — acscent.co.kr 주문을
+//     ERP 가 직접 끌어온다 (lib/neander/sync). 그래도 칸을 없애지 않은 이유:
+//     시작일(기본 2026-09-01) 앞의 달은 여전히 엑셀이 정본이고, 그 달을 다시
+//     보거나 고칠 때 올릴 자리가 필요하다. 칸에는 「자동」 표시가 붙는다.
 //
 //  칸은 파일명이 아니라 **내용**으로 정한다 — 페이히어는 시트 상단의
 //  매장 이름(악센트 아이디 · 악센트 와우(홍대))으로, 네이버는 예약번호·
@@ -38,6 +43,12 @@ export interface ImportSlot {
   encrypted: boolean;
   /** 있을 때만 올리는 칸 — 비어 있어도 퍼즐은 완성된다 */
   optional?: boolean;
+  /**
+   * 자사 사이트에서 **자동으로** 들어오는 칸. 사람이 파일을 올릴 일이 없다
+   * (lib/neander/sync). 시작일 앞의 달은 여전히 엑셀이 정본이라, 칸을
+   * 없애지 않고 「자동」 표시만 붙인다 — 과거 달을 손으로 올릴 길은 남는다.
+   */
+  auto?: "acscent-online";
 }
 
 export const IMPORT_SLOTS: ImportSlot[] = [
@@ -70,13 +81,14 @@ export const IMPORT_SLOTS: ImportSlot[] = [
   },
   {
     key: "payhere-online",
-    label: "페이히어 · 온라인",
-    source: "페이히어 온라인 주문 — 원가계산 엑셀 「입력_페이히어_온라인」 모양",
-    example: "페이히어_온라인_매출_YYYY-MM-DD_YYYY-MM-DD.xlsx",
+    label: "온라인 (자사몰)",
+    source: "acscent.co.kr 주문 — 사이트에서 자동으로 들어옵니다",
+    example: "페이히어_온라인_매출_YYYY-MM-DD_YYYY-MM-DD.xlsx (과거 달 수동 적재용)",
     store: "online",
     route: "online",
     encrypted: false,
     optional: true,
+    auto: "acscent-online",
   },
 ];
 

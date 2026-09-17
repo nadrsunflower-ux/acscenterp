@@ -46,6 +46,7 @@ import {
   LockOpen,
   Puzzle,
   Receipt,
+  RefreshCw,
   TriangleAlert,
   Undo2,
   Upload,
@@ -783,6 +784,11 @@ function Piece({
           <div className="flex items-center gap-1.5">
             <StoreBadge store={slot.store} size="sm" />
             <span className="truncate text-nd-body font-semibold text-nd-fg">{slot.label}</span>
+            {slot.auto && (
+              <Badge tone="info" size="sm" className="shrink-0">
+                <Icon icon={RefreshCw} size={12} /> 자동
+              </Badge>
+            )}
           </div>
           <p className="mt-0.5 truncate text-nd-micro text-nd-fg-3" title={slot.source}>
             {slot.source}
@@ -904,6 +910,32 @@ function StateMark({ state }: { state: "missing" | "optional" | "busy" | "error"
 }
 
 function DropHint({ slot, onPick, retry = false }: { slot: ImportSlot; onPick: () => void; retry?: boolean }) {
+  // 자동으로 들어오는 칸은 "파일을 끌어다 놓으세요"라고 말하면 안 된다 —
+  // 할 일이 없는데 할 일이 있는 것처럼 보인다. 대신 어디서 보는지 알려준다.
+  if (slot.auto && !retry) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 rounded-nd-md border border-dashed border-nd-border px-3 py-5 text-center">
+        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-nd-fg/[.06] text-nd-fg-2">
+          <Icon icon={RefreshCw} size={18} />
+        </span>
+        <span className="text-nd-caption font-medium text-nd-fg">사이트에서 자동으로 들어옵니다</span>
+        <span className="text-nd-micro text-nd-fg-3">{slot.source}</span>
+        <Link
+          href="/neander/sales/sync"
+          className="text-nd-micro font-medium text-nd-accent-strong hover:underline"
+        >
+          자동 동기화 상태 보기
+        </Link>
+        <button
+          type="button"
+          onClick={onPick}
+          className="text-nd-micro text-nd-fg-3 underline-offset-2 hover:underline"
+        >
+          과거 달은 파일로 올리기
+        </button>
+      </div>
+    );
+  }
   return (
     <button
       type="button"

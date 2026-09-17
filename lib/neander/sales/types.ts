@@ -790,6 +790,25 @@ export interface SalesLine {
    */
   discount?: SalesLineDiscount | null;
   memo?: string;
+  /**
+   * 이 줄을 만든 **사이트 자동 동기화**의 출처 (lib/neander/sync).
+   * 손으로 올린 엑셀 줄에는 없다.
+   *
+   * 있으면 그 줄의 주인은 동기화다 — 사이트에서 주문이 바뀌면 다시 덮어쓰고,
+   * 매출이 아니게 되면(취소·전액환불) 지운다. 단 **사람이 한 번 고치면
+   * 주인이 사람으로 바뀐다** (updatedBy 가 사람 이메일이 된다). 그 뒤로는
+   * 동기화가 손대지 않고 어긋난 사실만 알린다 — 사람이 대기함에서 판단해
+   * 확정한 것을 기계가 조용히 되돌리면 안 된다.
+   */
+  syncSource?: string;
+  /**
+   * 동기화가 만든 줄의 사이트 주문 id. 사이트에서 주문이 **지워지면** 피드에
+   * 다시 나타나지 않으므로, ERP 가 가진 주문 id 를 모아 "아직 있나"를
+   * 되물을 때 쓴다 (sync/server/pull.ts reconcileOnline).
+   */
+  syncOrderId?: string;
+  /** 동기화가 이 줄을 마지막으로 맞춘 시각 */
+  syncedAt?: number;
   createdAt?: number;
   updatedAt?: number;
   updatedBy?: string;
