@@ -28,6 +28,7 @@ import {
   ErrorState,
   InfoPopover,
   InlineNotice,
+  KpiItem,
   KpiStrip,
   LoadingState,
   Money,
@@ -45,6 +46,7 @@ import {
   Tr,
 } from "@/components/neander/ui";
 import { ToolbarPortal } from "@/components/neander/shell/context";
+import { SmoatDrill, type SmoatFact } from "@/components/neander/smoat/SmoatDrill";
 import { useSmoat, useSmoatActivate } from "@/components/neander/smoat/SmoatProvider";
 import {
   buildSmoatPnl,
@@ -53,6 +55,7 @@ import {
   smoatMonths,
   smoatPayMethodLabel,
   type SmoatPayMethod,
+  type SmoatSale,
 } from "@/lib/neander/smoat/types";
 import { monthLabel } from "@/lib/neander/format";
 import { selectableMonths } from "@/lib/neander/months";
@@ -85,6 +88,27 @@ export default function SmoatPage() {
     [activeMonth, sales, costs],
   );
   const accounts = useMemo(() => smoatAccounts(sales, activeMonth), [sales, activeMonth]);
+
+  // ---- 드릴이 여는 줄 — buildSmoatPnl 과 **같은 거름**이어야 창 합계가 칸과 같다 ----
+  const monthRows = () => sales.filter((x) => x.date.slice(0, 7) === activeMonth && x.amount > 0);
+  const packName = (x: SmoatSale) =>
+    x.packLabel ?? (x.credits ? `${num(x.credits)} 크레딧` : "기타");
+  const cost = costs.find((c) => c.id === activeMonth);
+  /** 이 달 원가의 근거 — 사이트가 월 집계로만 주어 줄이 없다 */
+  const costFacts = (): SmoatFact[] => {
+    if (!cost) return [{ key: "none", label: "아직 받지 못했습니다", value: "—" }];
+    return [
+      { key: "usd", label: "AI 호출 비용", value: `$${cost.aiUsd.toFixed(2)}`, sub: "공급사에 지불한 달러" },
+      {
+        key: "fx",
+        label: "환산 환율",
+        value: cost.fxRate ? `${num(Math.round(cost.fxRate))}원/$` : "—",
+        sub: "사이트가 호출마다 실제로 쓴 환율의 역산",
+      },
+      { key: "krw", label: "원화 원가", value: `${num(cost.aiKrw)}원`, strong: true },
+      { key: "used", label: "이 달 쓰인 크레딧", value: num(cost.creditsUsed), sub: "무료 크레딧 사용분 포함" },
+    ];
+  };
 
   const state = states.find((s) => s.id === "smoat");
   const notConfigured = state && !state.configured;
@@ -232,12 +256,27 @@ export default function SmoatPage() {
           value={pnl.revenue}
           flow="income"
           hint={pnl.refund > 0 ? `환불 ${num(pnl.refund)}원 뺀 값` : `결제 ${pnl.count}건`}
+          wrapValue={(money) => (
+            <SmoatDrill title={`${sub} 순매출`} subtitle={sub} rows={monthRows} group="pack" flow="income">
+              {money}
+            </SmoatDrill>
+          )}
         />
         <StatTile
           label="AI 원가"
           value={pnl.aiCost ?? 0}
           flow="expense"
           hint={pnl.aiCost === null ? "아직 받지 못했습니다" : "그 달 호출 비용"}
+          wrapValue={(money) => (
+            <SmoatDrill
+              title="AI 원가"
+              subtitle={sub}
+              facts={costFacts}
+              note="SMOAT 의 변동비는 AI 호출 비용입니다. 향수의 직접재료비에 해당하는 자리입니다. 사이트가 달러로 기록한 값을 그때그때의 환율로 환산해 받습니다."
+            >
+              {money}
+            </SmoatDrill>
+          )}
         />
         <StatTile
           label="공헌이익"
@@ -245,11 +284,43 @@ export default function SmoatPage() {
           flow="income"
           hint={pnl.contribution === null ? "원가를 모릅니다" : `이익률 ${pct(pnl.contributionRate)}`}
           tag={pnl.contribution !== null && pnl.contribution < 0 ? "손실" : undefined}
+          wrapValue={(money) => (
+            <SmoatDrill
+              title="공헌이익"
+              subtitle={sub}
+              facts={(): SmoatFact[] => [
+                { key: "rev", label: "순매출", value: `${num(pnl.revenue)}원`, sub: `결제 ${pnl.count}건 · 환불 뺀 값` },
+                { key: "cost", label: "AI 원가", value: pnl.aiCost === null ? "—" : `−${num(pnl.aiCost)}원` },
+                {
+                  key: "sum",
+                  label: "= 공헌이익",
+                  value: pnl.contribution === null ? "—" : `${num(pnl.contribution)}원`,
+                  sub: pnl.contribution === null ? "원가를 몰라 계산할 수 없습니다" : `이익률 ${pct(pnl.contributionRate)}`,
+                  strong: true,
+                },
+              ]}
+              note="고정비(인건비·서버 외)는 아직 넣지 않았습니다. 여기서 빠진 것은 변동비 하나뿐이라, 이 숫자는 영업이익이 아닙니다."
+            >
+              {money}
+            </SmoatDrill>
+          )}
         />
-        <StatTile
+        {/* 학원 수는 돈이 아니다 — StatTile 은 「원」을 붙이므로 KpiItem 으로 */}
+        <KpiItem
           label="결제 학원"
-          value={pnl.accounts}
-          hint={`신규 ${pnl.newAccounts} · 학원당 ${pnl.arpa === null ? "—" : `${num(pnl.arpa)}원`}`}
+          unit="곳"
+          value={
+            <SmoatDrill
+              title="결제한 학원"
+              subtitle={sub}
+              rows={() => monthRows().filter((x) => x.accountId)}
+              group="account"
+              flow="income"
+            >
+              {num(pnl.accounts)}
+            </SmoatDrill>
+          }
+          hint={`신규 ${pnl.newAccounts}곳 · 학원당 ${pnl.arpa === null ? "—" : `${num(pnl.arpa)}원`}`}
         />
       </KpiStrip>
 
@@ -262,18 +333,67 @@ export default function SmoatPage() {
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
             <div className="text-nd-sm text-nd-fg-3">이 달 판 크레딧</div>
-            <div className="nd-num text-nd-lg font-semibold">{num(pnl.creditsSold)}</div>
+            <div className="nd-num text-nd-lg font-semibold">
+              <SmoatDrill
+                title="이 달 판 크레딧"
+                subtitle={sub}
+                rows={() => monthRows().filter((x) => (x.credits ?? 0) > 0)}
+                amountOf={(x) => x.credits ?? 0}
+                unit="credit"
+                group="pack"
+              >
+                {num(pnl.creditsSold)}
+              </SmoatDrill>
+            </div>
           </div>
           <div>
             <div className="text-nd-sm text-nd-fg-3">이 달 쓰인 크레딧</div>
-            <div className="nd-num text-nd-lg font-semibold">{num(pnl.creditsUsed)}</div>
+            <div className="nd-num text-nd-lg font-semibold">
+              <SmoatDrill
+                title="이 달 쓰인 크레딧"
+                subtitle={sub}
+                unit="credit"
+                facts={(): SmoatFact[] => [
+                  { key: "used", label: "쓰인 크레딧", value: num(pnl.creditsUsed), strong: true },
+                  { key: "sold", label: "판 크레딧", value: num(pnl.creditsSold) },
+                  {
+                    key: "gap",
+                    label: "이 달 차이",
+                    value: num(pnl.creditsSold - pnl.creditsUsed),
+                    sub: "판 것에서 쓰인 것을 뺀 값",
+                  },
+                ]}
+                note="사이트는 크레딧 사용을 월 집계로만 줍니다. 어느 학원이 무엇에 썼는지는 SMOAT 관리자 화면에서 봅니다. 쓰인 크레딧에는 무료 체험·프로모션으로 준 크레딧의 사용분도 섞여 있습니다."
+              >
+                {num(pnl.creditsUsed)}
+              </SmoatDrill>
+            </div>
           </div>
           <div>
             <div className="text-nd-sm text-nd-fg-3">판 것 − 쓰인 것 누계 (선수금 근사)</div>
             <div
               className={`nd-num text-nd-lg font-semibold ${pnl.unusedCredits < 0 ? "text-nd-danger" : ""}`}
             >
-              {num(pnl.unusedCredits)}
+              <SmoatDrill
+                title="판 것 − 쓰인 것 누계"
+                subtitle={`${sub} 까지`}
+                unit="credit"
+                facts={(): SmoatFact[] => [
+                  ...costs
+                    .filter((c) => c.id <= activeMonth)
+                    .sort((a, b) => a.id.localeCompare(b.id))
+                    .map((c) => ({
+                      key: c.id,
+                      label: monthLabel(c.id),
+                      value: num(c.creditsSold - c.creditsUsed),
+                      sub: `판 것 ${num(c.creditsSold)} · 쓰인 것 ${num(c.creditsUsed)}`,
+                    })),
+                  { key: "sum", label: "= 누계", value: num(pnl.unusedCredits), strong: true },
+                ]}
+                note="무료 체험·프로모션으로 준 크레딧의 사용분이 섞여 있어 실제 선수금보다 작게 나옵니다. 음수면 그 달들에 무료 크레딧이 많이 쓰였다는 뜻입니다."
+              >
+                {num(pnl.unusedCredits)}
+              </SmoatDrill>
             </div>
             <div className="mt-0.5 text-nd-micro text-nd-fg-3">
               무료 크레딧 사용분이 섞여 실제보다 작게 나옵니다
@@ -304,7 +424,15 @@ export default function SmoatPage() {
                     <Td num>{p.count}</Td>
                     <Td num>{num(p.credits)}</Td>
                     <Td num className="pr-5 font-semibold">
-                      <Money value={p.amount} unit={false} flow="income" />
+                      <SmoatDrill
+                        title={`${p.label} · 순매출`}
+                        subtitle={sub}
+                        rows={() => monthRows().filter((x) => packName(x) === p.label)}
+                        group="account"
+                        flow="income"
+                      >
+                        <Money value={p.amount} unit={false} flow="income" />
+                      </SmoatDrill>
                     </Td>
                   </Tr>
                 ))}
@@ -313,7 +441,9 @@ export default function SmoatPage() {
                   <Td num>{pnl.count}</Td>
                   <Td num>{num(pnl.byPack.reduce((s, p) => s + p.credits, 0))}</Td>
                   <Td num className="pr-5">
-                    <Money value={pnl.revenue} unit={false} flow="income" />
+                    <SmoatDrill title={`${sub} 순매출`} subtitle={sub} rows={monthRows} group="pack" flow="income">
+                      <Money value={pnl.revenue} unit={false} flow="income" />
+                    </SmoatDrill>
                   </Td>
                 </TotalRow>
               </tbody>
@@ -335,19 +465,29 @@ export default function SmoatPage() {
                 </tr>
               </thead>
               <tbody>
-                {pnl.byMethod.map((m) => (
-                  <Tr key={m.method}>
-                    <Td className="pl-5">
-                      {m.method === "unknown"
-                        ? "알 수 없음"
-                        : smoatPayMethodLabel(m.method as SmoatPayMethod)}
-                    </Td>
-                    <Td num>{m.count}</Td>
-                    <Td num className="pr-5 font-semibold">
-                      <Money value={m.amount} unit={false} flow="income" />
-                    </Td>
-                  </Tr>
-                ))}
+                {pnl.byMethod.map((m) => {
+                  const label =
+                    m.method === "unknown" ? "알 수 없음" : smoatPayMethodLabel(m.method as SmoatPayMethod);
+                  return (
+                    <Tr key={m.method}>
+                      <Td className="pl-5">{label}</Td>
+                      <Td num>{m.count}</Td>
+                      <Td num className="pr-5 font-semibold">
+                        <SmoatDrill
+                          title={`${label} · 순매출`}
+                          subtitle={sub}
+                          rows={() =>
+                            monthRows().filter((x) => (x.payMethod ?? "unknown") === m.method)
+                          }
+                          group="account"
+                          flow="income"
+                        >
+                          <Money value={m.amount} unit={false} flow="income" />
+                        </SmoatDrill>
+                      </Td>
+                    </Tr>
+                  );
+                })}
               </tbody>
             </Table>
           </TableScroll>
@@ -380,7 +520,15 @@ export default function SmoatPage() {
                     <Td className="pl-5">{a.accountName}</Td>
                     <Td num>{a.count}</Td>
                     <Td num className="font-semibold">
-                      <Money value={a.amount} unit={false} flow="income" />
+                      <SmoatDrill
+                        title={`${a.accountName} · 순매출`}
+                        subtitle={sub}
+                        rows={() => monthRows().filter((x) => x.accountId === a.accountId)}
+                        group="pack"
+                        flow="income"
+                      >
+                        <Money value={a.amount} unit={false} flow="income" />
+                      </SmoatDrill>
                     </Td>
                     <Td className="pr-5 text-nd-sm text-nd-fg-3">
                       {a.firstDate}
