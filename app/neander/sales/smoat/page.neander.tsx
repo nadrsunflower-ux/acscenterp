@@ -1,7 +1,7 @@
 "use client";
 
 // ============================================================
-//  매출 › SMOAT — 향수가 아닌 사업의 월 손익
+//  매출 › SMOAT 대시보드 — 향수가 아닌 사업의 월 손익 (매장 대시보드와 한 벌)
 // ------------------------------------------------------------
 //  ⚠️ 이 화면은 매장 손익 표에 SMOAT 을 끼워 넣지 않는다. 같은 워크스페이스
 //     안의 **다른 사업**이다 (lib/neander/smoat/types.ts 주석에 왜 그런지
@@ -13,7 +13,7 @@
 //     적재하지 않는 것과 같은 이유다. 이 화면이 답하는 것은 "누가 어떤 팩을
 //     샀나"이고, 장부와는 맨 아래 대사 줄에서 만난다.
 //
-//  화면 순서는 매출 월 손익과 한 벌이다:
+//  화면 순서는 매장 대시보드와 한 벌이다:
 //    제목 + 계산 기준 → 핵심 지표 → 선수금 띠 → 팩별·결제수단별 → 학원별
 // ============================================================
 
@@ -24,6 +24,7 @@ import {
   BasisLine,
   Button,
   Card,
+  ChartValues,
   EmptyState,
   ErrorState,
   InfoPopover,
@@ -33,6 +34,8 @@ import {
   LoadingState,
   Money,
   MonthStepper,
+  SegmentedControl,
+  SERIES,
   PageHeader,
   PageShell,
   SectionHeader,
@@ -47,6 +50,9 @@ import {
 } from "@/components/neander/ui";
 import { ToolbarPortal } from "@/components/neander/shell/context";
 import { SmoatDrill, type SmoatFact } from "@/components/neander/smoat/SmoatDrill";
+// 매장 대시보드와 **같은 부품**이다 — 축 여백·눈금·hover 가 그대로라 두 화면을
+// 번갈아 보는 사람이 다시 적응할 이유가 없다 (MonthTrendChart 주석 참고).
+import { MonthTrendChart } from "@/components/neander/sales/MonthTrendChart";
 import { useSmoat, useSmoatActivate } from "@/components/neander/smoat/SmoatProvider";
 import {
   accountMethodText,
@@ -55,6 +61,7 @@ import {
   smoatKindLabel,
   smoatMonths,
   smoatPayMethodLabel,
+  smoatTrend,
   type SmoatPayMethod,
   type SmoatSale,
 } from "@/lib/neander/smoat/types";
@@ -74,6 +81,20 @@ function ledgerHref(month: string): string {
 const pct = (v: number | null) => (v === null ? "—" : `${(v * 100).toFixed(1)}%`);
 const num = (n: number) => n.toLocaleString("ko-KR");
 
+type TrendRange = "6" | "12" | "all";
+
+/**
+ * 추이 막대 세 갈래 — 매장 대시보드가 매장 셋을 놓는 자리에 이쪽은 손익 셋을 놓는다.
+ *
+ * 공헌이익은 순매출과 AI 원가의 **차이**라서 「합계」 자리에 둔다 (total). 그래야
+ * 커서를 올렸을 때 부분 두 줄 다음에 결과 한 줄로 읽힌다.
+ */
+const TREND_SERIES = [
+  { key: "revenue", label: "순매출", color: SERIES.income },
+  { key: "aiCost", label: "AI 원가", color: SERIES.expense },
+  { key: "contribution", label: "공헌이익", color: SERIES.neutral, total: true },
+];
+
 export default function SmoatPage() {
   const { sales, costs, states, loading, refreshing, error, refresh } = useSmoat();
   const [month, setMonth] = useState("");
@@ -89,6 +110,29 @@ export default function SmoatPage() {
     [activeMonth, sales, costs],
   );
   const accounts = useMemo(() => smoatAccounts(sales, activeMonth), [sales, activeMonth]);
+
+  const [range, setRange] = useState<TrendRange>("12");
+  /**
+   * 월별 추이. 원가를 아직 못 받은 달은 AI 원가·공헌이익 **막대를 그리지 않는다**
+   * — 0 으로 두면 "그 달은 원가가 없었다"로 읽힌다.
+   */
+  const trend = useMemo(() => {
+    const asc = [...known].sort();
+    const window = range === "all" ? asc : asc.slice(-Number(range));
+    return smoatTrend(window, sales, costs);
+  }, [known, range, sales, costs]);
+  const trendPoints = useMemo(
+    () =>
+      trend.map((p) => ({
+        month: p.month,
+        values: {
+          revenue: p.revenue,
+          ...(p.aiCost === null ? {} : { aiCost: p.aiCost }),
+          ...(p.contribution === null ? {} : { contribution: p.contribution }),
+        },
+      })),
+    [trend],
+  );
 
   // ---- 드릴이 여는 줄 — buildSmoatPnl 과 **같은 거름**이어야 창 합계가 칸과 같다 ----
   const monthRows = () => sales.filter((x) => x.date.slice(0, 7) === activeMonth && x.amount > 0);
@@ -119,7 +163,7 @@ export default function SmoatPage() {
   if (error) {
     return (
       <PageShell width="form">
-        <PageHeader title="SMOAT" description="영어 내신 문제·시험 생성 서비스의 매출입니다." />
+        <PageHeader title="SMOAT 대시보드" description="영어 내신 문제·시험 생성 서비스의 매출입니다." />
         <ErrorState
           title="SMOAT 매출을 불러올 수 없습니다"
           description={error instanceof Error ? error.message : "알 수 없는 오류"}
@@ -131,7 +175,7 @@ export default function SmoatPage() {
   if (sales.length === 0) {
     return (
       <PageShell width="form">
-        <PageHeader title="SMOAT" description="영어 내신 문제·시험 생성 서비스의 매출입니다." />
+        <PageHeader title="SMOAT 대시보드" description="영어 내신 문제·시험 생성 서비스의 매출입니다." />
         <EmptyState
           icon={Server}
           title="아직 받아 온 결제가 없습니다"
@@ -174,7 +218,7 @@ export default function SmoatPage() {
       </ToolbarPortal>
 
       <PageHeader
-        title="SMOAT"
+        title="SMOAT 대시보드"
         description="영어 내신 문제·시험 생성 서비스 (smoat.co.kr) 의 결제 실적입니다."
         className="mb-3"
         actions={
@@ -324,6 +368,49 @@ export default function SmoatPage() {
           hint={`신규 ${pnl.newAccounts}곳 · 학원당 ${pnl.arpa === null ? "—" : `${num(pnl.arpa)}원`}`}
         />
       </KpiStrip>
+
+      {/* 월별 추이 — 매장 대시보드와 같은 자리·같은 부품 */}
+      <Card className="mb-5">
+        <SectionHeader
+          title="월별 추이"
+          hint="순매출 · AI 원가 · 공헌이익"
+          action={
+            <SegmentedControl<TrendRange>
+              size="sm"
+              ariaLabel="기간"
+              value={range}
+              onChange={setRange}
+              options={[
+                { value: "6", label: "6개월" },
+                { value: "12", label: "12개월" },
+                { value: "all", label: "전체" },
+              ]}
+            />
+          }
+        />
+        {trendPoints.length >= 2 ? (
+          <>
+            <MonthTrendChart points={trendPoints} series={TREND_SERIES} />
+            <ChartValues
+              className="mt-2"
+              note="단위: 원 · 순매출은 환불을 뺀 값"
+              columns={TREND_SERIES.map((x) => ({ key: x.key, label: x.label, color: x.color }))}
+              rows={trend.map((p) => ({
+                key: p.month,
+                label: monthLabel(p.month),
+                values: { revenue: p.revenue, aiCost: p.aiCost, contribution: p.contribution },
+              }))}
+            />
+          </>
+        ) : (
+          <p className="py-10 text-center text-nd-caption text-nd-fg-3">
+            두 달 이상 쌓이면 추이가 나타납니다.
+          </p>
+        )}
+        <TableNote className="pt-2">
+          AI 원가를 아직 받지 못한 달은 그 막대가 비어 있습니다 — 0 원이라는 뜻이 아닙니다.
+        </TableNote>
+      </Card>
 
       {/* 선수금 — 매출과 나란히 두어야 "번 것"과 "갚아야 할 것"이 갈린다 */}
       <Card className="mb-5">

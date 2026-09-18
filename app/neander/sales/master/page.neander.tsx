@@ -240,7 +240,7 @@ function MasterScreen({ assumptions }: { assumptions: SalesAssumptions }) {
             },
             {
               term: "기본가정",
-              desc: "여기서 고친 값은 월 손익 · 상품 수익성 · 검토 대기함의 모든 계산에 바로 들어갑니다.",
+              desc: "여기서 고친 값은 매장 대시보드 · 상품 수익성 · 검토 대기함의 모든 계산에 바로 들어갑니다.",
             },
           ]}
         />
@@ -449,7 +449,7 @@ function MasterScreen({ assumptions }: { assumptions: SalesAssumptions }) {
                 <TableNote className="pt-2">
                   50:50 말고 면적이나 운영일수가 더 맞을 수 있습니다 —{" "}
                   <Link href="/neander/sales" className="font-medium text-nd-accent-strong hover:underline">
-                    바꿔서 월 손익을 확인
+                    바꿔서 매장 대시보드를 확인
                   </Link>
                   해 보세요.
                 </TableNote>

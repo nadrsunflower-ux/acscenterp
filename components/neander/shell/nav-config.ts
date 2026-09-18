@@ -124,7 +124,7 @@ export const FINANCE_NAV: NavGroup[] = [
  * 매출 메뉴는 **한 달을 닫는 순서**로 읽힌다.
  *
  *   데이터 : 매출 적재 → 이벤트 입력 → 검토 대기함   (이 달에 하는 일)
- *   매출   : 월 손익                                  (그래서 나온 결과)
+ *   매출   : 매장 대시보드 · SMOAT 대시보드            (그래서 나온 결과)
  *
  * 검토 대기함이 위쪽 「매출」에 있을 때는 적재·이벤트와 떨어져 있어서,
  * 매달 하는 세 단계가 메뉴에서 이어지지 않았다. 재무와 자리가 달라지지만
@@ -134,11 +134,11 @@ export const SALES_NAV: NavGroup[] = [
   {
     label: "매출",
     items: [
-      { href: "/neander/sales", label: "월 손익", icon: ChartNoAxesColumn, exact: true },
+      { href: "/neander/sales", label: "매장 대시보드", icon: ChartNoAxesColumn, exact: true },
       // SMOAT 은 향수 매장과 성격이 달라 매장 축에 끼우지 않았다. 같은
       // 워크스페이스 안의 **다른 사업**이라 메뉴에서도 옆자리에 둔다
       // (lib/neander/smoat/types.ts 주석).
-      { href: "/neander/sales/smoat", label: "SMOAT", icon: Server },
+      { href: "/neander/sales/smoat", label: "SMOAT 대시보드", icon: Server },
     ],
   },
   {
