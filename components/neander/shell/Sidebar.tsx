@@ -13,7 +13,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronsUpDown, LayoutGrid, LogOut, Store } from "lucide-react";
+import { ChevronLeft, ChevronsUpDown, LayoutGrid, LogOut, ShieldCheck, Store } from "lucide-react";
+import { ADMIN_LOGIN_PATH } from "@/lib/auth";
 import { useAppData } from "@/components/neander/app-data";
 import { useAuth } from "@/components/neander/auth";
 import {
@@ -94,10 +95,10 @@ function NavRow({
       {badge > 0 && (
         <>
           <span className={cn("absolute -right-1.5 -top-1.5 scale-90", fade(collapsed))} aria-hidden={!collapsed}>
-            <CountBadge count={badge} tone={active ? "accent" : "danger"} label={`${item.label} ${badge}건`} />
+            <CountBadge count={badge} tone="danger" label={`${item.label} ${badge}건`} />
           </span>
           <span className={cn("shrink-0", fade(!collapsed))} aria-hidden={collapsed}>
-            <CountBadge count={badge} tone={active ? "accent" : "neutral"} label={`${item.label} ${badge}건`} />
+            <CountBadge count={badge} tone="danger" label={`${item.label} ${badge}건`} />
           </span>
         </>
       )}
@@ -116,13 +117,23 @@ function NavRow({
   );
 }
 
+/**
+ * 매장 운영 사이트(ACSCENT ERP) 주소.
+ * 같은 레포지만 Vercel 프로젝트가 따로라 도메인이 다르다 — 본사 도메인의
+ * "/" 는 미들웨어가 /neander 로 되돌려서, 상대 경로로는 갈 수 없다.
+ */
+const ACSCENT_ERP_ORIGIN = "https://acscenterp.vercel.app";
+
 /** 사이드바 본문 — aside 와 드로어가 같이 쓴다 */
 export function SidebarContent({
   collapsed = false,
   onNavigate,
+  onMenuOpenChange,
 }: {
   collapsed?: boolean;
   onNavigate?: () => void;
+  /** 워크스페이스·사용자 메뉴가 열려 있는가 — 엿보기가 그동안 접히지 않게 */
+  onMenuOpenChange?: (open: boolean) => void;
 }) {
   const pathname = usePathname();
   const workspace = workspaceOf(pathname);
@@ -135,6 +146,10 @@ export function SidebarContent({
   const [wsOpen, setWsOpen] = useState(false);
   const userRef = useRef<HTMLButtonElement>(null);
   const [userOpen, setUserOpen] = useState(false);
+  const menuOpen = wsOpen || userOpen;
+  useEffect(() => {
+    onMenuOpenChange?.(menuOpen);
+  }, [menuOpen, onMenuOpenChange]);
 
   const workspaceLabel = workspace ? `${workspace.label} 워크스페이스` : "전체 ERP";
   const workspaceIcon = workspace ? workspace.icon : LayoutGrid;
@@ -195,10 +210,12 @@ export function SidebarContent({
         </Tooltip>
       )}
 
-      {/* 메뉴 — 화면이 낮으면 이 부분만 스크롤 */}
+      {/* 메뉴 — 화면이 낮으면 이 부분만 스크롤.
+          스크롤 상자는 넘친 것을 자른다 — 접힘 배지가 행 모서리 밖(6px)으로
+          나가므로 상자를 유리판 가장자리까지 넓히고(-mx-3 px-3) 위에도 그만큼 비운다 */}
       <nav
         aria-label={workspace ? `${workspace.label} 메뉴` : "ERP 메뉴"}
-        className="nd-scroll mt-1 min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+        className="nd-scroll -mx-3 min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 pt-1.5"
       >
         {groups.map((g, gi) => (
           <div
@@ -277,7 +294,8 @@ export function SidebarContent({
           matchWidth={!collapsed}
           items={[
             { type: "label", key: "who", label: user?.email ?? "" },
-            { key: "store", label: "AC'SCENT 매장 사이트", icon: Store, onSelect: () => { window.location.assign("/"); } },
+            { key: "store", label: "AC'SCENT ERP", icon: Store, onSelect: () => { window.open(`${ACSCENT_ERP_ORIGIN}/`, "_blank", "noopener"); } },
+            { key: "store-admin", label: "AC'SCENT ERP 관리자", icon: ShieldCheck, onSelect: () => { window.open(`${ACSCENT_ERP_ORIGIN}${ADMIN_LOGIN_PATH}`, "_blank", "noopener"); } },
             { type: "separator", key: "s1" },
             { key: "logout", label: "로그아웃", icon: LogOut, danger: true, onSelect: () => void logout() },
           ]}
@@ -291,13 +309,12 @@ export function SidebarContent({
  * 여닫기 버튼 — 사이드바 오른쪽 변 한가운데에 반쯤 걸친 동그라미.
  * 화살표 하나가 방향을 돌린다 (펼침 ‹ 접기 · 접힘 › 펼치기).
  */
-function EdgeToggle() {
-  const { collapsed, toggleCollapsed } = useShell();
+function EdgeToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const label = collapsed ? "사이드바 펼치기" : "사이드바 접기";
   return (
     <button
       type="button"
-      onClick={toggleCollapsed}
+      onClick={onToggle}
       aria-label={label}
       title={label}
       aria-expanded={!collapsed}
@@ -313,8 +330,17 @@ function EdgeToggle() {
   );
 }
 
+/**
+ * 접힌 사이드바 엿보기 — 커서를 올리면 잠깐 펼친다.
+ * 자리(aside 폭)는 접힘 그대로 두고 유리판만 넓혀 본문 위에 덮는다 — 본문은
+ * 밀리지 않는다. 지나가던 커서에 튀어나오지 않게 조금 기다렸다 열고, 판
+ * 밖으로 살짝 빗나가도 바로 닫히지 않게 조금 기다렸다 닫는다.
+ */
+const PEEK_OPEN_MS = 150;
+const PEEK_CLOSE_MS = 200;
+
 export function Sidebar() {
-  const { isMobile, collapsed, sidebarReady, drawerOpen, setDrawerOpen } = useShell();
+  const { isMobile, collapsed, sidebarReady, toggleCollapsed, drawerOpen, setDrawerOpen } = useShell();
 
   // 저장된 접힘을 읽어 그린 다음 프레임부터 폭 전환을 켠다 —
   // 그러지 않으면 새로고침할 때마다 펼침 → 접힘으로 한 번 움직인다.
@@ -324,6 +350,39 @@ export function Sidebar() {
     const id = requestAnimationFrame(() => setAnimate(true));
     return () => cancelAnimationFrame(id);
   }, [sidebarReady]);
+
+  const asideRef = useRef<HTMLElement>(null);
+  const [hovered, setHovered] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const hoverTimer = useRef<number | undefined>(undefined);
+  // 메뉴는 포탈로 뜬다 — React 의 onPointerLeave 는 포탈을 자식으로 쳐서 메뉴를
+  // 닫은 뒤에 떠나도 모를 수 있다. 실제 DOM 기준으로 들고 나는 것을 본다.
+  useEffect(() => {
+    const el = asideRef.current;
+    if (!el) return;
+    const later = (v: boolean, ms: number) => {
+      window.clearTimeout(hoverTimer.current);
+      hoverTimer.current = window.setTimeout(() => setHovered(v), ms);
+    };
+    // 터치는 누르는 순간 이동한다 — 펼칠 틈이 없으니 마우스만
+    const enter = (e: PointerEvent) => { if (e.pointerType === "mouse") later(true, PEEK_OPEN_MS); };
+    const leave = () => later(false, PEEK_CLOSE_MS);
+    el.addEventListener("pointerenter", enter);
+    el.addEventListener("pointerleave", leave);
+    return () => {
+      el.removeEventListener("pointerenter", enter);
+      el.removeEventListener("pointerleave", leave);
+      window.clearTimeout(hoverTimer.current);
+    };
+  }, [isMobile]);
+  // 메뉴가 열려 있는 동안은 커서가 메뉴로 나가도 접지 않는다
+  const peek = collapsed && (hovered || menuOpen);
+  const onToggle = () => {
+    // 접으려고 누른 사람 앞에서 도로 펼치지 않는다 — 한 번 나갔다 와야 다시 엿본다
+    window.clearTimeout(hoverTimer.current);
+    setHovered(false);
+    toggleCollapsed();
+  };
 
   if (isMobile) {
     return (
@@ -335,8 +394,10 @@ export function Sidebar() {
 
   return (
     <aside
+      ref={asideRef}
       data-nd-sidebar
-      // z-nd-sidebar — 변에 걸친 동그라미 반쪽이 본문 카드 밑에 깔리지 않게
+      data-nd-peek={peek || undefined}
+      // z-nd-sidebar — 변에 걸친 동그라미 반쪽과 엿보는 판이 본문 밑에 깔리지 않게
       className={cn(
         "sticky top-0 z-nd-sidebar hidden h-screen shrink-0 self-start py-3 pl-3 md:block",
         animate && "transition-[width] ease-nd",
@@ -346,11 +407,27 @@ export function Sidebar() {
         transitionDuration: animate ? `${SIDEBAR_MS}ms` : undefined,
       }}
     >
-      <div className="nd-glass h-full overflow-hidden rounded-nd-xl">
-        <SidebarContent collapsed={collapsed} />
+      {/* 판 + 동그라미. 엿볼 때는 이 상자만 넓어져 aside 밖(본문 위)으로 넘친다 —
+          동그라미도 판 가장자리를 따라가서, 누르면 그 자리에서 펼침으로 고정된다 */}
+      <div
+        className={cn("relative h-full", animate && "transition-[width] ease-nd")}
+        style={{
+          width: collapsed && !peek ? "var(--nd-sidebar-w-collapsed)" : "var(--nd-sidebar-w)",
+          transitionDuration: animate ? `${SIDEBAR_MS}ms` : undefined,
+        }}
+      >
+        {/* 덮을 때는 짙은 유리 + 뜬 그림자 — 본문 위에 올라왔다는 게 보이게 */}
+        <div
+          className={cn(
+            "h-full overflow-hidden rounded-nd-xl transition-[background-color,box-shadow] duration-nd ease-nd",
+            peek ? "nd-glass-strong" : "nd-glass",
+          )}
+        >
+          <SidebarContent collapsed={collapsed && !peek} onMenuOpenChange={setMenuOpen} />
+        </div>
+        {/* 유리판은 글자를 자르느라 overflow-hidden — 동그라미는 그 밖에 둔다 */}
+        <EdgeToggle collapsed={collapsed} onToggle={onToggle} />
       </div>
-      {/* 유리판은 글자를 자르느라 overflow-hidden — 동그라미는 그 밖(aside)에 둔다 */}
-      <EdgeToggle />
     </aside>
   );
 }

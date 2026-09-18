@@ -11,6 +11,7 @@ import { Hand } from "lucide-react";
 import { useAppData } from "@/components/neander/app-data";
 import { useAuth } from "@/components/neander/auth";
 import { useChat } from "@/components/neander/chat";
+import { useMail } from "@/components/neander/mail/MailProvider";
 import { seedDefaultMembers } from "@/lib/neander/db/members";
 import { Button, cn } from "@/components/neander/ui";
 import { ShellProvider, useShell } from "./shell/context";
@@ -18,16 +19,18 @@ import { Sidebar } from "./shell/Sidebar";
 import { Topbar } from "./shell/Topbar";
 import { StatusCard, StatusScreen } from "./shell/StatusScreen";
 
-/** 전역 배지(요청·메신저)를 셸에 밀어 넣는다 */
+/** 전역 배지(요청·메신저·메일)를 셸에 밀어 넣는다 */
 function GlobalBadges() {
   const { requests, currentMember } = useAppData();
   const { totalUnread } = useChat();
+  const { unread: mailUnread } = useMail();
   const { setBadge } = useShell();
   const myPendingReqs = currentMember
     ? requests.filter((r) => r.toId === currentMember.id && !r.acknowledged).length
     : 0;
   useEffect(() => setBadge("requests", myPendingReqs), [setBadge, myPendingReqs]);
   useEffect(() => setBadge("messenger", totalUnread), [setBadge, totalUnread]);
+  useEffect(() => setBadge("mail", mailUnread), [setBadge, mailUnread]);
   return null;
 }
 

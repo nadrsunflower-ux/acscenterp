@@ -52,7 +52,14 @@ export interface AgentSpec<P> {
   note?: string;
   /** OpenAI function calling 형식의 도구 정의 */
   tools: unknown[];
-  runTool: (name: string, args: Record<string, unknown>) => AgentToolOutcome<P>;
+  /**
+   * 모듈 도구는 메모리에 올라온 ctx 위에서 바로 돌지만, 노션처럼 밖을 읽는
+   * 도구(ai/notion-tools.ts)는 Promise 를 돌려준다. 루프가 둘 다 기다린다.
+   */
+  runTool: (
+    name: string,
+    args: Record<string, unknown>,
+  ) => AgentToolOutcome<P> | Promise<AgentToolOutcome<P>>;
   /** 화면에 "무엇을 조회했는지" 한 줄로 보여주기 위한 요약 */
   summarize: (name: string, args: Record<string, unknown>, result: unknown) => string;
   /** OpenRouter 통계용 헤더 — latin-1 만 (한글 금지) */
@@ -201,7 +208,7 @@ export async function runAgent<P>(
         continue;
       }
       const name = call.function?.name ?? "";
-      const outcome = spec.runTool(name, parsedArgs);
+      const outcome = await spec.runTool(name, parsedArgs);
       if (outcome.proposal !== undefined) proposals.push(outcome.proposal);
       toolCalls.push({ name, args: parsedArgs, summary: spec.summarize(name, parsedArgs, outcome.result) });
       wire.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(outcome.result) });

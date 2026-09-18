@@ -55,10 +55,10 @@ const financeAllowlist = () =>
   (process.env.NEANDER_FINANCE_EMAILS ?? "").split(",").map(norm).filter(Boolean);
 
 /**
- * 요청에서 신원을 확인하고 재무 접근 권한까지 검사한다.
- * 통과하지 못하면 AccessError 를 던진다.
+ * 요청에서 신원을 확인하고 NEANDER 팀원인지까지만 검사한다 (1단계).
+ * 재무 허용 목록과 무관한 개인 기능(메일)이 쓴다.
  */
-export async function requireErpUser(req: Request): Promise<ErpUser> {
+export async function requireMember(req: Request): Promise<ErpUser> {
   const header = req.headers.get("authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
   if (!token) {
@@ -86,16 +86,26 @@ export async function requireErpUser(req: Request): Promise<ErpUser> {
     }
   }
 
+  return { uid: decoded.uid, email };
+}
+
+/**
+ * 요청에서 신원을 확인하고 재무 접근 권한까지 검사한다.
+ * 통과하지 못하면 AccessError 를 던진다.
+ */
+export async function requireErpUser(req: Request): Promise<ErpUser> {
+  const user = await requireMember(req);
+
   // 2) 재무 접근 대상인지
   const allow = financeAllowlist();
-  if (allow.length > 0 && !allow.includes(email)) {
+  if (allow.length > 0 && !allow.includes(user.email)) {
     throw new AccessError(
       403,
-      `${email} 은 재무 접근 권한이 없습니다. 관리자에게 NEANDER_FINANCE_EMAILS 등록을 요청하세요.`,
+      `${user.email} 은 재무 접근 권한이 없습니다. 관리자에게 NEANDER_FINANCE_EMAILS 등록을 요청하세요.`,
     );
   }
 
-  return { uid: decoded.uid, email };
+  return user;
 }
 
 /** AccessError 를 그대로 응답으로 바꾼다 */

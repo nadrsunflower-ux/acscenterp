@@ -297,8 +297,7 @@ export function QuoteEditor({
       {/* ---- 종이 ---- */}
       <style>{QUOTE_CSS}</style>
       <div className="nd-scroll overflow-x-auto">
-        {/* 오른쪽 여백이 넉넉해야 품목 줄의 지우기 단추가 종이 밖에 설 자리가 있다 */}
-        <div className="mx-auto min-w-[700px] max-w-[820px] rounded-lg border border-nd-line bg-white px-8 py-7 pr-12 shadow-sm">
+        <div className="mx-auto min-w-[700px] max-w-[820px] rounded-lg border border-nd-line bg-white px-8 py-7 shadow-sm">
           <QuoteSheet value={form} onChange={setForm} />
         </div>
       </div>

@@ -103,7 +103,7 @@ function SalesReportDeck() {
         title={`${monthLabel(month)} 인사이트`}
         description="판매 실적 기준 · 여기서 만들고 고친 내용이 슬라이드에 바로 반영됩니다"
       >
-        <InsightPanel module="sales" month={month} insight={insightState} />
+        <InsightPanel module="sales" month={month} insight={insightState} inDialog />
       </Dialog>
     </>
   );

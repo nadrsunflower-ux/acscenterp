@@ -28,6 +28,7 @@ import {
   type SalesToolContext,
 } from "./ai-tools";
 import { presentationNote, type PresentationContext } from "@/lib/neander/ai/presentation";
+import { withNotion } from "@/lib/neander/ai/notion-tools";
 
 export type SalesChatResult = AgentResult<SalesProposal>;
 
@@ -118,7 +119,8 @@ export async function runSalesChat(args: {
   presentation?: PresentationContext;
 }): Promise<SalesChatResult> {
   return runAgent<SalesProposal>(
-    {
+    // 회사 노션 읽기 도구 — NOTION_TOKEN 이 없으면 아무것도 안 붙는다
+    withNotion({
       system: SYSTEM,
       cachedContext: `${renderProducts(args.ctx.products, args.ctx.events)}\n\n${renderAssumptions(args.ctx)}`,
       // 발표 맥락은 캐시 뒤에 따로 — 달·장이 바뀌어도 앞의 긴 부분 캐시가 깨지지 않는다
@@ -128,7 +130,7 @@ export async function runSalesChat(args: {
       summarize: summarizeSalesTool,
       referer: "https://neander-erp.local/sales",
       title: "NEANDER ERP Sales Chat",
-    },
+    }),
     { messages: args.messages, model: args.model, attachments: args.attachments },
   );
 }

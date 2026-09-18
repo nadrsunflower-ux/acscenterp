@@ -24,6 +24,7 @@ import {
   Inbox,
   LayoutDashboard,
   Link2,
+  Mail,
   ListChecks,
   MessageCircle,
   Package,
@@ -39,7 +40,7 @@ import {
 } from "lucide-react";
 
 /** 사이드바 배지 키 — 값은 ShellContext.badges 에서 온다 */
-export type BadgeKey = "requests" | "messenger" | "finance-review" | "sales-review";
+export type BadgeKey = "requests" | "messenger" | "mail" | "finance-review" | "sales-review";
 
 export interface NavItem {
   href: string;
@@ -70,6 +71,7 @@ export const GLOBAL_NAV: NavGroup[] = [
     items: [
       { href: "/neander/dev", label: "개발", icon: Rocket },
       { href: "/neander/messenger", label: "메신저", icon: MessageCircle, badge: "messenger" },
+      { href: "/neander/mail", label: "메일", icon: Mail, badge: "mail" },
       { href: "/neander/meetings", label: "회의록", icon: FileText },
       { href: "/neander/shortcuts", label: "바로가기", icon: Link2 },
     ],

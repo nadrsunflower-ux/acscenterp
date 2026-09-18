@@ -13,6 +13,7 @@ import type {
   InsightDoc,
   InsightDraft,
   InsightEditProposal,
+  InsightItemRef,
   InsightModule,
   InsightPatch,
 } from "./types";
@@ -69,7 +70,7 @@ export async function generateInsight(
 export async function discussInsight(
   module: InsightModule,
   month: string,
-  args: { scope?: string; messages: AgentMessage[]; draft: InsightDraft; model?: string },
+  args: { scope?: string; messages: AgentMessage[]; draft: InsightDraft; model?: string; focus?: InsightItemRef },
 ): Promise<{ result: AgentResult<InsightEditProposal>; discussion: InsightDiscussionMessage[] }> {
   const res = await fetch(URL, {
     method: "POST",

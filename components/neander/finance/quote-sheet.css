@@ -80,35 +80,21 @@
 }
 
 /* ---- 품목 줄 ---------------------------------------------------
-   지우기 단추는 표 밖 오른쪽에 세워 둔다. 표 안에 두면 비고 칸을 가리고,
-   칸을 하나 더 만들면 인쇄본과 칸 수가 달라진다. */
-.sheet--edit .lines td.note {
-  position: relative;
-}
-.sheet--edit .q-rowdel {
-  position: absolute;
-  right: -26px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #a1a1aa;
+   줄을 누르면 골라진다. 고른 줄은 옅은 남색으로 깔고 왼쪽에 막대를 세워
+   「이 줄이 지워진다」 를 미리 보여 준다. 인쇄본은 늘 새로 그린 시트를
+   뜨고 sheet--edit 도 떼어 내므로 이 표시가 종이에 따라가는 일은 없다. */
+.sheet--edit .lines tbody tr:not(.sum) {
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease;
 }
-.sheet--edit .lines tr:hover .q-rowdel,
-.sheet--edit .q-rowdel:focus-visible {
-  opacity: 1;
+.sheet--edit .lines tbody tr:not(.sum):hover td {
+  background: rgb(0 0 0 / 0.02);
 }
-.sheet--edit .q-rowdel:hover {
-  background: #fee2e2;
-  color: #b91c1c;
+/* 손을 올린 채로도 고른 색이 이겨야 한다 — :hover 규칙보다 한 단계 세게 */
+.sheet--edit .lines tbody tr.is-selected:not(.sum) td {
+  background: rgb(79 70 229 / 0.08);
+}
+.sheet--edit .lines tbody tr.is-selected:not(.sum) td:first-child {
+  box-shadow: inset 3px 0 0 #4f46e5;
 }
 
 /* ---- 인감 ------------------------------------------------------
@@ -174,12 +160,17 @@
   border-color: #4f46e5;
 }
 
-/* ---- 줄 추가 --------------------------------------------------- */
-.sheet--edit .q-addline {
+/* ---- 줄 추가·삭제 ---------------------------------------------- */
+.sheet--edit .q-linebar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 6px;
+}
+.sheet--edit .q-linebtn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-top: 6px;
   padding: 3px 8px 3px 6px;
   border: 0;
   border-radius: 6px;
@@ -189,7 +180,20 @@
   color: #52525b;
   cursor: pointer;
 }
-.sheet--edit .q-addline:hover {
+.sheet--edit .q-linebtn:hover:not(:disabled) {
   background: rgb(0 0 0 / 0.05);
   color: #18181b;
+}
+.sheet--edit .q-linebtn--danger:hover:not(:disabled) {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.sheet--edit .q-linebtn:disabled {
+  color: #d4d4d8;
+  cursor: default;
+}
+.sheet--edit .q-linehint {
+  margin-left: 4px;
+  font-size: 11px;
+  color: #a1a1aa;
 }

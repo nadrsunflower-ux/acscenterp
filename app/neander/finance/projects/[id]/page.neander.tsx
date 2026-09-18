@@ -136,6 +136,13 @@ import {
   ledgerRowsOf,
   newLine,
   newRevenue,
+  newDeduction,
+  DEDUCTION_TAX_MODES,
+  DEDUCTION_TAX_LABEL,
+  DEDUCTION_TAX_HINT,
+  deductionSplit,
+  type DeductionTaxMode,
+  type FinProjectDeduction,
   projectSummary,
   type FinProjectDoc,
   type FinProjectInput,
@@ -210,7 +217,14 @@ function canonical(v: unknown): unknown {
 const sameDraft = (a: FinProjectInput, b: FinProjectInput) =>
   JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 
-/** 저장된 문서에서 편집 가능한 부분만 떼어 초안으로 쓴다 */
+/**
+ * 저장된 문서에서 편집 가능한 부분만 떼어 초안으로 쓴다.
+ *
+ * ⚠️ 저장은 초안으로 문서를 **통째로** 갈아치운다. 여기서 빠진 칸은 화면에서
+ *    한 번 저장하는 순간 사라진다 — 한동안 부가세 기준·입금 회차·사용자 열이
+ *    빠져 있어서, 「부가세 포함」 계약이 저장할 때마다 「별도」로 바뀌었다.
+ *    FinProjectInput 에 칸을 더하면 여기에도 더할 것.
+ */
 function toInput(p: FinProjectDoc): FinProjectInput {
   return {
     code: p.code,
@@ -221,7 +235,11 @@ function toInput(p: FinProjectDoc): FinProjectInput {
     endDate: p.endDate,
     bizMinor: p.bizMinor,
     contractAmount: p.contractAmount ?? 0,
+    vatMode: p.vatMode,
+    installments: p.installments?.map((i) => ({ ...i })),
     revenues: (p.revenues ?? []).map((r) => ({ ...r })),
+    deductions: p.deductions?.map((d) => ({ ...d })),
+    columns: p.columns?.map((c) => ({ ...c })),
     lines: (p.lines ?? []).map((l) => ({ ...l })),
     note: p.note,
   };
@@ -450,6 +468,11 @@ export default function ProjectDetailPage() {
   const updateRevenue = (rid: string, patch: Partial<FinProjectRevenue>) =>
     edit((f) => ({ ...f, revenues: f.revenues.map((r) => (r.id === rid ? { ...r, ...patch } : r)) }));
   const removeRevenue = (rid: string) => edit((f) => ({ ...f, revenues: f.revenues.filter((r) => r.id !== rid) }));
+
+  const updateDeduction = (did: string, patch: Partial<FinProjectDeduction>) =>
+    edit((f) => ({ ...f, deductions: (f.deductions ?? []).map((d) => (d.id === did ? { ...d, ...patch } : d)) }));
+  const removeDeduction = (did: string) =>
+    edit((f) => ({ ...f, deductions: (f.deductions ?? []).filter((d) => d.id !== did) }));
 
   /** 엑셀 지출 목록을 초안 뒤에 붙인다 — 저장 전까지는 서버에 안 간다 */
   const importXlsx = async (file: File) => {
@@ -746,9 +769,11 @@ export default function ProjectDetailPage() {
               value={summary.revenue}
               flow="income"
               hint={
-                summary.revenueVat > 0
-                  ? `부가세 ${summary.revenueVat.toLocaleString("ko-KR")} 별도 · 총액 ${summary.revenueTotal.toLocaleString("ko-KR")}`
-                  : "면세 — 부가세 없음"
+                summary.deduction > 0
+                  ? `매출 차감 ${summary.deduction.toLocaleString("ko-KR")} 반영 · 부가세 ${summary.revenueVat.toLocaleString("ko-KR")} 별도`
+                  : summary.revenueVat > 0
+                    ? `부가세 ${summary.revenueVat.toLocaleString("ko-KR")} 별도 · 총액 ${summary.revenueTotal.toLocaleString("ko-KR")}`
+                    : "면세 — 부가세 없음"
               }
             />
             <StatTile label="견적 원가" value={summary.estimate} flow="expense" hint={`${summary.lineCount}줄 · 수량 × 단가`} />
@@ -774,13 +799,15 @@ export default function ProjectDetailPage() {
             <StatTile
               label="미수금"
               value={summary.unpaid}
-              tone={summary.overdue > 0 ? "danger" : undefined}
+              tone={summary.overdue > 0 ? "danger" : summary.deductionPending > 0 ? "warning" : undefined}
               hint={
                 summary.overdue > 0
                   ? `연체 ${summary.overdueCount}건 · ${summary.overdue.toLocaleString("ko-KR")}원`
-                  : summary.unpaid === 0
-                    ? "다 받았습니다"
-                    : `받은 돈 ${summary.received.toLocaleString("ko-KR")}원`
+                  : summary.deductionPending > 0
+                    ? `돌려줄 돈 ${summary.deductionPending.toLocaleString("ko-KR")}원 남음`
+                    : summary.unpaid === 0
+                      ? "다 받았습니다"
+                      : `받은 돈 ${summary.received.toLocaleString("ko-KR")}원`
               }
             />
           </KpiStrip>
@@ -994,10 +1021,28 @@ export default function ProjectDetailPage() {
               {/* 계약서 숫자를 그대로 읽어 확인하는 세 값만 둔다.
                   받은 돈·미수금은 개요 탭의 지표 띠에 있다 — 같은 숫자를 두
                   군데 두면 한쪽만 고쳐졌을 때 어느 쪽이 맞는지 알 수 없다. */}
-              <KpiStrip columns={3} className="self-start">
-                <StatTile label="공급가액" value={summary.revenue} hint="이익 계산의 기준" />
+              {/* 매출 차감이 있으면 「계약서 숫자」와 「남는 숫자」가 갈린다. 청구 총액은
+                  계약서 그대로 두고, 공급가액·부가세는 차감을 뺀 값, 넷째 칸에 순 입금을 둔다. */}
+              <KpiStrip columns={summary.deductionCount > 0 ? 4 : 3} className="self-start">
+                <StatTile
+                  label="공급가액"
+                  value={summary.revenue}
+                  hint={summary.deductionCount > 0 ? "매출 차감 뒤 · 이익 계산의 기준" : "이익 계산의 기준"}
+                />
                 <StatTile label="부가세" value={summary.revenueVat} hint={VAT_LABEL[form.vatMode ?? "excluded"]} />
-                <StatTile label="청구 총액" value={summary.revenueTotal} hint="계약서에 찍히는 금액" />
+                <StatTile label="청구 총액" value={summary.grossTotal} hint="계약서에 찍히는 금액" />
+                {summary.deductionCount > 0 && (
+                  <StatTile
+                    label="순 입금"
+                    value={summary.revenueTotal}
+                    tone={summary.deductionPending > 0 ? "warning" : undefined}
+                    hint={
+                      summary.deductionPending > 0
+                        ? `돌려줄 돈 ${summary.deductionPending.toLocaleString("ko-KR")}원 남음`
+                        : `청구 총액 − 매출 차감 ${summary.deduction.toLocaleString("ko-KR")}`
+                    }
+                  />
+                )}
               </KpiStrip>
             </div>
 
@@ -1215,6 +1260,113 @@ export default function ProjectDetailPage() {
                   </tbody>
                 </Table>
               </TableScroll>
+            )}
+          </Card>
+
+          {/* ---- 매출 차감 ---- */}
+          <Card padding="none" className="overflow-hidden">
+            <div className="px-5 pt-5">
+              <SectionHeader
+                title="매출 차감"
+                hint="발주처에 돌려주는 돈 · 할인 · 에누리 — 계약금액은 그대로 두고 여기서 뺍니다"
+                action={
+                  <Button variant="ghost" size="sm" icon={Plus} onClick={() => edit((f) => ({ ...f, deductions: [...(f.deductions ?? []), newDeduction()] }))}>
+                    줄 추가
+                  </Button>
+                }
+              />
+            </div>
+            {(form.deductions ?? []).length === 0 ? (
+              <p className="px-5 pb-5 text-nd-caption text-nd-fg-3">
+                없음. 계약서 금액 중 일부를 돌려주기로 했다면 여기 적으세요 — 계약금액을 줄여 적으면 통장에 들어온 돈과 어긋납니다.
+              </p>
+            ) : (
+              <>
+                <TableScroll maxHeight={360}>
+                  <Table minWidth={980} dense>
+                    <thead>
+                      <tr>
+                        <Th sticky="top" className="pl-5">항목</Th>
+                        <Th sticky="top" align="right" className="w-32">돌려주는 돈</Th>
+                        <Th sticky="top" className="w-48">세금계산서</Th>
+                        <Th sticky="top" align="right" className="w-28">공급가액</Th>
+                        <Th sticky="top" align="right" className="w-24">부가세</Th>
+                        <Th sticky="top" className="w-44">돌려준 날</Th>
+                        <Th sticky="top">비고</Th>
+                        <Th sticky="top" className="w-12 pr-5" aria-label="동작" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(form.deductions ?? []).map((d) => {
+                        const split = deductionSplit(d, form.vatMode ?? "excluded");
+                        return (
+                          <Tr key={d.id} hover={false}>
+                            <Td className="pl-5">
+                              <Input size="sm" value={d.label} onChange={(e) => updateDeduction(d.id, { label: e.target.value })} placeholder="항목" className="min-w-[8rem]" aria-label="항목" />
+                            </Td>
+                            <Td>
+                              <Input
+                                size="sm"
+                                type="number"
+                                inputMode="numeric"
+                                value={d.amount || ""}
+                                placeholder="0"
+                                // 음수로 적어도 같은 뜻이다 — 돌려주는 돈은 늘 양수로 둔다
+                                onChange={(e) => updateDeduction(d.id, { amount: Math.abs(Number(e.target.value) || 0) })}
+                                className="nd-num text-right"
+                                title="통장에서 실제로 나가는 금액"
+                                aria-label="돌려주는 돈"
+                              />
+                            </Td>
+                            <Td>
+                              <Select
+                                size="sm"
+                                value={d.taxMode}
+                                onChange={(e) => updateDeduction(d.id, { taxMode: e.target.value as DeductionTaxMode })}
+                                title={DEDUCTION_TAX_HINT[d.taxMode]}
+                                aria-label="세금계산서"
+                              >
+                                {DEDUCTION_TAX_MODES.map((m) => (
+                                  <option key={m} value={m}>{DEDUCTION_TAX_LABEL[m]}</option>
+                                ))}
+                              </Select>
+                            </Td>
+                            <Td num>
+                              <Money value={-split.supply} unit={false} flow="expense" />
+                            </Td>
+                            <Td num title={d.taxMode === "none" ? "세금계산서를 그대로 두면 부가세는 줄지 않습니다" : undefined}>
+                              <Money value={-split.vat} unit={false} flow="expense" />
+                            </Td>
+                            <Td>
+                              <Input
+                                size="sm"
+                                type="date"
+                                value={d.paidDate ?? ""}
+                                onChange={(e) => updateDeduction(d.id, { paidDate: e.target.value || undefined })}
+                                className={cn(d.paidDate && "border-nd-success/50 bg-nd-success-soft/40")}
+                                title="돌려줬거나 청구액에서 뺀 날. 비워 두면 아직 돌려줄 돈으로 셉니다"
+                                aria-label="돌려준 날"
+                              />
+                            </Td>
+                            <Td>
+                              <Input size="sm" value={d.note ?? ""} onChange={(e) => updateDeduction(d.id, { note: e.target.value || undefined })} placeholder="비고" className="min-w-[8rem]" aria-label="비고" />
+                            </Td>
+                            <Td align="right" className="pr-5">
+                              <IconButton icon={X} label="줄 삭제" size="sm" onClick={() => removeDeduction(d.id)} className="text-nd-fg-3 hover:text-nd-danger-text" />
+                            </Td>
+                          </Tr>
+                        );
+                      })}
+                    </tbody>
+                  </Table>
+                </TableScroll>
+                <div className="px-5 pb-4 pt-3">
+                  <TableNote>
+                    「세금계산서 그대로」는 부가세를 처음 끊은 대로 내므로 돌려준 돈 전액이 이익에서 빠집니다.
+                    원장에는 돌려준 돈을 입금 때와 같은 매출 계정의 음수로 적으세요 — 「환급」 유형으로 적으면 지출이 줄어든 것으로 계산됩니다.
+                  </TableNote>
+                </div>
+              </>
             )}
           </Card>
         </div>

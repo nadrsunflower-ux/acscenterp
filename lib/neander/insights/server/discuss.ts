@@ -30,6 +30,7 @@ import type {
   InsightDraft,
   InsightEditProposal,
   InsightItem,
+  InsightItemRef,
   InsightModule,
   InsightSection,
   Signal,
@@ -249,6 +250,22 @@ function summarizeEdit(a: Record<string, unknown>, result: unknown): string {
 const readOnly = <T extends { function: { name: string } }>(defs: readonly T[]) =>
   defs.filter((d) => !d.function.name.startsWith("propose_"));
 
+/** 「묻기」 팝오버에서 온 대화 — 사람이 짚은 문장 하나에 집중시킨다 */
+function focusNote(draft: InsightDraft, focus: InsightItemRef | undefined): string {
+  if (!focus) return "";
+  const it = draft[focus.section].find((x) => x.id === focus.itemId);
+  const label = itemLabel(draft, focus.section, focus.itemId);
+  if (!it || !label) return "";
+  return [
+    "",
+    "== 지금 대화의 대상 ==",
+    `사용자는 「${label}」(section=${focus.section}, id=${it.id}) 한 문장 옆에서 피드백을 남기고 있습니다: ${it.text}`,
+    "- 이 문장에 대한 설명·피드백으로 읽고, 고칠 때는 이 문장을 대상으로 propose_edit 을 냅니다 (targetId 에 위 id).",
+    "- 사용자의 피드백이 방향을 분명히 정했으면(「이 숫자 빼줘」「담당자를 재무팀으로」) 되묻지 말고 바로 수정안을 냅니다. 모호하면 한 번만 짧게 묻습니다.",
+    "- 답은 짧게 — 좁은 팝오버에 뜹니다. 표는 꼭 필요할 때만 세 줄 안으로.",
+  ].join("\n");
+}
+
 export async function runInsightDiscussion(args: {
   month: string;
   scope?: string;
@@ -257,6 +274,7 @@ export async function runInsightDiscussion(args: {
   messages: AgentMessage[];
   data: ModuleContext;
   model?: string;
+  focus?: InsightItemRef;
 }): Promise<InsightDiscussResult> {
   const { data, draft, signals } = args;
   const module = data.module;
@@ -268,7 +286,7 @@ export async function runInsightDiscussion(args: {
     {
       system: systemPrompt(module, args.month),
       cachedContext: renderSignals(signals),
-      note: renderDraft(draft, args.scope, module),
+      note: renderDraft(draft, args.scope, module) + focusNote(draft, args.focus),
       tools: [...lookupDefs, PROPOSE_EDIT_DEF],
       runTool: (name, a) => {
         if (name === "propose_edit") return proposeEdit(a, draft, signals);

@@ -15,6 +15,7 @@ import {
   formatMargin,
   PROJECT_STATUS_LABEL,
   VAT_LABEL,
+  DEDUCTION_TAX_LABEL,
   INSTALLMENT_STATUS_LABEL,
   installmentStatus,
   isReceived,
@@ -80,9 +81,13 @@ export function exportProjectXlsx(p: FinProjectDoc, transactions: FinTransaction
     ["계약금액 (입력값)", s.contract],
     ["부가세 기준", VAT_LABEL[p.vatMode ?? "excluded"]],
     ...p.revenues.map((r) => [`추가 수입 · ${r.label}`, r.amount] as (string | number)[]),
+    ["청구 총액 (계약서)", s.grossTotal],
+    ...(p.deductions ?? []).map(
+      (d) => [`매출 차감 · ${d.label}`, -d.amount, DEDUCTION_TAX_LABEL[d.taxMode]] as (string | number)[],
+    ),
     ["수입 공급가액", s.revenue],
     ["부가세", s.revenueVat],
-    ["청구 총액", s.revenueTotal],
+    ...(s.deductionCount > 0 ? [["순 입금 (청구 총액 − 매출 차감)", s.revenueTotal] as (string | number)[]] : []),
     [],
     ["입금 일정", "금액", "받기로 한 날", "입금일", "상태"],
     ...(p.installments ?? []).map(
@@ -99,7 +104,16 @@ export function exportProjectXlsx(p: FinProjectDoc, transactions: FinTransaction
           | number
         )[],
     ),
+    ...(p.deductions ?? []).map(
+      (d) =>
+        [`차감 · ${d.label}`, -d.amount, "", d.paidDate ?? "", d.paidDate ? "돌려줌" : "돌려줄 돈"] as (
+          | string
+          | number
+        )[],
+    ),
     ["받은 돈", s.received],
+    ...(s.deductionCount > 0 ? [["돌려준 돈", s.returned] as (string | number)[]] : []),
+    ...(s.deductionPending > 0 ? [["돌려줄 돈", s.deductionPending] as (string | number)[]] : []),
     ["미수금", s.unpaid],
     ...(s.overdue > 0 ? [["연체", s.overdue] as (string | number)[]] : []),
     [],

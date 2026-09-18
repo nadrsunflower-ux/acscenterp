@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, ChevronRight, Pencil, Trash2, Users } from "lucide-react";
+import { ChevronRight, Pencil, Trash2, Users } from "lucide-react";
 import { useAppData } from "@/components/neander/app-data";
 import { addMember, updateMember, deleteMember } from "@/lib/neander/db/members";
 import { emptyToUndef } from "@/lib/neander/db/helpers";
@@ -15,98 +15,14 @@ import {
   PageHeader,
   EmptyState,
   MemberAvatar,
+  AvatarPicker,
+  ColorPalette,
+  AVATAR_PALETTE as PALETTE,
   useConfirm,
   useToast,
   cn,
 } from "@/components/neander/ui";
 import type { Member } from "@/lib/neander/types";
-
-// 팀원이 고르는 색 — 데이터에 저장되는 값이라 그대로 둔다
-const PALETTE = ["#2563eb", "#16a34a", "#ea580c", "#9333ea", "#db2777", "#0891b2", "#ca8a04"];
-
-// 선택 가능한 캐릭터(이모지) 목록 — 사용자가 고르는 데이터
-const AVATARS = [
-  "🐱", "🐶", "🦊", "🐰", "🐻", "🐼", "🐨", "🐯",
-  "🦁", "🐸", "🐵", "🐧", "🦄", "🐙", "🐢", "🐳",
-  "🦉", "🐝", "🐤", "🦋",
-];
-
-function AvatarPicker({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (a: string) => void;
-}) {
-  return (
-    <div className="flex max-w-[260px] flex-wrap gap-1.5" role="group" aria-label="캐릭터">
-      <button
-        type="button"
-        onClick={() => onChange("")}
-        aria-pressed={value === ""}
-        className={cn(
-          "flex h-8 w-8 items-center justify-center rounded-full border text-nd-micro font-medium transition-colors duration-nd-fast",
-          value === ""
-            ? "border-nd-fg bg-nd-fg/[.06] text-nd-fg"
-            : "border-nd-line text-nd-fg-3 hover:bg-nd-fg/[.06]",
-        )}
-      >
-        없음
-      </button>
-      {AVATARS.map((a) => (
-        <button
-          key={a}
-          type="button"
-          onClick={() => onChange(a)}
-          aria-pressed={value === a}
-          aria-label={`캐릭터 ${a}`}
-          className={cn(
-            "flex h-8 w-8 items-center justify-center rounded-full border text-lg leading-none transition-colors duration-nd-fast",
-            value === a ? "border-nd-fg bg-nd-fg/[.06]" : "border-transparent hover:bg-nd-fg/[.06]",
-          )}
-        >
-          {a}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function ColorPalette({
-  value,
-  onChange,
-  size = "md",
-}: {
-  value: string;
-  onChange: (c: string) => void;
-  size?: "sm" | "md";
-}) {
-  const dim = size === "sm" ? "h-5 w-5" : "h-7 w-7";
-  return (
-    <div className="flex flex-wrap gap-2" role="group" aria-label="색상">
-      {PALETTE.map((c) => {
-        const on = value === c;
-        return (
-          <button
-            key={c}
-            type="button"
-            onClick={() => onChange(c)}
-            aria-pressed={on}
-            aria-label={`색상 ${c}`}
-            className={cn(
-              dim,
-              "flex items-center justify-center rounded-full text-white transition-shadow duration-nd-fast",
-              on && "ring-2 ring-nd-fg ring-offset-2 ring-offset-nd-content",
-            )}
-            style={{ backgroundColor: c }}
-          >
-            {on && <Icon icon={Check} size={size === "sm" ? 11 : 14} strokeWidth={2.5} />}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
 
 export default function MembersPage() {
   const { members, currentMember } = useAppData();

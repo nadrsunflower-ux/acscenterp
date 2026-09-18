@@ -21,13 +21,19 @@ import type {
   InsightDoc,
   InsightDraft,
   InsightEditProposal,
+  InsightItemRef,
   InsightModule,
   InsightPatch,
 } from "@/lib/neander/insights/types";
 
 export interface UseInsight {
   /** 「AI 와 고치기」 한 턴 — 실패하면 던진다 */
-  discuss: (messages: AgentMessage[], draft: InsightDraft) => Promise<AgentResult<InsightEditProposal>>;
+  discuss: (
+    messages: AgentMessage[],
+    draft: InsightDraft,
+    /** 문장 하나를 두고 묻는 대화면 그 문장 */
+    focus?: InsightItemRef,
+  ) => Promise<AgentResult<InsightEditProposal>>;
   clearDiscussion: () => Promise<void>;
   doc: InsightDoc | null;
   loading: boolean;
@@ -88,9 +94,9 @@ export function useInsight(module: InsightModule, month: string | undefined, sco
 
   // 대화는 실패를 패널 전체 오류로 올리지 않는다 — 대화 창이 스스로 보여 준다 (그래서 던진다)
   const discuss = useCallback(
-    async (messages: AgentMessage[], draft: InsightDraft) => {
+    async (messages: AgentMessage[], draft: InsightDraft, focus?: InsightItemRef) => {
       if (!month) throw new Error("달이 정해지지 않았습니다.");
-      const { result, discussion } = await discussInsight(module, month, { scope, messages, draft });
+      const { result, discussion } = await discussInsight(module, month, { scope, messages, draft, focus });
       setDoc((d) => (d ? { ...d, discussion } : d));
       return result;
     },

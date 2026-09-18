@@ -115,7 +115,7 @@ function MonthlyReportDeck() {
       title={`${monthLabel(month)} 인사이트`}
       description={`${siteLabel} · 여기서 만들고 고친 내용이 슬라이드에 바로 반영됩니다`}
     >
-      <InsightPanel module="finance" month={month} scope={site} insight={insightState} />
+      <InsightPanel module="finance" month={month} scope={site} insight={insightState} inDialog />
     </Dialog>
     </>
   );

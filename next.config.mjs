@@ -50,7 +50,11 @@ const nextConfig = {
     // firebase-admin 은 번들링하지 않고 런타임에 그대로 require 한다.
     // 내부 의존성(jwks-rsa → jose)이 CJS/ESM 경계에 걸쳐 있어서 번들러가
     // 끌어안으면 ERR_REQUIRE_ESM 으로 빌드가 깨진다.
-    serverComponentsExternalPackages: ["firebase-admin"],
+    //
+    // 메일(nodemailer · mailparser · imapflow)도 같은 이유로 런타임 require 로 둔다 —
+    // 글자 집합 변환표(iconv-lite · encoding-japanese)를 번들러가 끌어안으면
+    // 함수가 커지고, 동적 require 경고로 빌드가 시끄러워진다.
+    serverComponentsExternalPackages: ["firebase-admin", "nodemailer", "mailparser", "imapflow"],
   },
   env: {
     // 클라이언트에서도 현재 빌드 타깃을 알 수 있게 노출 (크롬 분기 등에 사용)

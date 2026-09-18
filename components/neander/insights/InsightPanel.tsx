@@ -9,7 +9,7 @@
 //  AI 가 쓴 말이 어느 숫자에서 나왔는지 확인할 수 없으면 믿고 발표할 수 없다.
 // ============================================================
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import {
   Check,
@@ -41,6 +41,7 @@ import {
 } from "@/components/neander/ui";
 import { useInsight, type UseInsight } from "./useInsight";
 import { InsightDiscussion, type InsightFocus } from "./InsightDiscussion";
+import { InsightItemChat } from "./InsightItemChat";
 import { applyInsightEdit } from "@/lib/neander/insights/edit";
 import {
   SEVERITY_ORDER,
@@ -48,7 +49,9 @@ import {
   type InsightDraft,
   type InsightEditProposal,
   type InsightItem,
+  type InsightItemRef,
   type InsightModule,
+  type InsightPatch,
   type Signal,
   type SignalMetric,
   type SignalSeverity,
@@ -78,11 +81,14 @@ export function InsightPanel({
   scope,
   className,
   insight,
+  inDialog = false,
 }: {
   module: InsightModule;
   month: string;
   scope?: string;
   className?: string;
+  /** 창(Dialog) 안에 띄웠는가 — 「묻기」 팝오버가 창 뒤로 숨지 않게 */
+  inDialog?: boolean;
   /**
    * 부르는 쪽이 이미 들고 있는 상태 — 발표 슬라이드의 관리 창처럼, 여기서 고친 것이
    * 곧바로 슬라이드에 보여야 할 때 넘긴다. 없으면 패널이 직접 불러온다.
@@ -150,6 +156,23 @@ export function InsightPanel({
   };
 
   const applyProposal = (p: InsightEditProposal) => setDraft((d) => (d ? applyInsightEdit(d, p) : d));
+
+  // 보기 화면 「묻기」 팝오버 — 편집 초안이 없으니 수정안을 곧바로 저장하고 되돌리기를 준다
+  const [asking, setAsking] = useState<InsightItemRef | null>(null);
+  useEffect(() => setAsking(null), [doc?.id, doc?.generatedAt, editing]);
+
+  const applyAndSave = async (p: InsightEditProposal): Promise<boolean> => {
+    if (!doc || saving) return false;
+    const before = savedDraft(doc);
+    const after = applyInsightEdit(before, p);
+    const patch: InsightPatch = p.kind === "comment" ? { comments: after.comments } : { [p.section]: after[p.section] };
+    const undo: InsightPatch = p.kind === "comment" ? { comments: before.comments } : { [p.section]: before[p.section] };
+    const next = await save(patch);
+    if (next) {
+      toast.success("수정안을 반영해 저장했습니다.", { action: { label: "되돌리기", onClick: () => void save(undo) } });
+    }
+    return !!next;
+  };
 
   // 보기 화면에서 바로 지우기 — 확인 창 대신 저장 후 「되돌리기」 (쓸데없는 문장을 연달아 치우기 좋게)
   const quickRemove = async (key: ListKey, id: string) => {
@@ -300,7 +323,25 @@ export function InsightPanel({
       signalMap,
       editing,
       focusedId: focus?.section === key ? focus.itemId : undefined,
-      onAsk: (id: string) => startEdit({ section: key, itemId: id }),
+      // 고치기 화면에서는 옆 대화에 짚고, 보기 화면에서는 문장 밑 팝오버로
+      onAsk: (id: string) => (editing ? startEdit({ section: key, itemId: id }) : setAsking({ section: key, itemId: id })),
+      askingId: !editing && asking?.section === key ? asking.itemId : undefined,
+      renderAsk: (item: InsightItem, anchorRef: RefObject<HTMLElement | null>) => (
+        <InsightItemChat
+          key={item.id}
+          open
+          anchorRef={anchorRef}
+          onClose={() => setAsking(null)}
+          section={key}
+          item={item}
+          draft={savedDraft(doc)}
+          discussion={doc.discussion ?? []}
+          discuss={discuss}
+          saving={saving}
+          onApply={applyAndSave}
+          overDialog={inDialog}
+        />
+      ),
       onPatch: (id: string, p: Partial<InsightItem>) => patchItem(key, id, p),
       onRemove: (id: string) => (editing ? removeItem(key, id) : void quickRemove(key, id)),
       busy: saving,
@@ -427,10 +468,16 @@ function ItemSection({
   showImpact = false,
   focusedId,
   onAsk,
+  askingId,
+  renderAsk,
   onPatch,
   onRemove,
   busy = false,
 }: {
+  /** 보기 화면에서 「묻기」 팝오버가 열린 문장 */
+  askingId?: string;
+  /** 그 팝오버 — 문장 블록을 앵커로 받는다 */
+  renderAsk: (item: InsightItem, anchorRef: RefObject<HTMLElement | null>) => ReactNode;
   /** 저장 중 — 보기 화면의 바로 지우기를 잠근다 */
   busy?: boolean;
   title: string;
@@ -495,7 +542,11 @@ function ItemSection({
                 </div>
               </li>
             ) : (
-              <li key={item.id} className="flex gap-2">
+              <AnchoredItem
+                key={item.id}
+                asking={askingId === item.id}
+                renderAsk={(ref) => renderAsk(item, ref)}
+              >
                 <span className="nd-num mt-0.5 w-4 shrink-0 text-nd-caption text-nd-fg-3">{i + 1}</span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -528,12 +579,37 @@ function ItemSection({
                     </button>
                   </div>
                 </div>
-              </li>
+              </AnchoredItem>
             ),
           )}
         </ol>
       )}
     </section>
+  );
+}
+
+/** 보기 화면의 문장 한 줄 — 「묻기」 팝오버가 이 블록 전체를 앵커로 붙는다 (문장을 가리지 않게) */
+function AnchoredItem({
+  asking,
+  renderAsk,
+  children,
+}: {
+  asking: boolean;
+  renderAsk: (anchorRef: RefObject<HTMLElement | null>) => ReactNode;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLLIElement>(null);
+  return (
+    <li
+      ref={ref}
+      className={cn(
+        "-mx-2 flex gap-2 rounded-nd-md px-2 py-1 transition-colors duration-nd-fast",
+        asking && "bg-nd-accent-soft/40 ring-1 ring-nd-accent/40",
+      )}
+    >
+      {children}
+      {asking && renderAsk(ref)}
+    </li>
   );
 }
 

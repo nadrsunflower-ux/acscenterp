@@ -20,7 +20,7 @@
 import { createElement, forwardRef, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { Plus, X } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { cn } from "@/components/neander/ui";
 import {
   QUOTE_VAT_LABEL,
@@ -158,11 +158,46 @@ export const QuoteSheet = forwardRef<HTMLDivElement, {
   const setSupplier = (k: keyof FinSupplier, v: string) => onChange({ ...q, supplier: { ...q.supplier, [k]: v } });
   const setLine = (id: string, patch: Partial<FinQuoteLine>) =>
     onChange({ ...q, lines: q.lines.map((l) => (l.id === id ? { ...l, ...patch } : l)) });
-  const addLine = () => onChange({ ...q, lines: [...q.lines, newQuoteLine()] });
-  const removeLine = (id: string) => onChange({ ...q, lines: q.lines.filter((l) => l.id !== id) });
+
+  // ---- 줄 고르기 ----
+  // 줄을 누르면(칸에 커서가 들어가도) 그 줄이 골라진다. 「줄 추가」 는 고른 줄
+  // 바로 아래에 끼워 넣고, 「줄 삭제」 는 고른 줄을 지운다. 지운 뒤에는 아무것도
+  // 고르지 않는다 — 단추를 두 번 눌러 이웃 줄까지 날아가는 일이 없게.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = q.lines.find((l) => l.id === selectedId) ?? null;
+  const selectedNo = selected ? q.lines.indexOf(selected) + 1 : 0;
+  const linesRef = useRef<HTMLTableElement>(null);
+  const [focusId, setFocusId] = useState<string | null>(null);
+
+  // 새 줄은 품명 칸에 커서를 넣어 둔다 — 추가하자마자 바로 적을 수 있게
+  useEffect(() => {
+    if (!focusId) return;
+    linesRef.current?.querySelector<HTMLInputElement>(`tr[data-line="${focusId}"] input`)?.focus();
+    setFocusId(null);
+  }, [focusId]);
+
+  const addLine = () => {
+    const line = newQuoteLine();
+    const at = selected ? q.lines.indexOf(selected) + 1 : q.lines.length;
+    onChange({ ...q, lines: [...q.lines.slice(0, at), line, ...q.lines.slice(at)] });
+    setSelectedId(line.id);
+    setFocusId(line.id);
+  };
+  const removeSelected = () => {
+    if (!selected || q.lines.length <= 1) return;
+    onChange({ ...q, lines: q.lines.filter((l) => l.id !== selected.id) });
+    setSelectedId(null);
+  };
 
   return (
-    <div ref={ref} className="sheet sheet--edit">
+    <div
+      ref={ref}
+      className="sheet sheet--edit"
+      // 품목 표·줄 단추 바깥을 누르면 고른 줄을 놓는다
+      onPointerDown={(e) => {
+        if (!(e.target as HTMLElement).closest(".lines, .q-linebar")) setSelectedId(null);
+      }}
+    >
       <div className="head">
         <div className="left">
           <p className="no" data-print-drop-if-empty>
@@ -356,7 +391,7 @@ export const QuoteSheet = forwardRef<HTMLDivElement, {
         </tbody>
       </table>
 
-      <table className="lines">
+      <table ref={linesRef} className="lines">
         <thead>
           <tr>
             <th className="name">품명</th>
@@ -369,7 +404,14 @@ export const QuoteSheet = forwardRef<HTMLDivElement, {
         </thead>
         <tbody>
           {q.lines.map((l) => (
-            <tr key={l.id}>
+            <tr
+              key={l.id}
+              data-line={l.id}
+              className={cn(l.id === selectedId && "is-selected")}
+              aria-selected={l.id === selectedId}
+              onPointerDown={() => setSelectedId(l.id)}
+              onFocus={() => setSelectedId(l.id)}
+            >
               <td className="name">
                 <Cell label="품명" placeholder="품명" value={l.name} onChange={(v) => setLine(l.id, { name: v })} />
               </td>
@@ -395,17 +437,6 @@ export const QuoteSheet = forwardRef<HTMLDivElement, {
                   value={l.note ?? ""}
                   onChange={(v) => setLine(l.id, { note: v })}
                 />
-                {q.lines.length > 1 && (
-                  <button
-                    type="button"
-                    className="q-rowdel"
-                    data-noprint
-                    aria-label={`${l.name || "이름 없는"} 줄 삭제`}
-                    onClick={() => removeLine(l.id)}
-                  >
-                    <X size={13} strokeWidth={2} aria-hidden />
-                  </button>
-                )}
               </td>
             </tr>
           ))}
@@ -420,10 +451,34 @@ export const QuoteSheet = forwardRef<HTMLDivElement, {
         </tbody>
       </table>
 
-      <button type="button" className="q-addline" data-noprint onClick={addLine}>
-        <Plus size={13} strokeWidth={2} aria-hidden />
-        줄 추가
-      </button>
+      <div className="q-linebar" data-noprint>
+        <button
+          type="button"
+          className="q-linebtn"
+          onClick={addLine}
+          title={selected ? `${selectedNo}번째 줄 아래에 새 줄을 넣습니다` : "맨 아래에 새 줄을 넣습니다"}
+        >
+          <Plus size={13} strokeWidth={2} aria-hidden />
+          줄 추가
+        </button>
+        <button
+          type="button"
+          className="q-linebtn q-linebtn--danger"
+          onClick={removeSelected}
+          disabled={!selected || q.lines.length <= 1}
+          title={
+            !selected
+              ? "지울 줄을 먼저 누르세요"
+              : q.lines.length <= 1
+                ? "마지막 한 줄은 지울 수 없습니다"
+                : `${selectedNo}번째 줄을 지웁니다`
+          }
+        >
+          <Trash2 size={13} strokeWidth={2} aria-hidden />
+          {selected ? `${selectedNo}번째 줄 삭제` : "줄 삭제"}
+        </button>
+        {!selected && <span className="q-linehint">지울 줄을 눌러 고르세요</span>}
+      </div>
 
       <p className="breakdown">
         {q.vatMode === "excluded"

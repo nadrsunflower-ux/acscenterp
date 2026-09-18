@@ -17,6 +17,7 @@ import {
   type InsightDoc,
   type InsightDraft,
   type InsightItem,
+  type InsightItemRef,
   type InsightModule,
   type InsightPatch,
   type Signal,
@@ -367,6 +368,15 @@ async function discuss(
   };
 
   const model = typeof body.model === "string" ? body.model : undefined;
+  // 「묻기」 팝오버 — 짚은 문장이 초안에 실제로 있을 때만 받는다
+  const f = body.focus && typeof body.focus === "object" ? (body.focus as Record<string, unknown>) : null;
+  const focus: InsightItemRef | undefined =
+    f &&
+    (f.section === "summary" || f.section === "actions" || f.section === "risks") &&
+    typeof f.itemId === "string" &&
+    draft[f.section].some((x) => x.id === f.itemId)
+      ? { section: f.section, itemId: f.itemId }
+      : undefined;
   const result = await runInsightDiscussion({
     month,
     scope,
@@ -374,6 +384,7 @@ async function discuss(
     draft,
     messages,
     model,
+    focus,
     data:
       module === "sales"
         ? { module, ctx: await loadSalesData() }
@@ -383,11 +394,12 @@ async function discuss(
   const now = Date.now();
   const discussion = trimDiscussion([
     ...(current.discussion ?? []),
-    { role: "user", content: messages[messages.length - 1].content, at: now },
+    { role: "user", content: messages[messages.length - 1].content, at: now, ...(focus ? { focus } : {}) },
     {
       role: "assistant",
       content: result.reply,
       at: now + 1,
+      ...(focus ? { focus } : {}),
       ...(result.toolCalls.length ? { toolCalls: result.toolCalls } : {}),
       ...(result.proposals.length ? { proposals: result.proposals } : {}),
       model: result.model,

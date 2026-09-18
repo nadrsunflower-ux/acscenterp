@@ -102,4 +102,24 @@ export const NEANDER_COL = {
   smoatSales: "neander_smoat_sales",
   /** SMOAT 월별 AI 원가·크레딧 (문서 id = YYYY-MM) */
   smoatCosts: "neander_smoat_costs",
+  // ---- 메일 (/neander/mail) ----
+  //  카페24 메일함을 ERP 안에서 읽고 보낸다 (lib/neander/mail/server/).
+  //  서버(Admin SDK)만 접근한다 — 암호화된 메일 비밀번호가 들어 있다.
+  /**
+   * 사람마다 메일 계정 1개 (문서 id = ERP 로그인 이메일).
+   * 아래에 inbox · sent · trash 하위 컬렉션과 meta/uidls(받은 표시) 가 붙는다.
+   */
+  mailAccounts: "neander_mail_accounts",
+  /**
+   * 예약 메일 — 계정 아래가 아니라 한 곳에 모은다. 누구의 ERP 가 열려 있든
+   * 20초 확인이 「보낼 때가 된 예약」을 한 번의 질의로 찾아 보내야 해서다.
+   */
+  mailScheduled: "neander_mail_scheduled",
+  /**
+   * 첨부 조각 저장소 — Storage 버킷이 없어 Firestore 에 768KB 씩 나눠 둔다.
+   * 보내기 전 첨부 · 임시저장 · 예약 · 큰 첨부 내려받기가 쓴다.
+   */
+  mailBlobs: "neander_mail_blobs",
+  /** 수신확인 — 열람 표시 id → 보낸 메일 (공개 픽셀 라우트가 찾는다) */
+  mailTrack: "neander_mail_track",
 } as const;

@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { AuthProvider, useAuth } from "@/components/neander/auth";
 import { AppDataProvider, useAppData } from "@/components/neander/app-data";
 import { ChatProvider } from "@/components/neander/chat";
+import { MailProvider } from "@/components/neander/mail/MailProvider";
 import { FinanceProvider } from "@/components/neander/finance/FinanceProvider";
 import { SalesProvider } from "@/components/neander/sales/SalesProvider";
 import { Shell } from "@/components/neander/Shell";
@@ -50,7 +51,10 @@ function AuthorizedShell({ children }: { children: ReactNode }) {
           (FinanceActivate · SalesActivate). */}
       <FinanceProvider>
         <SalesProvider>
-          <Shell>{children}</Shell>
+          {/* 메일은 어느 화면에서든 20초마다 확인한다 (사이드바 배지·새 메일 알림) */}
+          <MailProvider>
+            <Shell>{children}</Shell>
+          </MailProvider>
         </SalesProvider>
       </FinanceProvider>
     </ChatProvider>

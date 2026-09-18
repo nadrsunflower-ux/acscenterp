@@ -281,6 +281,55 @@ export interface FinProjectRevenue {
 export const isReceived = (r: Pick<FinProjectRevenue, "received" | "receivedDate">) =>
   Boolean(r.receivedDate) || r.received === true;
 
+// ---- 매출 차감 ------------------------------------------------
+//
+//  계약서에 찍힌 금액 중 일부를 발주처에 돌려주는 돈 — 에누리·할인·환급.
+//  계약금액을 줄여 적으면 통장에 들어온 돈·세금계산서와 어긋나고, 원가
+//  줄에 넣으면 매출이 부풀어 이익률이 틀어진다. 그래서 계약금액(총액)은
+//  그대로 두고 여기서 뺀다.
+//
+//  부가세가 함께 줄어드는지는 세금계산서를 고쳐 끊었는지에 달렸다.
+//    · 수정세금계산서 발행 — 돌려준 돈 안에 부가세가 들어 있다.
+//      1,100,000 을 돌려주면 공급가액 1,000,000 · 부가세 100,000 이 준다.
+//    · 세금계산서 그대로 — 부가세는 처음 끊은 대로 낸다. 돌려준 돈
+//      전액이 공급가액(= 이익)에서 빠진다.
+//
+//  금액은 언제나 **실제로 돌려주는 돈**(양수)으로 적는다. 계약이 부가세
+//  별도든 포함이든 통장에서 나가는 금액은 하나라, 그 숫자를 적게 한다.
+
+export const DEDUCTION_TAX_MODES = ["invoice", "none"] as const;
+export type DeductionTaxMode = (typeof DEDUCTION_TAX_MODES)[number];
+
+export const DEDUCTION_TAX_LABEL: Record<DeductionTaxMode, string> = {
+  invoice: "수정세금계산서 발행",
+  none: "세금계산서 그대로",
+};
+
+export const DEDUCTION_TAX_HINT: Record<DeductionTaxMode, string> = {
+  invoice: "부가세도 함께 줄어든다",
+  none: "부가세는 처음 끊은 대로 내고, 돌려준 돈 전액이 이익에서 빠진다",
+};
+
+export interface FinProjectDeduction {
+  id: string;
+  label: string;
+  /** 돌려주는 돈 — 통장에서 실제로 나가는 금액. 늘 양수로 둔다 */
+  amount: number;
+  taxMode: DeductionTaxMode;
+  /** 돌려줬거나 청구액에서 뺀 날. 비어 있으면 아직 돌려줄 돈이다 */
+  paidDate?: string;
+  note?: string;
+}
+
+/**
+ * 차감 한 줄이 공급가액·부가세에서 얼마씩 빼는가.
+ * 면세 계약은 애초에 부가세가 없으니 어느 쪽이든 전액이 공급가액이다.
+ */
+export function deductionSplit(d: Pick<FinProjectDeduction, "amount" | "taxMode">, base: VatMode): VatSplit {
+  const mode: VatMode = d.taxMode === "none" || base === "exempt" ? "exempt" : "included";
+  return splitVat(d.amount, mode);
+}
+
 export interface FinProjectDoc {
   id: string;
   /** 원장의 projectCode 와 맞춘다 — 대소문자 무시 */
@@ -301,6 +350,8 @@ export interface FinProjectDoc {
   /** 계약금액을 나눠 받는 일정 (선금·중도금·잔금) */
   installments?: FinProjectInstallment[];
   revenues: FinProjectRevenue[];
+  /** 매출 차감 — 발주처에 돌려주는 돈 (에누리·할인·환급) */
+  deductions?: FinProjectDeduction[];
   /** 사용자가 만든 열 */
   columns?: FinProjectColumn[];
   lines: FinProjectLine[];
@@ -328,6 +379,10 @@ export function newRevenue(): FinProjectRevenue {
 
 export function newInstallment(kind: InstallmentKind = "선금"): FinProjectInstallment {
   return { id: shortId(), kind, amount: 0 };
+}
+
+export function newDeduction(): FinProjectDeduction {
+  return { id: shortId(), label: "", amount: 0, taxMode: "invoice" };
 }
 
 export function emptyProject(): FinProjectInput {
@@ -407,19 +462,34 @@ export interface ProjectSummary {
   contract: number;
   extraRevenue: number;
   /**
-   * 수입 = **공급가액** 합계 (계약 + 추가). 이익 계산의 기준이다.
+   * 수입 = **공급가액** 합계 (계약 + 추가 − 매출 차감). 이익 계산의 기준이다.
    * 받은 부가세는 국가에 낼 돈이라 회사 수익이 아니다.
    */
   revenue: number;
-  /** 부가세 합계 — 받아서 납부할 돈 */
+  /** 부가세 합계 — 받아서 납부할 돈. 수정세금계산서로 뺀 몫은 빠진다 */
   revenueVat: number;
-  /** 청구·입금 총액 = 공급가액 + 부가세 */
+  /** 순 청구 총액 = 공급가액 + 부가세. 매출 차감까지 뺀, 끝내 회사에 남는 돈 */
   revenueTotal: number;
+  /** 차감 전 청구 총액 — 계약서·세금계산서에 찍히는 금액 */
+  grossTotal: number;
+
+  // ---- 매출 차감 ----
+  /** 돌려주는 돈 합계 */
+  deduction: number;
+  /** 그중 공급가액에서 빠지는 몫 */
+  deductionSupply: number;
+  /** 그중 부가세에서 빠지는 몫 — 수정세금계산서를 끊은 줄만 */
+  deductionVat: number;
+  /** 아직 돌려주지 않은 돈 */
+  deductionPending: number;
+  deductionCount: number;
 
   // ---- 입금 · 미수금 (모두 청구 총액 기준, 부가세 포함) ----
   /** 실제로 들어온 돈 (입금일이 적힌 회차 + 입금 확인된 추가 수입) */
   received: number;
-  /** 미수금 = 청구 총액 − 입금액 */
+  /** 돌려준 돈 (날짜가 적힌 매출 차감) */
+  returned: number;
+  /** 미수금 = 순 청구 총액 − (들어온 돈 − 돌려준 돈) */
   unpaid: number;
   /** 예정일이 지났는데 아직 안 들어온 회차의 합 */
   overdue: number;
@@ -453,6 +523,7 @@ export function projectSummary(
   p: Pick<FinProjectDoc, "contractAmount" | "revenues" | "lines" | "code"> & {
     vatMode?: VatMode;
     installments?: FinProjectInstallment[];
+    deductions?: FinProjectDeduction[];
   },
   transactions: FinTransaction[] = [],
   /** 연체 판정 기준일. 넘기지 않으면 한국 기준 오늘 */
@@ -466,9 +537,30 @@ export function projectSummary(
   const base = p.vatMode ?? "excluded";
   const contractSplit = splitVat(contract, base);
   const splits = [contractSplit, ...(p.revenues ?? []).map((r) => splitVat(r.amount, r.vatMode ?? base))];
-  const revenue = splits.reduce((n, v) => n + v.supply, 0);
-  const revenueVat = splits.reduce((n, v) => n + v.vat, 0);
-  const revenueTotal = splits.reduce((n, v) => n + v.total, 0);
+  const grossSupply = splits.reduce((n, v) => n + v.supply, 0);
+  const grossVat = splits.reduce((n, v) => n + v.vat, 0);
+  const grossTotal = splits.reduce((n, v) => n + v.total, 0);
+
+  // ---- 매출 차감 ----
+  //
+  //  총액은 그대로 두고 여기서 뺀다. 세금계산서를 그대로 둔 차감은 부가세를
+  //  건드리지 않으므로 돌려준 돈 전액이 공급가액에서 빠진다.
+  const deductions = p.deductions ?? [];
+  let deductionSupply = 0;
+  let deductionVat = 0;
+  let deductionPending = 0;
+  let returned = 0;
+  deductions.forEach((d) => {
+    const split = deductionSplit(d, base);
+    deductionSupply += split.supply;
+    deductionVat += split.vat;
+    if (d.paidDate) returned += split.total;
+    else deductionPending += split.total;
+  });
+  const deduction = deductionSupply + deductionVat;
+  const revenue = grossSupply - deductionSupply;
+  const revenueVat = grossVat - deductionVat;
+  const revenueTotal = grossTotal - deduction;
 
   // ---- 입금 · 미수금 ----
   //
@@ -518,10 +610,19 @@ export function projectSummary(
     revenue,
     revenueVat,
     revenueTotal,
+    grossTotal,
+    deduction,
+    deductionSupply,
+    deductionVat,
+    deductionPending,
+    deductionCount: deductions.length,
     received,
+    returned,
     // 들어온 돈이 청구액을 넘으면(초과 입금) 미수금은 0 으로 본다 —
     // 음수 미수금은 읽는 사람을 헷갈리게 한다. 초과분은 따로 드러낼 일이다.
-    unpaid: Math.max(0, revenueTotal - received),
+    // 990 을 받고 110 을 돌려줄 계약이면, 990 이 들어온 순간 미수금은 0 이고
+    // 남은 110 은 「돌려줄 돈」(deductionPending)으로 따로 보인다.
+    unpaid: Math.max(0, revenueTotal - (received - returned)),
     overdue,
     overdueCount,
     scheduled,
@@ -616,6 +717,21 @@ export function sanitizeRevenue(raw: Partial<FinProjectRevenue>): FinProjectReve
   }) as FinProjectRevenue;
 }
 
+export function sanitizeDeduction(raw: Partial<FinProjectDeduction>): FinProjectDeduction {
+  const taxMode = (DEDUCTION_TAX_MODES as readonly string[]).includes(String(raw.taxMode))
+    ? (raw.taxMode as DeductionTaxMode)
+    : "invoice";
+  return compact({
+    id: str(raw.id) ?? shortId(),
+    label: String(raw.label ?? "").trim(),
+    // 돌려주는 돈은 늘 양수로 둔다 — 「-1,100,000」 으로 적어도 같은 뜻이다
+    amount: Math.abs(Math.round(num(raw.amount) ?? 0)),
+    taxMode,
+    paidDate: dateStr(raw.paidDate),
+    note: str(raw.note),
+  }) as FinProjectDeduction;
+}
+
 export function sanitizeInstallment(raw: Partial<FinProjectInstallment>): FinProjectInstallment {
   const kind = (INSTALLMENT_KINDS as readonly string[]).includes(String(raw.kind))
     ? (raw.kind as InstallmentKind)
@@ -683,6 +799,10 @@ export function sanitizeProject(
     .map(sanitizeRevenue)
     .filter((r) => r.label || r.amount !== 0);
 
+  const deductions = (Array.isArray(raw.deductions) ? raw.deductions : [])
+    .map(sanitizeDeduction)
+    .filter((d) => d.label || d.amount !== 0);
+
   // 금액도 날짜도 없는 회차는 「+ 회차 추가」를 눌러만 둔 줄이다
   const installments = (Array.isArray(raw.installments) ? raw.installments : [])
     .map(sanitizeInstallment)
@@ -725,6 +845,7 @@ export function sanitizeProject(
       vatMode: vatMode(raw.vatMode) ?? "excluded",
       installments: installments.length > 0 ? installments : undefined,
       revenues,
+      deductions: deductions.length > 0 ? deductions : undefined,
       columns: columns.length > 0 ? columns : undefined,
       lines,
       note: str(raw.note),

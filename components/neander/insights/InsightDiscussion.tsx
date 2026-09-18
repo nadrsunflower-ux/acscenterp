@@ -34,9 +34,15 @@ const QUOTE_MAX = 40;
 /** 사용자 메시지 앞머리 — 서버 프롬프트가 이 꼴을 안다 (insights/server/discuss.ts) */
 const FOCUS_RE = /^\((.+?) 「([^」]*)」 에 대해\)\n/;
 
-type ProposalState = "pending" | "applied" | "stale" | "dismissed";
+export type ProposalState = "pending" | "applied" | "stale" | "dismissed";
 
-function proposalState(draft: InsightDraft, p: InsightEditProposal, dismissed: Set<string>): ProposalState {
+/** 사용자 메시지 앞머리 「(핵심 2 「…」 에 대해)」 — 대화 기록만 봐도 어느 문장 이야기인지 남게 */
+export function focusPrefix(label: string, text: string): string {
+  const quote = text.slice(0, QUOTE_MAX) + (text.length > QUOTE_MAX ? "…" : "");
+  return `(${label} 「${quote}」 에 대해)\n`;
+}
+
+export function proposalState(draft: InsightDraft, p: InsightEditProposal, dismissed: Set<string>): ProposalState {
   if (p.kind === "comment") {
     const now = draft.comments[p.chapter] ?? "";
     if (now === p.text) return "applied";
@@ -98,8 +104,7 @@ export function InsightDiscussion({
   const send = async (text: string) => {
     const q = text.trim();
     if (!q || busy) return;
-    const quote = focusItem ? focusItem.text.slice(0, QUOTE_MAX) + (focusItem.text.length > QUOTE_MAX ? "…" : "") : "";
-    const content = focusLabel ? `(${focusLabel} 「${quote}」 에 대해)\n${q}` : q;
+    const content = focusLabel && focusItem ? focusPrefix(focusLabel, focusItem.text) + q : q;
     setError(null);
     setInput("");
     setPending(content);
@@ -108,7 +113,7 @@ export function InsightDiscussion({
         ...discussion.map((m) => ({ role: m.role, content: m.content })),
         { role: "user", content },
       ];
-      await discuss(history, draft);
+      await discuss(history, draft, focusItem && focus ? focus : undefined);
       onClearFocus();
     } catch (e) {
       setError(e instanceof Error ? e.message : "요청에 실패했습니다.");
@@ -278,12 +283,12 @@ export function InsightDiscussion({
   );
 }
 
-function UserBubble({ content }: { content: string }) {
+export function UserBubble({ content, hideFocus = false }: { content: string; hideFocus?: boolean }) {
   const m = FOCUS_RE.exec(content);
   const body = m ? content.slice(m[0].length) : content;
   return (
     <div className="flex flex-col items-end gap-1">
-      {m && (
+      {m && !hideFocus && (
         <span className="inline-flex max-w-[90%] items-center gap-1 text-nd-micro text-nd-fg-3" title={m[2]}>
           <CornerDownRight size={11} className="shrink-0" aria-hidden />
           <span className="shrink-0 font-medium text-nd-fg-2">{m[1]}</span>
@@ -297,13 +302,15 @@ function UserBubble({ content }: { content: string }) {
   );
 }
 
-function ProposalCard({
+export function ProposalCard({
   proposal: p,
   draft,
   state,
   disabled,
   onApply,
   onDismiss,
+  applyLabel = "초안에 반영",
+  appliedLabel = "초안에 반영됨",
 }: {
   proposal: InsightEditProposal;
   draft: InsightDraft;
@@ -311,6 +318,8 @@ function ProposalCard({
   disabled: boolean;
   onApply: () => void;
   onDismiss: () => void;
+  applyLabel?: string;
+  appliedLabel?: string;
 }) {
   let title: string;
   let before: string | undefined;
@@ -340,7 +349,7 @@ function ProposalCard({
         </Badge>
         {state === "applied" && (
           <Badge size="sm" tone="success" dot>
-            초안에 반영됨
+            {appliedLabel}
           </Badge>
         )}
         {state === "stale" && (
@@ -377,7 +386,7 @@ function ProposalCard({
             넘기기
           </Button>
           <Button size="sm" variant="primary" icon={Check} onClick={onApply} disabled={disabled}>
-            초안에 반영
+            {applyLabel}
           </Button>
         </div>
       )}

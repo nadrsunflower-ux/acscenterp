@@ -25,7 +25,7 @@ export { MonthStepper } from "./month-nav";
 export { Money, StatTile, Legend, flowTextClass, type MoneyFlow } from "./money";
 export { SERIES, BLUE_RAMP, rampColor, rampTextClass } from "./series";
 export { PageHeader, PageShell, type PageWidth } from "./page";
-export { MemberAvatar, CategoryPicker } from "./member";
+export { MemberAvatar, CategoryPicker, AvatarPicker, ColorPalette, AVATAR_PALETTE, AVATAR_EMOJIS } from "./member";
 export { Portal } from "./portal";
 export { useEscape, useFocusTrap, useLockScroll, useOutsideClick, useAnchorPosition, useMounted, useMediaQuery, usePresence } from "./hooks";
 export { BasisLine, InfoPopover, type InfoTerm } from "./help";

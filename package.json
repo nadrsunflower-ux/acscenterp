@@ -36,16 +36,20 @@
     "sales:import": "tsx scripts/neander/import-sales-xlsx.ts",
     "sales:verify-db": "tsx scripts/neander/verify-sales-db.ts",
     "sync:verify": "tsx scripts/neander/verify-sync-online.ts",
-    "sync:site-keys": "tsx scripts/neander/add-site-keys.ts"
+    "sync:site-keys": "tsx scripts/neander/add-site-keys.ts",
+    "notion:verify": "tsx scripts/neander/verify-notion.ts"
   },
   "dependencies": {
     "firebase": "10.14.1",
     "firebase-admin": "^13.10.0",
     "html2canvas": "1.4.1",
+    "imapflow": "^1.7.8",
     "jszip": "^3.10.1",
     "lucide-react": "^1.43.0",
+    "mailparser": "^3.9.28",
     "mammoth": "^1.12.1",
     "next": "14.2.35",
+    "nodemailer": "^7.0.13",
     "officecrypto-tool": "^0.0.19",
     "react": "18.3.1",
     "react-datasheet-grid": "^4.11.6",
@@ -56,7 +60,9 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
+    "@types/mailparser": "^3.4.6",
     "@types/node": "20.16.11",
+    "@types/nodemailer": "^8.0.2",
     "@types/react": "18.3.12",
     "@types/react-dom": "18.3.1",
     "autoprefixer": "10.4.20",

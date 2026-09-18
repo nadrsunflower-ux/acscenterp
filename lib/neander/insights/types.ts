@@ -142,6 +142,13 @@ export interface InsightDiscussionMessage {
   proposals?: InsightEditProposal[];
   model?: string;
   costUsd?: number;
+  /** 문장 하나를 두고 나눈 말이면 그 문장 — 「묻기」 팝오버가 이것으로 대화를 가른다 */
+  focus?: InsightItemRef;
+}
+
+export interface InsightItemRef {
+  section: InsightSection;
+  itemId: string;
 }
 
 export const insightDocId = (module: InsightModule, month: string, scope?: string) =>
