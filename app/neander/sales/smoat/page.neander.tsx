@@ -45,7 +45,7 @@ import {
   Tr,
 } from "@/components/neander/ui";
 import { ToolbarPortal } from "@/components/neander/shell/context";
-import { SmoatActivate, useSmoat } from "@/components/neander/smoat/SmoatProvider";
+import { useSmoat, useSmoatActivate } from "@/components/neander/smoat/SmoatProvider";
 import {
   buildSmoatPnl,
   smoatAccounts,
@@ -73,6 +73,8 @@ const num = (n: number) => n.toLocaleString("ko-KR");
 export default function SmoatPage() {
   const { sales, costs, states, loading, refreshing, error, refresh } = useSmoat();
   const [month, setMonth] = useState("");
+  // 이 화면에 들어올 때 받기 시작한다. 로딩·오류로 일찍 반환하기 **전에** 불러야 한다
+  useSmoatActivate();
 
   const known = useMemo(() => smoatMonths(sales), [sales]);
   const months = useMemo(() => selectableMonths(known), [known]);
@@ -142,7 +144,6 @@ export default function SmoatPage() {
 
   return (
     <PageShell>
-      <SmoatActivate />
       <ToolbarPortal order={0}>
         <MonthStepper glass months={months} value={activeMonth} onChange={setMonth} />
       </ToolbarPortal>

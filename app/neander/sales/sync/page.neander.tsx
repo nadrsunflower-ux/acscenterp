@@ -57,7 +57,7 @@ import {
   Tr,
   useToast,
 } from "@/components/neander/ui";
-import { SmoatActivate, useSmoat } from "@/components/neander/smoat/SmoatProvider";
+import { useSmoat, useSmoatActivate } from "@/components/neander/smoat/SmoatProvider";
 import {
   backfillSync,
   dismissSyncIssue,
@@ -117,6 +117,8 @@ export default function SalesSyncPage() {
   const { states, issues, loading, error, refresh } = useSmoat();
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
+  // 이 화면에 들어올 때 받기 시작한다. 로딩·오류로 일찍 반환하기 **전에** 불러야 한다
+  useSmoatActivate();
 
   const months = useMemo(() => selectableMonths([todayMonth()]), []);
   const [backfillMonth, setBackfillMonth] = useState(months[0] ?? todayMonth());
@@ -161,7 +163,6 @@ export default function SalesSyncPage() {
 
   return (
     <PageShell>
-      <SmoatActivate />
       <PageHeader
         title="자동 동기화"
         description="우리 사이트 두 곳의 매출을 ERP 가 직접 끌어옵니다. 파일을 올릴 필요가 없습니다."

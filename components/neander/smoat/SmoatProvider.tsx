@@ -13,8 +13,8 @@
 //
 //  받기 시작하는 시점은 SalesProvider 와 같은 규칙이다 — 매출 워크스페이스에
 //  들어가기만 해도 부르면 안 되고, **이 데이터를 쓰는 화면**에 들어올 때
-//  부른다 (SmoatActivate). 월 손익만 보고 나가는 사람이 SMOAT 을 받을 이유는
-//  없다.
+//  부른다 (useSmoatActivate). 월 손익만 보고 나가는 사람이 SMOAT 을 받을
+//  이유는 없다.
 // ============================================================
 
 import {
@@ -116,13 +116,23 @@ export function SmoatProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/** SMOAT·동기화 데이터를 쓰는 화면에 둔다 — 여기에 들어올 때 받기 시작한다 */
-export function SmoatActivate() {
+/**
+ * SMOAT·동기화 데이터를 쓰는 화면에서 **맨 위에** 부른다 — 여기에 들어올 때
+ * 받기 시작한다.
+ *
+ * ⚠️ 부품(<SmoatActivate />)이 아니라 훅인 이유: 화면은 로딩·오류·빈 상태에서
+ *    일찍 반환한다. 부품을 본문 JSX 에 두면 **로딩 중에는 그려지지 않아**
+ *    받기 시작하지 못하고, 그래서 영영 로딩에 머문다 (실제로 그랬다).
+ *    훅은 이른 반환보다 먼저 돌아 그 고리를 끊는다.
+ *
+ *    판매 줄 쪽(SalesActivate)은 레이아웃에 있어 늘 그려지므로 같은 문제가
+ *    없다 — 부품으로 둘 거라면 레이아웃에 둬야 한다.
+ */
+export function useSmoatActivate(): void {
   const activate = useContext(ActivateCtx);
   useEffect(() => {
     activate?.();
   }, [activate]);
-  return null;
 }
 
 export function useSmoat(): SmoatValue {
