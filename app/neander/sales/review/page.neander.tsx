@@ -607,7 +607,7 @@ export default function SalesReviewPage() {
             <>
               {monthLabel(activeMonth)} 판매는 모두 상품이 정해졌습니다.{" "}
               <Link href="/neander/sales" className="font-medium text-nd-accent-strong hover:underline">
-                매장 대시보드 보기
+                AC'SCENT 대시보드 보기
               </Link>
             </>
           }

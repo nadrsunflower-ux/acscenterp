@@ -1,7 +1,7 @@
 "use client";
 
 // ============================================================
-//  매출 › SMOAT 대시보드 — 향수가 아닌 사업의 월 손익 (매장 대시보드와 한 벌)
+//  매출 › SMOAT 대시보드 — 향수가 아닌 사업의 월 손익 (AC'SCENT 대시보드와 한 벌)
 // ------------------------------------------------------------
 //  ⚠️ 이 화면은 매장 손익 표에 SMOAT 을 끼워 넣지 않는다. 같은 워크스페이스
 //     안의 **다른 사업**이다 (lib/neander/smoat/types.ts 주석에 왜 그런지
@@ -13,7 +13,7 @@
 //     적재하지 않는 것과 같은 이유다. 이 화면이 답하는 것은 "누가 어떤 팩을
 //     샀나"이고, 장부와는 맨 아래 대사 줄에서 만난다.
 //
-//  화면 순서는 매장 대시보드와 한 벌이다:
+//  화면 순서는 AC'SCENT 대시보드와 한 벌이다:
 //    제목 + 계산 기준 → 핵심 지표 → 선수금 띠 → 팩별·결제수단별 → 학원별
 // ============================================================
 
@@ -50,7 +50,7 @@ import {
 } from "@/components/neander/ui";
 import { ToolbarPortal } from "@/components/neander/shell/context";
 import { SmoatDrill, type SmoatFact } from "@/components/neander/smoat/SmoatDrill";
-// 매장 대시보드와 **같은 부품**이다 — 축 여백·눈금·hover 가 그대로라 두 화면을
+// AC'SCENT 대시보드와 **같은 부품**이다 — 축 여백·눈금·hover 가 그대로라 두 화면을
 // 번갈아 보는 사람이 다시 적응할 이유가 없다 (MonthTrendChart 주석 참고).
 import { MonthTrendChart } from "@/components/neander/sales/MonthTrendChart";
 import { useSmoat, useSmoatActivate } from "@/components/neander/smoat/SmoatProvider";
@@ -84,7 +84,7 @@ const num = (n: number) => n.toLocaleString("ko-KR");
 type TrendRange = "6" | "12" | "all";
 
 /**
- * 추이 막대 세 갈래 — 매장 대시보드가 매장 셋을 놓는 자리에 이쪽은 손익 셋을 놓는다.
+ * 추이 막대 세 갈래 — AC'SCENT 대시보드가 매장 셋을 놓는 자리에 이쪽은 손익 셋을 놓는다.
  *
  * 공헌이익은 순매출과 AI 원가의 **차이**라서 「합계」 자리에 둔다 (total). 그래야
  * 커서를 올렸을 때 부분 두 줄 다음에 결과 한 줄로 읽힌다.
@@ -369,7 +369,7 @@ export default function SmoatPage() {
         />
       </KpiStrip>
 
-      {/* 월별 추이 — 매장 대시보드와 같은 자리·같은 부품 */}
+      {/* 월별 추이 — AC'SCENT 대시보드와 같은 자리·같은 부품 */}
       <Card className="mb-5">
         <SectionHeader
           title="월별 추이"

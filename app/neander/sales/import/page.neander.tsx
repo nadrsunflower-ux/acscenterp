@@ -9,7 +9,7 @@
 //
 //  빠진 칸은 붉게, 채워진 칸은 초록으로 빛난다 (neander.css 의
 //  nd-puzzle-piece). 셋이 다 초록이면 다음 할 일(이벤트 입력 → 검토 →
-//  매장 대시보드)로 이어지는 띠가 뜬다.
+//  AC'SCENT 대시보드)로 이어지는 띠가 뜬다.
 //
 //  파서는 새로 쓰지 않는다 — 재무 모듈의 parsePayhere · parseNaverBooking
 //  (개인정보 열을 읽지 않는 것까지 그대로). 네이버 파일의 암호는 서버가
@@ -547,7 +547,7 @@ export default function SalesImportPage() {
       {puzzle.complete && (
         // 퍼즐이 맞춰진 순간(nd-puzzle-complete 번쩍임과 함께) 위에서 내려앉는다
         <InlineNotice tone="success" icon={CircleCheck} className="mb-5 animate-in fade-in slide-in-from-top-2 duration-nd">
-          <b>{monthLabel(activeMonth)} 퍼즐이 완성됐습니다.</b> 아래 세 단계를 마치면 매장 대시보드가
+          <b>{monthLabel(activeMonth)} 퍼즐이 완성됐습니다.</b> 아래 세 단계를 마치면 AC'SCENT 대시보드가
           확정됩니다.
         </InlineNotice>
       )}
@@ -568,7 +568,7 @@ export default function SalesImportPage() {
           sub={reviewCount > 0 ? `미확정 ${won(reviewCount)}건` : "미확정 없음"}
           tone={reviewCount > 0 ? "warning" : undefined}
         />
-        <NextStep href="/neander/sales" icon={ChartNoAxesColumn} n={3} title="매장 대시보드" sub="매장별 공헌이익 · 영업이익" />
+        <NextStep href="/neander/sales" icon={ChartNoAxesColumn} n={3} title="AC'SCENT 대시보드" sub="매장별 공헌이익 · 영업이익" />
       </div>
 
       {/* ---- 한 달에 한 번 쓰는 것들은 접어 둔다 (목업 하단의 세 줄) ---- */}

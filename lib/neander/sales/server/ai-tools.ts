@@ -682,7 +682,7 @@ export function summarizeSalesTool(name: string, a: Args, result: unknown): stri
   switch (name) {
     case "search_sales": return `판매 조회 ${bits} → ${r?.count ?? 0}건`;
     case "summarize_sales": return `집계 ${bits} → ${r?.groupCount ?? 0}개 그룹 / ${r?.totalCount ?? 0}건`;
-    case "get_month_pnl": return `매장 대시보드 ${bits}`;
+    case "get_month_pnl": return `AC'SCENT 대시보드 ${bits}`;
     case "get_event_report": return `이벤트 실적 ${bits} → ${r?.count ?? 0}건`;
     case "find_products": return `상품 검색 ${bits} → ${r?.count ?? 0}종`;
     case "get_product_performance": return `상품 수익성 ${bits}`;

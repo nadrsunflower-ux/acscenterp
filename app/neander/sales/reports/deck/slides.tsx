@@ -5,7 +5,7 @@
 //  6 비용 구조 · 7 공헌이익 상위 상품 · 8 이벤트별 손익 · 9 확인할 것 · 10 집계 기준
 //  (인사이트 장·장별 한 줄은 deck/insight-slides — 리포트 화면에서 만든 해설)
 //
-//  숫자는 lib/neander/sales/monthlyDeck.ts 가 매장 대시보드와 같은 집계로
+//  숫자는 lib/neander/sales/monthlyDeck.ts 가 AC'SCENT 대시보드와 같은 집계로
 //  만든다. 여기서는 그리기만 한다. 공용 표기는 deck/report-parts.
 // ============================================================
 import { useState, type CSSProperties, type ReactNode } from "react";

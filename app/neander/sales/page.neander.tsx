@@ -1,7 +1,7 @@
 "use client";
 
 // ============================================================
-//  매출 › 매장 대시보드 — 엑셀 「통합BEP」 시트의 재현
+//  매출 › AC'SCENT 대시보드 — 엑셀 「통합BEP」 시트의 재현
 // ------------------------------------------------------------
 //  ⚠️ 이 화면은 "얼마 벌었나"를 말하지 않는다. 매장 매출은 카드사 정산
 //     입금·Npay 정산으로 재무 장부에 이미 들어와 있다. 여기서 답하는 것은
@@ -404,7 +404,7 @@ export default function SalesDashboard() {
   if (error) {
     return (
       <PageShell width="form">
-        <PageHeader title="매장 대시보드" description="매장별 수량 · 원가 · 공헌이익" />
+        <PageHeader title="AC'SCENT 대시보드" description="매장별 수량 · 원가 · 공헌이익" />
         <ErrorState
           title="매출 데이터를 불러올 수 없습니다"
           description={error instanceof Error ? error.message : "알 수 없는 오류"}
@@ -417,7 +417,7 @@ export default function SalesDashboard() {
   if (masterEmpty || lines.length === 0) {
     return (
       <PageShell width="form">
-        <PageHeader title="매장 대시보드" description="매장별 수량 · 원가 · 공헌이익" />
+        <PageHeader title="AC'SCENT 대시보드" description="매장별 수량 · 원가 · 공헌이익" />
         <EmptyState
           icon={masterEmpty ? Package : Download}
           title={masterEmpty ? "아직 상품 마스터가 없습니다" : "아직 적재된 판매가 없습니다"}
@@ -513,7 +513,7 @@ export default function SalesDashboard() {
       </ToolbarPortal>
 
       <PageHeader
-        title="매장 대시보드"
+        title="AC'SCENT 대시보드"
         description="매장별 수량 · 원가 · 공헌이익"
         className="mb-3"
         meta={
