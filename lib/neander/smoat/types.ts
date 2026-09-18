@@ -292,6 +292,23 @@ export interface SmoatAccountStat {
   amount: number;
   firstDate: string;
   lastDate: string;
+  /**
+   * 이 학원이 쓴 결제수단 — 많이 쓴 순.
+   *
+   * 한 학원이 카드로도 내고 계좌이체로도 낼 수 있어 하나로 줄이지 않는다.
+   * 수수료가 수단에서 갈리므로(다날 계약 요율) "누가 어떻게 냈나"는 학원
+   * 이름과 같은 자리에 있어야 한다.
+   */
+  methods: { method: SmoatPayMethod | "unknown"; count: number }[];
+}
+
+/** 학원 한 곳의 결제수단을 한 줄로 — 하나면 이름만, 섞였으면 건수까지 */
+export function accountMethodText(a: Pick<SmoatAccountStat, "methods">): string {
+  if (a.methods.length === 0) return "—";
+  const label = (m: SmoatPayMethod | "unknown") =>
+    m === "unknown" ? "알 수 없음" : smoatPayMethodLabel(m);
+  if (a.methods.length === 1) return label(a.methods[0].method);
+  return a.methods.map((m) => `${label(m.method)} ${m.count}`).join(" · ");
 }
 
 export function smoatAccounts(sales: SmoatSale[], month?: string): SmoatAccountStat[] {
@@ -306,13 +323,20 @@ export function smoatAccounts(sales: SmoatSale[], month?: string): SmoatAccountS
         amount: 0,
         firstDate: s.date,
         lastDate: s.date,
+        methods: [] as SmoatAccountStat["methods"],
       };
       cur.count += 1;
       cur.amount += s.amount;
       if (s.date < cur.firstDate) cur.firstDate = s.date;
       if (s.date > cur.lastDate) cur.lastDate = s.date;
       cur.accountName = cur.accountName || s.accountName;
+      const key = s.payMethod ?? "unknown";
+      const hit = cur.methods.find((m) => m.method === key);
+      if (hit) hit.count += 1;
+      else cur.methods.push({ method: key, count: 1 });
       out.set(s.accountId, cur);
     });
-  return [...out.values()].sort((a, b) => b.amount - a.amount);
+  return [...out.values()]
+    .map((a) => ({ ...a, methods: [...a.methods].sort((x, y) => y.count - x.count) }))
+    .sort((a, b) => b.amount - a.amount);
 }

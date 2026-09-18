@@ -49,6 +49,7 @@ import { ToolbarPortal } from "@/components/neander/shell/context";
 import { SmoatDrill, type SmoatFact } from "@/components/neander/smoat/SmoatDrill";
 import { useSmoat, useSmoatActivate } from "@/components/neander/smoat/SmoatProvider";
 import {
+  accountMethodText,
   buildSmoatPnl,
   smoatAccounts,
   smoatKindLabel,
@@ -503,11 +504,12 @@ export default function SmoatPage() {
           <SectionHeader title="학원별" hint={`${sub} 에 결제한 학원 ${accounts.length}곳`} />
         </div>
         <TableScroll>
-          <Table minWidth={620} dense>
+          <Table minWidth={720} dense>
             <thead>
               <tr>
                 <Th sticky="top" className="pl-5">학원</Th>
                 <Th sticky="top" align="right">건수</Th>
+                <Th sticky="top">결제수단</Th>
                 <Th sticky="top" align="right">순매출</Th>
                 <Th sticky="top" className="pr-5">첫 결제</Th>
               </tr>
@@ -519,6 +521,9 @@ export default function SmoatPage() {
                   <Tr key={a.accountId}>
                     <Td className="pl-5">{a.accountName}</Td>
                     <Td num>{a.count}</Td>
+                    <Td className="whitespace-nowrap text-nd-caption text-nd-fg-2">
+                      {accountMethodText(a)}
+                    </Td>
                     <Td num className="font-semibold">
                       <SmoatDrill
                         title={`${a.accountName} · 순매출`}
