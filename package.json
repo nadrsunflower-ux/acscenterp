@@ -37,7 +37,11 @@
     "sales:verify-db": "tsx scripts/neander/verify-sales-db.ts",
     "sync:verify": "tsx scripts/neander/verify-sync-online.ts",
     "sync:site-keys": "tsx scripts/neander/add-site-keys.ts",
-    "notion:verify": "tsx scripts/neander/verify-notion.ts"
+    "notion:verify": "tsx scripts/neander/verify-notion.ts",
+    "meetings:verify-files": "tsx --conditions react-server scripts/neander/verify-meeting-files.ts",
+    "meetings:verify-recordings": "tsx --conditions react-server scripts/neander/verify-meeting-recordings.ts",
+    "meetings:verify-archive": "tsx --conditions react-server scripts/neander/verify-meeting-archive.ts",
+    "meetings:verify-log": "tsx --conditions react-server scripts/neander/verify-meeting-log.ts"
   },
   "dependencies": {
     "firebase": "10.14.1",
@@ -48,6 +52,7 @@
     "lucide-react": "^1.43.0",
     "mailparser": "^3.9.28",
     "mammoth": "^1.12.1",
+    "mediabunny": "^1.58.0",
     "next": "14.2.35",
     "nodemailer": "^7.0.13",
     "officecrypto-tool": "^0.0.19",

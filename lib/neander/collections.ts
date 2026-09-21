@@ -13,6 +13,21 @@ export const NEANDER_COL = {
   dailyTasks: "neander_daily_tasks",
   workRequests: "neander_work_requests",
   meetings: "neander_meetings",
+  /**
+   * 회의 첨부 파일 — 회의 id 에 매인다. Storage 버킷이 없어 메일 첨부처럼
+   * 768KB 조각(parts/{n})으로 둔다. 보안 규칙에 없어 서버(meetings/server/files.ts)만 접근
+   */
+  meetingFiles: "neander_meeting_files",
+  /**
+   * 회의 기록 — 누가 무엇을 했는가 한 줄씩 (meetings/server/log.ts).
+   * 회의 문서 안 배열이 아니라 따로 둔다 — 같은 순간에 둘이 손대도 안 덮어쓰게
+   */
+  meetingLog: "neander_meeting_log",
+  /**
+   * 회의 녹음 — 회의 id 에 매인다. 아래에 segments/{n}(10분 조각 · 받아쓴 줄)
+   * 과 그 아래 parts/{k}(768KB 음성 조각)가 붙는다. 서버(meetings/server/recordings.ts)만 접근
+   */
+  meetingRecordings: "neander_meeting_recordings",
   shortcuts: "neander_shortcuts",
   schedules: "neander_schedules",
   messages: "neander_messages",

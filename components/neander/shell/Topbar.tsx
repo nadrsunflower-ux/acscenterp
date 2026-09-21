@@ -11,6 +11,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu as MenuIcon } from "lucide-react";
 import { cn, IconButton } from "@/components/neander/ui";
+import { RecordingIndicator } from "@/components/neander/meetings/RecordingProvider";
 import { useShell } from "./context";
 import { describePath } from "./nav-config";
 
@@ -45,6 +46,9 @@ export function Topbar() {
           {crumb.page}
         </span>
       </nav>
+
+      {/* 회의 녹음 중이면 어느 화면에서든 — 누르면 그 회의로 */}
+      <RecordingIndicator />
 
       {/* 페이지 툴바 슬롯 */}
       <div

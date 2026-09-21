@@ -150,7 +150,8 @@ export function CategoryPicker({
   onChange: (c: TaskCategory) => void;
 }) {
   return (
-    <div className="grid grid-cols-4 gap-1.5" role="radiogroup" aria-label="분류">
+    // 분류가 다섯이다(개발 추가) — 4칸이면 「기타」 가 혼자 둘째 줄로 떨어진다
+    <div className="grid grid-cols-5 gap-1.5" role="radiogroup" aria-label="분류">
       {TASK_CATEGORIES.map((c) => {
         const active = value === c.value;
         return (

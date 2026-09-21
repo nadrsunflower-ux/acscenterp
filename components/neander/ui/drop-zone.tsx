@@ -24,6 +24,8 @@ export function DropZone({
   hint,
   /** 진행 중 표시 */
   busy = false,
+  /** 한 줄 높이 — 이미 올린 파일 목록 아래에 덧붙일 때 */
+  compact = false,
   className,
   children,
 }: {
@@ -35,6 +37,7 @@ export function DropZone({
   title: ReactNode;
   hint?: ReactNode;
   busy?: boolean;
+  compact?: boolean;
   className?: string;
   /** 기본 안내 대신 직접 그릴 때 */
   children?: ReactNode;
@@ -70,11 +73,14 @@ export function DropZone({
         type="button"
         disabled={disabled || busy}
         onClick={() => inputRef.current?.click()}
-        className="flex w-full flex-col items-center justify-center gap-1.5 rounded-nd-lg px-4 py-7 text-center disabled:cursor-not-allowed"
+        className={cn(
+          "flex w-full items-center justify-center rounded-nd-lg px-4 text-center disabled:cursor-not-allowed",
+          compact ? "min-h-[44px] flex-wrap gap-x-2 gap-y-0.5 py-2" : "flex-col gap-1.5 py-7",
+        )}
       >
         {children ?? (
           <>
-            <Icon icon={icon} size={22} className="text-nd-fg-3" />
+            <Icon icon={icon} size={compact ? 16 : 22} className="text-nd-fg-3" />
             <span className="text-nd-body font-medium text-nd-fg">{title}</span>
             {hint && <span className="text-nd-caption text-nd-fg-3">{hint}</span>}
           </>

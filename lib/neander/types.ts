@@ -187,6 +187,22 @@ export interface Meeting {
   actionItems: ActionItem[];
   /** 자료 링크 — 회의록을 웹 발표자료 등으로 직접 연결 (선택) */
   links?: MeetingLink[];
+  /**
+   * 상위 회의 id — 이 문서가 그 회의의 「안건」 이라는 뜻 (2026-09-21).
+   *
+   * 회의 전에 팀원이 안건과 자료를 미리 올려 두는 일이 잦다. 그것을 각각
+   * 별개 회의로 두면 목록이 회의처럼 늘어나고, 정작 그날 녹음·AI 회의록·
+   * 액션플랜이 어디에 붙어야 하는지가 흐려진다. 안건은 상위 회의 아래에
+   * 매달고, 회의의 결과물은 상위 회의에 남긴다.
+   *
+   * 한 단계만 쓴다 — 안건의 안건은 만들지 않는다 (화면에서 막는다).
+   */
+  parentId?: string;
+  /**
+   * 오래된 자료를 옮겨 둔 노션 페이지 (meetings/server/archive.ts 가 적는다).
+   * 안건 페이지는 이 주소의 페이지 아래에 만든다.
+   */
+  notionPageUrl?: string;
   createdAt: number;
   updatedAt: number;
 }

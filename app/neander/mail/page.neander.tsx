@@ -510,7 +510,7 @@ export default function MailPage() {
 
   if (!ready) {
     return (
-      <PageShell width="wide">
+      <PageShell width="full">
         <PageHeader title="메일" />
         <LoadingState />
       </PageShell>
@@ -1163,8 +1163,9 @@ function Mailbox({ account }: { account: MailAccountView }) {
     />
   );
 
+  // 메일은 넓은 화면을 끝까지 쓴다 — 읽기 판이 남는 폭을 모두 가져간다 (2026-09-18 사용자 요청)
   return (
-    <PageShell width="wide" className={PAGE_H}>
+    <PageShell width="full" className={PAGE_H}>
       <PageHeader
         title="메일"
         compact

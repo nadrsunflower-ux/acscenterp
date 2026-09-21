@@ -266,6 +266,9 @@
    ============================================================ */
 [data-app="neander"] .nd-leave {
   display: grid;
+  /* 칸을 minmax(0,1fr) 로 — 안의 내용이 길어도 격자가 부모보다 넓어지지 않는다
+     (2026-09-21 매출 검토 대기함이 좁은 화면에서 86px 밀렸다) */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 1fr;
   transition:
     grid-template-rows 300ms var(--nd-ease),
@@ -275,6 +278,7 @@
 [data-app="neander"] .nd-leave-inner {
   position: relative;
   min-height: 0;
+  min-width: 0;
 }
 /* 떠나는 동안만 잘라낸다 — 평소에 잘라내면 카드 안 메뉴·도움말이 잘린다 */
 [data-app="neander"] .nd-leave[data-phase] > .nd-leave-inner {
@@ -356,6 +360,36 @@
 }
 
 /* 움직임 줄이기 — 전환을 사실상 끈다 */
+/* ============================================================
+   회의 끌어다 놓기 (components/neander/meetings/MeetingDrag.tsx)
+   끄는 동안은 어디서나 잡은 손 모양 · 글자 선택 없음. 내려앉은 줄은
+   잠깐 푸르게 떴다가 제자리에 선다.
+   ============================================================ */
+html.nd-dragging,
+html.nd-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+[data-app="neander"] .nd-drag-ghost {
+  will-change: transform;
+}
+@keyframes nd-drop-in {
+  0% {
+    transform: scale(0.97);
+    background-color: rgb(var(--nd-accent) / 0.2);
+  }
+  55% {
+    transform: scale(1.012);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+[data-app="neander"] .nd-drop-in {
+  animation: nd-drop-in 560ms var(--nd-ease) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-app="neander"] *,
   [data-app="neander"] *::before,

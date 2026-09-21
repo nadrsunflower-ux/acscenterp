@@ -24,7 +24,9 @@ export function TableScroll({
 }) {
   return (
     <div
-      className={cn("nd-scroll w-full overflow-x-auto", maxHeight !== undefined && "overflow-y-auto", className)}
+      // relative — 표 안의 sr-only(절대 위치) 가 기준 상자를 못 찾아 화면 밖 좌표에 놓이면
+      // 페이지가 통째로 옆으로 밀린다 (2026-09-21 매출 대시보드에서 474px 밀림을 발견)
+      className={cn("nd-scroll relative w-full overflow-x-auto", maxHeight !== undefined && "overflow-y-auto", className)}
       style={maxHeight !== undefined ? { maxHeight } : undefined}
     >
       {children}

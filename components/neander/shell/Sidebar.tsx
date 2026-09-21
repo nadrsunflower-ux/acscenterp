@@ -13,7 +13,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronsUpDown, LayoutGrid, LogOut, ShieldCheck, Store } from "lucide-react";
+import { ChevronLeft, ChevronsUpDown, Globe, LayoutGrid, LogOut, ShieldCheck, Store } from "lucide-react";
 import { ADMIN_LOGIN_PATH } from "@/lib/auth";
 import { useAppData } from "@/components/neander/app-data";
 import { useAuth } from "@/components/neander/auth";
@@ -123,6 +123,9 @@ function NavRow({
  * "/" 는 미들웨어가 /neander 로 되돌려서, 상대 경로로는 갈 수 없다.
  */
 const ACSCENT_ERP_ORIGIN = "https://acscenterp.vercel.app";
+
+/** 네안데르 회사 홈페이지 관리자 — 이 레포 밖의 사이트다 */
+const NEANDER_SITE_ADMIN_URL = "https://neander.co.kr/admin";
 
 /** 사이드바 본문 — aside 와 드로어가 같이 쓴다 */
 export function SidebarContent({
@@ -296,6 +299,7 @@ export function SidebarContent({
             { type: "label", key: "who", label: user?.email ?? "" },
             { key: "store", label: "AC'SCENT ERP", icon: Store, onSelect: () => { window.open(`${ACSCENT_ERP_ORIGIN}/`, "_blank", "noopener"); } },
             { key: "store-admin", label: "AC'SCENT ERP 관리자", icon: ShieldCheck, onSelect: () => { window.open(`${ACSCENT_ERP_ORIGIN}${ADMIN_LOGIN_PATH}`, "_blank", "noopener"); } },
+            { key: "site-admin", label: "네안데르 사이트 관리자", icon: Globe, onSelect: () => { window.open(NEANDER_SITE_ADMIN_URL, "_blank", "noopener"); } },
             { type: "separator", key: "s1" },
             { key: "logout", label: "로그아웃", icon: LogOut, danger: true, onSelect: () => void logout() },
           ]}

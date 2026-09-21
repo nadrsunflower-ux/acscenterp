@@ -8,6 +8,7 @@ import { ChatProvider } from "@/components/neander/chat";
 import { MailProvider } from "@/components/neander/mail/MailProvider";
 import { FinanceProvider } from "@/components/neander/finance/FinanceProvider";
 import { SalesProvider } from "@/components/neander/sales/SalesProvider";
+import { RecordingProvider } from "@/components/neander/meetings/RecordingProvider";
 import { Shell } from "@/components/neander/Shell";
 import { Lock } from "lucide-react";
 import { Button, ToastProvider, ConfirmProvider } from "@/components/neander/ui";
@@ -53,7 +54,10 @@ function AuthorizedShell({ children }: { children: ReactNode }) {
         <SalesProvider>
           {/* 메일은 어느 화면에서든 20초마다 확인한다 (사이드바 배지·새 메일 알림) */}
           <MailProvider>
-            <Shell>{children}</Shell>
+            {/* 회의 녹음은 화면을 옮겨 다녀도 이어져야 한다 — 셸 바깥에서 들고 있는다 */}
+            <RecordingProvider>
+              <Shell>{children}</Shell>
+            </RecordingProvider>
           </MailProvider>
         </SalesProvider>
       </FinanceProvider>

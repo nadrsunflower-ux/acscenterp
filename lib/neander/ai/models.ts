@@ -61,6 +61,14 @@ export const DEFAULT_FIN_AI_MODEL = "google/gemini-3.7-flash";
  */
 export const INSIGHT_AI_MODEL = "anthropic/claude-sonnet-5";
 
+/**
+ * 회의 녹음 받아쓰기 · 회의록 초안 (2026-09-19 사용자 지정). 음성을 직접 받는 모델이어야 한다.
+ * 실측: 77분 회의에 받아쓰기 $0.228 + 초안 $0.042 — 시간당 약 $0.21.
+ * 받아쓰기는 reasoning effort low 로 부른다. high 는 1분에 생각 토큰 2.9만($0.11)을
+ * 쓴 적이 있다 — 3시간 회의면 2만원이 넘는다 (meetings/server/ai.ts).
+ */
+export const MEETING_AI_MODEL = "google/gemini-3.8-flash";
+
 /** 허용 목록에 있는 모델 ID 인가 — 서버가 요청 본문을 검증할 때 쓴다 */
 export const isFinAiModelId = (id: unknown): id is string =>
   typeof id === "string" && FIN_AI_MODELS.some((m) => m.id === id);
