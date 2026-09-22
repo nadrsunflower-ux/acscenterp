@@ -9,6 +9,7 @@
 //
 //  마크다운 전체를 받아들이지 않는 이유: 회의록에는 「*」·「_」·「#」 가 뜻 없이
 //  들어간다(상품 코드 #1234 등). 우리가 실제로 쓰는 몇 가지만 알아본다.
+//  다만 주소(http…)는 뜻이 헷갈릴 일이 없어서 눌러 열 수 있게 해 둔다.
 // ============================================================
 
 import type { ReactNode } from "react";
@@ -59,6 +60,35 @@ export function parseMinutes(text: string): Block[] {
 /** 들여쓰기 한 단계의 폭 */
 const INDENT = 18;
 
+// 주소에 쓰이는 글자만 받는다 — 「…co.kr입니다」 처럼 뒤에 붙은 한글을 삼키지 않게.
+// 그러고도 남는 문장부호(문장 끝 마침표, 괄호 닫기)는 주소에서 뗀다
+const URL = /(https?:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+)/g;
+const TRAIL = /[.,;:!?)\]}'"]+$/;
+
+/** 글줄 안의 주소만 링크로 바꾼다 — 나머지 글자는 그대로 둔다 */
+function withLinks(text: string): ReactNode {
+  const parts = text.split(URL);
+  if (parts.length === 1) return text;
+  return parts.map((part, i) => {
+    if (i % 2 === 0 || !part) return part;
+    const tail = part.match(TRAIL)?.[0] ?? "";
+    const href = tail ? part.slice(0, -tail.length) : part;
+    return (
+      <span key={i}>
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="break-all text-nd-accent-strong underline decoration-nd-accent/40 underline-offset-2 hover:decoration-nd-accent-strong"
+        >
+          {href}
+        </a>
+        {tail}
+      </span>
+    );
+  });
+}
+
 export function MinutesText({ text, className }: { text: string; className?: string }) {
   const blocks = parseMinutes(text);
   const nodes: ReactNode[] = [];
@@ -73,7 +103,7 @@ export function MinutesText({ text, className }: { text: string; className?: str
           key={i}
           className="mb-1.5 mt-7 text-[17px] font-semibold leading-snug tracking-[-0.01em] text-nd-fg first:mt-0"
         >
-          {b.text}
+          {withLinks(b.text)}
         </h3>,
       );
     } else if (b.kind === "li") {
@@ -93,13 +123,13 @@ export function MinutesText({ text, className }: { text: string; className?: str
           >
             {b.marker ?? (b.depth > 0 ? "◦" : "•")}
           </span>
-          <span className="min-w-0 break-words">{b.text}</span>
+          <span className="min-w-0 break-words">{withLinks(b.text)}</span>
         </div>,
       );
     } else {
       nodes.push(
         <p key={i} className={cn("break-words", afterGap ? "mt-3" : "mt-1", "first:mt-0")} style={{ paddingLeft: b.depth * INDENT }}>
-          {b.text}
+          {withLinks(b.text)}
         </p>,
       );
     }
