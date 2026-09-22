@@ -1,5 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "_regions": "서울에서 돈다. (1) Firestore 가 asia-northeast3 라 미국에서 돌면 요청마다 태평양을 왕복한다. (2) 카페24 메일 서버가 해외 IP 발송을 막는다 — 미국(iad1)에서 보내면 550 BLOCKED By User Setting.",
+  "regions": ["icn1"],
   "crons": [
     {
       "path": "/api/neander/sync/signal",
