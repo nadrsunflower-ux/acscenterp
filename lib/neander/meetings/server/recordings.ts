@@ -407,65 +407,118 @@ export async function setSpeakers(db: Firestore, id: unknown, speakers: unknown)
 }
 
 /**
- * 녹음 여러 개의 초안을 **하나로** 합친다 (2026-09-23).
+ * 나눠 녹음한 회의를 **하나로** 합친다 (2026-09-23).
  *
- * 한 회의를 실수로 나눠 녹음하면(9/22 임원진회의: 90분 + 31분) 초안도 둘로 갈린다.
- * 받아쓴 줄을 시각 순으로 이어 붙여 초안을 다시 만들고, **처음 녹음 카드 하나**에만
- * 남긴다. 음성과 받아쓴 글은 그대로 둔다 — 합치는 것은 초안뿐이다.
+ * 회의 중에 녹음이 끊기면 한 회의에 녹음이 둘·셋으로 남는다(9/22 임원진회의: 3개).
+ * 고른 녹음들을 **가장 먼저 시작한 녹음 안으로** 옮겨 하나로 만든다:
+ *   · 음성 조각과 받아쓴 글을 차례로 이어 붙인다 (뒤 녹음의 시각은 앞 녹음 길이만큼 민다)
+ *   · 초안이 하나라도 있으면 이어 붙인 받아쓴 글로 **초안을 다시 만든다**
+ *   · 옮기고 난 녹음 문서는 지운다
  *
- * 액션플랜은 **원래 초안들의 것을 지키고**, 새로 만든 초안에만 있는 것을 뒤에 더한다.
- * 다시 만든 초안은 담당자·기한이 빠진 채 뭉뚱그려지는 일이 있어서다(9/22 실측: 3+3건
- * → 2건으로 줄었다).
+ * 베껴 쓰고 나서 지우는 차례라 중간에 끊겨도 다시 누르면 된다 — 옮긴 녹음은
+ * `mergedFrom` 에 적어 두고 두 번 옮기지 않는다.
  */
-export async function mergeDrafts(
+export async function mergeRecordings(
   db: Firestore,
   ids: unknown,
-): Promise<{ keepId: string; summary: MeetingMinutesDraft; costUsd: number }> {
-  const list = Array.isArray(ids) ? ids.filter((v): v is string => typeof v === "string" && !!v) : [];
+): Promise<{ keepId: string; segments: number; durationSec: number; summary?: MeetingMinutesDraft; costUsd: number }> {
+  const list = Array.isArray(ids) ? [...new Set(ids.filter((v): v is string => isId(v)))] : [];
   if (list.length < 2) throw new Error("합칠 녹음을 둘 이상 고르세요.");
   if (list.length > 6) throw new Error("한 번에 여섯 개까지 합칩니다.");
 
   const docs = await Promise.all(list.map(async (id) => ({ id, rec: await getRec(db, id) })));
   const meetingId = docs[0].rec.meetingId;
   if (docs.some((d) => d.rec.meetingId !== meetingId)) throw new Error("같은 회의의 녹음만 합칠 수 있습니다.");
-  const notReady = docs.find((d) => !isFullyTranscribed(view(d.id, d.rec)));
-  if (notReady) throw new Error("모든 조각을 받아쓴 녹음만 합칠 수 있습니다.");
+  if (docs.some((d) => !d.rec.ended)) throw new Error("끝난 녹음만 합칠 수 있습니다. 녹음 중인 것은 먼저 끝내 주세요.");
+  if (docs.some((d) => d.rec.archiveUrl)) throw new Error("노션으로 보관한 녹음은 합칠 수 없습니다.");
 
-  // 녹음이 시작한 차례대로 — 뒤 녹음은 앞 녹음 길이만큼 시각을 민다
+  // 녹음이 시작한 차례대로 — 앞엣것 안으로 모은다
   docs.sort((a, b) => (a.rec.createdAt ?? 0) - (b.rec.createdAt ?? 0));
-  const lines: TranscriptLine[] = [];
-  let offset = 0;
-  for (const d of docs) {
-    const segs = await segsOf(db, d.id).orderBy("n").get();
-    for (const seg of segs.docs) {
-      for (const l of (seg.data() as SegDoc).lines ?? []) lines.push({ ...l, t: l.t + offset });
-    }
-    offset += d.rec.durationSec ?? 0;
-  }
-  if (lines.length === 0) throw new Error("받아쓴 말이 없습니다.");
+  const keep = docs[0];
+  const sources = docs.slice(1);
+  const done: string[] = [...(keep.rec.mergedFrom ?? [])];
 
-  const [meeting, members] = await Promise.all([
+  let nextN = keep.rec.segCount;
+  let offset = keep.rec.durationSec;
+  let addUploaded = 0;
+  let addTranscribed = 0;
+  let addCost = 0;
+  const speakers: Record<string, string> = { ...(keep.rec.speakers ?? {}) };
+
+  for (const src of sources) {
+    if (done.includes(src.id)) continue; // 지난번에 이미 옮겼다 — 지우기만 하면 된다
+    const segs = await segsOf(db, src.id).orderBy("n").get();
+    for (const seg of segs.docs) {
+      const sd = seg.data() as SegDoc;
+      const n = nextN++;
+      await segRef(db, keep.id, n).set({
+        ...sd,
+        n,
+        startSec: offset + sd.startSec,
+        ...(sd.lines ? { lines: sd.lines.map((l) => ({ ...l, t: l.t + offset })) } : {}),
+      });
+      // 음성 조각도 함께 (음성을 지운 녹음이면 없다)
+      const parts = await seg.ref.collection("parts").get();
+      for (const part of parts.docs) await partRef(db, keep.id, n, Number(part.id)).set(part.data());
+      if (sd.uploaded) addUploaded++;
+      if (sd.transcribedAt) addTranscribed++;
+    }
+    offset += src.rec.durationSec ?? 0;
+    addCost += src.rec.costUsd ?? 0;
+    for (const [k, v] of Object.entries(src.rec.speakers ?? {})) if (!speakers[k]) speakers[k] = v;
+    done.push(src.id);
+  }
+
+  await recRef(db, keep.id).update({
+    segCount: nextN,
+    uploaded: keep.rec.uploaded + addUploaded,
+    transcribed: keep.rec.transcribed + addTranscribed,
+    durationSec: offset,
+    costUsd: FieldValue.increment(addCost),
+    mergedFrom: done,
+    ...(Object.keys(speakers).length > 0 ? { speakers } : {}),
+    updatedAt: Date.now(),
+  });
+
+  // 초안 — 하나라도 있으면 이어 붙인 받아쓴 글로 다시 만들고, 원래 액션플랜을 지킨다
+  const olds = docs.map((d) => d.rec.summary);
+  let summary: MeetingMinutesDraft | undefined;
+  let costUsd = 0;
+  if (olds.some(Boolean)) {
+    const fresh = await summarizeMerged(db, keep.id, meetingId, speakers);
+    summary = { ...fresh.draft, actionItems: mergeActions(olds, fresh.draft) };
+    costUsd = fresh.costUsd;
+    await recRef(db, keep.id).update({ summary, summaryAt: Date.now(), costUsd: FieldValue.increment(costUsd) });
+  }
+
+  // 옮기고 난 녹음은 지운다 (조각·음성까지)
+  for (const src of sources) await db.recursiveDelete(recRef(db, src.id));
+
+  return { keepId: keep.id, segments: nextN, durationSec: offset, summary, costUsd };
+}
+
+/** 합친 녹음의 받아쓴 글 전체로 초안을 다시 만든다 */
+async function summarizeMerged(
+  db: Firestore,
+  id: string,
+  meetingId: string,
+  speakers: Record<string, string>,
+): Promise<{ draft: MeetingMinutesDraft; costUsd: number }> {
+  const [segs, meeting, members] = await Promise.all([
+    segsOf(db, id).orderBy("n").get(),
     db.collection(NEANDER_COL.meetings).doc(meetingId).get(),
     db.collection(NEANDER_COL.members).get(),
   ]);
+  const lines: TranscriptLine[] = segs.docs.flatMap((d) => (d.data() as SegDoc).lines ?? []);
+  if (lines.length === 0) throw new Error("받아쓴 말이 없습니다.");
   const m = meeting.data() as { date?: string; title?: string } | undefined;
-  const { draft, costUsd } = await draftMinutes({
+  return draftMinutes({
     lines,
     meetingDate: m?.date ?? new Date().toISOString().slice(0, 10),
     meetingTitle: m?.title,
     teamNames: members.docs.map((d) => String(d.data().name ?? "").trim()).filter(Boolean),
-    speakers: docs.find((d) => d.rec.speakers && Object.keys(d.rec.speakers).length > 0)?.rec.speakers,
+    speakers: Object.keys(speakers).length > 0 ? speakers : undefined,
   });
-
-  const keep = docs[0];
-  const summary: MeetingMinutesDraft = { ...draft, actionItems: mergeActions(docs.map((d) => d.rec.summary), draft) };
-  const at = Date.now();
-  await recRef(db, keep.id).update({ summary, summaryAt: at, costUsd: FieldValue.increment(costUsd) });
-  // 나머지 카드의 초안은 뺀다 — 어느 것을 회의록에 넣을지 헷갈리지 않게
-  for (const d of docs.slice(1)) {
-    await recRef(db, d.id).update({ summary: FieldValue.delete(), summaryAt: FieldValue.delete() });
-  }
-  return { keepId: keep.id, summary, costUsd };
 }
 
 /**
@@ -497,16 +550,24 @@ function overlap(a: Set<string>, b: Set<string>): number {
 export const isSameAction = (a: string, b: string) => overlap(bigrams(a), bigrams(b)) >= SAME_ACTION;
 
 function mergeActions(olds: (MeetingMinutesDraft | undefined)[], fresh: MeetingMinutesDraft): MinutesActionDraft[] {
+  // 원래 초안들의 액션은 **하나도 빼지 않는다** — 사람이 이미 본 것이고, 말이 비슷해도
+  // 다른 일일 수 있다. 겹침은 새로 만든 초안 쪽에서만 걸러낸다.
   const out: MinutesActionDraft[] = [];
   const seen: Set<string>[] = [];
-  const add = (item: MinutesActionDraft) => {
+  for (const d of olds) {
+    for (const item of d?.actionItems ?? []) {
+      const g = bigrams(item.text ?? "");
+      if (g.size === 0) continue;
+      seen.push(g);
+      out.push(item);
+    }
+  }
+  for (const item of fresh.actionItems ?? []) {
     const g = bigrams(item.text ?? "");
-    if (g.size === 0 || seen.some((x) => overlap(g, x) >= SAME_ACTION)) return;
+    if (g.size === 0 || seen.some((x) => overlap(g, x) >= SAME_ACTION)) continue;
     seen.push(g);
     out.push(item);
-  };
-  olds.forEach((d) => d?.actionItems?.forEach(add));
-  fresh.actionItems?.forEach(add);
+  }
   return out.slice(0, 20);
 }
 

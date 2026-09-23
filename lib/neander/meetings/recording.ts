@@ -95,6 +95,8 @@ export interface MeetingRecording {
   confirmedAt?: number;
   audioDeleteAt?: number;
   audioDeletedAt?: number;
+  /** 합치면서 이 녹음 안으로 들여온 녹음들 — 두 번 옮기지 않으려고 적어 둔다 */
+  mergedFrom?: string[];
   /** 노션으로 옮긴 음성 — 그 회의 보관 페이지 주소 (받아쓴 글·초안은 ERP 에 그대로) */
   archiveUrl?: string;
   archivedAt?: number;
