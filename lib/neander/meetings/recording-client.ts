@@ -75,6 +75,10 @@ export const saveSpeakers = (id: string, speakers: Record<string, string>) => po
 export const summarizeRecording = (id: string) =>
   post<{ summary: MeetingMinutesDraft; summaryAt: number; costUsd: number }>({ action: "summarize", id });
 
+/** 나눠 녹음한 회의 — 초안만 하나로 합친다 (음성·받아쓴 글은 그대로) */
+export const mergeDrafts = (ids: string[]) =>
+  post<{ keepId: string; summary: MeetingMinutesDraft; costUsd: number }>({ action: "merge-drafts", ids });
+
 export const confirmRecording = (id: string) => post({ action: "confirm", id });
 
 export const deleteRecordingAudio = (id: string) => post({ action: "delete-audio", id });

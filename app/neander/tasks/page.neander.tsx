@@ -12,6 +12,7 @@ import {
   updateTask,
 } from "@/lib/neander/db/tasks";
 import { emptyToUndef } from "@/lib/neander/db/helpers";
+import { MailChip } from "@/components/neander/mail/MailChip";
 import {
   Button,
   Card,
@@ -634,6 +635,7 @@ function TaskRow({
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pl-[30px] text-nd-caption text-nd-fg-3">
         <span>{task.memberName}</span>
         {task.detail && <span className="text-nd-fg-2">· {task.detail}</span>}
+        {task.mail && <MailChip mail={task.mail} />}
         {extended && task.originalDate && (
           <Badge tone="warning" size="sm">
             {formatDateKo(task.originalDate)} → {formatDateKo(task.date)}로 연장

@@ -17,6 +17,7 @@ import {
 } from "@/lib/neander/db/requests";
 import { addTask } from "@/lib/neander/db/tasks";
 import { emptyToUndef } from "@/lib/neander/db/helpers";
+import { MailChip } from "@/components/neander/mail/MailChip";
 import {
   Button,
   Card,
@@ -310,6 +311,8 @@ function RequestCard({
             {req.title}
           </div>
           {req.detail && <p className="mt-1 text-nd-body text-nd-fg-2">{req.detail}</p>}
+          {/* 메일에서 만든 요청이면 원본으로 가는 길 (MailChip) */}
+          {req.mail && <MailChip mail={req.mail} className="mt-2" />}
           <div className="mt-2 flex flex-wrap gap-2 text-nd-caption text-nd-fg-3">
             <span>{mode === "received" ? `${req.fromName} → 나` : `나 → ${req.toName}`}</span>
             <span className="nd-num">· {formatTimestamp(req.createdAt)}</span>

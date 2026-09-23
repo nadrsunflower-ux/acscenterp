@@ -78,6 +78,47 @@ export interface MailSummary {
   schedule?: { status: "pending" | "sending" | "failed"; error?: string };
 }
 
+/**
+ * 다른 화면에서 메일 한 통을 가리키는 표준 참조 (2026-09-22).
+ *
+ * 업무요청·일일업무·회의에 「이 메일에서 왔다」를 남긴다. 제목·보낸 사람을 **함께
+ * 적어 둔다** — 그 메일함에 들어갈 수 없는 사람에게도 무엇이었는지는 보여야 하고,
+ * 메일이 지워져도 흔적은 남아야 한다. 누르면 그 메일로 가지만, 남의 메일함이면
+ * 열리지 않는다.
+ */
+export interface MailRef {
+  /** 메일 계정 키 (neander_mail_accounts 문서 id) */
+  acct: string;
+  box: MailBox;
+  id: string;
+  subject: string;
+  from: MailAddr;
+  /** 보낸 시각 (ms) */
+  date: number;
+}
+
+/**
+ * 메일 참조 만들기 — Firestore 는 undefined 를 거부한다. 보낸 사람 이름이 없는
+ * 메일(대부분의 알림 메일)이 흔해서, 여기서 한 번에 털어 낸다.
+ */
+export function mailRefOf(m: {
+  box: MailView;
+  id: string;
+  subject?: string;
+  from: MailAddr;
+  date: number;
+}, acct?: string): MailRef {
+  return {
+    acct: acct ?? "",
+    // 예약·수신확인은 메일함이 아니다 — 원본은 보낸메일함에 있다
+    box: m.box === "scheduled" || m.box === "receipts" ? "sent" : m.box,
+    id: m.id,
+    subject: m.subject ?? "",
+    from: m.from.name ? { name: m.from.name, address: m.from.address } : { address: m.from.address },
+    date: m.date,
+  };
+}
+
 export interface MailDetail extends MailSummary {
   messageId?: string;
   replyTo?: MailAddr[];

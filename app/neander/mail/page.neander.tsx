@@ -22,6 +22,7 @@ import {
   FileText,
   FolderInput,
   Forward,
+  ListChecks,
   Inbox,
   Loader2,
   Mail,
@@ -65,6 +66,7 @@ import {
 } from "@/components/neander/ui";
 import { useMail } from "@/components/neander/mail/MailProvider";
 import { MailBody } from "@/components/neander/mail/MailBody";
+import { MailHandoff } from "@/components/neander/mail/MailHandoff";
 import { AddAccountDialog, MailConnect, MailSettings, type SettingsTab } from "@/components/neander/mail/MailAccount";
 import { MailComposer, type ComposeInit } from "@/components/neander/mail/MailComposer";
 import { MailImport } from "@/components/neander/mail/MailImport";
@@ -92,10 +94,12 @@ import {
 } from "@/lib/neander/mail/client";
 import {
   BOX_LABEL,
+  SYSTEM_BOXES,
   isMailBox,
   type MailAccountView,
   type MailAddr,
   type MailBox,
+  type SystemBox,
   type MailCounts,
   type MailDetail,
   type MailFilter,
@@ -287,6 +291,8 @@ function AddrLine({ label, list }: { label: string; list?: MailAddr[] }) {
 
 interface ReaderActions {
   onReply: (mode: "reply" | "replyAll" | "forward") => void;
+  /** 이 메일을 업무요청·일일업무·회의 안건으로 (MailHandoff) */
+  onHandoff: () => void;
   onAct: (kind: BulkKind, to?: MailBox) => void;
   onFull: () => void;
   onSchedule: (kind: "now" | "cancel" | "edit") => void;
@@ -366,6 +372,10 @@ function Reader({
             </Button>
             <Button variant="ghost" size="sm" icon={Forward} onClick={() => actions.onReply("forward")}>
               전달
+            </Button>
+            {/* 메일 내용을 ERP 안으로 — 업무요청·일일업무·회의 안건 (2026-09-22 팀 피드백) */}
+            <Button variant="ghost" size="sm" icon={ListChecks} onClick={actions.onHandoff}>
+              업무로
             </Button>
             <span className="flex-1" />
             {!readonly && (
@@ -528,11 +538,13 @@ export default function MailPage() {
 }
 
 function Mailbox({ account }: { account: MailAccountView }) {
-  const { activeKey, counts, setCounts, checking, lastCheckedAt, error, errorSince, checkNow, subscribe, setAccount, refresh } = useMail();
+  const { activeKey, counts, setCounts, checking, lastCheckedAt, error, errorSince, checkNow, subscribe, setAccount, refresh, accounts, setActive } = useMail();
   const toast = useToast();
   const confirm = useConfirm();
 
   const [sel, setSel] = useState<MailSelection>(INBOX);
+  /** 「업무로」 창에 올려 둔 메일 (MailHandoff) */
+  const [handoff, setHandoff] = useState<MailDetail | null>(null);
   const [lists, setLists] = useState<Record<string, ListState>>({});
   const [query, setQuery] = useState("");
   const [checked, setChecked] = useState<Set<string>>(new Set());
@@ -646,6 +658,37 @@ function Mailbox({ account }: { account: MailAccountView }) {
       }),
     [subscribe, activeKey],
   );
+
+  /**
+   * 다른 화면의 「메일에서 옴」 칩에서 왔을 때 — /neander/mail?acct=&box=&id=
+   * (MailChip). 그 계정으로 옮기고 메일을 바로 편다. 한 번 열면 주소는 지운다.
+   */
+  const jumped = useRef(false);
+  useEffect(() => {
+    if (jumped.current || typeof window === "undefined") return;
+    const q = new URLSearchParams(window.location.search);
+    const box = q.get("box");
+    const id = q.get("id");
+    if (!id || !isMailBox(box)) return;
+    const acct = q.get("acct") || undefined;
+    // 계정 목록을 받기 전이면 기다린다 (ready 뒤 다시 돈다)
+    if (acct && accounts.length === 0) return;
+    jumped.current = true;
+    window.history.replaceState(null, "", "/neander/mail");
+    if (acct && acct !== activeKey && accounts.some((a) => a.key === acct)) setActive(acct);
+    const label = SYSTEM_BOXES.includes(box as SystemBox)
+      ? BOX_LABEL[box as SystemBox]
+      : accounts.find((a) => a.key === (acct ?? activeKey))?.folders?.find((f) => f.id === box)?.name ?? "메일함";
+    setSel({ view: box, label });
+    setOpenId(id);
+    setDetail(null);
+    setDetailLoading(true);
+    setDetailError(undefined);
+    void fetchMailMessage(box, id, { acct })
+      .then((res) => setDetail(res.message))
+      .catch((e) => setDetailError(errText(e)))
+      .finally(() => setDetailLoading(false));
+  }, [accounts, activeKey, setActive]);
 
   const closeReader = () => {
     setOpenId(null);
@@ -1075,6 +1118,7 @@ function Mailbox({ account }: { account: MailAccountView }) {
       setCompose(replyInit(mode, m, account, sel.owner ?? activeKey));
     },
     onAct: (kind, to) => void act(kind, [m.id], to),
+    onHandoff: () => setHandoff(m),
     onFull: () => void openMessage(m, true),
     onSchedule: (kind) => {
       if (kind === "edit") setExpandedId(null);
@@ -1244,6 +1288,8 @@ function Mailbox({ account }: { account: MailAccountView }) {
           invalidate("scheduled");
         }}
       />
+      {/* 이 메일을 업무요청·일일업무·회의 안건으로 */}
+      <MailHandoff mail={handoff} acct={sel.owner ?? activeKey} onClose={() => setHandoff(null)} />
       <AddAccountDialog open={addOpen} onClose={() => setAddOpen(false)} />
       <MailSettings open={settings.open} initialTab={settings.tab} onClose={() => setSettings((s) => ({ ...s, open: false }))} />
       <MailImport

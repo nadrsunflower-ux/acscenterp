@@ -41,6 +41,7 @@ import {
   endRecording,
   finalizeRecording,
   getMeetingRecordings,
+  isSameAction,
   listRecordings,
   putSegmentPart,
   readSegmentAudio,
@@ -67,6 +68,21 @@ function pureChecks() {
   check(formatClock(4625) === "1:17:05" && formatClock(65) === "1:05", "시각 표시");
   const text = minutesToContent({ title: "t", content: "■ 주제\n- 내용", decisions: ["정함"], actionItems: [], openQuestions: ["남음"] });
   check(text.includes("■ 결정 사항\n- 정함") && text.includes("■ 남은 질문\n- 남음"), "초안 → 회의록 본문");
+
+  // 초안 합치기 — 같은 일을 말만 바꿔 적은 액션은 한 줄로 (2026-09-22 실제 초안 문구)
+  check(
+    isSameAction("굿즈 모먼트 IP 캐릭터 향수 샘플 제작 및 ID 매장 비치", "굿즈모먼트 IP 향수 샘플 제작 및 매장 비치"),
+    "말만 바꾼 같은 액션은 같은 것으로 본다",
+  );
+  check(
+    isSameAction("엔플라잉 룸 스프레이 재제작 부자재 수량 파악 및 발주 준비", "엔플라잉 룸 스프레이 재제작 발주 준비"),
+    "줄여 쓴 같은 액션도 같은 것으로 본다",
+  );
+  check(
+    !isSameAction("클룩 플랫폼 상품 연동 세팅 및 샤오홍슈 마케팅 전략 수립", "AI 학원 1호점 인수 매물 분석 및 외부 파트너십 투자 방안 검토"),
+    "다른 액션은 합치지 않는다",
+  );
+  check(!isSameAction("트로트 팬덤 대상 향수 콜라보 기획", "악센트 아이디 매장 업무 자동화 설계"), "주제가 다르면 합치지 않는다");
 }
 
 async function main() {

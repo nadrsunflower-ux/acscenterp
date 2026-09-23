@@ -103,6 +103,29 @@ export function fetchMailList(
   return get(`${BASE}?${q}`, opts.acct ?? ACTIVE);
 }
 
+/**
+ * 메일 한 통을 회의(또는 어느 회의의 안건)로 옮긴다 — 첨부까지.
+ * 서버가 메일 서버에서 원문을 받아 첨부를 회의 첨부로 옮긴다 (api/mail/handoff).
+ */
+export async function mailToMeeting(input: {
+  acct?: string;
+  box: MailBox;
+  id: string;
+  parentId?: string;
+  date?: string;
+  title?: string;
+  attachments?: number[];
+}): Promise<{ meetingId: string; files: number; skipped: { name: string; reason: string }[] }> {
+  const res = await fetch("/api/neander/mail/handoff", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token()}` },
+    body: JSON.stringify(input),
+  });
+  const body = (await res.json()) as { meetingId?: string; files?: number; skipped?: { name: string; reason: string }[]; error?: string };
+  if (!res.ok || !body.meetingId) throw new Error(body.error ?? `요청이 실패했습니다 (HTTP ${res.status})`);
+  return { meetingId: body.meetingId, files: body.files ?? 0, skipped: body.skipped ?? [] };
+}
+
 export const fetchReceipts = () => get<{ receipts: MailReceipt[] }>(`${BASE}?view=receipts`);
 
 export const fetchContacts = () =>

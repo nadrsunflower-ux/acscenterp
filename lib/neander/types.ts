@@ -3,6 +3,8 @@
 //  (AC'SCENT ERP에 통합된 NEANDER 상위 ERP 영역에서 사용)
 // ============================================================
 
+import type { MailRef } from "@/lib/neander/mail/types";
+
 // ---- 공통 enum / 라벨 -------------------------------------
 
 /** 매출 채널 */
@@ -86,8 +88,10 @@ export interface DailyTask {
   status: TaskStatus;
   /** status === "extended" 일 때, 연장 전 원래 날짜. date 는 연장된 날짜로 이동된다. */
   originalDate?: string;
+  /** 이 일일업무가 메일 한 통에서 왔다면 그 메일 (mail/types.ts) */
+  mail?: MailRef;
   /** 이 일일업무를 자동 생성한 소스 모듈 (개발허브 미러 등). 수동 등록이면 없음 */
-  sourceType?: "dev" | "request" | "meeting";
+  sourceType?: "dev" | "request" | "meeting" | "mail";
   /** 소스 문서 id — sourceType==="dev" 면 DevTask id (딥링크: /neander/dev/board?task=) */
   sourceId?: string;
   createdAt: number;
@@ -122,6 +126,8 @@ export interface WorkRequest {
   category?: TaskCategory;
   dueDate?: string; // YYYY-MM-DD
   status: RequestStatus;
+  /** 이 요청이 메일 한 통에서 왔다면 그 메일 (mail/types.ts · 눌러서 원본으로) */
+  mail?: MailRef;
   /** 받은 사람이 요청자에게 남기는 간단한 답장 메시지 */
   replyMessage?: string;
   /** 받은 사람이 '확인완료'를 눌렀는지 (알림 뱃지 제거 기준) */
@@ -198,6 +204,8 @@ export interface Meeting {
    * 한 단계만 쓴다 — 안건의 안건은 만들지 않는다 (화면에서 막는다).
    */
   parentId?: string;
+  /** 이 회의(안건)가 메일 한 통에서 왔다면 그 메일 (mail/types.ts) */
+  mail?: MailRef;
   /**
    * 오래된 자료를 옮겨 둔 노션 페이지 (meetings/server/archive.ts 가 적는다).
    * 안건 페이지는 이 주소의 페이지 아래에 만든다.

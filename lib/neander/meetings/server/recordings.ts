@@ -33,6 +33,7 @@ import {
   isFullyTranscribed,
   isRecAudioFormat,
   type MeetingMinutesDraft,
+  type MinutesActionDraft,
   type MeetingRecording,
   type RecordingDetail,
   type RecordingSegment,
@@ -403,6 +404,110 @@ export async function setSpeakers(db: Firestore, id: unknown, speakers: unknown)
     }
   }
   await recRef(db, id as string).update({ speakers: clean });
+}
+
+/**
+ * 녹음 여러 개의 초안을 **하나로** 합친다 (2026-09-23).
+ *
+ * 한 회의를 실수로 나눠 녹음하면(9/22 임원진회의: 90분 + 31분) 초안도 둘로 갈린다.
+ * 받아쓴 줄을 시각 순으로 이어 붙여 초안을 다시 만들고, **처음 녹음 카드 하나**에만
+ * 남긴다. 음성과 받아쓴 글은 그대로 둔다 — 합치는 것은 초안뿐이다.
+ *
+ * 액션플랜은 **원래 초안들의 것을 지키고**, 새로 만든 초안에만 있는 것을 뒤에 더한다.
+ * 다시 만든 초안은 담당자·기한이 빠진 채 뭉뚱그려지는 일이 있어서다(9/22 실측: 3+3건
+ * → 2건으로 줄었다).
+ */
+export async function mergeDrafts(
+  db: Firestore,
+  ids: unknown,
+): Promise<{ keepId: string; summary: MeetingMinutesDraft; costUsd: number }> {
+  const list = Array.isArray(ids) ? ids.filter((v): v is string => typeof v === "string" && !!v) : [];
+  if (list.length < 2) throw new Error("합칠 녹음을 둘 이상 고르세요.");
+  if (list.length > 6) throw new Error("한 번에 여섯 개까지 합칩니다.");
+
+  const docs = await Promise.all(list.map(async (id) => ({ id, rec: await getRec(db, id) })));
+  const meetingId = docs[0].rec.meetingId;
+  if (docs.some((d) => d.rec.meetingId !== meetingId)) throw new Error("같은 회의의 녹음만 합칠 수 있습니다.");
+  const notReady = docs.find((d) => !isFullyTranscribed(view(d.id, d.rec)));
+  if (notReady) throw new Error("모든 조각을 받아쓴 녹음만 합칠 수 있습니다.");
+
+  // 녹음이 시작한 차례대로 — 뒤 녹음은 앞 녹음 길이만큼 시각을 민다
+  docs.sort((a, b) => (a.rec.createdAt ?? 0) - (b.rec.createdAt ?? 0));
+  const lines: TranscriptLine[] = [];
+  let offset = 0;
+  for (const d of docs) {
+    const segs = await segsOf(db, d.id).orderBy("n").get();
+    for (const seg of segs.docs) {
+      for (const l of (seg.data() as SegDoc).lines ?? []) lines.push({ ...l, t: l.t + offset });
+    }
+    offset += d.rec.durationSec ?? 0;
+  }
+  if (lines.length === 0) throw new Error("받아쓴 말이 없습니다.");
+
+  const [meeting, members] = await Promise.all([
+    db.collection(NEANDER_COL.meetings).doc(meetingId).get(),
+    db.collection(NEANDER_COL.members).get(),
+  ]);
+  const m = meeting.data() as { date?: string; title?: string } | undefined;
+  const { draft, costUsd } = await draftMinutes({
+    lines,
+    meetingDate: m?.date ?? new Date().toISOString().slice(0, 10),
+    meetingTitle: m?.title,
+    teamNames: members.docs.map((d) => String(d.data().name ?? "").trim()).filter(Boolean),
+    speakers: docs.find((d) => d.rec.speakers && Object.keys(d.rec.speakers).length > 0)?.rec.speakers,
+  });
+
+  const keep = docs[0];
+  const summary: MeetingMinutesDraft = { ...draft, actionItems: mergeActions(docs.map((d) => d.rec.summary), draft) };
+  const at = Date.now();
+  await recRef(db, keep.id).update({ summary, summaryAt: at, costUsd: FieldValue.increment(costUsd) });
+  // 나머지 카드의 초안은 뺀다 — 어느 것을 회의록에 넣을지 헷갈리지 않게
+  for (const d of docs.slice(1)) {
+    await recRef(db, d.id).update({ summary: FieldValue.delete(), summaryAt: FieldValue.delete() });
+  }
+  return { keepId: keep.id, summary, costUsd };
+}
+
+/**
+ * 액션플랜 합치기 — 원래 초안들의 것을 앞에 두고, 새 초안에만 있는 것을 뒤에 더한다.
+ *
+ * 같은 일을 말만 바꿔 적는 일이 잦다(실측: 「굿즈 모먼트 IP 캐릭터 향수 샘플 제작 및
+ * ID 매장 비치」 ↔ 「굿즈모먼트 IP 향수 샘플 제작 및 매장 비치」). 글자 두 짝(bigram)이
+ * 얼마나 겹치는지로 같은 일인지 본다 — 한쪽이 다른 쪽을 품지 않아도 잡힌다.
+ */
+const SAME_ACTION = 0.55;
+
+function bigrams(text: string): Set<string> {
+  const t = text.replace(/[\s·,.()\[\]"'“”‘’\-—]/g, "").toLowerCase();
+  const out = new Set<string>();
+  for (let i = 0; i < t.length - 1; i++) out.add(t.slice(i, i + 2));
+  if (t.length === 1) out.add(t);
+  return out;
+}
+
+/** 두 글의 겹침 (0~1) — 작은 쪽 기준이라 짧은 문장이 긴 문장에 담겨도 잡는다 */
+function overlap(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let hit = 0;
+  for (const g of a) if (b.has(g)) hit++;
+  return hit / Math.min(a.size, b.size);
+}
+
+/** 두 액션이 같은 일인가 — 검증 스크립트가 이 규칙을 지킨다 */
+export const isSameAction = (a: string, b: string) => overlap(bigrams(a), bigrams(b)) >= SAME_ACTION;
+
+function mergeActions(olds: (MeetingMinutesDraft | undefined)[], fresh: MeetingMinutesDraft): MinutesActionDraft[] {
+  const out: MinutesActionDraft[] = [];
+  const seen: Set<string>[] = [];
+  const add = (item: MinutesActionDraft) => {
+    const g = bigrams(item.text ?? "");
+    if (g.size === 0 || seen.some((x) => overlap(g, x) >= SAME_ACTION)) return;
+    seen.push(g);
+    out.push(item);
+  };
+  olds.forEach((d) => d?.actionItems?.forEach(add));
+  fresh.actionItems?.forEach(add);
+  return out.slice(0, 20);
 }
 
 /** 받아쓴 줄 전체로 회의록 초안을 만든다 */

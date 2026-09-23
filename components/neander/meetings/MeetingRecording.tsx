@@ -25,6 +25,7 @@ import {
   CircleAlert,
   FileAudio,
   Mic,
+  Merge,
   MoreHorizontal,
   Pause,
   Play,
@@ -37,6 +38,8 @@ import {
 import {
   Badge,
   Button,
+  Checkbox,
+  Dialog,
   Disclosure,
   Icon,
   IconButton,
@@ -59,6 +62,7 @@ import {
   finalizeRecording,
   saveSpeakers,
   summarizeRecording,
+  mergeDrafts,
   transcribeSegment,
 } from "@/lib/neander/meetings/recording-client";
 import {
@@ -289,11 +293,89 @@ export function MeetingRecording({
           rec={r}
           members={members}
           editing={editing}
+          // 나눠 녹음한 회의 — 같은 회의의 다른 녹음과 초안을 합칠 수 있다
+          siblings={sorted.filter((x) => x.id !== r.id && x.id !== mine?.recId)}
           onChanged={() => void load()}
           onApplyDraft={onApplyDraft}
         />
       ))}
     </div>
+  );
+}
+
+/**
+ * 나눠 녹음한 회의의 초안을 하나로 (2026-09-23)
+ * ------------------------------------------------------------
+ *  한 회의를 실수로 두 번 녹음하면 초안도 둘로 갈린다. 받아쓴 글을 시각 순으로
+ *  이어 붙여 초안을 다시 만들고 **먼저 시작한 녹음 카드 하나**에만 남긴다.
+ *  음성과 받아쓴 글은 그대로 둔다 — 합치는 것은 초안뿐이다.
+ */
+function MergeDraftDialog({
+  open,
+  onClose,
+  mine,
+  others,
+  busy,
+  onMerge,
+}: {
+  open: boolean;
+  onClose: () => void;
+  mine: RecordingDetail;
+  others: RecordingDetail[];
+  busy: boolean;
+  onMerge: (ids: string[]) => void;
+}) {
+  const [picked, setPicked] = useState<string[]>([]);
+  // 열 때마다 모두 고른 상태로 — 대개 그 회의의 녹음 전부를 합친다
+  useEffect(() => {
+    if (open) setPicked(others.map((x) => x.id));
+  }, [open, others]);
+
+  const all = [mine, ...others.filter((x) => picked.includes(x.id))];
+  const total = all.reduce((n, x) => n + (x.durationSec || 0), 0);
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="초안을 하나로 합치기"
+      description="받아쓴 글을 녹음 순서대로 이어 붙여 회의록 초안을 다시 만듭니다. 음성과 받아쓴 글은 그대로 둡니다."
+      size="sm"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            닫기
+          </Button>
+          <Button icon={Merge} loading={busy} disabled={busy || picked.length === 0} onClick={() => onMerge(picked)}>
+            {picked.length + 1}개 합치기
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <div className="rounded-nd-md border border-nd-line bg-nd-sunken/50 px-3 py-2">
+          <p className="text-nd-caption font-medium text-nd-fg-2">이 녹음</p>
+          <p className="nd-num mt-0.5 text-nd-caption text-nd-fg-3">
+            {formatDurationKo(mine.durationSec)} · {formatTimestamp(mine.createdAt)}
+          </p>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <p className="text-nd-caption font-medium text-nd-fg-2">함께 합칠 녹음</p>
+          {others.map((x) => (
+            <Checkbox
+              key={x.id}
+              checked={picked.includes(x.id)}
+              onChange={(e) => setPicked((v) => (e.target.checked ? [...v, x.id] : v.filter((id) => id !== x.id)))}
+              label={`${formatDurationKo(x.durationSec)} · ${formatTimestamp(x.createdAt)}`}
+            />
+          ))}
+        </div>
+        <p className="text-nd-caption text-nd-fg-3">
+          모두 {formatDurationKo(total)} · 합친 초안은 <b className="font-medium text-nd-fg-2">가장 먼저 시작한 녹음</b> 카드에
+          남고, 나머지 카드의 초안은 빠집니다. 액션플랜은 원래 초안들의 것을 지킵니다. AI 비용이 듭니다.
+        </p>
+      </div>
+    </Dialog>
   );
 }
 
@@ -438,12 +520,15 @@ function RecordingCard({
   rec: r,
   members,
   editing,
+  siblings,
   onChanged,
   onApplyDraft,
 }: {
   rec: RecordingDetail;
   members: MemberLite[];
   editing: boolean;
+  /** 같은 회의의 다른 녹음 — 초안 합치기 창이 고른다 */
+  siblings: RecordingDetail[];
   onChanged: () => void;
   onApplyDraft: (draft: MeetingMinutesDraft, recId: string) => void;
 }) {
@@ -452,7 +537,9 @@ function RecordingCard({
   const confirm = useConfirm();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuBtn = useRef<HTMLButtonElement>(null);
-  const [busy, setBusy] = useState<null | "retry" | "finalize" | "summary" | "delete">(null);
+  const [busy, setBusy] = useState<null | "retry" | "finalize" | "summary" | "delete" | "merge">(null);
+  /** 초안 합치기 창 — 고른 녹음 id */
+  const [mergeOpen, setMergeOpen] = useState(false);
   // 초안을 넣어 확정한 녹음은 할 일이 끝났다 — 접어 둔다
   const [open, setOpen] = useState(!r.confirmedAt);
 
@@ -490,6 +577,27 @@ function RecordingCard({
       onChanged();
     } catch (e) {
       toast.error(errText(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** 합칠 수 있는 녹음 — 같은 회의에서 받아쓰기가 끝난 다른 녹음 */
+  const mergeable = useMemo(() => siblings.filter((x) => isFullyTranscribed(x)), [siblings]);
+
+  /** 초안만 하나로 — 음성·받아쓴 글은 그대로 둔다 (server/recordings.ts mergeDrafts) */
+  async function merge(ids: string[]) {
+    setBusy("merge");
+    try {
+      const res = await mergeDrafts([r.id, ...ids]);
+      setMergeOpen(false);
+      onChanged();
+      toast.success(
+        `녹음 ${ids.length + 1}개의 초안을 하나로 합쳤습니다 · AI 비용 ${krwApprox(res.costUsd)}` +
+          (res.keepId === r.id ? "" : " — 합친 초안은 먼저 시작한 녹음 카드에 있습니다"),
+      );
+    } catch (e) {
+      toast.error(`초안을 합치지 못했습니다 — ${errText(e)}`);
     } finally {
       setBusy(null);
     }
@@ -615,8 +723,26 @@ function RecordingCard({
             ...(r.audioDeletedAt || local
               ? []
               : [{ key: "audio", label: "음성만 지우기", icon: AudioLines, onSelect: () => void removeAudio() }]),
+            ...(done && mergeable.length > 0
+              ? [
+                  {
+                    key: "merge",
+                    label: "다른 녹음과 초안 합치기",
+                    icon: Merge,
+                    onSelect: () => setMergeOpen(true),
+                  },
+                ]
+              : []),
             { key: "delete", label: "녹음 삭제", icon: Trash2, danger: true, disabled: local, onSelect: () => void remove() },
           ]}
+        />
+        <MergeDraftDialog
+          open={mergeOpen}
+          onClose={() => setMergeOpen(false)}
+          mine={r}
+          others={mergeable}
+          busy={busy === "merge"}
+          onMerge={(ids) => void merge(ids)}
         />
       </div>
 

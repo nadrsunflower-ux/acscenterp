@@ -98,6 +98,7 @@ import { MeetingRecording, RecordingControls } from "@/components/neander/meetin
 import { MinutesText } from "@/components/neander/meetings/MinutesText";
 import { UnlinkZone, useMeetingDrag } from "@/components/neander/meetings/MeetingDrag";
 import { useRecording } from "@/components/neander/meetings/RecordingProvider";
+import { MailChip } from "@/components/neander/mail/MailChip";
 import {
   confirmRecording,
   deleteRecordingsOfMeeting,
@@ -1115,6 +1116,8 @@ function MeetingReader({
               <span className="shrink-0">의 안건</span>
             </button>
           )}
+          {/* 메일에서 옮겨 온 회의(안건)면 원본 메일로 가는 길 */}
+          {meeting.mail && <MailChip mail={meeting.mail} className="mb-2 ml-1" />}
           <p className="nd-num mb-1 text-nd-caption font-medium text-nd-fg-3 sm:hidden">{longDate(meeting.date)}</p>
           <h1
             className={cn(

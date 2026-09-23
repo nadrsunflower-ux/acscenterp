@@ -18,6 +18,7 @@ import {
   readSegmentAudio,
   setSpeakers,
   summarizeRecording,
+  mergeDrafts,
   transcribeSegment,
 } from "@/lib/neander/meetings/server/recordings";
 import { logMeetingEvent } from "@/lib/neander/meetings/server/log";
@@ -86,6 +87,8 @@ export async function POST(req: Request) {
       segCount?: unknown;
       base64?: unknown;
       speakers?: unknown;
+      /** 초안 합치기 — 합칠 녹음 id 들 */
+      ids?: unknown;
     };
     switch (body.action) {
       case "create":
@@ -118,6 +121,16 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: true });
       case "summarize":
         return NextResponse.json(await summarizeRecording(db, body.id));
+      case "merge-drafts": {
+        // 나눠 녹음한 회의 — 초안만 하나로 (음성·받아쓴 글은 그대로)
+        const merged = await mergeDrafts(db, body.ids);
+        const brief = await recordingBrief(db, merged.keepId);
+        if (brief) {
+          const n = Array.isArray(body.ids) ? body.ids.length : 0;
+          await logMeetingEvent(db, me, brief.meetingId, "minutes-ai", `녹음 ${n}개의 초안을 하나로 합쳤습니다`);
+        }
+        return NextResponse.json(merged);
+      }
       case "confirm":
         return NextResponse.json({ recording: await confirmRecording(db, body.id) });
       case "delete-audio":
