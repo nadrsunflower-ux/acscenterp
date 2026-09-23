@@ -242,7 +242,7 @@ export function textBlocks(text: string): any[] {
 
 /**
  * 보관함 아래에 회의 한 건의 페이지를 만든다. `parentPageId` 를 주면 그 페이지
- * 아래에 (안건은 상위 회의 페이지 아래에). 새 페이지는 노션이 맨 끝에 붙인다 —
+ * 아래에 (자료는 상위 회의 페이지 아래에). 새 페이지는 노션이 맨 끝에 붙인다 —
  * 오래된 회의부터 옮기므로 날짜 순서대로 쌓인다.
  */
 export async function createArchivePage(

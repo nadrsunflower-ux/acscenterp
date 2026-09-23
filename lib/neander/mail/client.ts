@@ -104,7 +104,7 @@ export function fetchMailList(
 }
 
 /**
- * 메일 한 통을 회의(또는 어느 회의의 안건)로 옮긴다 — 첨부까지.
+ * 메일 한 통을 회의(또는 어느 회의의 자료)로 옮긴다 — 첨부까지.
  * 서버가 메일 서버에서 원문을 받아 첨부를 회의 첨부로 옮긴다 (api/mail/handoff).
  */
 export async function mailToMeeting(input: {

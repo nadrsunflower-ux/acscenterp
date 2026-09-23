@@ -47,7 +47,7 @@ const ERP_MEETING_URL = "https://neander-erp.vercel.app/neander/meetings?id=";
 /**
  * 보관함은 회사 노션의 「임원진 회의록」 이다 (2026-09-22 사용자 지정). 그 아래에
  * 회의마다 📍 페이지가 「5월 8일」 처럼 하나씩 쌓여 있어, 같은 모양으로 이어 쌓는다.
- * 안건은 상위 회의 페이지 안에 넣는다 (ERP 목록과 같은 모양).
+ * 자료는 상위 회의 페이지 안에 넣는다 (ERP 목록과 같은 모양).
  */
 const MEETING_EMOJI = "📍";
 const AGENDA_EMOJI = "📄";
@@ -136,8 +136,8 @@ export async function listArchiveCandidates(db: Firestore, days = ARCHIVE_AFTER_
 
 /**
  * 회의 한 건의 노션 페이지 — 있으면 그것, 없으면 만든다.
- * 안건이면 상위 회의 페이지부터 챙겨 그 안에 만든다 (상위 회의에 옮길 자료가
- * 없어도 안건을 담을 페이지는 필요하다 — 그때는 글만 있는 페이지가 된다).
+ * 자료이면 상위 회의 페이지부터 챙겨 그 안에 만든다 (상위 회의에 옮길 자료가
+ * 없어도 자료를 담을 페이지는 필요하다 — 그때는 글만 있는 페이지가 된다).
  * 만든 주소는 회의 문서에 적어, 다음에 다시 만들지 않는다.
  */
 async function meetingPage(db: Firestore, meetingId: string, m: MeetingDoc): Promise<{ pageId: string; pageUrl: string }> {
@@ -150,7 +150,7 @@ async function meetingPage(db: Firestore, meetingId: string, m: MeetingDoc): Pro
   if (m.parentId && m.parentId !== meetingId) {
     const ps = await db.collection(NEANDER_COL.meetings).doc(m.parentId).get();
     const parent = ps.data() as MeetingDoc | undefined;
-    // 안건의 안건은 없다 — 상위 회의의 parentId 는 보지 않는다 (무한 되풀이 방지)
+    // 자료의 자료는 없다 — 상위 회의의 parentId 는 보지 않는다 (무한 되풀이 방지)
     if (parent) parentPageId = (await meetingPage(db, m.parentId, { ...parent, parentId: undefined })).pageId;
   }
   const head = [

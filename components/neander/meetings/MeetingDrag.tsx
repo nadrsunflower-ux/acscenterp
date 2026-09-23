@@ -1,18 +1,18 @@
 "use client";
 
 // ============================================================
-//  회의 목록 끌어다 놓기 — 회의를 다른 회의 위에 놓으면 그 회의의 안건이 된다
+//  회의 목록 끌어다 놓기 — 회의를 다른 회의 위에 놓으면 그 회의의 자료가 된다
 // ------------------------------------------------------------
-//  「새 회의」 로 잘못 만든 문서를 제자리(어느 회의의 안건)로 옮기는 손짓.
-//  ⋯ 메뉴의 「다른 회의의 안건으로 묶기」 와 같은 일을 손으로 한다 — 메뉴는
+//  「새 회의」 로 잘못 만든 문서를 제자리(어느 회의의 자료)로 옮기는 손짓.
+//  ⋯ 메뉴의 「다른 회의의 자료로 묶기」 와 같은 일을 손으로 한다 — 메뉴는
 //  키보드·스크린리더 길로 그대로 남는다.
 //
 //  움직임 (2026-09-21 사용자 요청: 「부드럽고 자연스럽게」):
 //    · 누르고 6px 끌면 시작 (그냥 누르면 여는 것). 휴대폰은 0.28초 꾹 누른 뒤.
 //    · 카드가 살짝 떠올라(그림자·1.03배) 손가락을 **조금 늦게** 따라온다 — 매
 //      프레임 남은 거리의 35%씩 좁혀 끈에 매달린 듯. 옆으로 빨리 끌면 1~3° 기운다.
-//    · 놓을 수 있는 회의 위에 오면 그 줄이 빛나며 「안건으로」 가 떠오른다. 카드는
-//      그 줄 **바로 아래 안쪽**(안건이 설 자리)으로 끌려가 살짝 작아진다 — 놓으면
+//    · 놓을 수 있는 회의 위에 오면 그 줄이 빛나며 「자료로」 가 떠오른다. 카드는
+//      그 줄 **바로 아래 안쪽**(자료가 설 자리)으로 끌려가 살짝 작아진다 — 놓으면
 //      어디에 들어가는지 미리 보이고, 놓을 곳의 제목을 가리지 않는다.
 //    · 놓으면 카드가 **새 자리로 날아가 앉는다** (목록이 다시 그려진 뒤 그 줄의
 //      자리를 재서 그리로). 놓을 수 없는 곳이면 제자리로 미끄러져 돌아간다.
@@ -31,9 +31,9 @@ import { formatDateKo } from "@/lib/neander/format";
 export interface DragMeta {
   title: string;
   date: string;
-  /** 지금 누군가의 안건인가 */
+  /** 지금 누군가의 자료인가 */
   isAgenda: boolean;
-  /** 딸린 안건 수 — 함께 옮겨진다 */
+  /** 딸린 자료 수 — 함께 옮겨진다 */
   agendaCount: number;
 }
 
@@ -60,7 +60,7 @@ const EDGE_PX = 56;
 /** 떠 있는 카드 · 놓을 곳에 끌려간 카드 크기 */
 const LIFT_SCALE = 1.03;
 const TUCK_SCALE = 0.96;
-/** 끌려간 카드가 놓을 줄에서 비켜 앉는 자리 — 안건 줄 들여쓰기만큼 안쪽, 줄 아래쪽 */
+/** 끌려간 카드가 놓을 줄에서 비켜 앉는 자리 — 자료 줄 들여쓰기만큼 안쪽, 줄 아래쪽 */
 const TUCK_X = 22;
 const TUCK_Y = 0.62;
 
@@ -231,7 +231,7 @@ export function useMeetingDrag(opts: Options) {
         cancelAnimationFrame(st.raf);
         el.style.transition = `transform ${LAND_MS}ms var(--nd-ease), opacity ${LAND_MS}ms var(--nd-ease), width ${LAND_MS}ms var(--nd-ease)`;
         el.style.transform = `translate3d(${rect.left}px, ${rect.top}px, 0) rotate(0deg) scale(1)`;
-        // 안건 줄은 들여써서 좁다 — 카드도 그 폭으로 줄어들며 앉는다
+        // 자료 줄은 들여써서 좁다 — 카드도 그 폭으로 줄어들며 앉는다
         el.style.width = `${rect.width}px`;
         if (fade) el.style.opacity = "0";
         setTimeout(resolve, LAND_MS);
@@ -440,7 +440,7 @@ export function useMeetingDrag(opts: Options) {
           <p className="truncate text-nd-body font-semibold text-nd-fg">{meta.title || "제목 없는 회의"}</p>
           <p className="nd-num mt-0.5 truncate text-nd-caption text-nd-fg-3">
             {formatDateKo(meta.date)}
-            {meta.agendaCount > 0 && ` · 안건 ${meta.agendaCount}건도 함께`}
+            {meta.agendaCount > 0 && ` · 자료 ${meta.agendaCount}건도 함께`}
           </p>
           {/* 어디에 놓이는지 — 카드가 말해 준다 */}
           <p
@@ -452,7 +452,7 @@ export function useMeetingDrag(opts: Options) {
           >
             <Icon icon={over?.kind === "unlink" ? CornerUpLeft : ListTree} size={12} className="shrink-0" />
             <span className="truncate">
-              {over?.kind === "link" ? `「${over.title}」 의 안건으로` : over?.kind === "unlink" ? "따로 선 회의로" : ""}
+              {over?.kind === "link" ? `「${over.title}」 의 자료로` : over?.kind === "unlink" ? "따로 선 회의로" : ""}
             </span>
           </p>
         </div>
@@ -464,14 +464,14 @@ export function useMeetingDrag(opts: Options) {
     dragId,
     over,
     landedId,
-    /** 안건을 끌고 있다 — 「따로 선 회의로」 자리를 보인다 */
+    /** 자료를 끌고 있다 — 「따로 선 회의로」 자리를 보인다 */
     draggingAgenda: !!meta?.isAgenda,
     bind,
     ghost: ghostNode,
   };
 }
 
-/** 안건을 끌 때만 목록 위에 펼쳐지는 자리 — 여기 놓으면 따로 선 회의가 된다 */
+/** 자료를 끌 때만 목록 위에 펼쳐지는 자리 — 여기 놓으면 따로 선 회의가 된다 */
 export function UnlinkZone({ open, active }: { open: boolean; active: boolean }) {
   return (
     <div className={cn("nd-unlink-zone grid transition-[grid-template-rows] duration-nd ease-nd", open ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>

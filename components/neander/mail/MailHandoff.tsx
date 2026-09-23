@@ -1,14 +1,14 @@
 "use client";
 
 // ============================================================
-//  이 메일을 업무로 — 업무요청 · 일일업무 · 회의 안건 (2026-09-22)
+//  이 메일을 업무로 — 업무요청 · 일일업무 · 회의 자료 (2026-09-22)
 // ------------------------------------------------------------
 //  팀 피드백 「메일 내용을 ERP 다른 화면에서도 쓰게 해 달라」.
 //  협찬·제휴 제안서가 메일로 오면 지금은 사람이 제목과 내용을 옮겨 적는다.
 //  그 옮겨 적기를 한 번의 손짓으로 만든다.
 //
 //  · 업무요청 · 일일업무는 첨부가 없어 화면에서 바로 만든다(db/requests·tasks).
-//  · 회의 안건은 **첨부까지 옮겨야** 해서 서버가 한다 (api/neander/mail/handoff).
+//  · 회의 자료는 **첨부까지 옮겨야** 해서 서버가 한다 (api/neander/mail/handoff).
 //    첨부 원본은 ERP 에 없고 메일 서버에 있다 (docs/mail.md).
 //  · 만들어진 문서에는 `mail` 참조가 남아 「메일에서 옴」 칩으로 보인다 (MailChip).
 // ============================================================
@@ -43,7 +43,7 @@ type Target = "request" | "task" | "meeting";
 const TARGETS = [
   { value: "request" as const, label: "업무요청" },
   { value: "task" as const, label: "일일업무" },
-  { value: "meeting" as const, label: "회의 안건" },
+  { value: "meeting" as const, label: "회의 자료" },
 ];
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -107,7 +107,7 @@ export function MailHandoff({
     setFiles(mail.attachments.map((a) => a.index));
   }, [mail]);
 
-  // 회의 안건으로 보낼 때만 회의 목록이 필요하다
+  // 회의 자료로 보낼 때만 회의 목록이 필요하다
   useEffect(() => {
     if (!mail || target !== "meeting") return;
     return subscribeMeetings(setMeetings);
@@ -171,7 +171,7 @@ export function MailHandoff({
           title: title.trim(),
           attachments: files,
         });
-        const where = parentId ? "안건으로" : "회의로";
+        const where = parentId ? "자료로" : "회의로";
         toast.success(
           `회의록에 ${where} 옮겼습니다${res.files ? ` · 첨부 ${res.files}개` : ""}`,
           {
@@ -267,7 +267,7 @@ export function MailHandoff({
         {target === "meeting" ? (
           <>
             <FormRow>
-              <Field label="어느 회의에" hint="고르면 그 회의의 안건이 됩니다">
+              <Field label="어느 회의에" hint="고르면 그 회의의 자료가 됩니다">
                 <Select value={parentId} onChange={(e) => setParentId(e.target.value)} className="w-full">
                   <option value="">따로 선 회의로 만들기</option>
                   {roots.map((m) => (

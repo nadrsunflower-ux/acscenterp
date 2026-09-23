@@ -17,7 +17,7 @@ export type MeetingEventKind =
   | "recording-added" // 녹음을 마쳤다
   | "recording-removed"
   | "minutes-ai" // AI 회의록 초안을 문서에 넣었다
-  | "agenda-linked" // 다른 회의의 안건으로 묶었다 (detail: 상위 회의 이름)
+  | "agenda-linked" // 다른 회의의 자료로 묶었다 (detail: 상위 회의 이름)
   | "agenda-unlinked";
 
 export interface MeetingEvent {
@@ -39,8 +39,8 @@ const TEXT: Record<MeetingEventKind, string> = {
   "recording-added": "녹음을 마쳤습니다",
   "recording-removed": "녹음을 지웠습니다",
   "minutes-ai": "AI 회의록 초안을 넣었습니다",
-  "agenda-linked": "안건으로 묶었습니다",
-  "agenda-unlinked": "안건에서 뺐습니다",
+  "agenda-linked": "자료로 묶었습니다",
+  "agenda-unlinked": "자료에서 뺐습니다",
 };
 
 /** 「파일을 올렸습니다」 · 「회의록을 고쳤습니다 — 제목 · 본문」 */

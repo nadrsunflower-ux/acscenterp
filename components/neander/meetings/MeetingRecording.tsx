@@ -260,6 +260,17 @@ export function MeetingRecording({
 
   return (
     <div className="flex flex-col gap-3">
+      {/* 칸 이름 — 첨부·기록과 같은 결로 (2026-09-23) */}
+      <SectionHeader
+        as="h3"
+        title="녹음"
+        hint={
+          sorted.length > 0
+            ? `${sorted.length}개 · ${formatDurationKo(sorted.reduce((n, r) => n + (r.durationSec || 0), 0))}`
+            : "회의를 녹음하면 AI 가 받아쓰고 회의록 초안을 만듭니다"
+        }
+      />
+
       {mine?.kind === "live" && <LivePanel onStop={() => void stop()} />}
       {mine?.kind === "upload" && <UploadPanel />}
 

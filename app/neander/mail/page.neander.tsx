@@ -291,7 +291,7 @@ function AddrLine({ label, list }: { label: string; list?: MailAddr[] }) {
 
 interface ReaderActions {
   onReply: (mode: "reply" | "replyAll" | "forward") => void;
-  /** 이 메일을 업무요청·일일업무·회의 안건으로 (MailHandoff) */
+  /** 이 메일을 업무요청·일일업무·회의 자료로 (MailHandoff) */
   onHandoff: () => void;
   onAct: (kind: BulkKind, to?: MailBox) => void;
   onFull: () => void;
@@ -373,7 +373,7 @@ function Reader({
             <Button variant="ghost" size="sm" icon={Forward} onClick={() => actions.onReply("forward")}>
               전달
             </Button>
-            {/* 메일 내용을 ERP 안으로 — 업무요청·일일업무·회의 안건 (2026-09-22 팀 피드백) */}
+            {/* 메일 내용을 ERP 안으로 — 업무요청·일일업무·회의 자료 (2026-09-22 팀 피드백) */}
             <Button variant="ghost" size="sm" icon={ListChecks} onClick={actions.onHandoff}>
               업무로
             </Button>
@@ -1288,7 +1288,7 @@ function Mailbox({ account }: { account: MailAccountView }) {
           invalidate("scheduled");
         }}
       />
-      {/* 이 메일을 업무요청·일일업무·회의 안건으로 */}
+      {/* 이 메일을 업무요청·일일업무·회의 자료로 */}
       <MailHandoff mail={handoff} acct={sel.owner ?? activeKey} onClose={() => setHandoff(null)} />
       <AddAccountDialog open={addOpen} onClose={() => setAddOpen(false)} />
       <MailSettings open={settings.open} initialTab={settings.tab} onClose={() => setSettings((s) => ({ ...s, open: false }))} />

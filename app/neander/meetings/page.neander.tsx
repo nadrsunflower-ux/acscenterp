@@ -17,7 +17,7 @@
 //  비어 있으면 떠날 때 지운다 (fresh). 첨부는 회의 id 에 매이고 올리는 즉시
 //  저장된다 (components/neander/meetings/MeetingFiles.tsx).
 //
-//  회의 전에 팀원이 미리 올려 두는 「안건」 은 상위 회의(parentId)에 매단다.
+//  회의 전에 팀원이 미리 올려 두는 「자료」 은 상위 회의(parentId)에 매단다.
 //  목록에서 상위 회의 아래에 들여쓰고, 그날 녹음·AI 회의록·액션플랜은 상위
 //  회의에 남긴다 (lib/neander/types.ts 의 Meeting.parentId 주석).
 //
@@ -230,7 +230,7 @@ export default function MeetingsPage() {
   const [pendingOpen, setPendingOpen] = useState<string | null>(null);
   /** 처음 한 번 — 넓은 화면이면 가장 최근 회의를 연다 (메모 앱처럼 빈 판을 보이지 않게) */
   const autoOpened = useRef(false);
-  /** 「다른 회의의 안건으로 묶기」 창에 올려 둔 회의 */
+  /** 「다른 회의의 자료로 묶기」 창에 올려 둔 회의 */
   const [linking, setLinking] = useState<Meeting | null>(null);
   /** 오래된 자료를 노션으로 옮기는 창 */
   const [archiveOpen, setArchiveOpen] = useState(false);
@@ -311,7 +311,7 @@ export default function MeetingsPage() {
     [meetings],
   );
 
-  /** 상위 회의 id → 그 회의의 안건 (먼저 쓴 것이 위) */
+  /** 상위 회의 id → 그 회의의 자료 (먼저 쓴 것이 위) */
   const agendaOf = useMemo(() => {
     const map = new Map<string, Meeting[]>();
     const alive = new Set((meetings ?? []).map((m) => m.id));
@@ -325,14 +325,14 @@ export default function MeetingsPage() {
     return map;
   }, [sorted, meetings]);
 
-  /** 목록에 한 줄로 서는 회의 — 안건은 상위 회의 아래에 들어간다 (상위가 사라졌으면 홀로 선다) */
+  /** 목록에 한 줄로 서는 회의 — 자료는 상위 회의 아래에 들어간다 (상위가 사라졌으면 홀로 선다) */
   const roots = useMemo(() => {
     const alive = new Set((meetings ?? []).map((m) => m.id));
     return sorted.filter((m) => !m.parentId || !alive.has(m.parentId));
   }, [sorted, meetings]);
 
   // 달별로 묶는다 — 최신 날짜가 위, 같은 날이면 나중에 만든 회의가 위.
-  // 검색 중에는 안건까지 한 줄씩 평평하게 (안건만 맞았는데 상위 회의에 접혀 안 보이면 안 된다)
+  // 검색 중에는 자료까지 한 줄씩 평평하게 (자료만 맞았는데 상위 회의에 접혀 안 보이면 안 된다)
   const months = useMemo(() => {
     const q = query.trim().toLowerCase();
     const hit = (m: Meeting) =>
@@ -359,8 +359,8 @@ export default function MeetingsPage() {
   const meetingName = (m: Meeting) => m.title || `${formatDateKo(m.date)} 회의`;
 
   /**
-   * source 를 target 의 안건으로 옮긴다 — 딸린 안건도 함께 (안건의 안건은 없다).
-   * 끌어다 놓기와 「다른 회의의 안건으로 묶기」 창이 같이 쓴다. 되돌리기를 알림에 붙인다.
+   * source 를 target 의 자료로 옮긴다 — 딸린 자료도 함께 (자료의 자료는 없다).
+   * 끌어다 놓기와 「다른 회의의 자료로 묶기」 창이 같이 쓴다. 되돌리기를 알림에 붙인다.
    */
   async function linkUnder(source: Meeting, target: Meeting) {
     const parentId = target.parentId ?? target.id;
@@ -375,7 +375,7 @@ export default function MeetingsPage() {
       throw e;
     }
     logMeetingEvent(source.id, "agenda-linked", meetingName(parent));
-    toast.success(`「${meetingName(source)}」${objectParticle(meetingName(source))} 「${meetingName(parent)}」의 안건으로 옮겼습니다`, {
+    toast.success(`「${meetingName(source)}」${objectParticle(meetingName(source))} 「${meetingName(parent)}」의 자료로 옮겼습니다`, {
       action: {
         label: "되돌리기",
         onClick: () =>
@@ -388,7 +388,7 @@ export default function MeetingsPage() {
     });
   }
 
-  /** 안건을 따로 선 회의로 */
+  /** 자료를 따로 선 회의로 */
   async function unlinkAgenda(source: Meeting) {
     const prevParent = source.parentId;
     try {
@@ -408,7 +408,7 @@ export default function MeetingsPage() {
 
   const byId = useMemo(() => new Map((meetings ?? []).map((m) => [m.id, m])), [meetings]);
 
-  // 목록에서 회의를 끌어 다른 회의 위에 놓으면 그 회의의 안건이 된다 (MeetingDrag.tsx)
+  // 목록에서 회의를 끌어 다른 회의 위에 놓으면 그 회의의 자료가 된다 (MeetingDrag.tsx)
   const drag = useMeetingDrag({
     describe: (id) => {
       const m = byId.get(id);
@@ -425,7 +425,7 @@ export default function MeetingsPage() {
       const tgt = byId.get(targetId);
       if (!src || !tgt) return false;
       const parentId = tgt.parentId ?? tgt.id;
-      // 자기 안건 밑으로는 못 간다 · 이미 그 회의의 안건이면 할 일이 없다
+      // 자기 자료 밑으로는 못 간다 · 이미 그 회의의 자료이면 할 일이 없다
       return parentId !== sourceId && src.parentId !== parentId;
     },
     onLink: async (sourceId, targetId) => {
@@ -486,7 +486,7 @@ export default function MeetingsPage() {
         ...(opts?.parentId ? { parentId: opts.parentId } : {}),
       });
       fresh.current.add(id);
-      logMeetingEvent(id, "created", opts?.parentId ? "안건" : undefined);
+      logMeetingEvent(id, "created", opts?.parentId ? "자료" : undefined);
       setQuery("");
       setMode({ kind: "edit", id });
     } catch (e) {
@@ -506,15 +506,15 @@ export default function MeetingsPage() {
     const kids = agendaOf.get(m.id) ?? [];
     const also = [n ? `첨부 파일 ${n}개` : "", r ? `녹음 ${r}개(받아쓴 글 포함)` : ""].filter(Boolean).join("와 ");
     const ok = await confirm({
-      title: m.parentId ? "이 안건을 삭제할까요?" : "이 회의를 삭제할까요?",
+      title: m.parentId ? "이 자료를 삭제할까요?" : "이 회의를 삭제할까요?",
       message: `이미 등록된 일일업무는 그대로 유지됩니다.${also ? ` ${also}는 함께 지워집니다.` : ""}${
-        kids.length ? ` 안건 ${kids.length}건은 지워지지 않고 회의 목록에 따로 섭니다.` : ""
+        kids.length ? ` 자료 ${kids.length}건은 지워지지 않고 회의 목록에 따로 섭니다.` : ""
       }`,
       confirmLabel: "삭제",
       tone: "danger",
     });
     if (!ok) return;
-    // 안건은 고아로 두지 않는다 — 상위를 지우면 각자 회의로 풀어 준다
+    // 자료는 고아로 두지 않는다 — 상위를 지우면 각자 회의로 풀어 준다
     for (const k of kids) await updateMeeting(k.id, { parentId: undefined }).catch(() => undefined);
     // 첨부·녹음을 먼저 지운다. 실패해도 회의는 지운다 — 남은 조각은 서버가 목록을 읽을 때 치운다
     await mf.removeAllOf(m.id).catch(() => undefined);
@@ -599,7 +599,7 @@ export default function MeetingsPage() {
           <div className="shrink-0 px-3 pb-2 pt-3">
             <SearchInput size="sm" value={query} onValueChange={setQuery} placeholder="회의 검색" ariaLabel="회의 검색" />
           </div>
-          {/* 안건을 끌 때만 펼쳐진다 — 목록 스크롤 밖이라 아래쪽 안건을 끌어도 바로 보인다
+          {/* 자료를 끌 때만 펼쳐진다 — 목록 스크롤 밖이라 아래쪽 자료를 끌어도 바로 보인다
               (휴대폰은 화면 전체가 흐르니 윗줄 아래에 붙어 따라온다) */}
           <div className="shrink-0 px-1 max-lg:sticky max-lg:top-[var(--nd-topbar-h)] max-lg:z-10 max-lg:bg-nd-content">
             <UnlinkZone open={drag.draggingAgenda} active={drag.over?.kind === "unlink"} />
@@ -660,7 +660,7 @@ export default function MeetingsPage() {
             <p className="nd-num shrink-0 border-t border-nd-line py-2 text-center text-nd-micro text-nd-fg-3">
               {query.trim()
                 ? `회의 ${total}개 중 ${shown}개`
-                : `회의 ${roots.length}개${total > roots.length ? ` · 안건 ${total - roots.length}개` : ""}`}
+                : `회의 ${roots.length}개${total > roots.length ? ` · 자료 ${total - roots.length}개` : ""}`}
             </p>
           )}
         </aside>
@@ -755,7 +755,7 @@ export default function MeetingsPage() {
         onClose={() => setLinking(null)}
         onPick={async (parent) => {
           if (!linking) return;
-          // 끌어다 놓기와 같은 길 — 딸린 안건 함께 · 되돌리기 알림
+          // 끌어다 놓기와 같은 길 — 딸린 자료 함께 · 되돌리기 알림
           await linkUnder(linking, parent).catch(() => undefined);
           setLinking(null);
         }}
@@ -775,7 +775,7 @@ function objectParticle(name: string) {
   return code % 28 ? "을" : "를";
 }
 
-// ---- 안건으로 묶기 창 ----------------------------------------
+// ---- 자료로 묶기 창 ----------------------------------------
 function LinkAgendaDialog({
   meeting,
   candidates,
@@ -800,7 +800,7 @@ function LinkAgendaDialog({
     <Dialog
       open={meeting !== null}
       onClose={onClose}
-      title="어느 회의의 안건인가요?"
+      title="어느 회의의 자료인가요?"
       description={`「${meeting?.title || (meeting ? formatDateKo(meeting.date) : "")}」 을(를) 고른 회의 아래로 옮깁니다. 이 문서의 첨부·액션플랜은 그대로 따라갑니다.`}
       size="md"
     >
@@ -828,7 +828,7 @@ function LinkAgendaDialog({
                   <span className="block truncate text-nd-body font-medium text-nd-fg">{m.title || "제목 없는 회의"}</span>
                   <span className="nd-num block text-nd-caption text-nd-fg-3">
                     {formatDateKo(m.date)}
-                    {agendaCount(m.id) > 0 && ` · 안건 ${agendaCount(m.id)}건`}
+                    {agendaCount(m.id) > 0 && ` · 자료 ${agendaCount(m.id)}건`}
                   </span>
                 </span>
               </button>
@@ -856,9 +856,9 @@ function MeetingListItem({
 }: {
   meeting: Meeting;
   active: boolean;
-  /** 상위 회의 아래에 들여쓴 안건인가 */
+  /** 상위 회의 아래에 들여쓴 자료인가 */
   agenda: boolean;
-  /** 이 회의에 달린 안건 수 */
+  /** 이 회의에 달린 자료 수 */
   agendaCount: number;
   files: number;
   uploading: boolean;
@@ -880,7 +880,7 @@ function MeetingListItem({
         type="button"
         onClick={onOpen}
         aria-current={active ? "true" : undefined}
-        title="끌어서 다른 회의 위에 놓으면 그 회의의 안건이 됩니다"
+        title="끌어서 다른 회의 위에 놓으면 그 회의의 자료가 됩니다"
         {...dragProps}
         className={cn(
           "relative flex w-full select-none flex-col rounded-nd-md text-left outline-none [-webkit-touch-callout:none] focus-visible:shadow-nd-focus",
@@ -903,12 +903,12 @@ function MeetingListItem({
             )}
             title={m.title || undefined}
           >
-            {m.title || (agenda ? "제목 없는 안건" : "제목 없는 회의")}
+            {m.title || (agenda ? "제목 없는 자료" : "제목 없는 회의")}
           </span>
           {agendaCount > 0 && (
             <span
               className="nd-num inline-flex shrink-0 items-center gap-0.5 rounded-full bg-nd-fg/[.06] px-1.5 text-nd-micro font-medium text-nd-fg-3"
-              title={`안건 ${agendaCount}건`}
+              title={`자료 ${agendaCount}건`}
             >
               <Icon icon={ListTree} size={10} />
               {agendaCount}
@@ -922,7 +922,7 @@ function MeetingListItem({
             )}
           >
             <Icon icon={ListTree} size={10} />
-            안건으로
+            자료로
           </span>
           {recording === "live" && (
             <span className="relative flex h-2 w-2 shrink-0" title="녹음 중">
@@ -1031,9 +1031,9 @@ function MeetingReader({
   memberOf: (email: string) => MemberLite;
   files: number;
   recordings: number;
-  /** 이 회의에 달린 안건 */
+  /** 이 회의에 달린 자료 */
   agenda: Meeting[];
-  /** 이 문서가 안건이면 그 상위 회의 */
+  /** 이 문서가 자료이면 그 상위 회의 */
   parent: Meeting | null;
   attachmentsOf: (id: string) => number;
   /** 첨부 파일 칸 (MeetingAttachments) */
@@ -1084,19 +1084,19 @@ function MeetingReader({
             className="w-60"
             items={[
               ...(parent
-                ? [{ key: "unlink", label: "안건에서 빼기", icon: ListTree, hint: "따로 선 회의로", onSelect: onUnlink }]
+                ? [{ key: "unlink", label: "자료에서 빼기", icon: ListTree, hint: "따로 선 회의로", onSelect: onUnlink }]
                 : [
                     {
                       key: "link",
-                      label: "다른 회의의 안건으로 묶기",
+                      label: "다른 회의의 자료로 묶기",
                       icon: ListTree,
-                      hint: agenda.length ? `안건 ${agenda.length}건도 함께 옮깁니다` : undefined,
+                      hint: agenda.length ? `자료 ${agenda.length}건도 함께 옮깁니다` : undefined,
                       onSelect: onLink,
                     },
                   ]),
-              ...(parent ? [] : [{ key: "add", label: "안건 추가", icon: Plus, hint: "이 회의 아래 새 문서", onSelect: onAddAgenda }]),
+              ...(parent ? [] : [{ key: "add", label: "자료 추가", icon: Plus, hint: "이 회의 아래 새 문서", onSelect: onAddAgenda }]),
               { type: "separator" as const, key: "s1" },
-              { key: "del", label: parent ? "안건 삭제" : "회의 삭제", icon: Trash2, danger: true, onSelect: onRemove },
+              { key: "del", label: parent ? "자료 삭제" : "회의 삭제", icon: Trash2, danger: true, onSelect: onRemove },
             ]}
           />
         </span>
@@ -1113,10 +1113,10 @@ function MeetingReader({
             >
               <Icon icon={ListTree} size={12} className="shrink-0" />
               <span className="truncate">{parent.title || formatDateKo(parent.date)}</span>
-              <span className="shrink-0">의 안건</span>
+              <span className="shrink-0">의 자료</span>
             </button>
           )}
-          {/* 메일에서 옮겨 온 회의(안건)면 원본 메일로 가는 길 */}
+          {/* 메일에서 옮겨 온 회의(자료)면 원본 메일로 가는 길 */}
           {meeting.mail && <MailChip mail={meeting.mail} className="mb-2 ml-1" />}
           <p className="nd-num mb-1 text-nd-caption font-medium text-nd-fg-3 sm:hidden">{longDate(meeting.date)}</p>
           <h1
@@ -1152,16 +1152,16 @@ function MeetingReader({
             </div>
           )}
 
-          {/* 안건이 있을 때만 — 없는 회의에 빈 칸을 두지 않는다 (「안건 추가」 는 ⋯ 메뉴에 있다) */}
+          {/* 자료가 있을 때만 — 없는 회의에 빈 칸을 두지 않는다 (「자료 추가」 는 ⋯ 메뉴에 있다) */}
           {agenda.length > 0 && (
             <section className="mt-7">
               <SectionHeader
                 as="h3"
-                title="안건"
+                title="자료"
                 hint={`${agenda.length}건 · 회의 전에 팀원이 미리 올린 문서`}
                 action={
                   <Button variant="ghost" size="sm" icon={Plus} onClick={onAddAgenda}>
-                    안건 추가
+                    자료 추가
                   </Button>
                 }
               />
@@ -1177,7 +1177,7 @@ function MeetingReader({
                         <span className="nd-num w-5 shrink-0 text-right text-nd-body font-semibold text-nd-fg-4">{i + 1}</span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-nd-body font-medium text-nd-fg">
-                            {a.title || "제목 없는 안건"}
+                            {a.title || "제목 없는 자료"}
                           </span>
                           <span className="nd-num block truncate text-nd-caption text-nd-fg-3">
                             {formatDateKo(a.date)}

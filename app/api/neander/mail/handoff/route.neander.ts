@@ -10,7 +10,7 @@ import { logMeetingEvent } from "@/lib/neander/meetings/server/log";
 import { mailRefOf } from "@/lib/neander/mail/types";
 
 // ============================================================
-//  메일 한 통을 회의 안건으로 (2026-09-22)
+//  메일 한 통을 회의 자료로 (2026-09-22)
 // ------------------------------------------------------------
 //  받은 제안서·자료 메일을 회의 자리로 옮긴다. 서버에서 하는 이유는 **첨부**다 —
 //  첨부 원본은 ERP 에 없고 메일 서버에 있어(docs/mail.md), 원문을 한 번 받아
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
       acct?: string;
       box?: string;
       id?: string;
-      /** 상위 회의 — 있으면 그 회의의 안건으로 들어간다 */
+      /** 상위 회의 — 있으면 그 회의의 자료로 들어간다 */
       parentId?: string;
       date?: string;
       title?: string;
@@ -68,7 +68,7 @@ export async function POST(req: Request) {
       throw new Error("백업에서 가져온 메일이라 첨부 원본이 없습니다. 첨부를 빼고 옮겨 주세요.");
     }
 
-    // ---- 회의(안건) 만들기 --------------------------------------
+    // ---- 회의(자료) 만들기 --------------------------------------
     // 계정 키 = 메일 계정 문서 id (resolveBox 의 owner)
     const ref = mailRefOf({ box: at.box, id: body.id, subject: d.subject, from: d.from, date: d.date }, at.owner);
     const head = [`■ 메일에서 옮김`, `- 보낸 사람: ${addrText(d.from)}`, `- 받은 날짜: ${new Date(d.date).toLocaleString("ko-KR")}`].join("\n");
