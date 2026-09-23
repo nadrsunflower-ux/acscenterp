@@ -27,7 +27,7 @@ import type { ConnectionOptions } from "node:tls";
 import type { MailBox, MailSummary, MailSyncResult } from "../types";
 import { externalTlsOptions, popTlsOptions } from "./cafe24";
 import { Pop3, Pop3Error } from "./pop3";
-import { parseMail } from "./parse";
+import { parseMail, signalFields } from "./parse";
 import { openSecret } from "./secret";
 import { fetchRawImap, importOlderImap, isImapAccount, syncImapAccount } from "./imap";
 import {
@@ -168,6 +168,7 @@ async function importOne(
     messageId: m.messageId ?? null,
     inReplyTo: m.inReplyTo ?? null,
     references: m.references,
+    ...signalFields(m),
     uidl: x.uid,
     uidlHash: x.h,
     acct: src.kind === "ext" ? src.ext.id : undefined,

@@ -990,11 +990,11 @@ function BackToList({ onBack }: { onBack: () => void }) {
   );
 }
 
-/** 문서 본문 — 한 줄이 너무 길어지지 않는 읽기 폭 */
+/** 문서 본문 — 오른쪽 창 폭을 다 쓴다 (넓은 모니터에서 좌우가 비지 않게) */
 function DocBody({ children }: { children: ReactNode }) {
   return (
     <div className="nd-scroll min-h-0 flex-1 lg:overflow-y-auto">
-      <div className="mx-auto w-full max-w-[780px] px-5 pb-16 pt-7 sm:px-10 sm:pt-9">{children}</div>
+      <div className="w-full px-5 pb-16 pt-7 sm:px-10 sm:pt-9 2xl:px-14">{children}</div>
     </div>
   );
 }

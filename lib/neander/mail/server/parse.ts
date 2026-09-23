@@ -42,6 +42,8 @@ export interface ParsedMailParts {
   /** gzip(JSON{html,text}) */
   body: Buffer;
   partial: boolean;
+  /** 대량 발송 머리 (수신 거부 · Precedence: bulk · 자동 발송) — 중요 메일 판정이 뺀다 */
+  bulk: boolean;
 }
 
 export interface MailBody {
@@ -139,6 +141,23 @@ export function snippetOf(text: string | undefined): string {
   return (text ?? "").replace(/\s+/g, " ").trim().slice(0, SNIPPET_LEN);
 }
 
+const headerText = (parsed: ParsedMail, name: string) => {
+  const v = parsed.headers.get(name);
+  if (v == null) return "";
+  return typeof v === "string" ? v : typeof v === "object" && "value" in v ? String(v.value) : String(v);
+};
+
+/** 광고·뉴스레터·자동 알림인가 — 메일 머리로만 본다 */
+function isBulk(parsed: ParsedMail): boolean {
+  if (parsed.headers.has("list-unsubscribe") || parsed.headers.has("list-id")) return true;
+  if (/^(bulk|list|junk)$/i.test(headerText(parsed, "precedence").trim())) return true;
+  const auto = headerText(parsed, "auto-submitted").trim();
+  return !!auto && !/^no$/i.test(auto);
+}
+
+/** 메일 문서에 남길 판정 신호 — 없으면 필드째 뺀다 (Firestore 는 undefined 를 거부) */
+export const signalFields = (m: Pick<ParsedMailParts, "bulk">) => (m.bulk ? { bulk: true as const } : {});
+
 export async function parseMail(raw: Buffer): Promise<ParsedMailParts> {
   const parsed = await parseRaw(raw);
   const { body, partial } = bodyOf(parsed);
@@ -157,5 +176,6 @@ export async function parseMail(raw: Buffer): Promise<ParsedMailParts> {
     attachments: attachmentMetas(parsed),
     body,
     partial,
+    bulk: isBulk(parsed),
   };
 }

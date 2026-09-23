@@ -76,6 +76,8 @@ export interface MailSummary {
   opens?: number;
   /** 예약 메일 상태 */
   schedule?: { status: "pending" | "sending" | "failed"; error?: string };
+  /** 안 읽은 받은 메일 중 먼저 봐야 할 것 — 그 이유 (lib/neander/mail/importance.ts) */
+  important?: string;
 }
 
 /**

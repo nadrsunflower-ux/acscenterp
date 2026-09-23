@@ -19,7 +19,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import type { Firestore } from "firebase-admin/firestore";
 import type { MailBox } from "../types";
-import { parseMail } from "./parse";
+import { parseMail, signalFields } from "./parse";
 import { boxRef, sortKeys, stripUndefined, type MailDoc } from "./store";
 
 export type ImportOutcome = "added" | "duplicate" | "failed";
@@ -57,6 +57,7 @@ export async function importRaw(db: Firestore, owner: string, box: MailBox, raw:
     messageId: m.messageId ?? null,
     inReplyTo: m.inReplyTo ?? null,
     references: m.references,
+    ...signalFields(m),
     uidl: null,
     uidlHash: null,
     imported: true,

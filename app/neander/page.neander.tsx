@@ -116,7 +116,7 @@ export default function DashboardPage() {
   const kpiLink = "block transition-colors duration-nd-fast hover:!bg-nd-sunken";
 
   return (
-    <div className="mx-auto w-full max-w-[1400px]">
+    <div className="w-full">
       <div className="mb-6">
         <h1 className="text-nd-display text-nd-fg">
           {currentMember ? `안녕하세요, ${currentMember.name}님 👋` : "대시보드"}

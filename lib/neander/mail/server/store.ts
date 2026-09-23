@@ -176,6 +176,8 @@ export interface MailDoc {
   messageId?: string | null;
   inReplyTo?: string | null;
   references?: string[];
+  /** 대량 발송 머리가 있었다 (parse.ts — 중요 메일 판정이 뺀다) */
+  bulk?: true;
   /** 카페24 원문 — UIDL 과 그 해시. 보낸 메일은 내 받은편지함 사본이 들어오면 채워진다 */
   uidl?: string | null;
   uidlHash?: string | null;
@@ -228,6 +230,10 @@ export const SUMMARY_FIELDS = [
   "acct",
   "imported",
   "opens",
+  // 중요 메일 판정 (importance.ts) — 목록에는 안 나가고 서버가 판정에만 쓴다
+  "inReplyTo",
+  "references",
+  "bulk",
 ] as const;
 
 export const FILTER_KEY: Record<MailFilter, keyof MailDoc> = {

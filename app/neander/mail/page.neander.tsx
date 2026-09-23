@@ -218,6 +218,8 @@ function MailRow({
     ? m.to.map((a) => a.name || a.address).join(", ") || "(받는 사람 없음)"
     : m.from.name || m.from.address;
   const unread = !m.read && (m.box === "inbox" || m.box === "spam" || m.box.startsWith("f_"));
+  // 안 읽은 중요한 메일 — 줄이 빨갛게 천천히 빛난다. 열어 둔 줄은 곧 읽음이 되므로 빼고
+  const important = unread && !!m.important;
   const pickable = !readonly && m.box !== "scheduled";
   return (
     // relative — 안의 sr-only(절대 위치)가 목록 스크롤 밖으로 빠져 페이지를 늘리지 않게
@@ -225,7 +227,9 @@ function MailRow({
       className={cn(
         "relative flex items-stretch border-b border-nd-line transition-colors duration-nd-fast last:border-b-0",
         active ? "bg-nd-accent-soft" : checked ? "bg-nd-accent-soft/50" : "hover:bg-nd-sunken",
+        important && !active && "nd-mail-important",
       )}
+      title={important ? `중요 — ${m.important}` : undefined}
     >
       {pickable && (
         <div className="flex shrink-0 flex-col items-center gap-2 py-3 pl-3">
@@ -252,7 +256,7 @@ function MailRow({
         className="flex min-w-0 flex-1 gap-2 px-3 py-3 text-left"
       >
         <span className="mt-1.5 w-2 shrink-0" aria-hidden>
-          {unread && <span className="block h-2 w-2 rounded-full bg-nd-accent" />}
+          {unread && <span className={cn("block h-2 w-2 rounded-full", important ? "bg-nd-danger" : "bg-nd-accent")} />}
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline justify-between gap-2">
@@ -271,7 +275,7 @@ function MailRow({
           </span>
           {m.snippet && <span className="mt-0.5 block truncate text-nd-caption text-nd-fg-3">{m.snippet}</span>}
         </span>
-        {unread && <span className="sr-only">읽지 않음</span>}
+        {unread && <span className="sr-only">{important ? `읽지 않음 · 중요 (${m.important})` : "읽지 않음"}</span>}
       </button>
     </div>
   );

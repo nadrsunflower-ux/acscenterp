@@ -243,6 +243,36 @@
       0 0 34px rgb(var(--nd-danger) / 0.3);
   }
 }
+/* ============================================================
+   메일 — 안 읽은 중요한 메일 줄이 빨갛게 천천히 숨 쉰다
+   (mail/page MailRow · 판정은 lib/neander/mail/importance.ts)
+   ------------------------------------------------------------
+   배경색은 건드리지 않고 안쪽 그림자로만 빛낸다 — 올려 둘 때·고를 때의
+   배경(hover·checked)이 그대로 보여야 한다. 움직임 줄이기에서는 전역 규칙이
+   애니메이션을 끄므로 기본값(옅게 빛나는 상태)이 그대로 남는다.
+   ============================================================ */
+[data-app="neander"] .nd-mail-important {
+  box-shadow:
+    inset 3px 0 0 rgb(var(--nd-danger) / 0.75),
+    inset 0 0 0 1px rgb(var(--nd-danger) / 0.12),
+    inset 0 0 16px rgb(var(--nd-danger) / 0.06);
+  animation: nd-mail-glow 3.2s ease-in-out infinite;
+}
+@keyframes nd-mail-glow {
+  0%, 100% {
+    box-shadow:
+      inset 3px 0 0 rgb(var(--nd-danger) / 0.75),
+      inset 0 0 0 1px rgb(var(--nd-danger) / 0.12),
+      inset 0 0 16px rgb(var(--nd-danger) / 0.06);
+  }
+  50% {
+    box-shadow:
+      inset 3px 0 0 rgb(var(--nd-danger)),
+      inset 0 0 0 1px rgb(var(--nd-danger) / 0.32),
+      inset 0 0 30px rgb(var(--nd-danger) / 0.16);
+  }
+}
+
 /* 세 조각이 다 맞으면 띠 전체가 한 번 초록으로 번쩍인다 */
 [data-app="neander"] .nd-puzzle-complete {
   animation: nd-puzzle-solved 900ms var(--nd-ease) 1;

@@ -38,6 +38,7 @@
     "sync:verify": "tsx scripts/neander/verify-sync-online.ts",
     "sync:site-keys": "tsx scripts/neander/add-site-keys.ts",
     "notion:verify": "tsx scripts/neander/verify-notion.ts",
+    "mail:verify-importance": "tsx scripts/neander/verify-mail-importance.ts",
     "meetings:verify-files": "tsx --conditions react-server scripts/neander/verify-meeting-files.ts",
     "meetings:verify-recordings": "tsx --conditions react-server scripts/neander/verify-meeting-recordings.ts",
     "meetings:verify-archive": "tsx --conditions react-server scripts/neander/verify-meeting-archive.ts",

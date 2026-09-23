@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { FieldValue, type Firestore } from "firebase-admin/firestore";
+import { FieldValue, type DocumentData, type Firestore } from "firebase-admin/firestore";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import { adminDb } from "@/lib/neander/server/admin";
 import { accessErrorResponse, requireMember } from "@/lib/neander/server/auth";
@@ -39,6 +39,8 @@ import {
   sendScheduledNow,
 } from "@/lib/neander/mail/server/compose";
 import { deleteReceipts, listReceipts } from "@/lib/neander/mail/server/track";
+import { importanceContext } from "@/lib/neander/mail/server/known";
+import { judgeImportance } from "@/lib/neander/mail/importance";
 import {
   FILTER_KEY,
   MailAccessError,
@@ -64,12 +66,15 @@ import {
   MAX_SIGNATURES,
   MAX_SIGNATURE_BYTES,
   MAX_SIGNATURE_TOTAL_BYTES,
+  isCustomBox,
   isMailBox,
+  type MailBox,
   type MailComposeState,
   type MailProvider,
   type MailSignature,
   type MailCounts,
   type MailFilter,
+  type MailSummary,
   type MailSyncResult,
 } from "@/lib/neander/mail/types";
 
@@ -154,8 +159,48 @@ function cleanSignatures(raw: unknown): MailSignature[] {
   return list;
 }
 
-/** 새 메일에 어느 계정 것인지 붙인다 (화면이 그 계정의 목록에 끼운다) */
-const tag = (key: string, r: MailSyncResult): MailSyncResult => ({ ...r, added: r.added.map((m) => ({ ...m, acct: key })) });
+/**
+ * 안 읽은 받은 메일에 「중요」 이유를 붙인다 (importance.ts). 받은메일함·내 폴더만 —
+ * 스팸함은 뺀다. 판정 재료를 못 읽어도 목록은 그대로 나가야 한다.
+ */
+const judged = (s: MailSummary) => !s.read && (s.box === "inbox" || isCustomBox(s.box));
+
+async function markImportant(db: Firestore, acc: MailAccountDoc, rows: { s: MailSummary; d: DocumentData }[]) {
+  const todo = rows.filter(({ s }) => judged(s));
+  if (!todo.length) return;
+  try {
+    const ctx = await importanceContext(db, acc);
+    for (const { s, d } of todo) {
+      const why = judgeImportance(
+        { from: s.from, subject: s.subject, inReplyTo: d.inReplyTo, references: d.references, bulk: !!d.bulk },
+        ctx,
+      );
+      if (why) s.important = why;
+    }
+  } catch (e) {
+    console.error("[mail] 중요 메일 판정", e instanceof Error ? e.message : e);
+  }
+}
+
+/** 새 메일에 어느 계정 것인지 붙이고, 중요한 것은 표시한다 (화면이 그 계정의 목록에 끼운다) */
+async function tag(db: Firestore, key: string, r: MailSyncResult): Promise<MailSyncResult> {
+  const added = r.added.map((m) => ({ ...m, acct: key }));
+  const unread = added.filter(judged);
+  if (!unread.length) return { ...r, added };
+  try {
+    const acc = await readAccount(db, key);
+    if (acc) {
+      // 판정 신호(답장 머리 · 대량 발송)는 목록 요약에 없다 — 새로 온 몇 통만 다시 읽는다
+      const snaps = await db.getAll(...unread.map((m) => boxRef(db, key, m.box as MailBox).doc(m.id)), {
+        fieldMask: ["inReplyTo", "references", "bulk"],
+      });
+      await markImportant(db, acc, unread.map((s, i) => ({ s, d: snaps[i].data() ?? {} })));
+    }
+  } catch (e) {
+    console.error("[mail] 중요 메일 판정", e instanceof Error ? e.message : e);
+  }
+  return { ...r, added };
+}
 
 /** 한 번의 확인이 모든 계정을 도는 시간 한도 (함수 60초 안) */
 const SYNC_ALL_BUDGET_MS = 45_000;
@@ -199,9 +244,12 @@ export async function GET(req: Request) {
       .select(...SUMMARY_FIELDS)
       .limit(PAGE + 1)
       .get();
+    const rows = snap.docs.slice(0, PAGE).map((d) => ({ s: snapSummary(d, at.box, at.account.externals), d: d.data() }));
+    // 남의 공유 폴더는 판정하지 않는다 — 「아는 사람」은 내 보낸메일함 기준이다
+    if (!at.readonly) await markImportant(db, at.account, rows);
     return NextResponse.json({
       list: {
-        items: snap.docs.slice(0, PAGE).map((d) => snapSummary(d, at.box, at.account.externals)),
+        items: rows.map((r) => r.s),
         hasMore: snap.docs.length > PAGE,
       },
     });
@@ -336,7 +384,7 @@ export async function POST(req: Request) {
         pendingDelete: same ? prev.pendingDelete ?? [] : [],
       };
       await accountRef(db, key).set(doc);
-      const sync = tag(key, await syncMailbox(db, key, { force: true }));
+      const sync = await tag(db, key, await syncMailbox(db, key, { force: true }));
       const accounts = await accountViews(db, me);
       return NextResponse.json({ key, accounts, sync });
     }
@@ -348,7 +396,7 @@ export async function POST(req: Request) {
       for (const a of await listUserAccounts(db, me)) {
         if (Date.now() - started > SYNC_ALL_BUDGET_MS) break;
         try {
-          syncs[a.owner] = tag(a.owner, await syncMailbox(db, a.owner, { force: !!body.force }));
+          syncs[a.owner] = await tag(db, a.owner, await syncMailbox(db, a.owner, { force: !!body.force }));
         } catch (e) {
           syncs[a.owner] = { status: "error", added: [], unread: null, olderCount: a.olderCount ?? 0, checkedAt: Date.now(), error: e instanceof Error ? e.message : String(e) };
         }
@@ -434,14 +482,14 @@ export async function POST(req: Request) {
       }
 
       case "sync": {
-        const sync = tag(key, await syncMailbox(db, key, { force: !!body.force }));
+        const sync = await tag(db, key, await syncMailbox(db, key, { force: !!body.force }));
         // 보낼 때가 된 예약 — 누구의 확인이든 대신 보낸다 (compose.ts)
         await dispatchDue(db).catch((e) => console.error("[mail] 예약 발송", e instanceof Error ? e.message : e));
         return NextResponse.json({ syncs: { [key]: sync } });
       }
 
       case "older":
-        return withCounts({ sync: tag(key, await importOlder(db, key, undefined, body.box === "sent" ? "sent" : "inbox")) });
+        return withCounts({ sync: await tag(db, key, await importOlder(db, key, undefined, body.box === "sent" ? "sent" : "inbox")) });
 
       // ---- 메일 여러 통 ----------------------------------------
       case "read":

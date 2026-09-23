@@ -308,10 +308,10 @@ export default function CardMemoPage() {
   const waiting = memos?.filter((m) => !m.matchedTxId).length ?? 0;
 
   return (
-    // 휴대폰 폭(narrow)이 기본. lg 이상에서만 폭을 넓혀 「최근 기록」을 오른쪽에
-    // 세운다 — 입력 칸 자체는 아래 그리드가 32rem 으로 묶어 두므로, 넓은 화면
-    // 에서도 칸이 옆으로 늘어져 누르기 어려워지지 않는다.
-    <PageShell width="narrow" className="lg:max-w-[68rem]">
+    // 휴대폰 폭(narrow)이 기본. lg 이상에서는 창 폭을 다 써서 「최근 기록」을
+    // 오른쪽에 세운다 — 입력 칸 자체는 아래 그리드가 32rem 으로 묶어 두므로,
+    // 넓은 화면에서도 칸이 옆으로 늘어져 누르기 어려워지지 않는다.
+    <PageShell width="narrow" className="lg:max-w-none">
       <PageHeader
         compact
         title="법인카드 사용 기록"
