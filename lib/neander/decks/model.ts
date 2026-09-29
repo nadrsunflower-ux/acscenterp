@@ -720,6 +720,21 @@ export function buildResults(content: DeckContent, v: Values, eff: EffectiveActu
     smoatSharePct: nn(v, "commonCostShareSmoat"),
   };
 
+  // ---- 사업부별 기간 KPI ----
+  //  ① 2027년 말 = 지금 ① 연 매출 + B2B 월 추가 계약(기본 시나리오)의 연 매출
+  //  ① 천장까지 클 때 그레이존 비중 = 그레이존 매출을 그대로 둘 때
+  //  ② 2028~2029년 = 이정표 학원 수 × 학원당 월 매출 시나리오 2
+  const addBase = b2b.scenarios[1] ?? null;
+  const milestone = nn(v, "milestoneAcademies");
+  const arpu2 = nn(v, "arpuScenario2");
+  const kpi = {
+    /** 억원/년 */
+    unit1Next: goal.annualUnit1 + (addBase ? addBase.annualRevenue / 1e4 : 0),
+    grayShareAtCeiling: ceilingEok > 0 && Number.isFinite(gray) ? (gray * 12) / 1e4 / ceilingEok : null,
+    /** 억원/년 */
+    smoatMilestoneRevenue: milestone === null || arpu2 === null ? null : (milestone * arpu2 * 12) / 1e4,
+  };
+
   return {
     reloc,
     mix,
@@ -730,6 +745,7 @@ export function buildResults(content: DeckContent, v: Values, eff: EffectiveActu
     levers,
     store,
     goal,
+    kpi,
     ops,
     /** 실측 원본 — 문구가 기준일·건수를 직접 쓴다 */
     fin: eff.finance,
@@ -825,6 +841,9 @@ export const RESULT_DEPS: Record<string, string[]> = {
   "r.goal.annual": REV_KEYS,
   "r.goal.multiple": ["targetRevenue", ...REV_KEYS],
   "r.goal.brand": ["targetRevenue", "brandAvgPrice"],
+  "r.kpi.unit1Next": [...REV_KEYS, "addDeals2", "b2bAvgDeal"],
+  "r.kpi.grayShareAtCeiling": ["revGray", "ceilingBiz1"],
+  "r.kpi.smoatMilestoneRevenue": ["milestoneAcademies", "arpuScenario2"],
   "r.smoat.commit": [...TIER_KEYS, ...COMMIT_KEYS, ...ECON_KEYS],
   "r.smoat.basic": [...TIER_KEYS, ...COMMIT_KEYS],
   "r.smoat.refund": [...ECON_KEYS, ...REFUND_KEYS],

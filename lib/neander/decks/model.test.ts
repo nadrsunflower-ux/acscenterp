@@ -37,6 +37,7 @@ test("문구 자리표시: 경로·형식·인자", () => {
   assert.equal(fill("{{r.x.list[0].m|months}}", scope), "29개월");
   assert.equal(fill("{{r.p|ratio:1}}", scope), "45.7%");
   assert.equal(fill("{{r.none|man}}", scope), "미정");
+  assert.equal(fill("약 {{r.x.list[0].m|r100}}곳", { r: { x: { list: [{ m: 4411.7 }] } } }), "약 4,400곳");
   assert.deepEqual(tokenPaths("{{v.a|man}} 와 {{ r.p }}"), ["v.a", "r.p"]);
 });
 

@@ -97,9 +97,14 @@ const popupUrl = async (click) => {
   return url;
 };
 
+// 장 번호 — 장표를 다시 배열하면 여기만 고친다 (4차: 매장 7-1 · 지역 상세 A10-1~4 · 매물 표 A11-1)
+const MAP_NO = "7-1";
+const REGION_NO = (k) => `A10-${k}`;
+const TABLE_NO = "A11-1";
+
 try {
   // ---- 1) 한 장 지도 ----
-  await seek("5-1");
+  await seek(MAP_NO);
   const pins = await page.$$eval(".dk-slide a.sd-pin", (as) =>
     as.map((a) => ({ href: a.getAttribute("href"), target: a.getAttribute("target"), rel: a.getAttribute("rel") ?? "" })),
   );
@@ -112,7 +117,7 @@ try {
   await page.focus(".dk-slide a.sd-pin >> nth=1");
   const url2 = await popupUrl(() => page.keyboard.press("Enter"));
   check("키보드 Enter 로 핀을 열어도 장은 그대로", url2.startsWith(NAVER) && (await counter()) === before, url2);
-  await seek("A3");
+  await seek(REGION_NO(3));
 
   // ---- 2) 지역 상세 (방금 누른 지역) ----
   const cards = await page.$$eval(".dk-slide .sd-pcard", (els) =>
@@ -137,13 +142,13 @@ try {
   // 지역 상세 네 장을 돌며 광고 종료 배지를 센다
   const badges = [];
   for (let k = 1; k <= 4; k++) {
-    await seek(`A${k}`);
+    await seek(REGION_NO(k));
     badges.push(...(await page.$$eval(".dk-slide .sd-pcard-ended", (xs) => xs.map((x) => x.textContent))));
   }
   check("광고가 끝난 매물에 「광고 종료」 배지", badges.length >= 1 && badges.every((b) => b === "광고 종료"), `${badges.length}개`);
 
-  // ---- 3) 매물 표 (A5-1) ----
-  await seek("A5-1");
+  // ---- 3) 매물 표 ----
+  await seek(TABLE_NO);
   const rows = await page.$$eval(".dk-slide tr.sd-link-row", (trs) => trs.length);
   check("A5 표의 행이 링크", rows > 0, `${rows}행`);
   const numbers = await page.$$eval(".dk-slide a.sd-link-chip", (as) => as.map((a) => a.getAttribute("href").split("/").pop()));
@@ -166,34 +171,39 @@ try {
   // ---- 5) 가정을 바꾸면 차트가 바뀐다 ----
   const CASES = [
     ["1", { revSmoat: 300 }],
-    ["2", { smoatFixedCost: 600 }],
+    ["2", { targetSubscribers: 40 }],
     ["3", { revenueBasis: 6 }],
     ["4", { targetRevenue: 200 }],
-    ["5-1", { relocGainHigh: 250 }],
-    ["5-2", { storeContribFloor: 300 }],
-    ["6", { revGray: 3000 }],
-    ["7", { revSmoat: 150 }],
-    ["13", { dmPerMonth: 120 }],
-    ["14", { standardDirectRateTarget: 15 }],
-    ["16", { b2bFieldLaborRate: 20 }],
-    ["17", { addDeals2: 3 }],
-    ["18", { targetBrandConversion: 10 }],
-    ["19", { creditsPerQuestion: 3 }],
-    ["20-1", { tierHeadroom: 0 }],
-    ["20-2", { tier2CommitPrice: 30000 }],
-    ["21-1", { refundCapRate: 20 }],
-    ["21-2", { commitEarlyExitRate: 30 }],
-    ["22", { annualFreeMonths: 1 }],
-    ["23", { costCutMonthly: 500 }],
-    ["24", { commonCostShareSmoat: 30 }],
-    ["26", { targetExternalEvents: 3 }],
-    ["27", { arpuScenario3: 20 }],
-    ["28", { brandAvgPrice: 80000 }],
-    ["29", { smoatFixedCost: 600 }],
-    ["30", { customMinPrice: 1000 }],
-    ["31", { targetSubscribers: 40 }],
-    ["A7-2", { replacementMarketingCost: 200 }],
-    ["A8-2", { customMinPrice: 1000 }],
+    ["5", { targetExternalEvents: 6 }],
+    ["6", { standardDirectRateTarget: 15 }],
+    ["7-1", { relocGainHigh: 250 }],
+    ["7-2", { storeContribFloor: 300 }],
+    ["8", { targetBrandConversion: 10 }],
+    ["9", { brandAvgPrice: 80000 }],
+    ["10", { addDeals2: 4 }],
+    ["11", { milestoneAcademies: 2000 }],
+    ["12", { revSmoat: 150 }],
+    ["13", { creditsPerQuestion: 3 }],
+    ["14", { tierHeadroom: 0 }],
+    ["15", { commitEarlyExitRate: 30 }],
+    ["16", { annualFreeMonths: 1 }],
+    ["17", { arpuScenario3: 20 }],
+    ["18", { milestoneAcademies: 2000 }],
+    ["19", { costCutMonthly: 500 }],
+    ["20", { targetSubscribers: 40 }],
+    ["21", { customMinPrice: 1000 }],
+    ["22", { targetSubscribers: 40 }],
+    ["A1", { addDeals2: 3 }],
+    ["A2", { b2bFieldLaborRate: 20 }],
+    ["A3-2", { customMinPrice: 1000 }],
+    ["A8", { dmPerMonth: 120 }],
+    ["A13-2", { replacementMarketingCost: 200 }],
+    ["A16", { tier2CommitPrice: 30000 }],
+    ["A17", { refundCapRate: 20 }],
+    ["A20", { revGray: 3000 }],
+    ["A22", { commonCostShareSmoat: 30 }],
+    ["A23", { targetExternalEvents: 3 }],
+    ["A24", { smoatFixedCost: 600 }],
   ];
   const snap = () =>
     page.evaluate(() => {

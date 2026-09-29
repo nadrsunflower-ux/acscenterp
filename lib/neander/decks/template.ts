@@ -11,7 +11,8 @@
 
 import { EMPTY, FORMATTERS, num } from "./format";
 
-const TOKEN = /\{\{\s*([^}|]+?)\s*(?:\|\s*([a-z]+)(?::(-?\d+))?\s*)?\}\}/g;
+// 형식 이름에는 숫자도 올 수 있다 (r100) — 글자만 받으면 자리표시가 그대로 화면에 남는다
+const TOKEN = /\{\{\s*([^}|]+?)\s*(?:\|\s*([a-z][a-z0-9]*)(?::(-?\d+))?\s*)?\}\}/g;
 
 /** 점 경로로 값 꺼내기 — `a.b[2].c` */
 export function getPath(scope: unknown, path: string): unknown {

@@ -28,7 +28,7 @@ import { initializeApp, cert, getApps } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { buildModel, KIND_DEPS, slideTexts } from "@/lib/neander/decks/model";
 import { FORMATTERS } from "@/lib/neander/decks/format";
-import { getPath, tokenFormats, tokenPaths } from "@/lib/neander/decks/template";
+import { fill, getPath, tokenFormats, tokenPaths } from "@/lib/neander/decks/template";
 import { overviewTileIds } from "@/lib/neander/decks/map";
 import { DECK_ICON_NAMES } from "@/lib/neander/decks/icon-names";
 import type { Block, DeckContent } from "@/lib/neander/decks/types";
@@ -98,6 +98,8 @@ function validate(content: DeckContent): string[] {
         }
       }
       for (const f of tokenFormats(t)) if (!FORMATTERS[f]) problems.push(`[${s.no}] 없는 형식: ${f}`);
+      // 채운 뒤에도 {{ 가 남으면 화면에 자리표시가 그대로 보인다
+      if (fill(t, model).includes("{{")) problems.push(`[${s.no}] 채워지지 않는 자리표시: ${t.slice(0, 60)}`);
       for (const m of t.matchAll(/\[\^(\d+)\]/g)) {
         if (!sourceIds.has(Number(m[1]))) problems.push(`[${s.no}] 없는 각주: ${m[1]}`);
       }
