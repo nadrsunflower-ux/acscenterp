@@ -305,6 +305,17 @@ function Loaded({
     [content.slides, ctx, total],
   );
 
+  // 진행 막대 칸 — 장의 파트(chapter)가 이어지는 묶음마다 한 칸
+  const parts = useMemo(() => {
+    const out: { label: string; start: number; end: number; muted?: boolean }[] = [];
+    content.slides.forEach((s, i) => {
+      const last = out[out.length - 1];
+      if (last && last.label === s.chapter) last.end = i;
+      else out.push({ label: s.chapter, start: i, end: i, muted: s.appendix });
+    });
+    return out;
+  }, [content.slides]);
+
   const onIndexChange = useCallback((i: number) => {
     setIndex(i);
     setChipKey(null);
@@ -390,6 +401,7 @@ function Loaded({
         slides={slides}
         size={CANVAS}
         flowBelow={FLOW_BELOW}
+        parts={parts}
         hashNav
         extraKeys={extraKeys}
         chrome={chrome}

@@ -128,6 +128,10 @@ export const FORMATTERS: Record<string, (v: unknown, arg?: number) => string> = 
   got: (v, a) => count(v as number, "곳", a ?? 0),
   gun: (v, a) => count(v as number, "건", a ?? 0),
   il: (v, a) => count(v as number, "일", a ?? 0),
+  /** 비율 차이 → 「1.8%p」 */
+  pp: (v, a) => (ok(v as number) ? `${num((v as number) * 100, a ?? 1)}%p` : EMPTY),
+  /** 백 단위 반올림 → 「4,400」 (약 몇 곳) */
+  r100: (v) => (ok(v as number) ? num(Math.round((v as number) / 100) * 100) : EMPTY),
   month: (v) => monthLabel(String(v)),
   date: (v) => dateLabel(String(v)),
   raw: (v) => (v === null || v === undefined ? EMPTY : String(v)),

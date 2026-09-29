@@ -22,6 +22,7 @@
 //  - onIndexChange  지금 장이 바뀔 때
 //  - flowBelow   화면 폭이 이보다 좁으면(휴대폰) 캔버스를 줄이지 않고 세로로 흘린다.
 //                글자가 캔버스 비율만큼 작아지지 않는다 — 대신 세로 스크롤
+//  - parts       상단 진행 막대를 파트(장 묶음)별 칸으로 나눈다 — 지금 파트만 채워 간다
 // ============================================================
 
 import {
@@ -82,6 +83,16 @@ export interface DeckOptions {
   controls?: ReactNode;
   onIndexChange?: (index: number) => void;
   flowBelow?: number;
+  parts?: DeckPart[];
+}
+
+/** 진행 막대의 한 칸 — start·end 는 장 번호(0부터, 양 끝 포함) */
+export interface DeckPart {
+  label: string;
+  start: number;
+  end: number;
+  /** 부록처럼 흐리게 */
+  muted?: boolean;
 }
 
 /** "#slide-7" → 6 (0부터). 없거나 틀리면 null */
@@ -102,6 +113,7 @@ export function Deck({
   controls,
   onIndexChange,
   flowBelow,
+  parts,
 }: { meta: DeckMeta; slides: DeckSlide[] } & DeckOptions) {
   const router = useRouter();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -291,10 +303,25 @@ export function Deck({
         <div className="dk-bg-glow" aria-hidden />
         <div className="dk-bg-noise" aria-hidden />
 
-        {/* 상단 진행바 */}
-        <div className="dk-progress" aria-hidden>
-          <div className="dk-progress-fill" style={{ width: `${progress * 100}%` }} />
-        </div>
+        {/* 상단 진행바 — 파트가 있으면 파트별 칸 */}
+        {parts && parts.length ? (
+          <div className="dk-parts" aria-hidden>
+            {parts.map((p) => {
+              const len = p.end - p.start + 1;
+              const i = clamp(index);
+              const fill = i > p.end ? 1 : i < p.start ? 0 : (i - p.start + 1) / len;
+              return (
+                <div key={`${p.label}${p.start}`} className={`dk-part${p.muted ? " dk-part-muted" : ""}`} style={{ flexGrow: len }} title={p.label}>
+                  <div className="dk-part-fill" style={{ width: `${fill * 100}%` }} />
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="dk-progress" aria-hidden>
+            <div className="dk-progress-fill" style={{ width: `${progress * 100}%` }} />
+          </div>
+        )}
 
         {/* 슬라이드 본문 — key 로 remount 시켜 reveal 재생 */}
         <div key={slide.id} className="dk-slide">
@@ -503,6 +530,13 @@ body:has(.dk-root) .z-nd-dock { z-index: 140; }
   display: inline-flex; align-items: center; justify-content: center;
 }
 .dk-btn:hover { background: rgba(238,240,233,.14); color: #fff; }
+
+/* ---- 파트별 진행 칸 ---- */
+.dk-parts { position: absolute; top: 0; left: 0; right: 0; height: 5px; display: flex; gap: 4px; z-index: 40; }
+.dk-part { flex-basis: 0; height: 100%; background: rgba(148,163,184,.18); overflow: hidden; }
+.dk-part-fill { height: 100%; background: linear-gradient(90deg, var(--dk-accent), #7c5cff); transition: width .45s cubic-bezier(.16,1,.3,1); }
+.dk-part-muted .dk-part-fill { background: rgba(148,163,184,.6); }
+.dk-flow .dk-parts { position: fixed; }
 
 /* ---- 좁은 화면: 캔버스를 줄이지 않고 세로로 흘린다 ---- */
 .dk-flow-root { overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }

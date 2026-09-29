@@ -11,7 +11,7 @@
 // ============================================================
 
 /** 가정 패널의 묶음 — 이 순서로 보여 준다 */
-export const ASSUMPTION_GROUPS = ["매장", "매출·현금", "B2B", "생카", "스모트", "운영"] as const;
+export const ASSUMPTION_GROUPS = ["목표", "매장", "매출·현금", "B2B", "생카", "스모트", "운영", "점수판"] as const;
 export type AssumptionGroup = (typeof ASSUMPTION_GROUPS)[number];
 
 /**
@@ -136,6 +136,10 @@ export interface ProjectActual {
   direct: number;
   rate: number;
   basis: "장부" | "체크리스트";
+  /** ERP 체크리스트 준비 품목 수 (체크리스트가 없으면 없음) */
+  items?: number;
+  /** 성격 (제품형 · 향 중심 …) — 내용의 규칙에서 */
+  kind?: string;
 }
 
 export interface FinanceActuals {
@@ -212,10 +216,12 @@ export type Block =
   /** 아이콘 카드 — 이유·상태·결정 목록. icon 은 components/.../icons.tsx 의 이름 */
   | {
       type: "icons";
-      items: { icon?: string; title: string; body?: string; tag?: string; tone?: Tone }[];
+      items: { icon?: string; title: string; body?: string; tag?: string; tone?: Tone; span?: number; big?: boolean }[];
       cols?: number;
       numbered?: boolean;
     }
+  /** 좌우 체크리스트 — 칸마다 표시(✕ 하지 않을 것 · ✓ 할 것)와 항목 */
+  | { type: "checks"; cols: { title: string; mark: "x" | "check"; tone?: Tone; items: string[] }[] }
   /** 흐름도 — 줄마다 단계들 → 결과 (전과 후 비교) */
   | { type: "flow"; rows: { label: string; steps: string[]; result?: string; tone?: Tone }[] }
   /** 계단 — 뒤로 갈수록 높아지는 단계 */
@@ -353,6 +359,8 @@ export interface DeckActualRules {
     ledgerEnd?: string;
     /** 프로젝트 코드 → 장표에 쓰는 이름 */
     projectNames?: Record<string, string>;
+    /** 프로젝트 코드 → 성격 (성격별 직접비율 막대) */
+    projectKinds?: Record<string, string>;
   };
 }
 

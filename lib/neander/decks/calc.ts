@@ -372,6 +372,13 @@ export function signupsNeeded(breakeven: number | null, freeToPaidPct: number): 
   return breakeven / pct(freeToPaidPct);
 }
 
+/** 낮을수록 좋은 목표의 진행률 (0~1) — 지금이 목표 이하면 1, 아니면 목표 ÷ 지금 */
+export function progressDown(current: number | null, target: number | null): number | null {
+  if (current === null || target === null || !Number.isFinite(current) || !Number.isFinite(target)) return null;
+  if (current <= target) return 1;
+  return current > 0 ? Math.max(0, Math.min(1, target / current)) : 0;
+}
+
 /** 진행률 (0~1) — 목표나 현재를 모르면 null */
 export function progress(current: number | null, target: number | null): number | null {
   if (current === null || target === null || !Number.isFinite(current) || !Number.isFinite(target)) return null;
@@ -455,4 +462,104 @@ export function creditBands(
       perCreditMax: per.length ? Math.max(...per) : null,
     };
   });
+}
+
+// ---- 백억 산수 --------------------------------------------------
+
+/**
+ * 목표 매출에 필요한 학원 수 = (목표 − ① 천장) × 1억 ÷ (학원당 월 매출 × 12).
+ * 목표·천장은 억원/년, 학원당 월 매출은 원.
+ */
+export function academiesForTarget(targetEok: number, ceilingEok: number, arpuWon: number | null): number | null {
+  if (arpuWon === null || !(arpuWon > 0)) return null;
+  return (Math.max(0, targetEok - ceilingEok) * 1e8) / (arpuWon * 12);
+}
+
+/** 향 브랜드 하루 판매량 = 목표 × 1억 ÷ 평균 판매가 ÷ 365 */
+export function brandDailyUnits(targetEok: number, avgPriceWon: number): number | null {
+  if (!(avgPriceWon > 0)) return null;
+  return (targetEok * 1e8) / avgPriceWon / 365;
+}
+
+// ---- 약정 ------------------------------------------------------
+
+/** 무약정 12개월 기대 개월 = (1 − (1 − 해지율)^12) ÷ 해지율. 해지율 0 이면 12 */
+export function expectedMonths(churnPct: number, n = 12): number {
+  const c = pct(Math.min(100, Math.max(0, churnPct)));
+  if (c === 0) return n;
+  return (1 - (1 - c) ** n) / c;
+}
+
+/**
+ * 무약정 vs 1년 약정 연 매출 (학원 한 곳).
+ *   무약정 = 기대 개월 × 정가
+ *   약정   = (1 − 중도 해지) × 12 × 약정가 + 중도 해지 × 기대 개월 × 정가
+ * 중도 해지한 학원은 무약정처럼 평균 기대 개월만 쓰고, 받은 할인액을 돌려준다 —
+ * 결국 쓴 개월을 정가로 낸 셈이다.
+ */
+export function commitmentEconomics(price: number, commitPrice: number, churnPct: number, earlyExitPct: number) {
+  const months = expectedMonths(churnPct);
+  const noCommit = months * price;
+  const e = pct(Math.min(100, Math.max(0, earlyExitPct)));
+  const commit = (1 - e) * 12 * commitPrice + e * months * price;
+  const commitNoExit = 12 * commitPrice;
+  return {
+    months,
+    noCommit,
+    commit,
+    commitNoExit,
+    lift: noCommit > 0 ? commit / noCommit - 1 : null,
+    liftNoExit: noCommit > 0 ? commitNoExit / noCommit - 1 : null,
+    discount: price > 0 ? 1 - commitPrice / price : null,
+  };
+}
+
+// ---- 품질 환불 ----------------------------------------------------
+
+/**
+ * 월 환불 크레딧 = 지급 × 사용률 × 오류 문항 비율 + 지급 × 환불 한도 × 한도 사용 비율.
+ * 추가 AI 원가 = 환불 크레딧 × 원가/C. 이익률 감소폭 = 추가 원가 ÷ 공급가.
+ */
+export function qualityRefund(
+  i: { credits: number; usagePct: number; errorPct: number; capPct: number; capUsePct: number; aiCostPerCredit: number },
+  supply: number,
+) {
+  const errorCredits = i.credits * pct(i.usagePct) * pct(i.errorPct);
+  const capCredits = i.credits * pct(i.capPct) * pct(i.capUsePct);
+  const credits = errorCredits + capCredits;
+  const cost = credits * i.aiCostPerCredit;
+  /** 한도를 다 쓸 때의 재생성 원가 */
+  const capFullCost = i.credits * pct(i.capPct) * i.aiCostPerCredit;
+  return { credits, cost, capFullCost, marginDrop: supply > 0 ? cost / supply : null };
+}
+
+// ---- B2B 표준화 · 매장 기회 비교 ------------------------------------------
+
+/** 표준화 레버(월) = B2B 월 매출 × (지금 직접비율 − 목표 직접비율) */
+export function standardizationLever(monthlyRevenue: number, currentDirectPct: number, targetDirectPct: number): number {
+  return monthlyRevenue * pct(currentDirectPct - targetDirectPct);
+}
+
+/**
+ * 매장을 닫고 그 사람이 벌어야 하는 공헌이익 = 매장 기여이익 + 매장발 B2B + 대체 마케팅 비용 (만원/월).
+ * 모르는 칸(null)은 0 으로 더하고 missing 에 적는다.
+ */
+export function storeOpportunity(
+  i: { storeContrib: number | null; storeB2B: number | null; replacementMarketing: number | null },
+  perAcademyWon: number | null,
+  dealSizeMan: number,
+  contribRatePct: number,
+) {
+  const missing = [
+    ...(i.storeB2B === null ? ["storeB2B"] : []),
+    ...(i.replacementMarketing === null ? ["replacementMarketing"] : []),
+  ];
+  const need = (i.storeContrib ?? 0) + (i.storeB2B ?? 0) + (i.replacementMarketing ?? 0);
+  const perDeal = dealSizeMan * pct(contribRatePct);
+  return {
+    need,
+    missing,
+    academies: perAcademyWon !== null && perAcademyWon > 0 ? (need * 1e4) / perAcademyWon : null,
+    deals: perDeal > 0 ? need / perDeal : null,
+  };
 }

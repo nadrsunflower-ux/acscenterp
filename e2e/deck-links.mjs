@@ -69,6 +69,26 @@ const open = async (hash, query = "") => {
   await page.waitForSelector(".dk-stage .sd-slide", { timeout: 90000 });
   await page.waitForTimeout(1200);
 };
+// 장 번호(머리의 5-1 · A5-1 …) → 몇 번째 장인가. 한 번 훑어 만든다
+let INDEX = null;
+const buildIndex = async () => {
+  await open("slide-1");
+  const n = await page.evaluate(() => document.querySelectorAll(".dk-dot").length);
+  const map = {};
+  for (let k = 1; k <= n; k++) {
+    await page.evaluate((k) => (window.location.hash = `slide-${k}`), k);
+    await page.waitForTimeout(120);
+    const no = await page.evaluate(() => document.querySelector(".dk-slide .sd-head .sd-no")?.textContent?.trim() ?? "");
+    map[no.replace(/^0+(?=\d)/, "")] = k;
+  }
+  INDEX = map;
+};
+const seek = async (no, query = "") => {
+  if (!INDEX) await buildIndex();
+  const k = INDEX[no];
+  if (!k) throw new Error(`장 ${no} 없음`);
+  await open(`slide-${k}`, query);
+};
 const counter = () => page.evaluate(() => document.querySelector(".dk-counter")?.textContent?.trim() ?? "");
 const popupUrl = async (click) => {
   const [popup] = await Promise.all([ctx.waitForEvent("page", { timeout: 8000 }), click()]);
@@ -79,7 +99,7 @@ const popupUrl = async (click) => {
 
 try {
   // ---- 1) 한 장 지도 ----
-  await open("slide-3");
+  await seek("5-1");
   const pins = await page.$$eval(".dk-slide a.sd-pin", (as) =>
     as.map((a) => ({ href: a.getAttribute("href"), target: a.getAttribute("target"), rel: a.getAttribute("rel") ?? "" })),
   );
@@ -92,10 +112,7 @@ try {
   await page.focus(".dk-slide a.sd-pin >> nth=1");
   const url2 = await popupUrl(() => page.keyboard.press("Enter"));
   check("키보드 Enter 로 핀을 열어도 장은 그대로", url2.startsWith(NAVER) && (await counter()) === before, url2);
-  await page.click(".dk-slide button.sd-rcard >> nth=2");
-  await page.waitForTimeout(900);
-  const afterRegion = await page.evaluate(() => document.querySelector(".dk-slide .sd-head .sd-no")?.textContent ?? "");
-  check("지역 카드를 누르면 지역 상세(부록)로 간다", /^A1-3$/.test(afterRegion), afterRegion);
+  await seek("A3");
 
   // ---- 2) 지역 상세 (방금 누른 지역) ----
   const cards = await page.$$eval(".dk-slide .sd-pcard", (els) =>
@@ -119,18 +136,16 @@ try {
   check("카드·칩을 눌러도 장은 그대로", (await counter()) === here);
   // 지역 상세 네 장을 돌며 광고 종료 배지를 센다
   const badges = [];
-  for (let k = 0; k < 4; k++) {
-    await open("slide-3");
-    await page.click(`.dk-slide button.sd-rcard >> nth=${k}`);
-    await page.waitForTimeout(900);
+  for (let k = 1; k <= 4; k++) {
+    await seek(`A${k}`);
     badges.push(...(await page.$$eval(".dk-slide .sd-pcard-ended", (xs) => xs.map((x) => x.textContent))));
   }
   check("광고가 끝난 매물에 「광고 종료」 배지", badges.length >= 1 && badges.every((b) => b === "광고 종료"), `${badges.length}개`);
 
-  // ---- 3) 매물 표 (A1 — 본문 30장 뒤 첫 장) ----
-  await open("slide-31");
+  // ---- 3) 매물 표 (A5-1) ----
+  await seek("A5-1");
   const rows = await page.$$eval(".dk-slide tr.sd-link-row", (trs) => trs.length);
-  check("A1 표의 행이 링크", rows > 0, `${rows}행`);
+  check("A5 표의 행이 링크", rows > 0, `${rows}행`);
   const numbers = await page.$$eval(".dk-slide a.sd-link-chip", (as) => as.map((a) => a.getAttribute("href").split("/").pop()));
   const t0 = await counter();
   const urlRow = await popupUrl(() => page.click(".dk-slide tr.sd-link-row >> nth=1 >> td >> nth=1"));
@@ -150,26 +165,35 @@ try {
 
   // ---- 5) 가정을 바꾸면 차트가 바뀐다 ----
   const CASES = [
-    [1, { revSmoat: 300 }],
-    [4, { relocGainHigh: 250 }],
-    [5, { revenueBasis: 6 }],
-    [6, { revSmoat: 150 }],
-    [7, { revGray: 3000 }],
-    [9, { revenueBasis: 6 }],
-    [11, { dmPerMonth: 120 }],
-    [13, { b2bFieldLaborRate: 20 }],
-    [14, { addDeals2: 3 }],
-    [15, { costCutMonthly: 500 }],
-    [16, { aiCostPerCredit: 30 }],
-    [17, { optPartnerMonths: 6 }],
-    [19, { creditsPerQuestion: 3 }],
-    [20, { tier4Price: 250000 }],
-    [21, { tierHeadroom: 0 }],
-    [22, { usageRate: 100 }],
-    [23, { monthlyChurn: 10 }],
-    [25, { commonCostShareSmoat: 30 }],
-    [27, { approveLow: 50 }],
-    [29, { targetExternalEvents: 3 }],
+    ["1", { revSmoat: 300 }],
+    ["2", { smoatFixedCost: 600 }],
+    ["3", { revenueBasis: 6 }],
+    ["4", { targetRevenue: 200 }],
+    ["5-1", { relocGainHigh: 250 }],
+    ["5-2", { storeContribFloor: 300 }],
+    ["6", { revGray: 3000 }],
+    ["7", { revSmoat: 150 }],
+    ["13", { dmPerMonth: 120 }],
+    ["14", { standardDirectRateTarget: 15 }],
+    ["16", { b2bFieldLaborRate: 20 }],
+    ["17", { addDeals2: 3 }],
+    ["18", { targetBrandConversion: 10 }],
+    ["19", { creditsPerQuestion: 3 }],
+    ["20-1", { tierHeadroom: 0 }],
+    ["20-2", { tier2CommitPrice: 30000 }],
+    ["21-1", { refundCapRate: 20 }],
+    ["21-2", { commitEarlyExitRate: 30 }],
+    ["22", { annualFreeMonths: 1 }],
+    ["23", { costCutMonthly: 500 }],
+    ["24", { commonCostShareSmoat: 30 }],
+    ["26", { targetExternalEvents: 3 }],
+    ["27", { arpuScenario3: 20 }],
+    ["28", { brandAvgPrice: 80000 }],
+    ["29", { smoatFixedCost: 600 }],
+    ["30", { customMinPrice: 1000 }],
+    ["31", { targetSubscribers: 40 }],
+    ["A7-2", { replacementMarketingCost: 200 }],
+    ["A8-2", { customMinPrice: 1000 }],
   ];
   const snap = () =>
     page.evaluate(() => {
@@ -179,12 +203,12 @@ try {
       return `${s?.innerText ?? ""}#${svg}#${style}`;
     });
   for (const [n, o] of CASES) {
-    await open(`slide-${n}`);
+    await seek(n);
     await page.evaluate(() => localStorage.clear());
-    await open(`slide-${n}`);
+    await seek(n);
     const a = await snap();
     const q = `?a=${Buffer.from(JSON.stringify(o)).toString("base64url")}`;
-    await open(`slide-${n}`, q);
+    await seek(n, q);
     const b = await snap();
     check(`${n}장: ${Object.keys(o)[0]} 를 바꾸면 차트·숫자가 바뀐다`, a !== b);
     await page.evaluate(() => localStorage.clear());

@@ -257,3 +257,50 @@ test("필요한 가입 학원 = 손익분기 ÷ 전환율, 진행률은 0~1", ()
   assert.equal(calc.progress(null, 10), null);
   assert.equal(calc.progress(3, null), null);
 });
+
+test("백억 산수: (목표 − 천장) × 1억 ÷ (학원당 월 매출 × 12), 하루 판매량", () => {
+  close(calc.academiesForTarget(100, 10, 50000), 90e8 / 600000);
+  assert.equal(calc.academiesForTarget(100, 10, 0), null);
+  assert.equal(calc.academiesForTarget(5, 10, 1000), 0);
+  close(calc.brandDailyUnits(73, 100000), 73e8 / 100000 / 365);
+  assert.equal(calc.brandDailyUnits(10, 0), null);
+});
+
+test("약정: 기대 개월 · 무약정 · 약정 연 매출과 중도 해지", () => {
+  close(calc.expectedMonths(0), 12);
+  close(calc.expectedMonths(50, 2), 1.5); // 1 + 0.5
+  const e = calc.commitmentEconomics(10000, 9000, 0, 0);
+  close(e.noCommit, 120000);
+  close(e.commit, 108000);
+  close(e.lift, -0.1);
+  close(e.discount, 0.1);
+  // 해지율 50%·2개월이 아니라 12개월 식: 중도 해지 50%면 반은 약정, 반은 무약정처럼
+  const h = calc.commitmentEconomics(10000, 9000, 10, 50);
+  const m = (1 - 0.9 ** 12) / 0.1;
+  close(h.months, m);
+  close(h.commit, 0.5 * 108000 + 0.5 * m * 10000);
+  close(h.commitNoExit, 108000);
+});
+
+test("품질 환불: 오류분 + 한도 × 사용 비율, 이익률 감소폭", () => {
+  const r = calc.qualityRefund({ credits: 1000, usagePct: 50, errorPct: 2, capPct: 10, capUsePct: 50, aiCostPerCredit: 10 }, 20000);
+  close(r.credits, 10 + 50);
+  close(r.cost, 600);
+  close(r.capFullCost, 1000);
+  close(r.marginDrop, 0.03);
+});
+
+test("B2B 표준화 레버와 매장 기회 비교", () => {
+  close(calc.standardizationLever(1000, 25, 20), 50);
+  const o = calc.storeOpportunity({ storeContrib: 600, storeB2B: null, replacementMarketing: 100 }, 20000, 500, 60);
+  close(o.need, 700);
+  assert.deepEqual(o.missing, ["storeB2B"]);
+  close(o.academies, 350);
+  close(o.deals, 700 / 300);
+});
+
+test("낮을수록 좋은 목표의 진행률", () => {
+  assert.equal(calc.progressDown(18, 20), 1);
+  close(calc.progressDown(25, 20), 0.8);
+  assert.equal(calc.progressDown(null, 20), null);
+});

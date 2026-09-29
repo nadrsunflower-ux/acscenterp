@@ -242,17 +242,20 @@ export function buildResults(content: DeckContent, v: Values, eff: EffectiveActu
   const needsBalance = !(cashIn !== null && cashIn > 0);
   const floor1 = (x: number | null) => (x === null ? null : Math.floor(x * 10) / 10);
   const basis = basisMonths(v);
-  // 두 기준 기간을 나란히 — ERP 실측으로 B2B 매출·월 지출만 바꾸고 나머지 매출은 같은 가정
+  // 두 기준 기간을 나란히 — ERP 실측으로 B2B 매출·월 지출만 바꾸고 나머지 매출은 같은 가정.
+  // 지금 기준 칸은 가정값 그대로(같은 장의 합계·폭포와 같은 숫자), 다른 칸은 가정과 같게 만원 반올림
   const fin = eff.finance;
   const revB2B = n(v, "revB2B");
   const byBasis = ([6, 12] as const).map((m) => {
-    const b2b = fin ? (m === 12 ? fin.b2b.total / 12 : fin.b2b.recentAvg) / 1e4 : null;
-    const costM = fin ? (m === 12 ? fin.cost.monthlyAvg12 ?? null : fin.cost.monthlyAvg) : null;
-    const c = costM === null ? null : costM / 1e4 - vatIn;
+    const selected = m === basis;
+    const b2bErp = fin ? Math.round((m === 12 ? fin.b2b.total / 12 : fin.b2b.recentAvg) / 1e4) : null;
+    const costErp = fin ? (m === 12 ? fin.cost.monthlyAvg12 ?? null : fin.cost.monthlyAvg) : null;
+    const b2b = selected && Number.isFinite(revB2B) ? revB2B : b2bErp;
+    const c = selected ? cost : costErp === null ? null : Math.round(costErp / 1e4) - vatIn;
     const rev = b2b === null ? null : revenue - (Number.isFinite(revB2B) ? revB2B : 0) + b2b;
     return {
       months: m,
-      selected: m === basis,
+      selected,
       b2b,
       cost: c,
       revenue: rev,
@@ -302,10 +305,36 @@ export function buildResults(content: DeckContent, v: Values, eff: EffectiveActu
   const marginsFull = econ.map((e) => e.marginFull).filter((m): m is number => m !== null);
   const marginsSet = econ.map((e) => e.marginSet).filter((m): m is number => m !== null);
   const sm = eff.smoat;
-  const academies = (sm?.academies ?? []).map((a) => ({
-    ...a,
-    compare: calc.compareAcademy(a, tiers, n(v, "tierHeadroom")),
-  }));
+  // 기준 달 스모트 매출 = 가정 「스모트 월 매출」 — 1장·7장 막대·이익률·월평균이 같은 값을 쓴다
+  // (사용자 확인값이나 회의 중 바꾼 값도 그대로 따라간다)
+  const vRevSmoat = nn(v, "revSmoat");
+  const smBaseRev = sm ? (vRevSmoat !== null && Number.isFinite(vRevSmoat) ? vRevSmoat * 1e4 : sm.revMonth) : 0;
+  // 달마다 실제 결제 = 학원 결제 + 이름 없는 입금, 기준 달은 위 값
+  const smRev = (m: { month: string; academies: number; unnamed: number }) =>
+    sm && m.month === sm.baseMonth ? smBaseRev : m.academies + m.unnamed;
+  // 월평균·최고 월 — 첫 학원 결제 달부터 (결제 없는 달은 0)
+  const smSpan = sm ? sm.months.filter((m) => m.month >= sm.avgFrom) : [];
+  const smAvg = smSpan.length ? smSpan.reduce((t, m) => t + smRev(m), 0) / smSpan.length : null;
+  const smPeak = smSpan.reduce<{ month: string; amount: number } | null>(
+    (a, m) => (a === null || smRev(m) > a.amount ? { month: m.month, amount: smRev(m) } : a),
+    null,
+  );
+  // 1년 약정가 — 요금제마다 입력, 비었으면 정가 × (1 − 약정 할인율)
+  const commitPrices = tiers.map((t, i) => {
+    const x = nn(v, `tier${i + 1}CommitPrice`);
+    return x ?? Math.round((t.price * (1 - (nn(v, "commitDiscountRate") ?? 0) / 100)) / 100) * 100;
+  });
+  const churnPct = n(v, "monthlyChurn");
+  const exitPct = nn(v, "commitEarlyExitRate") ?? 0;
+  const academies = (sm?.academies ?? []).map((a) => {
+    const compare = calc.compareAcademy(a, tiers, n(v, "tierHeadroom"));
+    return {
+      ...a,
+      compare,
+      commit: calc.commitmentEconomics(compare.price, commitPrices[compare.index] ?? compare.price, churnPct, exitPct),
+      commitPrice: commitPrices[compare.index] ?? null,
+    };
+  });
   const sim = calc.simulateSubscriptions(
     academies,
     tiers,
@@ -327,8 +356,7 @@ export function buildResults(content: DeckContent, v: Values, eff: EffectiveActu
   const freeIncl = (() => {
     if (!sm) return null;
     const inWin = sm.months.filter((m) => m.month >= sm.aiCost.from && m.month <= sm.aiCost.to);
-    // 기준 달은 revMonth(사용자 확인 값일 수 있다), 나머지 달은 학원 결제 + 이름 없는 입금
-    const payments = inWin.reduce((t, m) => t + (m.month === sm.baseMonth ? sm.revMonth : m.academies + m.unnamed), 0);
+    const payments = inWin.reduce((t, m) => t + smRev(m), 0);
     const margin = calc.marginInclFree(payments, sm.aiCost.krw, n(v, "vatRate"));
     return {
       from: sm.aiCost.from,
@@ -355,7 +383,7 @@ export function buildResults(content: DeckContent, v: Values, eff: EffectiveActu
   const payCount = packMix.reduce((s, p) => s + p.count, 0);
   const smallest = packMix[0];
   const tierPer = econ.map((e) => e.perCredit).filter((x): x is number => x !== null);
-  const smoat = {
+  const smoatBase = {
     tiers: econ,
     marginFullMin: marginsFull.length ? Math.min(...marginsFull) : null,
     marginFullMax: marginsFull.length ? Math.max(...marginsFull) : null,
@@ -367,11 +395,12 @@ export function buildResults(content: DeckContent, v: Values, eff: EffectiveActu
       ...sim,
       cumulative: cum.series,
       cumulativeTotal: cum.total,
-      avgMonthly: sm?.avgMonthly ?? null,
+      /** 실제 결제 월평균 (학원 + 이름 없는 입금, 기준 달은 스모트 월 매출) */
+      avgMonthly: smAvg,
       avgFrom: sm?.avgFrom ?? null,
-      peak: sm?.peak ?? null,
-      vsAvg: sm && sm.avgMonthly > 0 ? sim.monthly / sm.avgMonthly : null,
-      vsPeak: sm && sm.peak.amount > 0 ? sim.monthly / sm.peak.amount : null,
+      peak: smPeak,
+      vsAvg: smAvg !== null && smAvg > 0 ? sim.monthly / smAvg : null,
+      vsPeak: smPeak && smPeak.amount > 0 ? sim.monthly / smPeak.amount : null,
     },
     extraRevenue: sim.extra,
     avgContrib,
@@ -398,7 +427,7 @@ export function buildResults(content: DeckContent, v: Values, eff: EffectiveActu
     },
     /** 이익률 두 가지 */
     margins: {
-      paid: sm ? calc.paidMargin(sm.revMonth, sm.baseAiKrw) : null,
+      paid: sm ? calc.paidMargin(smBaseRev, sm.baseAiKrw) : null,
       paidMonth: sm?.baseMonth ?? null,
       free: freeIncl?.margin ?? null,
       freeFrom: freeIncl?.from ?? null,
@@ -438,7 +467,7 @@ export function buildResults(content: DeckContent, v: Values, eff: EffectiveActu
     aiPerQuestion: n(v, "aiCostPerCredit") * n(v, "creditsPerQuestion"),
     repurchaseRate: sm && sm.repurchase.cohort > 0 ? sm.repurchase.repeat / sm.repurchase.cohort : null,
     /** 기준 달 매출에서 AI 원가를 뺀 몫 — 「이익률 77%」 의 근거 */
-    baseMargin: sm ? calc.paidMargin(sm.revMonth, sm.baseAiKrw) : null,
+    baseMargin: sm ? calc.paidMargin(smBaseRev, sm.baseAiKrw) : null,
     /** 구독하면 덜 내는 학원 · 더 내는 학원 */
     savingCount: academies.filter((a) => a.compare.saving >= 0).length,
     upCount: academies.filter((a) => a.compare.saving < 0).length,
@@ -446,10 +475,108 @@ export function buildResults(content: DeckContent, v: Values, eff: EffectiveActu
     savingsMax: academies.length ? Math.max(...academies.map((a) => a.compare.savingRate ?? 0)) : null,
   };
 
+  // ---- 스모트: 구간별 비교 · 약정 · 품질 환불 ----
+  const bandCompare = smoatBase.bands.map((band) => {
+    const list = academies.filter((a) =>
+      band.from === 0
+        ? a.monthlyCredits <= (band.to ?? Infinity)
+        : a.monthlyCredits > band.from && (band.to === null || a.monthlyCredits <= band.to),
+    );
+    const avg = (f: (a: (typeof list)[number]) => number | null) => {
+      const xs = list.map(f).filter((x): x is number => x !== null && Number.isFinite(x));
+      return xs.length ? xs.reduce((s2, x) => s2 + x, 0) / xs.length : null;
+    };
+    const spend = avg((a) => a.monthlySpend);
+    const price = avg((a) => a.compare.price);
+    return {
+      label: band.label,
+      n: list.length,
+      spend,
+      price,
+      saving: spend !== null && price !== null && spend > 0 ? 1 - price / spend : null,
+      multiple: avg((a) => a.compare.multiple),
+    };
+  });
+  const bandsWith = bandCompare.filter((b) => b.n > 0 && b.saving !== null);
+  const commitParams = { ...params };
+  const commit = tiers.map((t, i) => {
+    const e = calc.tierEconomics({ ...t, price: commitPrices[i] }, commitParams);
+    return {
+      name: t.name,
+      price: t.price,
+      commitPrice: commitPrices[i],
+      discount: t.price > 0 ? 1 - commitPrices[i] / t.price : null,
+      marginFull: e.marginFull,
+      marginSet: e.marginSet,
+      econ: calc.commitmentEconomics(t.price, commitPrices[i], churnPct, exitPct),
+      econNoExit: calc.commitmentEconomics(t.price, commitPrices[i], churnPct, 0),
+    };
+  });
+  const cm = commit.map((c) => c.marginFull).filter((x): x is number => x !== null);
+  const refund = econ.map((e) => {
+    const r = calc.qualityRefund(
+      {
+        credits: e.credits,
+        usagePct: n(v, "usageRate"),
+        errorPct: nn(v, "errorQuestionRate") ?? 0,
+        capPct: nn(v, "refundCapRate") ?? 0,
+        capUsePct: nn(v, "refundUsageRate") ?? 0,
+        aiCostPerCredit: n(v, "aiCostPerCredit"),
+      },
+      e.supply,
+    );
+    return { name: e.name, ...r, marginSetAfter: e.marginSet === null || r.marginDrop === null ? null : e.marginSet - r.marginDrop };
+  });
+  const drops = refund.map((r) => r.marginDrop).filter((x): x is number => x !== null);
+  // 약정 vs 무약정 12개월 누적 (베이직 한 곳)
+  const basicI = Math.min(1, tiers.length - 1);
+  const keep = 1 - Math.min(100, Math.max(0, churnPct)) / 100;
+  const commitLine = Array.from({ length: 12 }, (_, m) => {
+    let no = 0;
+    for (let k = 0; k <= m; k++) no += (tiers[basicI]?.price ?? 0) * keep ** k;
+    const withCommit = (1 - exitPct / 100) * (commitPrices[basicI] ?? 0) * (m + 1) + (exitPct / 100) * no;
+    return { month: m + 1, noCommit: no, commit: withCommit };
+  });
+  const smoatPlus = {
+    bandCompare,
+    bandSavingMin: bandsWith.length ? Math.min(...bandsWith.map((b) => b.saving as number)) : null,
+    bandSavingMax: bandsWith.length ? Math.max(...bandsWith.map((b) => b.saving as number)) : null,
+    bandMultipleMin: bandsWith.length ? Math.min(...bandsWith.map((b) => b.multiple ?? Infinity)) : null,
+    bandMultipleMax: bandsWith.length ? Math.max(...bandsWith.map((b) => b.multiple ?? 0)) : null,
+    commit,
+    commitMarginFullMin: cm.length ? Math.min(...cm) : null,
+    commitMarginFullMax: cm.length ? Math.max(...cm) : null,
+    commitDiscountMin: Math.min(...commit.map((c) => c.discount ?? 1)),
+    commitDiscountMax: Math.max(...commit.map((c) => c.discount ?? 0)),
+    basic: commit[basicI],
+    commitLine,
+    refund,
+    refundDropMin: drops.length ? Math.min(...drops) : null,
+    refundDropMax: drops.length ? Math.max(...drops) : null,
+    /** 지금 결제 학원이 모두 구독할 때 학원당 월 매출 (원) — 백억 산수의 첫 시나리오 */
+    arpuNow: academies.length ? sim.base / academies.length : null,
+  };
+  const smoat = { ...smoatBase, ...smoatPlus };
+
   // ---- B2B ----
   const contrib = n(v, "b2bContribRate");
   const addKeys = ["addDeals1", "addDeals2", "addDeals3"];
   const fieldLabor = n(v, "b2bFieldLaborRate");
+  const kinds = content.rules.finance.projectKinds ?? {};
+  const projectsWithKind = (eff.finance?.projects ?? []).map((p) => ({ ...p, kind: p.kind ?? kinds[p.code] }));
+  const kindOrder: string[] = [];
+  for (const p of [...projectsWithKind].sort((a, b) => a.rate - b.rate)) {
+    if (p.kind && !kindOrder.includes(p.kind)) kindOrder.push(p.kind);
+  }
+  const byKind = kindOrder.map((kind) => {
+    const list = projectsWithKind.filter((p) => p.kind === kind);
+    return {
+      kind,
+      min: Math.min(...list.map((p) => p.rate)),
+      max: Math.max(...list.map((p) => p.rate)),
+      projects: list.map((p) => ({ name: p.name, rate: p.rate, items: p.items ?? null })),
+    };
+  });
   const b2b = {
     contrib,
     current: {
@@ -461,12 +588,19 @@ export function buildResults(content: DeckContent, v: Values, eff: EffectiveActu
     scenarios: addKeys.map((k) => calc.b2bScenario(n(v, k), n(v, "b2bAvgDeal"), contrib)),
     web: addKeys.map((k) => calc.b2bScenario(n(v, k), n(v, "webDealSize"), contrib)),
     target: n(v, "b2bDealsPerMonth") + n(v, "addDeals3"),
+    targetMid: n(v, "b2bDealsPerMonth") + n(v, "addDeals2"),
     products: content.products.map((p) => {
       const rate = nn(v, p.key);
       const res = rate === null ? null : calc.productProfit(p.startPrice, rate, fieldLabor);
       return { ...p, direct: rate, profit: res?.profit ?? null, profitRate: res?.rate ?? null };
     }),
-    projects: eff.finance?.projects ?? [],
+    projects: projectsWithKind,
+    byKind,
+    standardShareTarget: nn(v, "standardShareTarget"),
+    standardDirectTarget: nn(v, "standardDirectRateTarget"),
+    customMinPrice: nn(v, "customMinPrice"),
+    /** 표준화 레버 (월, 만원) = B2B 월 매출 × (지금 직접비율 − 표준 목표) */
+    stdLever: finite(calc.standardizationLever(n(v, "revB2B"), n(v, "b2bDirectCostRate"), nn(v, "standardDirectRateTarget") ?? n(v, "b2bDirectCostRate"))),
     projectsRate: eff.finance?.projectsRate ?? null,
     projectsMin: eff.finance?.projects.length ? Math.min(...eff.finance.projects.map((p) => p.rate)) : null,
     projectsMax: eff.finance?.projects.length ? Math.max(...eff.finance.projects.map((p) => p.rate)) : null,
@@ -504,6 +638,7 @@ export function buildResults(content: DeckContent, v: Values, eff: EffectiveActu
     smoat.sub.contribution === null ? null : smoat.sub.contribution / 1e4 - n(v, "smoatFixedCost");
   const wf = calc.gapWaterfall(gap, [
     { key: "b2b", label: "B2B 추가 계약", value: finite(b2bLever) },
+    ...(nn(v, "standardDirectRateTarget") !== null ? [{ key: "std", label: "B2B 표준화", value: b2b.stdLever }] : []),
     { key: "ext", label: "외부 주최 생카", value: sangka.ext.net },
     { key: "smoat", label: "스모트 구독", value: smoatLever === null ? null : finite(smoatLever) },
     { key: "cut", label: "비용 절감", value: nn(v, "costCutMonthly") ?? 0 },
@@ -516,6 +651,7 @@ export function buildResults(content: DeckContent, v: Values, eff: EffectiveActu
     closed: wf.remaining <= 0,
     remainingText: wf.remaining > 0 ? `아직 월 ${Math.round(wf.remaining).toLocaleString("ko-KR")}만원이 남습니다` : "모두 메워집니다",
     b2b: { deals: leverDeals, value: b2bLever },
+    std: b2b.stdLever,
     ext: sangka.ext.net,
     smoat: smoatLever,
     smoatSubscribers: smoat.sub.subscribers,
@@ -524,11 +660,52 @@ export function buildResults(content: DeckContent, v: Values, eff: EffectiveActu
 
   // ---- 매장 (재계약 판단) ----
   const storeContrib = nn(v, "storeContrib");
+  const opp = calc.storeOpportunity(
+    { storeContrib, storeB2B: nn(v, "storeB2BContrib"), replacementMarketing: nn(v, "replacementMarketingCost") },
+    avgContrib,
+    n(v, "b2bAvgDeal"),
+    contrib,
+  );
   const store = {
     contrib: storeContrib,
     exGray: nn(v, "storeContribExGray"),
-    /** 매장 기여이익을 스모트로 벌려면 구독 학원 몇 곳 — 매장 기여이익 ÷ 학원당 공헌이익 */
-    vsSmoat: storeContrib !== null && avgContrib !== null && avgContrib > 0 ? (storeContrib * 1e4) / avgContrib : null,
+    floor: nn(v, "storeContribFloor"),
+    runwayFloor: nn(v, "runwayFloorMonths"),
+    /** 매장 인력이 새로 벌어야 하는 공헌이익 (만원/월) — 모르는 칸은 0 으로 더했다 */
+    need: opp.need,
+    missing: opp.missing,
+    missingText: opp.missing.length
+      ? `${opp.missing.map((k) => (k === "storeB2B" ? "매장발 B2B" : "대체 마케팅 비용")).join("·")} 미정 (0으로 계산)`
+      : "",
+    /** 스모트 환산 = 필요 공헌이익 ÷ 학원당 공헌이익 */
+    vsSmoat: opp.academies,
+    /** B2B 환산 = 필요 공헌이익 ÷ (건당 금액 × 공헌이익률), 월 건수 */
+    vsB2B: opp.deals,
+  };
+
+  // ---- 목표: 백억 산수 ----
+  const targetEok = n(v, "targetRevenue");
+  const ceilingEok = n(v, "ceilingBiz1");
+  const annualNow = (r0(revenue) * 12) / 1e4;
+  const arpus = [
+    { key: "now", arpu: smoatPlus.arpuNow },
+    { key: "s2", arpu: nn(v, "arpuScenario2") === null ? null : (nn(v, "arpuScenario2") as number) * 1e4 },
+    { key: "s3", arpu: nn(v, "arpuScenario3") === null ? null : (nn(v, "arpuScenario3") as number) * 1e4 },
+  ];
+  const goal = {
+    target: targetEok,
+    ceiling: ceilingEok,
+    rest: targetEok - ceilingEok,
+    /** 지금 연 매출 (억원) — 월 매출 합 × 12 */
+    annualNow,
+    annualUnit1: ((revenue - (Number.isFinite(n(v, "revSmoat")) ? n(v, "revSmoat") : 0)) * 12) / 1e4,
+    annualSmoat: (n(v, "revSmoat") * 12) / 1e4,
+    multiple: annualNow > 0 ? targetEok / annualNow : null,
+    rows: arpus.map((a) => ({ ...a, academies: calc.academiesForTarget(targetEok, ceilingEok, a.arpu) })),
+    /** 시나리오 3 단가 ÷ 지금 평균 단가 */
+    arpuLift: arpus[2].arpu !== null && arpus[0].arpu ? arpus[2].arpu / arpus[0].arpu : null,
+    brandPrice: nn(v, "brandAvgPrice"),
+    brandDaily: calc.brandDailyUnits(targetEok, n(v, "brandAvgPrice")),
   };
 
   // ---- 운영 ----
@@ -552,6 +729,7 @@ export function buildResults(content: DeckContent, v: Values, eff: EffectiveActu
     sangka,
     levers,
     store,
+    goal,
     ops,
     /** 실측 원본 — 문구가 기준일·건수를 직접 쓴다 */
     fin: eff.finance,
@@ -585,6 +763,10 @@ const SIM_KEYS = [...TIER_KEYS, "tierHeadroom", "subscribeRate", "skipIfCostUpOv
 const BE_KEYS = [...ECON_KEYS, "tierHeadroom", "smoatFixedCost", "commonCostShareSmoat", "commonCostMonthly", "revenueBasis"];
 const EXT_KEYS = ["externalNow", "externalTarget", "externalEventContrib", "t1CountPerMonth", "t1WaiverShortfallProb", "t1AvgShortfall", "eventDays", "t1PerkCost"];
 const CASH_KEYS = [...REV_KEYS, "costMonthly", "vatInFinance", "subsidyMonthly", "cashBalance", "includeSubsidy"];
+const COMMIT_KEYS = [...[1, 2, 3, 4].map((i) => `tier${i}CommitPrice`), "commitDiscountRate", "monthlyChurn", "commitEarlyExitRate"];
+const REFUND_KEYS = ["errorQuestionRate", "refundCapRate", "refundUsageRate", "usageRate", "aiCostPerCredit"];
+const STD_KEYS = ["revB2B", "revenueBasis", "b2bDirectCostRate", "standardDirectRateTarget"];
+const STORE_KEYS = ["storeContrib", "storeB2BContrib", "replacementMarketingCost"];
 
 /** 결과 경로(가장 긴 접두어) → 그 결과가 기대는 가정 */
 export const RESULT_DEPS: Record<string, string[]> = {
@@ -594,18 +776,18 @@ export const RESULT_DEPS: Record<string, string[]> = {
   "r.reloc.loss": ["revGray", "mergeKeepRateLow", "mergeKeepRateHigh"],
   "r.mix": REV_KEYS,
   "r.cash": CASH_KEYS,
-  "r.cash.byBasis": ["revenueBasis", ...REV_KEYS, "vatInFinance"],
+  "r.cash.byBasis": ["revenueBasis", ...REV_KEYS, "vatInFinance", "costMonthly"],
   "r.cash.basis": ["revenueBasis"],
   "r.cash.subsidy": ["subsidyMonthly"],
   "r.cash.cost": ["costMonthly", "vatInFinance", "revenueBasis"],
   "r.smoat.tiers": ECON_KEYS,
   "r.smoat.margin": ECON_KEYS,
-  "r.smoat.margins": ["vatRate"],
-  "r.smoat.baseMargin": [],
+  "r.smoat.margins": ["vatRate", "revSmoat"],
+  "r.smoat.baseMargin": ["revSmoat"],
   "r.smoat.academies": [...TIER_KEYS, "tierHeadroom"],
   "r.smoat.savings": [...TIER_KEYS, "tierHeadroom"],
   "r.smoat.bands": [],
-  "r.smoat.sim": SIM_KEYS,
+  "r.smoat.sim": [...SIM_KEYS, "revSmoat"],
   "r.smoat.sub": [...SIM_KEYS, "usageRate", "aiCostPerCredit"],
   "r.smoat.extraRevenue": ["extraConversions", "tier1Price"],
   "r.smoat.avgContrib": [...ECON_KEYS, "tierHeadroom"],
@@ -621,6 +803,7 @@ export const RESULT_DEPS: Record<string, string[]> = {
   "r.b2b.scenarios": ["addDeals1", "addDeals2", "addDeals3", "b2bAvgDeal", ...CONTRIB_KEYS],
   "r.b2b.web": ["addDeals1", "addDeals2", "addDeals3", "webDealSize", ...CONTRIB_KEYS],
   "r.b2b.target": ["b2bDealsPerMonth", "addDeals3"],
+  "r.b2b.targetMid": ["b2bDealsPerMonth", "addDeals2"],
   "r.b2b.products": ["prodRate_perfume", "prodRate_photobooth", "prodRate_kiosk", "prodRate_mediaart", "prodRate_space", "b2bFieldLaborRate"],
   "r.b2b.projects": [],
   "r.sangka.t1": ["t1CountPerMonth", "t1WaiverShortfallProb", "t1AvgShortfall", "eventDays", "t1PerkCost"],
@@ -628,14 +811,28 @@ export const RESULT_DEPS: Record<string, string[]> = {
   "r.sangka.ext": ["externalNow", "externalTarget", "externalEventContrib", "eventsPerMonth"],
   "r.sangka.ext.net": EXT_KEYS,
   "r.sangka.minPerEvent": ["minPurchasePerDay", "eventDays"],
-  "r.levers": ["addDeals2", "b2bAvgDeal", ...CONTRIB_KEYS, ...EXT_KEYS, ...SIM_KEYS, "smoatFixedCost", "costCutMonthly", ...CASH_KEYS],
+  "r.levers": ["addDeals2", "b2bAvgDeal", ...CONTRIB_KEYS, ...STD_KEYS, ...EXT_KEYS, ...SIM_KEYS, "smoatFixedCost", "costCutMonthly", ...CASH_KEYS],
   "r.levers.b2b": ["addDeals2", "b2bAvgDeal", ...CONTRIB_KEYS],
   "r.levers.ext": EXT_KEYS,
   "r.levers.smoat": [...SIM_KEYS, "usageRate", "aiCostPerCredit", "smoatFixedCost"],
   "r.levers.cut": ["costCutMonthly"],
   "r.levers.gap": CASH_KEYS,
-  "r.store": ["storeContrib", "storeContribExGray"],
-  "r.store.vsSmoat": ["storeContrib", ...ECON_KEYS, "tierHeadroom"],
+  "r.store": [...STORE_KEYS, "storeContribExGray", "storeContribFloor", "runwayFloorMonths"],
+  "r.store.need": STORE_KEYS,
+  "r.store.vsSmoat": [...STORE_KEYS, ...ECON_KEYS, "tierHeadroom"],
+  "r.store.vsB2B": [...STORE_KEYS, "b2bAvgDeal", ...CONTRIB_KEYS],
+  "r.goal": ["targetRevenue", "ceilingBiz1", "arpuScenario2", "arpuScenario3", ...TIER_KEYS, "tierHeadroom"],
+  "r.goal.annual": REV_KEYS,
+  "r.goal.multiple": ["targetRevenue", ...REV_KEYS],
+  "r.goal.brand": ["targetRevenue", "brandAvgPrice"],
+  "r.smoat.commit": [...TIER_KEYS, ...COMMIT_KEYS, ...ECON_KEYS],
+  "r.smoat.basic": [...TIER_KEYS, ...COMMIT_KEYS],
+  "r.smoat.refund": [...ECON_KEYS, ...REFUND_KEYS],
+  "r.smoat.band": [...TIER_KEYS, "tierHeadroom"],
+  "r.smoat.arpuNow": [...TIER_KEYS, "tierHeadroom"],
+  "r.b2b.stdLever": STD_KEYS,
+  "r.b2b.byKind": ["standardDirectRateTarget"],
+  "r.levers.std": STD_KEYS,
   "r.ops": ["approveLow", "approveHigh", "opportunityBudget1", "opportunityBudget2", "commonCostMonthly", "commonCostShareSmoat", "revenueBasis"],
   "r.fin": [],
   "r.sm": [],
@@ -660,7 +857,7 @@ export const KIND_DEPS: Record<string, string[]> = {
   dmFunnel: ["r.sangka.funnel"],
   sangkaT1: ["r.sangka.t1", "r.sangka.ext.net"],
   priceRange: [],
-  projectBars: ["v.b2bFieldLaborRate"],
+  projectBars: ["v.b2bFieldLaborRate", "v.standardDirectRateTarget"],
   contribBadge: ["r.b2b"],
   scenarioBars: ["r.b2b.scenarios", "r.b2b.web"],
   leverWaterfall: ["r.levers"],
@@ -673,7 +870,7 @@ export const KIND_DEPS: Record<string, string[]> = {
   perQuestionCompare: ["r.smoat.pack", "r.smoat.tierPer"],
   priceLadder: ["r.smoat.tierPer"],
   academyDumbbell: ["r.smoat.academies", "v.skipIfCostUpOver"],
-  tierStack: ["r.smoat.tiers"],
+  tierStack: ["r.smoat.tiers", "r.smoat.refund"],
   subscriptionCompare: ["r.smoat.sim"],
   churnLine: ["r.smoat.sim"],
   breakevenProgress: ["r.smoat.breakeven"],
@@ -692,6 +889,18 @@ export const KIND_DEPS: Record<string, string[]> = {
   assumptionTable: [],
   sources: [],
   gallery: [],
+  goalBars: ["r.goal.multiple", "v.ceilingBiz1"],
+  paybackBars: ["r.reloc"],
+  milestones: [],
+  projectKindBars: ["r.b2b.byKind"],
+  commitTable: ["r.smoat.commit"],
+  commitLine: ["r.smoat.basic"],
+  scoreTiles: [],
+  precedentBars: [],
+  packageCards: [],
+  storeOpportunity: ["r.store.vsSmoat", "r.store.vsB2B"],
+  iconLine: [],
+  goalTable: ["r.goal"],
 };
 
 /** 경로 하나가 기대는 가정 키 */
@@ -727,6 +936,8 @@ function blockTexts(b: Block): string[] {
       return b.items.flatMap((it) => [it.title, ...(it.body ? [it.body] : [])]);
     case "icons":
       return b.items.flatMap((it) => [it.title, ...(it.body ? [it.body] : []), ...(it.tag ? [it.tag] : [])]);
+    case "checks":
+      return b.cols.flatMap((c) => [c.title, ...c.items]);
     case "flow":
       return b.rows.flatMap((r) => [r.label, ...r.steps, ...(r.result ? [r.result] : [])]);
     case "computed":

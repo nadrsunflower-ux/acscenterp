@@ -430,9 +430,13 @@ export function SmoatMonthly() {
   // 실제 결제 = 학원 결제 + 이름 없는 입금 (내부·테스트 제외). 기준 달은 가정값 「스모트 월 매출」 —
   // 동기화 전 확인값이나 회의 중 바꾼 값이 1장과 같은 숫자로 보이게
   const base = typeof v.revSmoat === "number" ? v.revSmoat * 1e4 : null;
+  // 기준 달에 동기화 전 결제(확인값 − ERP)가 있으면 대시보드 합에도 더한다 — 실제 결제가 대시보드보다 커 보이지 않게
   const months = sm.months
     .filter((m) => m.month >= sm.avgFrom)
-    .map((m) => ({ ...m, real: m.month === sm.baseMonth && base !== null ? base : m.academies + m.unnamed }));
+    .map((m) => {
+      const real = m.month === sm.baseMonth && base !== null ? base : m.academies + m.unnamed;
+      return { ...m, real, dashboard: m.dashboard + Math.max(0, real - (m.academies + m.unnamed)) };
+    });
   const max = Math.max(1, ...months.map((m) => Math.max(m.dashboard, m.real)));
   const h = 380;
   return (
@@ -534,14 +538,14 @@ export function MarginPair({ opts }: { opts: Opts }) {
       <div className="sd-kpi sd-tone-b" data-box>
         <div className="sd-kpi-label">유료 사용분 기준 이익률</div>
         <div className="sd-kpi-value">{F.ratio(m.paid)}</div>
-        <div className="sd-kpi-sub">{m.paidMonth ? `${F.monthLabel(m.paidMonth)} 매출 − ${F.monthLabel(m.paidMonth)} AI 원가` : F.EMPTY}</div>
+        <div className="sd-kpi-sub">{m.paidMonth ? `${F.monthLabel(m.paidMonth)} 매출(이름 없는 입금 포함) − ${F.monthLabel(m.paidMonth)} AI 원가` : F.EMPTY}</div>
       </div>
       <div className="sd-kpi sd-tone-warn" data-box>
         <div className="sd-kpi-label">무료 포함 실제 이익률</div>
         <div className="sd-kpi-value">{F.ratio(m.free)}</div>
         <div className="sd-kpi-sub">
           {m.freeFrom && m.freeTo
-            ? `${F.monthLabel(m.freeFrom)}~${F.monthLabel(m.freeTo)} 결제 공급가 ${F.wonMan(m.freeSupply)} − AI 원가 ${F.wonMan(m.freeAiCost)}`
+            ? `${F.monthLabel(m.freeFrom)}~${F.monthLabel(m.freeTo)} 결제(이름 없는 입금 포함) 공급가 ${F.wonMan(m.freeSupply)} − AI 원가 ${F.wonMan(m.freeAiCost)}`
             : F.EMPTY}
         </div>
       </div>
@@ -553,14 +557,15 @@ export function MarginPair({ opts }: { opts: Opts }) {
 //  천장 — 떳떳함 × 사람 없이 커짐, 원 크기 = 월 매출
 // ============================================================
 
-type MatrixItem = { key: string; label: string; x: number; y: number; unit: "a" | "b" | "gray" };
+type MatrixItem = { key: string; label: string; x: number; y: number; unit: "a" | "b" | "gray"; note?: string; labelPos?: "below" };
 
 export function Matrix2x2({ opts }: { opts: Opts }) {
   const { v } = useSd().model;
   const items = (opts.items as MatrixItem[] | undefined) ?? [];
   const xLabel = str(opts.xLabel, "사람 없이 커지나");
   const yLabel = str(opts.yLabel, "떳떳한가");
-  const vals = items.map((it) => Math.max(0, (v[it.key] as number) ?? 0));
+  // key 가 없는 칸(아직 매출이 없는 실험)은 0 — 점선 원으로 그린다
+  const vals = items.map((it) => (it.key ? Math.max(0, (v[it.key] as number) ?? 0) : 0));
   const maxV = Math.max(1, ...vals);
   const h = 470;
   const color = (u: MatrixItem["unit"]) => (u === "b" ? "var(--sd-b)" : u === "gray" ? "var(--sd-muted-bar)" : "var(--sd-a)");
@@ -588,18 +593,26 @@ export function Matrix2x2({ opts }: { opts: Opts }) {
               const rad = 16 + 62 * Math.sqrt(vals[i] / maxV);
               const cx = X(it.x);
               const cy = Y(it.y);
+              const shownRad = vals[i] > 0 ? rad : 26;
+              const below = it.labelPos === "below";
               const rightSide = it.x < 0.62;
-              const tx = rightSide ? cx + rad + 10 : cx - rad - 10;
+              const tx = below ? cx : rightSide ? cx + shownRad + 10 : cx - shownRad - 10;
+              const ty = below ? cy + shownRad + 26 : cy - 4;
+              const anchor = below ? "middle" : rightSide ? "start" : "end";
               return (
                 <g key={it.key}>
-                  <circle cx={cx} cy={cy} r={rad} fill={color(it.unit)} fillOpacity={0.85} stroke="var(--sd-surface)" strokeWidth={2}>
-                    <title>{`${it.label} 월 ${F.man(vals[i])}`}</title>
-                  </circle>
-                  <text x={tx} y={cy - 4} textAnchor={rightSide ? "start" : "end"} fontSize={T.label} fontWeight={800} fill="var(--sd-fg)">
+                  {vals[i] > 0 ? (
+                    <circle cx={cx} cy={cy} r={rad} fill={color(it.unit)} fillOpacity={0.85} stroke="var(--sd-surface)" strokeWidth={2}>
+                      <title>{`${it.label} 월 ${F.man(vals[i])}`}</title>
+                    </circle>
+                  ) : (
+                    <circle cx={cx} cy={cy} r={26} fill="none" stroke={color(it.unit)} strokeWidth={3} strokeDasharray="6 5" />
+                  )}
+                  <text x={tx} y={ty} textAnchor={anchor} fontSize={T.label} fontWeight={800} fill="var(--sd-fg)">
                     {it.label}
                   </text>
-                  <text x={tx} y={cy + 20} textAnchor={rightSide ? "start" : "end"} fontSize={T.axis} fill="var(--sd-fg2)">
-                    {`월 ${F.man(vals[i], vals[i] < 100 ? 1 : 0)}`}
+                  <text x={tx} y={ty + 24} textAnchor={anchor} fontSize={T.axis} fill="var(--sd-fg2)">
+                    {it.note ?? `월 ${F.man(vals[i], vals[i] < 100 ? 1 : 0)}`}
                   </text>
                 </g>
               );
@@ -835,26 +848,31 @@ export function ProjectBars() {
   const b = r.b2b;
   if (!b.projects.length) return null;
   const max = Math.max(0.4, ...b.projects.map((p) => p.rate)) * 1.1;
+  const target = b.standardDirectTarget;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }} data-box>
       <div className="sd-lbl">프로젝트 직접비율 (재료·외주·운송 ÷ 매출)</div>
       {b.projects.map((p) => (
-        <div key={p.code} style={{ display: "grid", gridTemplateColumns: "minmax(0, 210px) 1fr 70px", gap: 12, alignItems: "center" }}>
+        <div key={p.code} style={{ display: "grid", gridTemplateColumns: "minmax(0, 250px) 1fr 70px", gap: 12, alignItems: "center" }}>
           <span className="sd-lbl" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {p.name}
+            {p.kind && <span className="sd-lbl-s">{` · ${p.kind}`}</span>}
           </span>
           <div style={{ position: "relative", height: 24 }}>
             <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${(p.rate / max) * 100}%`, background: "var(--sd-a)", borderRadius: "0 4px 4px 0" }} />
             {ok(b.projectsRate) && (
               <div style={{ position: "absolute", top: -4, bottom: -4, left: `${(b.projectsRate / max) * 100}%`, borderLeft: "2px dashed var(--sd-fg2)" }} />
             )}
+            {ok(target) && <div style={{ position: "absolute", top: -4, bottom: -4, left: `${(target / 100 / max) * 100}%`, borderLeft: "2px dashed var(--sd-good)" }} />}
           </div>
           <span className="sd-lbl" style={{ textAlign: "right", fontWeight: 800, color: "var(--sd-fg)" }}>
             {F.ratio(p.rate)}
           </span>
         </div>
       ))}
-      <div className="sd-lbl-s">{`점선 = 가중평균 ${F.ratio(b.projectsRate, 1)} · 현장 인건비 ${F.pct(v.b2bFieldLaborRate as number)} 가정`}</div>
+      <div className="sd-lbl-s">
+        {`회색 점선 = 가중평균 ${F.ratio(b.projectsRate, 1)}${ok(target) ? ` · 초록 점선 = 표준 목표 ${F.pct(target)}` : ""} · 현장 인건비 ${F.pct(v.b2bFieldLaborRate as number)} 가정 · 본사 인력 제외`}
+      </div>
     </div>
   );
 }
@@ -922,9 +940,10 @@ export function LeverWaterfall() {
   const { r, v } = useSd().model;
   const L = r.levers;
   const sub: Record<string, string> = {
-    b2b: `월 +${F.num(L.b2b.deals, 1)}건 × ${F.man(v.b2bAvgDeal as number)} × ${F.pct(v.b2bContribRate as number, 1)}`,
-    ext: `+${F.num(r.sangka.ext.add, 1)}건 × ${F.man(v.externalEventContrib as number)} − T1 ${F.man(r.sangka.t1.total, 1)}`,
-    smoat: `구독 ${F.num(L.smoatSubscribers, 0)}곳 − 고정비 ${F.man(v.smoatFixedCost as number)}`,
+    b2b: `월 +${F.num(L.b2b.deals, 1)}건`,
+    std: `직접비율 → ${F.pct(v.standardDirectRateTarget as number)}`,
+    ext: `+${F.num(r.sangka.ext.add, 1)}건 − T1`,
+    smoat: `구독 ${F.num(L.smoatSubscribers, 0)}곳 − 고정비`,
     cut: "가정 입력",
   };
   const bars: Fall[] = [
@@ -1190,7 +1209,7 @@ export function PriceLadder({ opts }: { opts: Opts }) {
   const rowH = 58;
   const h = rows.length * rowH + 50;
   return (
-    <SvgBox h={h} minW={1000} fallback={1390} label="월 가격 사다리">
+    <SvgBox h={h} minW={640} fallback={1390} label="월 가격 사다리">
       {(w) => {
         const l = 250;
         const rr = 20;
@@ -1226,7 +1245,7 @@ export function PriceLadder({ opts }: { opts: Opts }) {
                     textAnchor={labelRight ? "start" : "end"}
                     fill="var(--sd-fg2)"
                   >
-                    {x.ours ? x.note : `${F.wonMan(x.min)}~${F.wonMan(x.max)}${x.note ? ` · ${x.note}` : ""}`}
+                    {x.ours && w >= 1000 ? x.note : `${F.wonMan(x.min)}~${F.wonMan(x.max)}${x.note && !x.ours ? ` · ${x.note}` : ""}`}
                   </text>
                 </g>
               );
@@ -1309,19 +1328,22 @@ export function AcademyDumbbell() {
 //  우리에게 남나 — 요금제 가격 분해 · 구독 매출 비교 · 12개월 · 손익분기
 // ============================================================
 
-export function TierStack() {
+export function TierStack({ opts }: { opts?: Opts }) {
   const { r, v } = useSd().model;
   const tiers = r.smoat.tiers;
-  const segs = (t: (typeof tiers)[number]) => [
+  const withRefund = opts?.refund === true;
+  const refundOf = (i: number) => (withRefund ? (r.smoat.refund[i]?.cost ?? 0) : 0);
+  const segs = (t: (typeof tiers)[number], i = 0) => [
     { key: "vat", label: "부가세", value: t.price - t.supply, color: "var(--sd-line)" },
     { key: "fee", label: "결제 수수료", value: t.fee, color: "var(--sd-muted-bar)" },
     { key: "ai", label: `AI 원가 (사용률 ${F.pct(v.usageRate as number)})`, value: t.aiSet, color: "var(--sd-s4)" },
-    { key: "profit", label: "이익", value: t.profitSet, color: "var(--sd-b)" },
+    ...(withRefund ? [{ key: "refund", label: "품질 환불", value: refundOf(i), color: "var(--sd-bad)" }] : []),
+    { key: "profit", label: "이익", value: t.profitSet - refundOf(i), color: "var(--sd-b)" },
   ];
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }} data-box>
       <Legend items={segs(tiers[0]).map((s) => ({ color: s.color, label: s.label }))} />
-      {tiers.map((t) => (
+      {tiers.map((t, ti) => (
         <div key={t.name} className="sd-tier-row" style={{ display: "grid", gridTemplateColumns: "minmax(0, 200px) 1fr minmax(0, 110px)", gap: 12, alignItems: "center" }}>
           <div>
             <div className="sd-lbl" style={{ fontWeight: 800, color: "var(--sd-fg)" }}>
@@ -1330,7 +1352,7 @@ export function TierStack() {
             <div className="sd-lbl-s">{`${F.won(t.price)} · ${F.credits(t.credits)}`}</div>
           </div>
           <div style={{ display: "flex", height: 38, gap: 2 }}>
-            {segs(t).map((s) => {
+            {segs(t, ti).map((s) => {
               const share = t.price > 0 ? Math.max(0, s.value) / t.price : 0;
               return (
                 <div
@@ -1353,7 +1375,7 @@ export function TierStack() {
             })}
           </div>
           <span className="sd-lbl" style={{ fontWeight: 800, color: "var(--sd-b-text)", textAlign: "right" }}>
-            {`이익 ${F.ratio(t.marginSet)}`}
+            {`이익 ${F.ratio(withRefund ? r.smoat.refund[ti]?.marginSetAfter ?? null : t.marginSet)}`}
           </span>
         </div>
       ))}
@@ -1525,6 +1547,9 @@ export function SeasonHeatmap({ opts }: { opts: Opts }) {
   const b = (opts.b as Record<string, { level: number; label?: string }> | undefined) ?? {};
   const rowA = str(opts.aLabel, "① B2B 입금");
   const rowB = str(opts.bLabel, "② 스모트 시험");
+  // 일정 표시 (월 번호 → 한 줄) — 키트화 완료 · 매장 결정 등
+  const marks = (opts.marks as Record<string, string> | undefined) ?? {};
+  const hasMarks = Object.keys(marks).length > 0;
   const months = Array.from({ length: 12 }, (_, i) => addMonths(start, i));
   // ① 은 ERP 12개월 B2B 입금을 같은 달(월 번호)로 옮겨 쓴다
   const byMonthNo = new Map((r.fin?.b2b.monthly ?? []).map((m) => [m.month.slice(5), m.amount]));
@@ -1595,12 +1620,44 @@ export function SeasonHeatmap({ opts }: { opts: Opts }) {
           {c.both ? "겹침" : ""}
         </span>
       ))}
+      {hasMarks && (
+        <>
+          <span className="sd-lbl" style={{ fontWeight: 800, color: "var(--sd-warn)", alignSelf: "center" }}>
+            <Md text={str(opts.marksLabel, "일정")} />
+          </span>
+          {cells.map((c) => {
+            const t = marks[String(Number(c.m.slice(5)))];
+            return (
+              <div
+                key={`k${c.m}`}
+                style={{
+                  minHeight: 52,
+                  borderRadius: 8,
+                  border: t ? "2px solid var(--sd-warn)" : "1px dashed var(--sd-line2)",
+                  background: t ? "var(--sd-warn-soft)" : "transparent",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  textAlign: "center",
+                  padding: 2,
+                }}
+              >
+                {t && (
+                  <span className="sd-lbl-s" style={{ color: "var(--sd-warn)", fontWeight: 800, lineHeight: 1.2 }}>
+                    {t}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </>
+      )}
     </div>
     </div>
   );
 }
 
-export function DecisionFlow() {
+export function DecisionFlow({ opts }: { opts?: Opts }) {
   const { r } = useSd().model;
   const lo = r.ops.approveLow;
   const hi = r.ops.approveHigh;
@@ -1609,6 +1666,22 @@ export function DecisionFlow() {
     { range: `${F.man(lo)}~${F.man(hi)}`, who: "사업부 책임자 + 재무", how: "메신저로 당일", tone: "warn" },
     { range: `${F.man(hi)} 초과`, who: "임원 합의", how: "24시간 안에", tone: "bad" },
   ];
+  if (opts?.compact === true) {
+    // 좁은 칸용 — 뿌리 없이 세 갈래만 한 줄씩
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }} data-box>
+        <div className="sd-lbl">쓰려는 돈이 얼마인가</div>
+        {branches.map((b) => (
+          <div key={b.range} className={`sd-icard sd-tone-${b.tone}`} style={{ flexDirection: "row", alignItems: "center", gap: 14, padding: "10px 16px" }}>
+            <span className="sd-icard-title" style={{ minWidth: 0, flex: "none" }}>
+              {b.range}
+            </span>
+            <span className="sd-lbl" style={{ color: "var(--sd-fg)" }}>{`${b.who} · ${b.how}`}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0 }} data-box>
       <div className="sd-pill" style={{ fontSize: undefined, padding: "8px 22px" }}>

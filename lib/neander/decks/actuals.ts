@@ -319,6 +319,7 @@ export function computeFinanceActuals(
     const revenue = ledgerIncome > 0 ? ledgerIncome : Number(p.contractAmount) || 0;
     const direct = ledgerDirect > 0 ? ledgerDirect : checklist;
     if (revenue <= 0 || direct <= 0) continue;
+    const items = (p.lines ?? []).length;
     projectRows.push({
       code: p.code,
       name: rules.projectNames?.[p.code] ?? p.name,
@@ -326,6 +327,8 @@ export function computeFinanceActuals(
       direct,
       rate: direct / revenue,
       basis: ledgerDirect > 0 ? "장부" : "체크리스트",
+      ...(items > 0 ? { items } : {}),
+      ...(rules.projectKinds?.[p.code] ? { kind: rules.projectKinds[p.code] } : {}),
     });
   }
   projectRows.sort((a, b) => a.rate - b.rate);

@@ -238,6 +238,17 @@ export const SD_CSS = `
 .sd-icard.sd-tone-warn { border-color: rgba(251,191,36,.55); } .sd-icard.sd-tone-warn .sd-icard-icon { color: var(--sd-warn); } .sd-icard.sd-tone-warn .sd-icard-tag { background: var(--sd-warn-soft); color: var(--sd-warn); }
 .sd-icard.sd-tone-muted { opacity: .92; } .sd-icard.sd-tone-muted .sd-icard-tag { color: var(--sd-fg3); }
 .sd-icard.sd-tone-accent { border-color: var(--sd-accent); }
+.sd-icard.sd-icard-big { border-width: 2px; }
+.sd-icard.sd-icard-big .sd-icard-title { font-size: ${f(32)}; }
+.sd-icard.sd-icard-big .sd-icard-icon { width: 58px; height: 58px; }
+.dk-flow .sd-icard { grid-column: auto !important; }
+
+/* ---- 좌우 체크리스트 ---- */
+.sd-checklist { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 12px; font-size: ${f(26)}; }
+.sd-checklist li { display: flex; gap: 12px; align-items: flex-start; line-height: 1.36; }
+.sd-check-mark { flex: none; width: 34px; height: 34px; border-radius: 999px; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+.sd-check-x { background: var(--sd-bad-soft); color: var(--sd-bad); }
+.sd-check-check { background: var(--sd-good-soft); color: var(--sd-good); }
 
 /* ---- 흐름도 (전과 후) ---- */
 .sd-flow { display: flex; flex-direction: column; gap: 22px; padding: 6px 0; }

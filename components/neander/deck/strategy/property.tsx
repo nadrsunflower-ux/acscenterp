@@ -147,10 +147,18 @@ export function PropertyOverview({ opts }: { opts: Record<string, unknown> }) {
         44,
       )
     : [];
+  // cards: false → 지도 두 장만 (옆 칸은 장표가 따로 채운다)
+  const withCards = opts.cards !== false;
   return (
     <div
       className="sd-prop"
-      style={{ display: "grid", gridTemplateColumns: `${OVERVIEW.w}px ${INSET.w}px minmax(0, 1fr)`, gap: 16, flex: 1, minHeight: 0 }}
+      style={{
+        display: "grid",
+        gridTemplateColumns: withCards ? `${OVERVIEW.w}px ${INSET.w}px minmax(0, 1fr)` : `${OVERVIEW.w}px ${INSET.w}px`,
+        gap: 16,
+        flex: 1,
+        minHeight: 0,
+      }}
     >
       <div className="sd-mapwrap">
         <div className="sd-map" style={{ width: OVERVIEW.w, height: OVERVIEW.h }}>
@@ -229,7 +237,7 @@ export function PropertyOverview({ opts }: { opts: Record<string, unknown> }) {
           </div>
         </div>
       )}
-      <RegionCards />
+      {withCards && <RegionCards />}
     </div>
   );
 }

@@ -17,6 +17,7 @@ import { Md, academyLabeler, useSd } from "./context";
 import { shown } from "./fields";
 import { PropertyCards, PropertyOverview, PropertyTable, useAsset } from "./property";
 import * as V from "./viz";
+import * as V3 from "./viz3";
 
 type Opts = Record<string, unknown>;
 
@@ -75,7 +76,7 @@ export function Computed({ kind, opts }: { kind: string; opts: Opts }) {
     case "academyDumbbell":
       return <V.AcademyDumbbell />;
     case "tierStack":
-      return <V.TierStack />;
+      return <V.TierStack opts={opts} />;
     case "subscriptionCompare":
       return <V.SubscriptionCompare />;
     case "churnLine":
@@ -89,11 +90,35 @@ export function Computed({ kind, opts }: { kind: string; opts: Opts }) {
     case "seasonHeatmap":
       return <V.SeasonHeatmap opts={opts} />;
     case "decisionFlow":
-      return <V.DecisionFlow />;
+      return <V.DecisionFlow opts={opts} />;
     case "gantt":
       return <V.Gantt opts={opts} />;
     case "scoreboard":
       return <V.Scoreboard opts={opts} />;
+    case "goalBars":
+      return <V3.GoalBars />;
+    case "paybackBars":
+      return <V3.PaybackBars />;
+    case "milestones":
+      return <V3.Milestones opts={opts} />;
+    case "projectKindBars":
+      return <V3.ProjectKindBars />;
+    case "commitTable":
+      return <V3.CommitTable />;
+    case "commitLine":
+      return <V3.CommitLine />;
+    case "scoreTiles":
+      return <V3.ScoreTiles opts={opts} />;
+    case "precedentBars":
+      return <V3.PrecedentBars opts={opts} />;
+    case "packageCards":
+      return <V3.PackageCards opts={opts} />;
+    case "storeOpportunity":
+      return <V3.StoreOpportunity />;
+    case "iconLine":
+      return <V3.IconLine opts={opts} />;
+    case "goalTable":
+      return <GoalTable />;
     case "propertyOverview":
       return <PropertyOverview opts={opts} />;
     case "propertyCards":
@@ -125,7 +150,8 @@ export const COMPUTED_KINDS = [
   "bandBars", "perQuestionCompare", "priceLadder", "academyDumbbell", "tierStack", "subscriptionCompare",
   "churnLine", "breakevenProgress", "smoatPrepay", "commonCostBar", "seasonHeatmap", "decisionFlow", "gantt",
   "scoreboard", "propertyOverview", "propertyCards", "propertyTable", "academyTable", "b2bProjects", "smoatTiers",
-  "assumptionTable", "sources", "gallery",
+  "assumptionTable", "sources", "gallery", "goalBars", "paybackBars", "milestones", "projectKindBars", "commitTable",
+  "commitLine", "scoreTiles", "precedentBars", "packageCards", "storeOpportunity", "iconLine", "goalTable",
 ];
 
 // ---- 공용 ----------------------------------------------------
@@ -267,6 +293,26 @@ function AcademyTable({ opts }: { opts: Opts }) {
   const from = typeof opts.from === "number" ? opts.from : 0;
   const to = typeof opts.to === "number" ? opts.to : r.smoat.academies.length;
   const list = r.smoat.academies.map((a, i) => ({ a, i })).slice(from, to);
+  if (opts.commit === true) {
+    // 약정 열 — 추천 요금제의 1년 약정가, 무약정·약정 연 매출 (학원 한 곳)
+    return (
+      <Table
+        head={["학원", "월 지출", "추천 요금제", "약정가", "비용 변화", "무약정 연", "약정 연"]}
+        align="lrlrrrr"
+        widths={[1.3, 0.9, 1.3, 0.9, 0.9, 1, 1]}
+        rows={list.map(({ a, i }) => [
+          label(a.name, i),
+          F.won(a.monthlySpend),
+          `${tiers[a.compare.index]?.name ?? ""}${a.compare.over ? "+" : ""} ${F.won(a.compare.price)}`,
+          F.won(a.commitPrice),
+          a.compare.savingRate === null ? F.EMPTY : a.compare.savingRate >= 0 ? `-${F.ratio(a.compare.savingRate)}` : `+${F.ratio(-a.compare.savingRate)}`,
+          F.wonMan(a.commit.noCommit),
+          F.wonMan(a.commit.commit),
+        ])}
+        note={`무약정 연 = 기대 개월 ${F.num(r.smoat.basic?.econ.months, 1)} × 정가, 약정 연 = 중도 해지를 뺀 12개월 × 약정가 + 중도 해지분(받은 할인 반환) · 이름 없는 입금은 학원을 몰라 빠진다`}
+      />
+    );
+  }
   return (
     <Table
       head={["학원", "월 지출", "월 크레딧", "추천 요금제", "비용 변화"]}
@@ -300,6 +346,27 @@ function SmoatPrepay() {
   );
 }
 
+// ---- 목표: 학원당 단가 × 필요 학원 수 ---------------------------------
+
+function GoalTable() {
+  const { r } = useSd().model;
+  const g = r.goal;
+  const names: Record<string, string> = { now: "지금 결제 학원 평균 (자동)", s2: "시나리오 2", s3: "시나리오 3" };
+  return (
+    <Table
+      head={["학원당 월 매출", "구분", `필요 학원 수 (${F.num(g.rest)}억원 ÷ 12개월)`]}
+      align="rlr"
+      widths={[1, 1.4, 1.4]}
+      rows={g.rows.map((row) => [
+        `**${F.wonMan(row.arpu)}**`,
+        names[row.key] ?? row.key,
+        row.academies === null ? F.EMPTY : `**약 ${F.num(Math.round(row.academies / 100) * 100)}곳**`,
+      ])}
+      note={`(목표 ${F.num(g.target)}억원 − ① 천장 ${F.num(g.ceiling)}억원) × 1억 ÷ (학원당 월 매출 × 12)`}
+    />
+  );
+}
+
 // ---- B2B · 생카 --------------------------------------------------
 
 function B2bProjects() {
@@ -308,10 +375,18 @@ function B2bProjects() {
   const fin = r.fin;
   return (
     <Table
-      head={["프로젝트", "매출·계약", "직접비", "직접비율", "기준"]}
-      align="lrrrl"
-      widths={[1.5, 1, 1, 0.8, 0.8]}
-      rows={b.projects.map((p) => [p.name, F.wonMan(p.revenue), F.wonMan(p.direct), F.ratio(p.rate), p.basis])}
+      head={["프로젝트", "성격", "매출·계약", "직접비", "직접비율", "준비 품목", "기준"]}
+      align="llrrrrl"
+      widths={[1.5, 1.2, 0.9, 0.9, 0.8, 0.8, 0.9]}
+      rows={b.projects.map((p) => [
+        p.name,
+        p.kind ?? F.EMPTY,
+        F.wonMan(p.revenue),
+        F.wonMan(p.direct),
+        F.ratio(p.rate),
+        p.items ? `${p.items}개` : "체크리스트 없음",
+        p.basis,
+      ])}
       note={`ERP 프로젝트 태그 지출(내부 인건비 제외) ÷ 매출·계약금액 · 가중평균 ${F.ratio(b.projectsRate, 1)} · ${fin ? `${F.dateLabel(fin.asOf)} 장부` : "스냅샷"}`}
     />
   );

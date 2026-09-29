@@ -138,7 +138,12 @@ export function BlockView({ b }: { b: Block }) {
       return (
         <div className="sd-icards" style={{ gridTemplateColumns: `repeat(${b.cols ?? b.items.length}, minmax(0, 1fr))` }}>
           {b.items.map((it, i) => (
-            <div key={i} className={`sd-icard${it.tone ? ` sd-tone-${it.tone}` : ""}`} data-box>
+            <div
+              key={i}
+              className={`sd-icard${it.tone ? ` sd-tone-${it.tone}` : ""}${it.big ? " sd-icard-big" : ""}`}
+              style={it.span ? { gridColumn: `span ${it.span}` } : undefined}
+              data-box
+            >
               {it.tag && (
                 <span className="sd-icard-tag">
                   <Md text={it.tag} />
@@ -161,6 +166,30 @@ export function BlockView({ b }: { b: Block }) {
                   <Md text={it.body} />
                 </div>
               )}
+            </div>
+          ))}
+        </div>
+      );
+    case "checks":
+      return (
+        <div className="sd-cols" style={{ gridTemplateColumns: b.cols.map(() => "minmax(0, 1fr)").join(" "), gap: 18 }}>
+          {b.cols.map((col, i) => (
+            <div key={i} className={`sd-card sd-checks${col.tone ? ` sd-tone-${col.tone}` : ""}`} data-box>
+              <div className="sd-card-title">
+                <Md text={col.title} />
+              </div>
+              <ul className="sd-checklist">
+                {col.items.map((it, j) => (
+                  <li key={j}>
+                    <span className={`sd-check-mark sd-check-${col.mark}`} aria-hidden>
+                      <Icon name={col.mark === "x" ? "x" : "check"} size={24} />
+                    </span>
+                    <span>
+                      <Md text={it} />
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </div>
           ))}
         </div>
