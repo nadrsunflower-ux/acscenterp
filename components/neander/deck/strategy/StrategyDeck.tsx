@@ -42,7 +42,7 @@ import {
   type DeckLocalState,
 } from "@/lib/neander/decks/state";
 import { fill } from "@/lib/neander/decks/template";
-import type { AssumptionValue, DeckContent, DeckPayload, DeckScenario } from "@/lib/neander/decks/types";
+import type { AssumptionValue, Block, DeckContent, DeckPayload, DeckScenario } from "@/lib/neander/decks/types";
 import { dateLabel } from "@/lib/neander/decks/format";
 import { fitMap, tilesFor } from "@/lib/neander/decks/map";
 import { SlideView } from "./blocks";
@@ -220,8 +220,33 @@ function Loaded({
       ];
       if (pts.length) ids.push(...tilesFor(fitMap(pts)).map((t) => t.id));
     }
-    return ids;
+    // 부록 캡처(gallery) — 인쇄본에도 실려야 한다
+    const walk = (blocks: Block[]) => {
+      for (const b of blocks) {
+        if (b.type === "computed" && b.kind === "gallery") {
+          ((b.opts?.items as { asset: string }[] | undefined) ?? []).forEach((it) => ids.push(it.asset));
+        }
+        if (b.type === "cols") b.cols.forEach(walk);
+        if (b.type === "card") walk(b.blocks);
+      }
+    };
+    content.slides.forEach((s) => walk(s.blocks));
+    return [...new Set(ids)];
   }, [content]);
+
+  // 열자마자 사진·지도 타일을 미리 받아 둔다 — 발표 중 매물 장으로 넘어갔을 때 빈칸이
+  // 잠깐 보이지 않게. 한꺼번에 수십 개를 쏘지 않고 네 개씩 이어 받는다.
+  useEffect(() => {
+    let alive = true;
+    const queue = [...allAssetIds];
+    const worker = async () => {
+      while (alive && queue.length) await loadDeckAsset(slug, queue.shift()!);
+    };
+    void Promise.all(Array.from({ length: 4 }, worker));
+    return () => {
+      alive = false;
+    };
+  }, [allAssetIds, slug]);
 
   const startPrint = useCallback(async () => {
     setMessage("인쇄 준비 중…");
