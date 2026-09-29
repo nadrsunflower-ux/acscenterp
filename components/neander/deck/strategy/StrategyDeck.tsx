@@ -44,15 +44,27 @@ import {
 import { fill } from "@/lib/neander/decks/template";
 import type { AssumptionValue, Block, DeckContent, DeckPayload, DeckScenario } from "@/lib/neander/decks/types";
 import { dateLabel } from "@/lib/neander/decks/format";
-import { fitMap, tilesFor } from "@/lib/neander/decks/map";
+import { overviewTileIds } from "@/lib/neander/decks/map";
 import { SlideView } from "./blocks";
 import { SlideChrome } from "./chrome";
 import { Computed } from "./computed";
 import { Md, SdProvider, type SdContext } from "./context";
 import { AssumptionPanel } from "./panel";
-import { SD_CSS, SD_OVERLAY_CSS } from "./styles";
+import { CANVAS, SD_CSS, SD_OVERLAY_CSS } from "./styles";
 
-const SIZE = { w: 1600, h: 900 };
+/** 이보다 좁은 화면(휴대폰)은 캔버스를 줄이지 않고 세로로 흘린다 — 글씨가 최소 크기 아래로 줄지 않게 */
+const FLOW_BELOW = 900;
+
+/** 매물 블록처럼 장 안에서 누를 것이 있는 장 — 좌우 클릭존을 치운다 */
+const INTERACTIVE_KINDS = new Set(["propertyOverview", "propertyCards", "propertyTable"]);
+function hasInteractive(blocks: Block[]): boolean {
+  return blocks.some(
+    (b) =>
+      (b.type === "computed" && INTERACTIVE_KINDS.has(b.kind)) ||
+      (b.type === "cols" && b.cols.some(hasInteractive)) ||
+      (b.type === "card" && hasInteractive(b.blocks)),
+  );
+}
 
 export function StrategyDeck({ slug, exitHref }: { slug: string; exitHref: string }) {
   const { user } = useAuth();
@@ -213,13 +225,7 @@ function Loaded({
   // ---- 인쇄 ----
   const allAssetIds = useMemo(() => {
     const ids = content.properties.map((p) => p.photo).filter((x): x is string => !!x);
-    for (const r of content.regions) {
-      const pts = [
-        ...content.properties.filter((p) => p.region === r.id).map((p) => ({ lat: p.lat, lng: p.lng })),
-        ...(r.includeStore ? [content.currentStore] : []),
-      ];
-      if (pts.length) ids.push(...tilesFor(fitMap(pts)).map((t) => t.id));
-    }
+    if (content.properties.length) ids.push(...overviewTileIds(content));
     // 부록 캡처(gallery) — 인쇄본에도 실려야 한다
     const walk = (blocks: Block[]) => {
       for (const b of blocks) {
@@ -289,6 +295,7 @@ function Loaded({
       content.slides.map((s, i) => ({
         id: s.id,
         chapter: s.chapter,
+        interactive: s.interactive || hasInteractive(s.blocks),
         render: () => (
           <SdProvider value={ctx}>
             <SlideView s={s} index={i} total={total} />
@@ -381,7 +388,8 @@ function Loaded({
           exitHref,
         }}
         slides={slides}
-        size={SIZE}
+        size={CANVAS}
+        flowBelow={FLOW_BELOW}
         hashNav
         extraKeys={extraKeys}
         chrome={chrome}
@@ -398,7 +406,8 @@ function Loaded({
           </div>
           <SdProvider value={ctx}>
             {(spec.notes ?? "노트가 없습니다.").split(/\n{2,}/).map((p, i) => (
-              <p key={i}>
+              // 「예상 질문」 문단은 따로 표시한다
+              <p key={i} className={p.startsWith("예상 질문") ? "sd-qa" : undefined}>
                 <Md text={p} />
               </p>
             ))}
@@ -496,7 +505,7 @@ function PrintDeck({ ctx, content }: { ctx: SdContext; content: DeckContent }) {
               {ctx.model.r.sm ? `스모트 ${dateLabel(ctx.model.r.sm.asOf)}` : "스냅샷"} 기준
             </div>
             <div className="sd-body">
-              <Computed kind="assumptionTable" opts={{}} />
+              <Computed kind="assumptionTable" opts={{ dense: true }} />
             </div>
           </div>
           <div className="sd-print-foot">

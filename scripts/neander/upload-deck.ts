@@ -10,6 +10,8 @@
 //    · 없는 형식 이름, 없는 계산 블록, 없는 각주 번호, 모르는 @{학원}
 //    · 장표 문구에 긴 줄표(—)가 없는가
 //    · 매물 사진·지도 타일·캡처 파일이 있는가
+//    · 본문 장표는 한 장 한 메시지: 글머리 5개 이하, 표 6행 × 5열 이하 (부록은 예외)
+//    · 아이콘 이름, 지역 상세 장 id
 //
 //  실행
 //    npm run deck:upload -- <slug>                  검사 + 로컬 사본
@@ -27,9 +29,12 @@ import { getFirestore } from "firebase-admin/firestore";
 import { buildModel, KIND_DEPS, slideTexts } from "@/lib/neander/decks/model";
 import { FORMATTERS } from "@/lib/neander/decks/format";
 import { getPath, tokenFormats, tokenPaths } from "@/lib/neander/decks/template";
-import { fitMap, tilesFor } from "@/lib/neander/decks/map";
+import { overviewTileIds } from "@/lib/neander/decks/map";
+import { DECK_ICON_NAMES } from "@/lib/neander/decks/icon-names";
 import type { Block, DeckContent } from "@/lib/neander/decks/types";
 import { localDeckDir, mimeOf, writeDeckAsset, writeDeckContent } from "@/lib/neander/decks/server/store";
+
+const ICON_NAMES = new Set<string>(DECK_ICON_NAMES);
 
 const args = process.argv.slice(2);
 const APPLY = args.includes("--apply");
@@ -56,13 +61,7 @@ function walkBlocks(blocks: Block[], f: (b: Block) => void) {
 export function deckAssetIds(content: DeckContent): string[] {
   const ids = new Set<string>();
   content.properties.forEach((p) => p.photo && ids.add(p.photo));
-  for (const r of content.regions) {
-    const pts = [
-      ...content.properties.filter((p) => p.region === r.id).map((p) => ({ lat: p.lat, lng: p.lng })),
-      ...(r.includeStore ? [content.currentStore] : []),
-    ];
-    if (pts.length) tilesFor(fitMap(pts)).forEach((t) => ids.add(t.id));
-  }
+  if (content.properties.length) overviewTileIds(content).forEach((id) => ids.add(id));
   for (const s of content.slides) {
     walkBlocks(s.blocks, (b) => {
       if (b.type === "computed" && b.kind === "gallery") {
@@ -108,8 +107,22 @@ function validate(content: DeckContent): string[] {
     }
     walkBlocks(s.blocks, (b) => {
       if (b.type === "computed" && !(b.kind in KIND_DEPS)) problems.push(`[${s.no}] 없는 계산 블록: ${b.kind}`);
+      if (b.type === "icons") {
+        for (const it of b.items) if (it.icon && !ICON_NAMES.has(it.icon)) problems.push(`[${s.no}] 없는 아이콘: ${it.icon}`);
+      }
+      // 한 장 한 메시지 — 본문 장표만 (넘치는 내용은 노트·부록으로)
+      if (!s.appendix) {
+        if (b.type === "bullets" && b.items.length > 5) problems.push(`[${s.no}] 글머리 ${b.items.length}개 (5개 이하)`);
+        if (b.type === "table" && (b.rows.length > 6 || b.head.length > 5)) {
+          problems.push(`[${s.no}] 표 ${b.rows.length}행 × ${b.head.length}열 (6행 × 5열 이하)`);
+        }
+      }
     });
+    if (!s.notes?.includes("예상 질문")) problems.push(`[${s.no}] 노트에 예상 질문이 없다`);
     for (const k of s.keys ?? []) if (!keys.has(k)) problems.push(`[${s.no}] 칩에 없는 가정: ${k}`);
+  }
+  for (const r of content.regions) {
+    if (r.detailSlide && !slideIds.has(r.detailSlide)) problems.push(`[지역 ${r.name}] 없는 상세 장: ${r.detailSlide}`);
   }
   for (const p of content.products) {
     for (const m of `${p.market} ${p.edge}`.matchAll(/\[\^(\d+)\]/g)) {

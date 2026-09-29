@@ -15,6 +15,7 @@ import { dateLabel, formatAssumption } from "@/lib/neander/decks/format";
 /** 값의 출처 표시 — 「실측(ERP, 2026.8.31)」 · 「가정으로 변경됨」 */
 export function kindLabel(def: AssumptionDef, meta: ValueMeta | undefined): { text: string; cls: string } {
   if (meta?.overridden) return { text: def.kind === "실측" ? "가정으로 변경됨" : "변경됨", cls: "sd-k-changed" };
+  if (meta?.note) return { text: `실측(${meta.note})`, cls: "sd-k-erp" };
   if (meta?.origin === "erp") return { text: `실측(ERP, ${meta.asOf ? dateLabel(meta.asOf) : ""})`, cls: "sd-k-erp" };
   if (meta?.origin === "snapshot") return { text: `실측(스냅샷, ${meta.asOf ? dateLabel(meta.asOf) : ""})`, cls: "sd-k-snap" };
   if (meta?.origin === "derived") return { text: "계산", cls: "" };
@@ -44,6 +45,23 @@ export function ValueEditor({
         <input type="checkbox" checked={value === true} onChange={(e) => onChange(e.target.checked)} />
         <span>{value === true ? "켜기" : "끄기"}</span>
       </label>
+    );
+  }
+
+  if (def.type === "choice") {
+    return (
+      <select
+        value={typeof value === "number" ? String(value) : ""}
+        onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+        aria-label={def.label}
+        autoFocus={autoFocus}
+      >
+        {(def.options ?? []).map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
     );
   }
 
@@ -103,4 +121,5 @@ export function ValueEditor({
   );
 }
 
-export const shown = (def: AssumptionDef, v: AssumptionValue) => formatAssumption(v, def.unit);
+export const shown = (def: AssumptionDef, v: AssumptionValue) =>
+  def.type === "choice" ? def.options?.find((o) => o.value === v)?.label ?? formatAssumption(v, def.unit) : formatAssumption(v, def.unit);

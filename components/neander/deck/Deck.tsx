@@ -14,12 +14,14 @@
 //  <Deck meta={…} slides={…} /> 렌더 + lib/neander/prep-docs.ts 에 등록.
 //
 //  선택 기능 (넘기지 않으면 예전과 똑같다)
-//  - size        캔버스 크기 (기본 1280×720, 가정 장표는 1600×900)
+//  - size        캔버스 크기 (기본 1280×720, 가정 장표는 1504×846)
 //  - extraKeys   글자 키 → 동작 (N 노트 · A 가정 패널 등). 기본 키보다 먼저 본다
 //  - hashNav     주소의 #slide-N 과 지금 장을 맞춘다 (바로 가기 · 새로고침 유지)
 //  - chrome      장마다 캔버스 위에 얹는 것 (가정 칩처럼 클릭존 위에서 눌려야 하는 것)
 //  - controls    하단 오른쪽 버튼 줄 앞에 넣을 단추
 //  - onIndexChange  지금 장이 바뀔 때
+//  - flowBelow   화면 폭이 이보다 좁으면(휴대폰) 캔버스를 줄이지 않고 세로로 흘린다.
+//                글자가 캔버스 비율만큼 작아지지 않는다 — 대신 세로 스크롤
 // ============================================================
 
 import {
@@ -79,6 +81,7 @@ export interface DeckOptions {
   chrome?: (slide: DeckSlide, index: number) => ReactNode;
   controls?: ReactNode;
   onIndexChange?: (index: number) => void;
+  flowBelow?: number;
 }
 
 /** "#slide-7" → 6 (0부터). 없거나 틀리면 null */
@@ -98,6 +101,7 @@ export function Deck({
   chrome,
   controls,
   onIndexChange,
+  flowBelow,
 }: { meta: DeckMeta; slides: DeckSlide[] } & DeckOptions) {
   const router = useRouter();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -109,6 +113,8 @@ export function Deck({
     hashNav && typeof window !== "undefined" ? indexFromHash(window.location.hash, slides.length) ?? 0 : 0,
   );
   const [scale, setScale] = useState(0); // 0 = 측정 전 (초기 플래시 방지)
+  // 좁은 화면 — 캔버스를 줄이는 대신 장 하나를 세로로 흘린다
+  const [flow, setFlow] = useState(false);
   // 이 화면에 붙은 비서(재무·매출) — 발표 중 나온 질문에 슬라이드를 떠나지 않고 답한다.
   // 모듈 레이아웃의 비서가 이름을 알려 오면 오른쪽 위에 버튼이 생긴다 (assistant/events.ts)
   const [assistant, setAssistant] = useState<AssistantState>({ name: null, open: false });
@@ -132,12 +138,20 @@ export function Deck({
 
   // 화면 크기에 맞춰 캔버스 스케일 계산
   useEffect(() => {
-    const update = () =>
-      setScale(Math.min(window.innerWidth / w, window.innerHeight / h));
+    const update = () => {
+      const f = !!flowBelow && window.innerWidth < flowBelow;
+      setFlow(f);
+      setScale(f ? 1 : Math.min(window.innerWidth / w, window.innerHeight / h));
+    };
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
-  }, [w, h]);
+  }, [w, h, flowBelow]);
+
+  // 흘리는 화면에서는 장이 바뀌면 맨 위부터
+  useEffect(() => {
+    if (flow) rootRef.current?.scrollTo({ top: 0 });
+  }, [flow, index]);
 
   // #slide-N 바로 가기 — 열려 있는 동안 주소를 바꿀 때 (처음 장은 useState 가 잡는다)
   useEffect(() => {
@@ -183,6 +197,9 @@ export function Deck({
       if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
       // 발표 위에 띄운 ERP 창(인사이트 관리 등) 안에서는 Enter·Space·방향키가 그 창의 몫이다
       if (el?.closest?.("#nd-portal-root, [role='dialog']")) return;
+      // 링크에 초점이 있으면 Enter 는 그 링크를 여는 키다 (장을 넘기지 않는다). 단추는 예전처럼
+      // 넘긴다 — 전체화면 단추를 누른 뒤 Space 로 넘기다가 전체화면이 풀리면 안 된다
+      if ((e.key === "Enter" || e.key === " ") && el?.closest?.("a[href]")) return;
       const extra = extraKeys?.[e.key.toLowerCase()];
       if (extra) {
         e.preventDefault();
@@ -248,7 +265,11 @@ export function Deck({
   const progress = count > 1 ? clamp(index) / (count - 1) : 1;
 
   return (
-    <div ref={rootRef} className="dk-root" style={{ "--dk-accent": meta.accent } as React.CSSProperties}>
+    <div
+      ref={rootRef}
+      className={`dk-root${flow ? " dk-flow-root" : ""}`}
+      style={{ "--dk-accent": meta.accent } as React.CSSProperties}
+    >
       {/* 표제 서체 (Noto Serif KR) — 실패해도 Pretendard 로 자연스럽게 폴백 */}
       <link
         rel="stylesheet"
@@ -258,8 +279,12 @@ export function Deck({
       <style dangerouslySetInnerHTML={{ __html: DECK_CSS }} />
 
       <div
-        className="dk-stage"
-        style={{ width: w, height: h, transform: `translate(-50%, -50%) scale(${scale})`, opacity: scale ? 1 : 0 }}
+        className={`dk-stage${flow ? " dk-flow" : ""}`}
+        style={
+          flow
+            ? undefined
+            : { width: w, height: h, transform: `translate(-50%, -50%) scale(${scale})`, opacity: scale ? 1 : 0 }
+        }
       >
         {/* 배경 분위기: 그리드 + 글로우 + 노이즈 */}
         <div className="dk-bg-grid" aria-hidden />
@@ -277,7 +302,7 @@ export function Deck({
         </div>
 
         {/* 좌/우 클릭존 (푸터 컨트롤보다 아래 레이어) — 커서를 쓰는 슬라이드에서는 치운다 */}
-        {!slide.interactive && (
+        {!slide.interactive && !flow && (
           <>
             <button className="dk-zone dk-zone-left" onClick={prev} aria-label="이전 슬라이드" tabIndex={-1} />
             <button className="dk-zone dk-zone-right" onClick={next} aria-label="다음 슬라이드" tabIndex={-1} />
@@ -478,6 +503,17 @@ body:has(.dk-root) .z-nd-dock { z-index: 140; }
   display: inline-flex; align-items: center; justify-content: center;
 }
 .dk-btn:hover { background: rgba(238,240,233,.14); color: #fff; }
+
+/* ---- 좁은 화면: 캔버스를 줄이지 않고 세로로 흘린다 ---- */
+.dk-flow-root { overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
+.dk-stage.dk-flow { position: relative; left: auto; top: auto; width: 100%; min-height: 100%; overflow: visible; padding-bottom: 64px; }
+.dk-flow .dk-slide { position: relative; inset: auto; }
+.dk-flow .dk-chrome { position: relative; inset: auto; }
+.dk-flow .dk-progress { position: fixed; }
+.dk-flow .dk-footer { position: fixed; padding: 0 10px; background: rgba(10,13,20,.94); }
+.dk-flow .dk-footer-meta, .dk-flow .dk-dots { display: none; }
+.dk-flow .dk-footer-ctrl { margin-left: auto; gap: 6px; flex-wrap: nowrap; }
+.dk-flow .dk-bg-grid, .dk-flow .dk-bg-glow, .dk-flow .dk-bg-noise { position: fixed; }
 
 /* ---- 슬라이드 공용 타이포/모션 유틸 ---- */
 .dk-serif { font-family: "Noto Serif KR", "Pretendard Variable", serif; }

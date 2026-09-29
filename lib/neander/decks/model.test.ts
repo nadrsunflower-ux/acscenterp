@@ -11,8 +11,8 @@ import {
   setOverride,
   type DeckLocalState,
 } from "./state";
-import { depsOfPath, resolveValues, slideDeps } from "./model";
-import type { AssumptionDef, SlideSpec } from "./types";
+import { depsOfPath, effectiveActuals, resolveValues, slideDeps } from "./model";
+import type { AssumptionDef, DeckContent, SlideSpec } from "./types";
 
 test("한국식 금액 표기", () => {
   assert.equal(man(1450), "1,450만원");
@@ -112,4 +112,50 @@ test("장표가 기대는 가정: 명시 + 자리표시 + 계산 블록", () => 
   };
   // 직접 지정한 것 → 문구의 가정 → 계산 결과의 재료 순
   assert.deepEqual(slideDeps(slide, DEFS), ["on", "a", "b2bDirectCostRate", "b2bFieldLaborRate", "b2bContribRate"]);
+});
+
+test("기준 기간을 12개월로 두면 B2B 매출·월 지출·공통비가 12개월 평균을 쓴다", () => {
+  const defs: AssumptionDef[] = [
+    ...DEFS,
+    { key: "revenueBasis", label: "기준", unit: "", default: 12, group: "매출·현금", kind: "가정", source: "", type: "choice", options: [{ value: 6, label: "6" }, { value: 12, label: "12" }] },
+    { key: "costMonthly", label: "지출", unit: "만원", default: 0, group: "매출·현금", kind: "실측", source: "" },
+    { key: "commonCostMonthly", label: "공통", unit: "만원", default: 0, group: "스모트", kind: "실측", source: "" },
+    { key: "b2bHqLaborRate", label: "본사", unit: "%", default: 15, group: "B2B", kind: "가정", source: "" },
+  ];
+  const eff = {
+    smoat: null,
+    finance: {
+      asOf: "2026-08-31",
+      b2b: { total: 120_000_000, recentAvg: 6_000_000, dealsPerMonth: 2, perClient: 5_000_000 },
+      projects: [{}],
+      projectsRate: 0.2,
+      subsidy: { monthlyAvg: 0 },
+      cost: { monthlyAvg: 50_000_000, commonMonthlyAvg: 30_000_000, monthlyAvg12: 40_000_000, commonMonthlyAvg12: 25_000_000 },
+    } as never,
+    snapshot: { smoat: true, finance: false },
+  };
+  const y12 = resolveValues(defs, eff, {});
+  assert.equal(y12.values.revB2B, 1000);
+  assert.equal(y12.values.costMonthly, 4000);
+  assert.equal(y12.values.commonCostMonthly, 2500);
+  assert.equal(y12.values.b2bContribRate, 55); // 100 − 20 − 10 − 15
+  const y6 = resolveValues(defs, eff, { revenueBasis: 6 });
+  assert.equal(y6.values.revB2B, 600);
+  assert.equal(y6.values.costMonthly, 5000);
+  assert.equal(y6.values.commonCostMonthly, 3000);
+  assert.equal(y6.meta.revB2B.base, 600);
+});
+
+test("사람이 확인한 기준 달 매출은 ERP 가 모자랄 때만 쓴다", () => {
+  const content = {
+    snapshot: { note: "" },
+    rules: { smoat: { confirmedRevMonth: { month: "2026-09", amount: 963000, note: "" } } },
+  } as unknown as DeckContent;
+  const smoat = (rev: number) => ({ smoat: { baseMonth: "2026-09", revMonth: rev } as never });
+  const lagging = effectiveActuals(content, smoat(914100));
+  assert.equal(lagging.smoat?.revMonth, 963000);
+  assert.equal(lagging.smoat?.revMonthErp, 914100);
+  const caught = effectiveActuals(content, smoat(990000));
+  assert.equal(caught.smoat?.revMonth, 990000);
+  assert.equal(caught.smoat?.revMonthErp, undefined);
 });

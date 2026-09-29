@@ -180,36 +180,82 @@ export function compareAcademy(
 }
 
 export interface SubscriptionSim {
-  /** 요금제별 학원 수 (구독 전환 비율 적용 전) */
+  /** 요금제별 학원 수 — 모두 구독한다고 볼 때 (구독 전환 비율 적용 전) */
   counts: number[];
-  /** Σ 추천 요금제 가격 */
+  /** Σ 추천 요금제 가격 — 모두 구독한다고 볼 때 */
   base: number;
-  /** 기존 학원 몫 = base × 구독 전환 비율 */
+  /** 비용이 늘어 구독하지 않는다고 본 학원을 뺀 요금제별 학원 수 */
+  keptCounts: number[];
+  keptBase: number;
+  /** 구독하면 비용이 기준보다 더 늘어 뺀 학원 수 */
+  skipped: number;
+  /** 기존 학원 몫 = keptBase × 구독 전환 비율 */
   existing: number;
   /** 추가 전환 매출 */
   extra: number;
-  /** 월 매출 = base × 구독 전환 비율 + 추가 전환 수 × 첫 요금제 가격 */
+  /** 월 매출 = keptBase × 구독 전환 비율 + 추가 전환 수 × 첫 요금제 가격 */
   monthly: number;
+  /** 구독 학원 수 = 남은 학원 × 전환 비율 + 추가 전환 */
+  subscribers: number;
+  /** 월 공헌이익 (profits 를 줬을 때) = Σ 요금제 이익 × 전환 비율 + 추가 전환 × 첫 요금제 이익 */
+  contribution: number | null;
+}
+
+export interface SimOptions {
+  /** 구독하면 지금보다 이 비율(%) 넘게 비용이 느는 학원은 구독하지 않는다고 본다. null = 모두 구독 */
+  skipIfCostUpOverPct?: number | null;
+  /** 요금제별 이익 (원) — 주면 월 공헌이익도 낸다 */
+  profits?: number[];
 }
 
 export function simulateSubscriptions(
-  academies: { monthlyCredits: number }[],
+  academies: { monthlyCredits: number; monthlySpend?: number }[],
   tiers: Tier[],
   headroomPct: number,
   subscribeRatePct: number,
   extraConversions: number,
   extraTierIndex = 0,
+  opts: SimOptions = {},
 ): SubscriptionSim {
   const counts = tiers.map(() => 0);
+  const keptCounts = tiers.map(() => 0);
   let base = 0;
+  let keptBase = 0;
+  let skipped = 0;
   for (const a of academies) {
     const { index } = recommendTier(a.monthlyCredits, tiers, headroomPct);
+    const price = tiers[index].price;
     counts[index] += 1;
-    base += tiers[index].price;
+    base += price;
+    const limit = opts.skipIfCostUpOverPct;
+    const up = a.monthlySpend && a.monthlySpend > 0 ? (price - a.monthlySpend) / a.monthlySpend : 0;
+    if (limit !== null && limit !== undefined && up > pct(limit)) {
+      skipped += 1;
+      continue;
+    }
+    keptCounts[index] += 1;
+    keptBase += price;
   }
-  const extra = Math.max(0, extraConversions) * (tiers[extraTierIndex]?.price ?? 0);
-  const existing = base * pct(subscribeRatePct);
-  return { counts, base, existing, extra, monthly: existing + extra };
+  const rate = pct(subscribeRatePct);
+  const extraN = Math.max(0, extraConversions);
+  const extra = extraN * (tiers[extraTierIndex]?.price ?? 0);
+  const existing = keptBase * rate;
+  const kept = keptCounts.reduce((s, c) => s + c, 0);
+  const contribution = opts.profits
+    ? keptCounts.reduce((s, c, i) => s + c * (opts.profits![i] ?? 0), 0) * rate + extraN * (opts.profits[extraTierIndex] ?? 0)
+    : null;
+  return {
+    counts,
+    base,
+    keptCounts,
+    keptBase,
+    skipped,
+    existing,
+    extra,
+    monthly: existing + extra,
+    subscribers: kept * rate + extraN,
+    contribution,
+  };
 }
 
 /** 월 해지율을 적용한 n개월 누적 — m 번째 달 매출 = 첫 달 × (1 − 해지율)^(m−1) */
@@ -265,8 +311,73 @@ export function productProfit(startPrice: number, directPct: number, fieldLaborP
   return { profit: startPrice * rate, rate };
 }
 
-/** 공헌이익률(계산) = 100 − 직접비율 − 현장 인건비율 */
-export const b2bContribRate = (directPct: number, fieldLaborPct: number) => 100 - directPct - fieldLaborPct;
+/**
+ * 공헌이익률(계산) = 100 − 직접비율 − 현장 인건비율 − 본사 인력 투입률.
+ * 직접비율(ERP 프로젝트)에는 본사 사람 시간이 들어 있지 않다 — 그 몫을 따로 뺀다.
+ */
+export const b2bContribRate = (directPct: number, fieldLaborPct: number, hqLaborPct = 0) =>
+  100 - directPct - fieldLaborPct - hqLaborPct;
+
+/** 월 B2B 레버 = 추가 건수 × 건당 금액 × 공헌이익률 */
+export const b2bMonthlyLever = (addPerMonth: number, dealSize: number, contribRatePct: number) =>
+  addPerMonth * dealSize * pct(contribRatePct);
+
+// ---- 부족분을 메우는 레버 ----------------------------------------
+
+export interface WaterfallStep {
+  key: string;
+  label: string;
+  /** 이 레버가 메우는 금액 (음수면 오히려 벌어진다). 모르면 null — 0 으로 센다 */
+  value: number | null;
+  /** 이 레버 전·후의 남는 부족분 */
+  from: number;
+  to: number;
+}
+
+/**
+ * 부족분 폭포 — 부족분에서 레버를 하나씩 빼 간다.
+ * 부족분은 「지출 − 매출」, 레버는 「공헌이익」이라 성격이 다르다 (장표 각주).
+ */
+export function gapWaterfall(gap: number, levers: { key: string; label: string; value: number | null }[]) {
+  let cur = gap;
+  const steps: WaterfallStep[] = levers.map((l) => {
+    const from = cur;
+    cur = cur - (l.value ?? 0);
+    return { ...l, from, to: cur };
+  });
+  return { gap, steps, remaining: cur, covered: gap - cur };
+}
+
+// ---- 스모트 이익률 두 가지 ----------------------------------------
+
+/** 유료 사용분 기준 = (매출 − 그 달 AI 원가) ÷ 매출 — 무료로 쓴 원가가 매출에 묻힌다 */
+export function paidMargin(revenue: number, aiCost: number | null): number | null {
+  if (aiCost === null || !(revenue > 0)) return null;
+  return (revenue - aiCost) / revenue;
+}
+
+/**
+ * 무료 포함 실제 이익률 = (학원 결제 공급가 − 같은 기간 AI 원가 전체) ÷ 공급가.
+ * 무료 크레딧으로 쓴 원가까지 결제가 떠안는다고 본 값이다.
+ */
+export function marginInclFree(payments: number, aiCost: number, vatPct: number): number | null {
+  const supply = payments / (1 + pct(vatPct));
+  if (!(supply > 0)) return null;
+  return (supply - aiCost) / supply;
+}
+
+/** 필요한 가입 학원 수 = 손익분기 학원 수 ÷ 무료 → 유료 전환율 */
+export function signupsNeeded(breakeven: number | null, freeToPaidPct: number): number | null {
+  if (breakeven === null || !(freeToPaidPct > 0)) return null;
+  return breakeven / pct(freeToPaidPct);
+}
+
+/** 진행률 (0~1) — 목표나 현재를 모르면 null */
+export function progress(current: number | null, target: number | null): number | null {
+  if (current === null || target === null || !Number.isFinite(current) || !Number.isFinite(target)) return null;
+  if (target === 0) return current >= 0 ? 1 : 0;
+  return Math.max(0, Math.min(1, current / target));
+}
 
 // ---- 생카 -----------------------------------------------------
 

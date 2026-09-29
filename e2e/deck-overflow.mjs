@@ -9,7 +9,13 @@
 //    2) 상자(data-box)·표 칸·숫자 타일이 가로로 넘치는가
 //    3) 글자 조각끼리 겹치는가 (지도 핀은 제외)
 //    4) 글자가 캔버스 밖으로 나가는가, 본문이 가정 칩 줄을 덮는가
+//    5) 최소 글씨 크기 — 화면에 실제로 그려진 크기(계산된 font-size × 캔버스 배율)가
+//       역할별 최소값 이상인가. 1600×900 은 100%, 1280×800·휴대폰은 85% 이상.
+//         제목 44 · 핵심 숫자 56 · 본문·카드 제목 26 · 표 본문 22 · 차트 라벨 18 · 각주·칩 15
+//       역할은 가장 가까운 역할 클래스로 정한다 (styles.ts 머리말). SVG 글자는 라벨(18).
 //  그리고 해상도마다 가정 패널(A)·발표자 노트(N)가 화면 밖으로 넘치지 않는가.
+//  휴대폰은 캔버스를 줄이지 않고 세로로 흘린다(.dk-flow) — 가로로 미는 칸(.sd-scroll-x ·
+//  표 · 지도)은 캔버스 밖 검사에서 빼고, 문서 전체의 가로 스크롤을 본다.
 //
 //  로그인: e2e 프로필(npm run ui:login)을 쓰고, 세션이 없으면 --token 파일
 //  (scripts/neander/e2e-token.ts)을 일회용 브라우저의 IndexedDB 에 넣는다.
@@ -28,10 +34,11 @@ const opt = (name) => {
 const tokenFile = opt("--token");
 const shotsDir = opt("--shots");
 const only = opt("--only"); // 예: 7,8
+// need = 최소 글씨 크기 비율 (1600×900 은 100%, 나머지는 85%)
 const VIEWPORTS = [
-  { name: "1600x900", width: 1600, height: 900 },
-  { name: "1280x800", width: 1280, height: 800 },
-  { name: "mobile-390x844", width: 390, height: 844 },
+  { name: "1600x900", width: 1600, height: 900, need: 1 },
+  { name: "1280x800", width: 1280, height: 800, need: 0.85 },
+  { name: "mobile-390x844", width: 390, height: 844, need: 0.85 },
 ];
 const route = `/neander/meetings/prep/${slug}`;
 
@@ -78,7 +85,7 @@ async function openContext() {
 }
 
 /** 캔버스 안 검사 — 브라우저에서 돈다 */
-function inspectSlide() {
+function inspectSlide(need) {
   const stage = document.querySelector(".dk-stage");
   const slide = document.querySelector(".dk-slide .sd-slide");
   if (!stage || !slide) return { error: "장표가 없다" };
@@ -92,6 +99,8 @@ function inspectSlide() {
     return `${el.tagName.toLowerCase()}.${cls ?? ""} 「${t}」`;
   };
   const tol = 1.5;
+  const flow = !!document.querySelector(".dk-flow");
+  const inScroll = (el) => flow && !!el.closest(".sd-scroll-x, .sd-table-wrap, .sd-mapwrap");
 
   // 1) 본문 세로 넘침
   const body = slide.querySelector(".sd-body");
@@ -124,6 +133,7 @@ function inspectSlide() {
   }
   // 4) 캔버스 밖
   for (const { el, r } of leaves) {
+    if (inScroll(el)) continue;
     if (r.right > sr.right + tol || r.bottom > sr.bottom + tol || r.left < sr.left - tol || r.top < sr.top - tol) {
       issues.push(`캔버스 밖 글자: ${label(el)}`);
     }
@@ -138,6 +148,46 @@ function inspectSlide() {
       const h = Math.min(a.r.bottom, b.r.bottom) - Math.max(a.r.top, b.r.top);
       if (w > 2 * scale && h > 3 * scale) issues.push(`글자 겹침: ${label(a.el)} ↔ ${label(b.el)}`);
     }
+  }
+  // 5) 최소 글씨 크기
+  const ROLES = [
+    ["제목", ".sd-title", 44],
+    ["핵심 숫자", ".sd-kpi-value", 56],
+    ["각주·칩", ".sd-foot, .sd-note, .sd-table-note, .sd-chip, .sd-chips-label, .sd-head, .sd-fn, .sd-circ, .sd-badge, .sd-map-attr, .sd-amark, .sd-src-row, .sd-link-chip", 15],
+    ["차트 라벨", ".sd-lbl, .sd-lbl-s, .sd-kpi-label, .sd-kpi-sub, .sd-legend, .sd-map-key, .sd-pin, .sd-bar-label, .sd-bar-val, .sd-callout-label, .sd-icard-tag, .sd-icard-no, .sd-step-n, .sd-stair-n, .sd-pill, .sd-agroup, .sd-pcard-no, th", 18],
+    ["표 본문", "td, .sd-arow, .sd-pcard-meta, .sd-pcard-money, .sd-pcard-feat, .sd-rcard-brief, .sd-rcard-fixed, .sd-chart-title", 22],
+  ];
+  const roleOf = (el) => {
+    if (el.closest("svg")) return ["차트 라벨", 18];
+    for (let e = el; e && e !== slide.parentElement; e = e.parentElement) {
+      for (const [name, sel, min] of ROLES) if (e.matches(sel)) return [name, min];
+    }
+    return ["본문", 26];
+  };
+  const small = [];
+  const fontSeen = new Set();
+  for (const { el } of leaves) {
+    if (fontSeen.has(el)) continue;
+    fontSeen.add(el);
+    const [role, min] = roleOf(el);
+    let px = parseFloat(getComputedStyle(el).fontSize);
+    const svg = el.closest("svg");
+    if (svg) {
+      const vb = svg.viewBox?.baseVal;
+      const k = vb && vb.width ? svg.getBoundingClientRect().width / vb.width : scale;
+      px = px * k;
+    } else {
+      px = px * scale;
+    }
+    if (px + 0.05 < min * need) small.push(`글씨 작음 ${px.toFixed(1)}px < ${(min * need).toFixed(1)} (${role} ${min}): ${label(el)}`);
+  }
+  issues.push(...small.slice(0, 8));
+  if (small.length > 8) issues.push(`글씨 작음 ${small.length - 8}건 더`);
+  // 휴대폰: 문서가 가로로 밀리면 안 된다
+  if (flow) {
+    const root = document.querySelector(".dk-root");
+    const over = Math.max(document.documentElement.scrollWidth, root?.scrollWidth ?? 0) - window.innerWidth;
+    if (over > 1) issues.push(`가로 스크롤 ${over}px`);
   }
   // 본문과 칩 줄
   const chips = document.querySelector(".sd-chips");
@@ -193,7 +243,7 @@ try {
       await page
         .waitForFunction(() => [...document.querySelectorAll(".dk-slide img")].every((im) => im.complete && im.naturalWidth > 0), null, { timeout: 15000 })
         .catch(() => {});
-      const res = await page.evaluate(inspectSlide);
+      const res = await page.evaluate(inspectSlide, vp.need);
       const issues = res.error ? [res.error] : res.issues;
       total += issues.length;
       report.push({ viewport: vp.name, slide: i + 1, issues });
@@ -204,7 +254,7 @@ try {
       if (issues.length) console.log(`[${vp.name}] ${i + 1}장: ${issues.length}건\n  - ${issues.join("\n  - ")}`);
     }
     // 가정 패널 · 노트
-    await page.evaluate(() => (window.location.hash = "slide-24"));
+    await page.evaluate(() => (window.location.hash = "slide-23"));
     await page.waitForTimeout(600);
     await page.keyboard.press("a");
     await page.waitForTimeout(500);

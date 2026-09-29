@@ -48,6 +48,7 @@
     "deck:upload": "tsx --conditions react-server scripts/neander/upload-deck.ts",
     "deck:verify": "tsx --conditions react-server scripts/neander/verify-deck.ts",
     "deck:overflow": "node e2e/deck-overflow.mjs",
+    "deck:links": "node e2e/deck-links.mjs",
     "e2e:token": "tsx --conditions react-server scripts/neander/e2e-token.ts"
   },
   "dependencies": {

@@ -182,3 +182,78 @@ test("월 크레딧 구간: 경계 포함 여부와 1C당 가격 범위", () => 
   close(bands[0].perCreditMax, 200);
   assert.equal(bands[2].spendMin, 90000);
 });
+
+test("구독 시뮬레이션: 비용이 기준보다 더 느는 학원은 빼고, 공헌이익도 낸다", () => {
+  // 10,000원 요금제를 추천받는 학원 둘: 지금 5,000원(+100%) · 9,500원(+5.3%)
+  const academies = [
+    { monthlyCredits: 50, monthlySpend: 5000 },
+    { monthlyCredits: 50, monthlySpend: 9500 },
+    { monthlyCredits: 200, monthlySpend: 30000 },
+  ];
+  const s = calc.simulateSubscriptions(academies, TIERS, 0, 50, 2, 0, { skipIfCostUpOverPct: 10, profits: [4000, 9000, 30000] });
+  assert.deepEqual(s.counts, [2, 1, 0]);
+  assert.equal(s.base, 40000);
+  assert.deepEqual(s.keptCounts, [1, 1, 0]);
+  assert.equal(s.skipped, 1);
+  assert.equal(s.keptBase, 30000);
+  assert.equal(s.existing, 15000);
+  assert.equal(s.extra, 20000);
+  assert.equal(s.monthly, 35000);
+  close(s.subscribers, 2 * 0.5 + 2);
+  close(s.contribution, (4000 + 9000) * 0.5 + 2 * 4000);
+  // 기준을 비우면 모두 구독
+  const all = calc.simulateSubscriptions(academies, TIERS, 0, 100, 0, 0, { skipIfCostUpOverPct: null });
+  assert.equal(all.skipped, 0);
+  assert.equal(all.keptBase, all.base);
+  assert.equal(all.contribution, null);
+});
+
+test("공헌이익률 = 100 − 직접비율 − 현장 인건비율 − 본사 인력 투입률", () => {
+  assert.equal(calc.b2bContribRate(25, 10), 65);
+  assert.equal(calc.b2bContribRate(25, 10, 15), 50);
+  close(calc.b2bMonthlyLever(2, 500, 60), 600);
+});
+
+test("부족분 폭포: 레버를 차례로 빼고, 모르는 레버는 0 으로 센다", () => {
+  const w = calc.gapWaterfall(1000, [
+    { key: "a", label: "가", value: 600 },
+    { key: "b", label: "나", value: null },
+    { key: "c", label: "다", value: -200 },
+    { key: "d", label: "라", value: 100 },
+  ]);
+  assert.deepEqual(
+    w.steps.map((x) => [x.from, x.to]),
+    [
+      [1000, 400],
+      [400, 400],
+      [400, 600],
+      [600, 500],
+    ],
+  );
+  assert.equal(w.remaining, 500);
+  assert.equal(w.covered, 500);
+  const over = calc.gapWaterfall(300, [{ key: "a", label: "가", value: 500 }]);
+  assert.equal(over.remaining, -200);
+});
+
+test("스모트 이익률 두 가지: 유료 사용분 기준 · 무료 포함 실제", () => {
+  close(calc.paidMargin(1000, 250), 0.75);
+  assert.equal(calc.paidMargin(1000, null), null);
+  assert.equal(calc.paidMargin(0, 10), null);
+  // 결제 11,000원 → 공급가 10,000원, AI 원가 7,000원 → 30%
+  close(calc.marginInclFree(11000, 7000, 10), 0.3);
+  close(calc.marginInclFree(11000, 12000, 10), -0.2);
+  assert.equal(calc.marginInclFree(0, 100, 10), null);
+});
+
+test("필요한 가입 학원 = 손익분기 ÷ 전환율, 진행률은 0~1", () => {
+  close(calc.signupsNeeded(150, 5), 3000);
+  assert.equal(calc.signupsNeeded(null, 5), null);
+  assert.equal(calc.signupsNeeded(150, 0), null);
+  close(calc.progress(18, 150), 0.12);
+  assert.equal(calc.progress(200, 150), 1);
+  assert.equal(calc.progress(-10, 0), 0);
+  assert.equal(calc.progress(5, 0), 1);
+  assert.equal(calc.progress(null, 10), null);
+  assert.equal(calc.progress(3, null), null);
+});

@@ -141,6 +141,8 @@ test("재무: B2B 12개월 · 지원금 · 월 지출(부가세·카드대금 �
     tx("2026-03-01", "수입", 60, { acctMid: "인건비환급(차감)" }),
     tx("2026-04-01", "수입", 60, { acctMid: "환불수입", acctMinor: "인건비환급" }),
     tx("2026-04-02", "수입", 999, { acctMid: "환불수입", acctMinor: "보증금환급" }),
+    // 12개월 창 안, 6개월 창 밖 지출 (2025-11)
+    tx("2025-11-05", "지출", 120, { bizMajor: "공용" }),
     // 최근 6개월(2026-03~08) 지출
     tx("2026-03-05", "지출", 600, { bizMajor: "공용" }),
     tx("2026-04-05", "지출", 60, { acctMinor: "부가가치세(VAT)", bizMajor: "공용" }),
@@ -175,6 +177,10 @@ test("재무: B2B 12개월 · 지원금 · 월 지출(부가세·카드대금 �
   assert.equal(f.cost.excludedVat, 10);
   assert.equal(f.cost.excludedCardPay, 20);
   assert.equal(f.cost.commonMonthlyAvg, 100);
+  // 12개월: 6개월 창 지출 1,599 + 2025-11 공용 120 = 1,719 → ÷ 12, 공용 600 + 120 → ÷ 12
+  assert.equal(f.cost.from12, "2025-09");
+  assert.ok(Math.abs((f.cost.monthlyAvg12 ?? 0) - 1719 / 12) < 1e-9);
+  assert.ok(Math.abs((f.cost.commonMonthlyAvg12 ?? 0) - 720 / 12) < 1e-9);
 
   // P1: 장부 매출 300, 직접비 30(인건비 제외) → 10%. P2: 계약 1000, 체크리스트 200 → 20%. P3 제외
   assert.deepEqual(

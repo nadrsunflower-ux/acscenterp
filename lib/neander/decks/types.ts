@@ -42,8 +42,10 @@ export interface AssumptionDef {
   /** 근거 한 줄 */
   source: string;
   note?: string;
-  /** 켜기/끄기 */
-  type?: "number" | "bool";
+  /** 켜기/끄기 · 몇 개 중 고르기 */
+  type?: "number" | "bool" | "choice";
+  /** type = choice 일 때 고를 수 있는 값 */
+  options?: { value: number; label: string }[];
   /** 실측인데 ERP 가 아닌 자료에서 온 값의 기준일 (예: 「9/22 자료」) */
   asOf?: string;
 }
@@ -111,6 +113,8 @@ export interface SmoatActuals {
   };
   /** 기준 달 매출 — 내부·테스트 제외, 이름 없는 입금 포함 (원) */
   revMonth: number;
+  /** 사용자 확인값으로 바꿨을 때 원래 ERP 값 */
+  revMonthErp?: number;
   /** 기준 달 AI 원가 (원) — 원가 기록이 없으면 null */
   baseAiKrw: number | null;
   /** 실제 학원 결제의 월평균 (원) — 첫 결제 달부터 기준 달까지 */
@@ -163,6 +167,10 @@ export interface FinanceActuals {
     excludedCardPay: number;
     /** 공용 사업부 지출 월평균 */
     commonMonthlyAvg: number;
+    /** 같은 방법으로 12개월 (B2B 12개월과 같은 기간) — 기준 기간을 12개월로 볼 때 */
+    from12?: string;
+    monthlyAvg12?: number;
+    commonMonthlyAvg12?: number;
   };
   projects: ProjectActual[];
   /** 프로젝트 직접비율 가중평균 (0~1) */
@@ -181,7 +189,8 @@ export interface DeckActuals {
  * 바뀐다 (template.ts). `[^3]` 은 출처 3번 각주.
  */
 export type Block =
-  | { type: "text"; md: string; size?: "sm" | "md" | "lg" | "xl"; muted?: boolean }
+  /** size note = 각주성 설명 한 줄 (작은 글씨, 역할: 각주) */
+  | { type: "text"; md: string; size?: "sm" | "md" | "lg" | "xl" | "note"; muted?: boolean }
   | { type: "bullets"; items: (string | { t: string; sub?: string[] })[]; size?: "sm" | "md" | "lg"; numbered?: boolean }
   | {
       type: "table";
@@ -199,7 +208,18 @@ export type Block =
       size?: "xs" | "sm" | "md" | "lg";
     }
   | { type: "kpis"; items: { label: string; value: string; sub?: string; tone?: Tone }[]; cols?: number }
-  | { type: "callout"; md: string; tone?: Tone; label?: string }
+  | { type: "callout"; md: string; tone?: Tone; label?: string; big?: boolean }
+  /** 아이콘 카드 — 이유·상태·결정 목록. icon 은 components/.../icons.tsx 의 이름 */
+  | {
+      type: "icons";
+      items: { icon?: string; title: string; body?: string; tag?: string; tone?: Tone }[];
+      cols?: number;
+      numbered?: boolean;
+    }
+  /** 흐름도 — 줄마다 단계들 → 결과 (전과 후 비교) */
+  | { type: "flow"; rows: { label: string; steps: string[]; result?: string; tone?: Tone }[] }
+  /** 계단 — 뒤로 갈수록 높아지는 단계 */
+  | { type: "stairs"; items: { title: string; body?: string }[] }
   | { type: "cols"; cols: Block[][]; widths?: number[]; gap?: number }
   | { type: "card"; title?: string; tone?: Tone; blocks: Block[] }
   | { type: "steps"; items: { title: string; body?: string }[]; dir?: "row" | "col" }
@@ -223,6 +243,11 @@ export interface SlideSpec {
   keys?: string[];
   /** 부록 여부 */
   appendix?: boolean;
+  /**
+   * 장 안에서 누를 것이 있다 (매물 링크 등) — 좌우 클릭존을 치운다.
+   * 매물 블록이 있으면 화면이 알아서 켠다.
+   */
+  interactive?: boolean;
   /** 표지처럼 큰 글자 한 장 */
   layout?: "default" | "hero";
 }
@@ -246,18 +271,39 @@ export interface DeckProperty {
   /** 현 매장에서 걸어서 */
   walk?: string;
   extra?: string;
+  /** 월 고정비 범위 (만원) — 지역 비교 카드가 쓴다 */
+  fixedMin?: number;
+  fixedMax?: number;
+  /**
+   * 층별 광고 — 카드 안 작은 링크 칩. 첫 번째가 카드 전체 링크다.
+   * ended = 광고가 내려간 매물 (링크는 두되 「광고 종료」 배지)
+   */
+  links?: { no: string; label: string; ended?: boolean }[];
 }
+
+/** 네이버 부동산 광고 주소 */
+export const naverArticleUrl = (no: string) => `https://fin.land.naver.com/articles/${encodeURIComponent(no)}`;
 
 export interface DeckRegion {
   id: string;
   name: string;
   title: string;
   verdict: string;
+  /** 한 장 지도의 핀 머리글자 (A · B · C · D) */
+  code?: string;
+  /** 지역 비교 카드의 한 줄 평 (짧게) */
+  brief?: string;
+  /** 지역 상세 부록 장 id — 비교 카드를 누르면 그 장으로 간다 */
+  detailSlide?: string;
   /**
    * 지도에 현 매장을 같이 찍나 — 너무 멀면(성수) 빼고 거리만 적는다.
    * 지도 범위·타일은 이 점들로 계산한다 (map.ts fitMap).
    */
   includeStore?: boolean;
+  /** 한 장 지도에서 따로 확대해 보이는 지역 (현 매장 근처) */
+  inset?: boolean;
+  /** 지도 핀 색 (CSS 색 또는 var(--…)) */
+  color?: string;
 }
 
 export interface DeckSource {
@@ -294,6 +340,11 @@ export interface DeckActualRules {
     repurchaseTo: string;
     /** 기준 달 — 비우면 마지막 결제 달 */
     baseMonth?: string;
+    /**
+     * 기준 달 매출을 사람이 확인한 값 (원). 동기화가 늦어 ERP 값이 이보다 작을 때만
+     * 이 값을 쓴다 — ERP 가 따라오면 ERP 값.
+     */
+    confirmedRevMonth?: { month: string; amount: number; note: string };
   };
   finance: {
     /** B2B 거래처 이름 합치기 (정규화한 이름 → 대표 이름) */
@@ -317,7 +368,18 @@ export interface DeckContent {
   /** 학원 월 크레딧 구간 경계 (이하) — 예 [300, 800, 2000] */
   creditBands: number[];
   /** 상품별 직접비율 가정의 키와 표시 이름, 시작가(만원) */
-  products: { key: string; name: string; startPrice: number; market: string; edge: string }[];
+  products: {
+    key: string;
+    name: string;
+    startPrice: number;
+    market: string;
+    edge: string;
+    /**
+     * 경쟁 시세 범위 위에 우리 시작가 점을 찍는 값 (상품마다 단위가 달라 한 줄씩 제 눈금).
+     * 공개 시세가 없으면 비운다.
+     */
+    range?: { unit: string; min: number; max: number; maxPlus?: boolean; ours: number; note?: string };
+  }[];
   rules: DeckActualRules;
   /** ERP 를 못 읽으면 대신 쓰는 값 */
   snapshot: DeckActuals & { note: string };

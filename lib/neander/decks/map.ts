@@ -115,3 +115,31 @@ export function spreadPins<T extends { left: number; top: number }>(pins: T[], m
   }
   return out;
 }
+
+// ---- 매물 16곳 한 장 지도 --------------------------------------
+//  전체 지도(모든 매물 + 현 매장)와, 현 매장 근처 지역만 크게 본 확대 지도.
+//  화면(property.tsx)과 타일 받기(upload-deck)가 같은 값을 써야 타일이 맞는다.
+
+export const OVERVIEW = { w: 560, h: 540, pad: 56, maxZoom: 16 };
+export const INSET = { w: 330, h: 540, pad: 46, maxZoom: 18 };
+
+export interface OverviewInput {
+  properties: { region: string; lat: number; lng: number }[];
+  regions: { id: string; inset?: boolean }[];
+  currentStore: LatLng;
+}
+
+export function overviewMaps(c: OverviewInput): { main: MapView; inset: MapView | null; insetRegions: Set<string> } {
+  const insetRegions = new Set(c.regions.filter((r) => r.inset).map((r) => r.id));
+  const all = [...c.properties.map((p) => ({ lat: p.lat, lng: p.lng })), c.currentStore];
+  const main = fitMap(all, OVERVIEW.w, OVERVIEW.h, OVERVIEW.pad, OVERVIEW.maxZoom);
+  const near = [...c.properties.filter((p) => insetRegions.has(p.region)).map((p) => ({ lat: p.lat, lng: p.lng })), c.currentStore];
+  const inset = insetRegions.size ? fitMap(near, INSET.w, INSET.h, INSET.pad, INSET.maxZoom) : null;
+  return { main, inset, insetRegions };
+}
+
+/** 한 장 지도에 필요한 타일 */
+export function overviewTileIds(c: OverviewInput): string[] {
+  const { main, inset } = overviewMaps(c);
+  return [...tilesFor(main), ...(inset ? tilesFor(inset) : [])].map((t) => t.id);
+}

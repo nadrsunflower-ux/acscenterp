@@ -37,6 +37,8 @@ export function sanitizeValue(def: AssumptionDef, raw: unknown): AssumptionValue
   if (def.type === "bool") return typeof raw === "boolean" ? raw : undefined;
   const x = typeof raw === "string" ? Number(raw.replace(/,/g, "")) : raw;
   if (typeof x !== "number" || !Number.isFinite(x)) return undefined;
+  // 고르기 값은 목록에 있는 값만
+  if (def.type === "choice") return def.options?.some((o) => o.value === x) ? x : undefined;
   let v = x;
   if (def.min !== undefined && v < def.min) v = def.min;
   if (def.max !== undefined && v > def.max) v = def.max;

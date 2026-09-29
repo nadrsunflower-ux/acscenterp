@@ -280,16 +280,24 @@ export function computeFinanceActuals(
   const subsidyRows = dated.filter((t) => isSubsidy(t) && inWin(t, from12));
   const subsidyTotal = subsidyRows.reduce((s, t) => s + net(t), 0);
 
-  // ---- 월 지출 (최근 6개월) ----
-  const recentRows = dated.filter((t) => inWin(t, from6));
-  const expense = recentRows.filter((t) => t.txType === "지출").reduce((s, t) => s + net(t), 0);
-  const refunds = recentRows.filter((t) => t.txType === "환급").reduce((s, t) => s + net(t), 0);
-  const vat = recentRows.filter(isVatPayment).reduce((s, t) => s + net(t), 0);
-  const cardPay = recentRows.filter(isCardPayExpense).reduce((s, t) => s + net(t), 0);
-  const common = recentRows
-    .filter((t) => t.txType === "지출" && t.bizMajor === "공용" && !isVatPayment(t) && !isCardPayExpense(t))
-    .reduce((s, t) => s + net(t), 0);
+  // ---- 월 지출 (최근 6개월 · 12개월) ----
+  //  지출 − 환급에서 부가세 납부와 카드대금결제 지출을 뺀다. 기간만 다르고 방법은 같다.
+  const spend = (from: string) => {
+    const rows = dated.filter((t) => inWin(t, from));
+    const sum = (f: (t: RawFinTx) => boolean) => rows.filter(f).reduce((s, t) => s + net(t), 0);
+    const vat = sum(isVatPayment);
+    const cardPay = sum(isCardPayExpense);
+    return {
+      total: sum((t) => t.txType === "지출") - sum((t) => t.txType === "환급") - vat - cardPay,
+      vat,
+      cardPay,
+      common: sum((t) => t.txType === "지출" && t.bizMajor === "공용" && !isVatPayment(t) && !isCardPayExpense(t)),
+    };
+  };
+  const s6 = spend(from6);
+  const s12 = spend(from12);
   const n6 = monthsInclusive(from6, ledgerEnd);
+  const n12 = monthsInclusive(from12, ledgerEnd);
 
   // ---- 프로젝트 직접비율 ----
   const byCode = new Map<string, RawFinTx[]>();
@@ -350,10 +358,13 @@ export function computeFinanceActuals(
     cost: {
       from: from6,
       to: ledgerEnd,
-      monthlyAvg: (expense - refunds - vat - cardPay) / n6,
-      excludedVat: vat / n6,
-      excludedCardPay: cardPay / n6,
-      commonMonthlyAvg: common / n6,
+      monthlyAvg: s6.total / n6,
+      excludedVat: s6.vat / n6,
+      excludedCardPay: s6.cardPay / n6,
+      commonMonthlyAvg: s6.common / n6,
+      from12,
+      monthlyAvg12: s12.total / n12,
+      commonMonthlyAvg12: s12.common / n12,
     },
     projects: projectRows,
     projectsRate: pr > 0 ? pd / pr : 0,
