@@ -13,8 +13,10 @@
 //
 //  도장은 등록된 것 중에서 고른다. 자유 업로드가 아니다 — 인감은 아무
 //  이미지나 되면 안 되고, 어떤 도장이 어느 문서에 찍혔는지 나중에 물어볼
-//  수 있어야 한다. 파일은 public/images/seals 에 두고 여기에는 id·이름만
-//  적는다. 견적서 문서에는 그 id 한 줄만 남는다.
+//  수 있어야 한다. 여기에는 id·이름만 적는다. 이미지는 Firestore
+//  neander_fin_seals 에 있고 로그인한 사람만 받는다(api/neander/finance/seals ·
+//  seal-image.ts) — 저장소가 public 이라 깃에도 public/ 에도 두지 않는다.
+//  견적서 문서에는 그 id 한 줄만 남는다.
 //
 //  네안데르 법인인감은 대표자마다 하나씩 있다 — 유재영(윗점 ●), 이동주
 //  (윗별 ★). 겉보기에 점 하나 차이지만 **다른 사람의 인감** 이다. 그래서
@@ -50,8 +52,6 @@ export interface FinSeal {
   owner: string;
   /** 주인의 연락처 — 견적서를 받은 쪽이 눌러야 할 번호 */
   ownerPhone: string;
-  /** public/ 아래 경로 */
-  src: string;
 }
 
 /** 「인감 없음」 을 뜻하는 id. undefined 와 다르다 — 일부러 빼는 것이다 */
@@ -63,21 +63,18 @@ export const SEALS: FinSeal[] = [
     label: "(주)네안데르 · 대표이사 유재영",
     owner: "유재영",
     ownerPhone: "010-8507-5121",
-    src: "/images/seals/yoo-jaeyoung.png",
   },
   {
     id: "lee-dongju",
     label: "(주)네안데르 · 대표이사 이동주",
     owner: "이동주",
     ownerPhone: "010-2524-8421",
-    src: "/images/seals/lee-dongju.png",
   },
   {
     id: "wajakhomes",
     label: "와작홈즈 · 유선화",
     owner: "유선화",
     ownerPhone: "010-8028-3822",
-    src: "/images/seals/wajakhomes.png",
   },
 ];
 

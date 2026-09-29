@@ -17,6 +17,7 @@
 // ============================================================
 
 import {
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -39,6 +40,7 @@ import { QuoteEditor } from "@/components/neander/finance/QuoteEditor";
 import { ContractEditor } from "@/components/neander/finance/ContractEditor";
 import { openQuotePdf } from "@/lib/neander/finance/quote-pdf";
 import { printableQuoteHtml } from "@/components/neander/finance/QuoteSheet";
+import { preloadSeals } from "@/lib/neander/finance/seal-image";
 import {
   CONTRACT_STATUS_LABEL,
   QUOTE_STATUS_LABEL,
@@ -124,6 +126,8 @@ export function ProjectDocs({
 }) {
   const { docs, refresh } = useFinance();
   const [open, setOpen] = useState<Open>(null);
+  // 목록에서 곧장 인쇄할 때 도장이 이미 받아져 있어야 찍힌다 (seal-image.ts)
+  useEffect(() => preloadSeals(), []);
 
   const quotes = useMemo(() => docsOfProject(docs, project.id, "quote").filter(isQuote), [docs, project.id]);
   const contracts = useMemo(() => docsOfProject(docs, project.id, "contract").filter(isContract), [docs, project.id]);

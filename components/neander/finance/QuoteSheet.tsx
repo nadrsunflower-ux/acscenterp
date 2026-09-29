@@ -34,6 +34,7 @@ import {
   type FinSupplier,
 } from "@/lib/neander/finance/docs";
 import { NO_SEAL, SEALS, resolveSeal, sealOwnerFields } from "@/lib/neander/finance/supplier";
+import { useSealImage } from "@/lib/neander/finance/seal-image";
 import { sheetPrintHtml } from "@/lib/neander/finance/quote-pdf";
 import "./quote-sheet.css";
 
@@ -149,10 +150,11 @@ export const QuoteSheet = forwardRef<HTMLDivElement, {
   const t = quoteTotals(q);
   const seal = resolveSeal(q.sealId);
   const vatLabel = QUOTE_VAT_LABEL[q.vatMode];
-  // 도장 파일이 아직 없을 수 있다(등록만 하고 이미지를 안 넣은 경우).
-  // 그때 그냥 사라지면 도장을 고를 자리마저 사라져 「인감은 어떻게 넣지」 가 된다.
-  const [sealBroken, setSealBroken] = useState(false);
-  useEffect(() => setSealBroken(false), [seal?.src]);
+  // 도장 이미지는 로그인한 채로 서버에서 받는다(seal-image.ts). 아직 안 올렸을
+  // 수 있다 — 그때 그냥 사라지면 도장을 고를 자리마저 사라져 「인감은 어떻게
+  // 넣지」 가 된다. 받는 중에는 자리만 비워 둔다(「파일 없음」 이 깜빡이지 않게).
+  const sealImage = useSealImage(seal?.id);
+  const sealBroken = !!seal && sealImage.state === "missing";
 
   const set = <K extends keyof FinQuoteInput>(k: K, v: FinQuoteInput[K]) => onChange({ ...q, [k]: v });
   const setSupplier = (k: keyof FinSupplier, v: string) => onChange({ ...q, supplier: { ...q.supplier, [k]: v } });
@@ -256,10 +258,10 @@ export const QuoteSheet = forwardRef<HTMLDivElement, {
               <th>대 표 자</th>
               <td className="ceo">
                 <Cell label="대표자" value={q.supplier.ceo} onChange={(v) => setSupplier("ceo", v)} />
-                {seal && !sealBroken ? (
+                {seal && sealImage.src ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img className="seal" src={seal.src} alt={`${seal.owner} 인감`} onError={() => setSealBroken(true)} />
-                ) : (
+                  <img className="seal" src={sealImage.src} alt={`${seal.owner} 인감`} />
+                ) : seal && sealImage.state === "loading" ? null : (
                   <span className="seal-empty" data-noprint aria-hidden>
                     {sealBroken ? "파일 없음" : "인감 없음"}
                   </span>
@@ -271,7 +273,7 @@ export const QuoteSheet = forwardRef<HTMLDivElement, {
                   aria-label="인감"
                   title={
                     sealBroken
-                      ? `${seal?.label ?? ""} 이미지가 없습니다 — public${seal?.src ?? ""} 에 파일을 놓으세요`
+                      ? `${seal?.label ?? ""} 이미지를 받지 못했습니다 — 서버에 올라가 있지 않으면 npm run finance:upload-seals`
                       : "눌러서 찍을 도장을 고릅니다"
                   }
                   value={q.sealId ?? SEALS[0].id}

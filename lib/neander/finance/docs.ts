@@ -180,11 +180,15 @@ const today = () => new Date().toISOString().slice(0, 10);
 /**
  * 다음 견적번호. 예시의 「제 26-218호」 처럼 연도 두 자리 + 일련번호.
  * 올해 견적서 중 가장 큰 일련번호 + 1 — 지운 번호를 다시 쓰지 않는다.
+ * 일련번호는 201 부터 시작한다(QUOTE_SEQ_START) — ERP 밖에서 이미 낸
+ * 견적서 번호와 겹치지 않게. 그보다 작은 번호는 앞선 견적서가 있어도 건너뛴다.
  * 손으로 고칠 수 있는 **제안**일 뿐이라 유일성을 강제하지 않는다.
  */
+export const QUOTE_SEQ_START = 201;
+
 export function nextQuoteNo(existing: FinDoc[], date = today()): string {
   const yy = date.slice(2, 4);
-  let max = 0;
+  let max = QUOTE_SEQ_START - 1;
   existing.forEach((d) => {
     if (!isQuote(d)) return;
     const m = /^(\d{2})-(\d+)$/.exec(d.quoteNo.trim());

@@ -71,6 +71,11 @@ export const NEANDER_COL = {
   finProjects: "neander_fin_projects",
   /** 프로젝트 문서 — 견적서·계약서 (문서 1개 = 서류 1개, kind 로 구분, 파일은 Storage 경로) */
   finDocs: "neander_fin_docs",
+  /**
+   * 견적서 인감 이미지 (문서 id = supplier.ts 의 SEALS id, data = PNG 바이트).
+   * 보안 규칙에 없어 서버(api/neander/finance/seals)만 접근 — 깃·public/ 에 두지 않는다
+   */
+  finSeals: "neander_fin_seals",
   /** 원장에 사람이 덧붙인 열 (값은 거래 문서의 extra 에 담긴다) */
   finLedgerColumns: "neander_fin_ledger_columns",
   /** 형광펜 끄기 — 신뢰한 거래처(영구) · 이 달 확인한 계정 (finance/anomaly.ts) */
