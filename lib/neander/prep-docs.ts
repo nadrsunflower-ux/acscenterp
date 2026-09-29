@@ -29,6 +29,15 @@ export const prepDocHref = (d: PrepDoc) => `/neander/meetings/prep/${d.slug}`;
 /** 등록된 발표자료 (최신순으로 정렬해 사용) */
 export const PREP_DOCS: PrepDoc[] = [
   {
+    // 내용은 저장소 밖(Firestore neander_decks)에 있다 — 제목만 중립적으로 둔다
+    slug: "2026-09-29-exec",
+    date: "2026-09-29",
+    title: "0929 임원진회의 발표 장표",
+    author: "이동주",
+    summary: "가정값을 바꾸면 표와 결론 숫자가 다시 계산되는 웹 장표 · 재무 권한자만 열람",
+    accent: "#7dd3fc",
+  },
+  {
     slug: "2026-07-07-kim-juyeon",
     date: "2026-07-07",
     title: "7월, 폭풍 전야 — 전사 전략 브리핑",

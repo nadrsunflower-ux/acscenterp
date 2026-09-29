@@ -12,6 +12,14 @@
 //
 //  새 발표자료 만들기: app/neander/meetings/prep/<slug>/page.tsx 에서
 //  <Deck meta={…} slides={…} /> 렌더 + lib/neander/prep-docs.ts 에 등록.
+//
+//  선택 기능 (넘기지 않으면 예전과 똑같다)
+//  - size        캔버스 크기 (기본 1280×720, 가정 장표는 1600×900)
+//  - extraKeys   글자 키 → 동작 (N 노트 · A 가정 패널 등). 기본 키보다 먼저 본다
+//  - hashNav     주소의 #slide-N 과 지금 장을 맞춘다 (바로 가기 · 새로고침 유지)
+//  - chrome      장마다 캔버스 위에 얹는 것 (가정 칩처럼 클릭존 위에서 눌려야 하는 것)
+//  - controls    하단 오른쪽 버튼 줄 앞에 넣을 단추
+//  - onIndexChange  지금 장이 바뀔 때
 // ============================================================
 
 import {
@@ -64,10 +72,42 @@ export interface DeckMeta {
 const W = 1280;
 const H = 720;
 
-export function Deck({ meta, slides }: { meta: DeckMeta; slides: DeckSlide[] }) {
+export interface DeckOptions {
+  size?: { w: number; h: number };
+  extraKeys?: Record<string, () => void>;
+  hashNav?: boolean;
+  chrome?: (slide: DeckSlide, index: number) => ReactNode;
+  controls?: ReactNode;
+  onIndexChange?: (index: number) => void;
+}
+
+/** "#slide-7" → 6 (0부터). 없거나 틀리면 null */
+const indexFromHash = (hash: string, count: number): number | null => {
+  const m = /^#slide-(\d+)$/.exec(hash);
+  if (!m) return null;
+  const n = Number(m[1]) - 1;
+  return n >= 0 && n < count ? n : null;
+};
+
+export function Deck({
+  meta,
+  slides,
+  size,
+  extraKeys,
+  hashNav = false,
+  chrome,
+  controls,
+  onIndexChange,
+}: { meta: DeckMeta; slides: DeckSlide[] } & DeckOptions) {
   const router = useRouter();
   const rootRef = useRef<HTMLDivElement>(null);
-  const [index, setIndex] = useState(0);
+  const w = size?.w ?? W;
+  const h = size?.h ?? H;
+  // #slide-N 으로 열면 그 장에서 시작한다 — 효과에서 나중에 옮기면 개발 모드(StrictMode)가
+  // 효과를 두 번 돌리는 사이 주소가 1장으로 덮여 1장에 머문다
+  const [index, setIndex] = useState(() =>
+    hashNav && typeof window !== "undefined" ? indexFromHash(window.location.hash, slides.length) ?? 0 : 0,
+  );
   const [scale, setScale] = useState(0); // 0 = 측정 전 (초기 플래시 방지)
   // 이 화면에 붙은 비서(재무·매출) — 발표 중 나온 질문에 슬라이드를 떠나지 않고 답한다.
   // 모듈 레이아웃의 비서가 이름을 알려 오면 오른쪽 위에 버튼이 생긴다 (assistant/events.ts)
@@ -90,14 +130,36 @@ export function Deck({ meta, slides }: { meta: DeckMeta; slides: DeckSlide[] }) 
   const next = useCallback(() => setIndex((i) => clamp(i + 1)), [clamp]);
   const prev = useCallback(() => setIndex((i) => clamp(i - 1)), [clamp]);
 
-  // 화면 크기에 맞춰 1280×720 캔버스 스케일 계산
+  // 화면 크기에 맞춰 캔버스 스케일 계산
   useEffect(() => {
     const update = () =>
-      setScale(Math.min(window.innerWidth / W, window.innerHeight / H));
+      setScale(Math.min(window.innerWidth / w, window.innerHeight / h));
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
-  }, []);
+  }, [w, h]);
+
+  // #slide-N 바로 가기 — 열려 있는 동안 주소를 바꿀 때 (처음 장은 useState 가 잡는다)
+  useEffect(() => {
+    if (!hashNav) return;
+    const apply = () => {
+      const n = indexFromHash(window.location.hash, count);
+      if (n !== null) setIndex(n);
+    };
+    window.addEventListener("hashchange", apply);
+    return () => window.removeEventListener("hashchange", apply);
+  }, [hashNav, count]);
+
+  // 지금 장을 주소에 적는다 — 새로고침해도 그 장, 링크를 복사하면 그 장
+  useEffect(() => {
+    if (hashNav && count > 0) {
+      const want = `#slide-${Math.min(index, count - 1) + 1}`;
+      if (window.location.hash !== want) {
+        window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${want}`);
+      }
+    }
+    onIndexChange?.(index);
+  }, [hashNav, index, count, onIndexChange]);
 
   const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement) void document.exitFullscreen();
@@ -121,6 +183,12 @@ export function Deck({ meta, slides }: { meta: DeckMeta; slides: DeckSlide[] }) 
       if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
       // 발표 위에 띄운 ERP 창(인사이트 관리 등) 안에서는 Enter·Space·방향키가 그 창의 몫이다
       if (el?.closest?.("#nd-portal-root, [role='dialog']")) return;
+      const extra = extraKeys?.[e.key.toLowerCase()];
+      if (extra) {
+        e.preventDefault();
+        extra();
+        return;
+      }
       switch (e.key) {
         case "a":
         case "A":
@@ -162,7 +230,7 @@ export function Deck({ meta, slides }: { meta: DeckMeta; slides: DeckSlide[] }) 
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [next, prev, go, count, toggleFullscreen, exit, assistant.name, toggleAssistant]);
+  }, [next, prev, go, count, toggleFullscreen, exit, assistant.name, toggleAssistant, extraKeys]);
 
   // 비서에게 발표 맥락(달·지금 장)을 알린다 — 장을 넘기거나 달을 바꾸면 다시, 나가면 지운다
   const ctxModule = meta.assistantContext?.module;
@@ -191,7 +259,7 @@ export function Deck({ meta, slides }: { meta: DeckMeta; slides: DeckSlide[] }) 
 
       <div
         className="dk-stage"
-        style={{ transform: `translate(-50%, -50%) scale(${scale})`, opacity: scale ? 1 : 0 }}
+        style={{ width: w, height: h, transform: `translate(-50%, -50%) scale(${scale})`, opacity: scale ? 1 : 0 }}
       >
         {/* 배경 분위기: 그리드 + 글로우 + 노이즈 */}
         <div className="dk-bg-grid" aria-hidden />
@@ -215,6 +283,9 @@ export function Deck({ meta, slides }: { meta: DeckMeta; slides: DeckSlide[] }) 
             <button className="dk-zone dk-zone-right" onClick={next} aria-label="다음 슬라이드" tabIndex={-1} />
           </>
         )}
+
+        {/* 장마다 얹는 것 — 클릭존보다 위라 눌린다 */}
+        {chrome && <div className="dk-chrome">{chrome(slide, clamp(index))}</div>}
 
         {/* 비서 호출 — 오른쪽 위. 이 화면에 비서가 붙어 있을 때만 (A 키로도 연다) */}
         {assistant.name && (
@@ -265,6 +336,7 @@ export function Deck({ meta, slides }: { meta: DeckMeta; slides: DeckSlide[] }) 
           </div>
 
           <div className="dk-footer-ctrl">
+            {controls}
             <span className="dk-counter">
               {String(index + 1).padStart(2, "0")}
               <em>/{String(count).padStart(2, "0")}</em>
@@ -318,7 +390,6 @@ body:has(.dk-root) .z-nd-dock { z-index: 140; }
 }
 .dk-stage {
   position: absolute; left: 50%; top: 50%;
-  width: ${W}px; height: ${H}px;
   transform-origin: center;
   background: #0a0d14;
   color: #eef0e9;
@@ -358,6 +429,9 @@ body:has(.dk-root) .z-nd-dock { z-index: 140; }
   transition: width .45s cubic-bezier(.16,1,.3,1);
 }
 .dk-slide { position: absolute; inset: 0; z-index: 10; }
+/* 장마다 얹는 것 — 슬라이드(10)·클릭존(20) 위, 푸터(30) 아래. 빈 곳은 클릭을 통과시킨다 */
+.dk-chrome { position: absolute; inset: 0; z-index: 25; pointer-events: none; }
+.dk-chrome > * { pointer-events: auto; }
 .dk-zone {
   position: absolute; top: 0; bottom: 64px; width: 18%;
   background: none; border: 0; padding: 0; z-index: 20; cursor: pointer;

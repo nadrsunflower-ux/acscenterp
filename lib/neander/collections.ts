@@ -142,4 +142,15 @@ export const NEANDER_COL = {
   mailBlobs: "neander_mail_blobs",
   /** 수신확인 — 열람 표시 id → 보낸 메일 (공개 픽셀 라우트가 찾는다) */
   mailTrack: "neander_mail_track",
+  // ---- 회의 발표 장표 (/neander/meetings/prep/<slug>) ----
+  //  장표의 내용(문구·가정 기본값·학원 이름·매물)은 저장소에 두지 않는다 —
+  //  저장소가 public 이다. 깃에서 빠진 private/decks/ 에서 쓰고
+  //  scripts/neander/upload-deck.ts 가 여기 올린다. 서버(decks/server/store.ts)만 접근.
+  /**
+   * 장표 한 벌 (문서 id = slug). 아래에 parts/{n}(내용 JSON 조각) 과
+   * assets/{id}(매물 사진·지도 타일 바이트)가 붙는다.
+   */
+  decks: "neander_decks",
+  /** 회의용 저장본 — 장표 가정값 한 벌에 이름을 붙여 둔 것 */
+  deckScenarios: "neander_deck_scenarios",
 } as const;

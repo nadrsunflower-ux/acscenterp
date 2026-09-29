@@ -43,7 +43,12 @@
     "meetings:verify-files": "tsx --conditions react-server scripts/neander/verify-meeting-files.ts",
     "meetings:verify-recordings": "tsx --conditions react-server scripts/neander/verify-meeting-recordings.ts",
     "meetings:verify-archive": "tsx --conditions react-server scripts/neander/verify-meeting-archive.ts",
-    "meetings:verify-log": "tsx --conditions react-server scripts/neander/verify-meeting-log.ts"
+    "meetings:verify-log": "tsx --conditions react-server scripts/neander/verify-meeting-log.ts",
+    "deck:test": "tsx --test lib/neander/decks/*.test.ts",
+    "deck:upload": "tsx --conditions react-server scripts/neander/upload-deck.ts",
+    "deck:verify": "tsx --conditions react-server scripts/neander/verify-deck.ts",
+    "deck:overflow": "node e2e/deck-overflow.mjs",
+    "e2e:token": "tsx --conditions react-server scripts/neander/e2e-token.ts"
   },
   "dependencies": {
     "firebase": "10.14.1",
