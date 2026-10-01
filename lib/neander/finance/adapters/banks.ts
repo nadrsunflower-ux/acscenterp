@@ -17,6 +17,7 @@
 //    신한   헤더 1행. `적요`는 거래 방식(BZ뱅크), `내용`이 실제 상대방.
 //           **파일 안에 계좌번호가 없어** 잔액·거래처 이력으로 가려내거나
 //           사람이 고른다 (finance/import-slots.ts 의 guessAccount).
+//           개인 인터넷뱅킹 양식(.xls)은 다르게 생겼고 계좌번호가 있다.
 //    우리   제목 3줄 뒤 헤더. `지급(원)`/`입금(원)` 두 열, `기재내용`이 상대방.
 //    토스   B열부터. 금액에 부호가 있고 `구분`(수입/지출)도 준다.
 //    카카오 B열부터. 2026-06 양식은 금액 양수 + `구분` 수입/지출, 2026-09
@@ -32,6 +33,7 @@ import {
   CARD_BILL_HINT,
   INTEREST_HINT,
   cellAt,
+  cellNum,
   col,
   findHeaderRow,
   finishRow,
@@ -218,8 +220,24 @@ export const kbBankAdapter: SourceAdapter = {
 };
 
 // ============================================================
-//  신한은행 (인터넷뱅킹 grid 엑셀)
+//  신한은행 — 양식이 두 가지다
+//
+//    기업뱅킹 grid (.xlsx)   헤더가 1행. 계좌번호가 파일 어디에도 없다.
+//      거래일시 | 적요 | 입금액 | 출금액 | 내용 | 잔액 | 거래점명
+//
+//    개인 인터넷뱅킹 (.xls)  개인사업자 명의 계좌(신한일컴)는 이쪽으로 온다.
+//      제목 · 계좌번호 · 조회기간 · 총건수 줄 뒤에 헤더.
+//      거래일자 | 거래시간 | 적요 | 출금(원) | 입금(원) | 내용 | 잔액(원) | 거래점
+//      날짜와 시각이 두 열로 나뉘고, **계좌번호가 파일 안에 있다** — 그래서
+//      잔액·거래처로 추정할 필요 없이 제 칸을 찾아간다.
+//
+//  둘 다 `적요`는 거래 방식, `내용`이 실제 상대방이다.
 // ============================================================
+
+/** 기업뱅킹 grid 의 열 */
+const SHINHAN_GRID = ["거래일시", "입금액", "출금액", "내용"];
+/** 개인 인터넷뱅킹의 열 — `출금(원)` 은 괄호를 떼고 `출금` 으로 비교한다 */
+const SHINHAN_PERSONAL = ["거래일자", "거래시간", "출금", "입금", "내용"];
 
 export const shinhanBankAdapter: SourceAdapter = {
   id: "shinhan-bank",
@@ -228,28 +246,33 @@ export const shinhanBankAdapter: SourceAdapter = {
 
   detect(wb) {
     // 신한 grid 는 `내용` 열이 있고 `보낸분/받는분` 이 없다 — 국민과 구분되는 지점
-    return hasLabels(wb, ["거래일시", "입금액", "출금액", "내용"]) ? 0.9 : 0;
+    if (hasLabels(wb, SHINHAN_GRID)) return 0.9;
+    // 개인 양식은 날짜·시각이 따로다 — 다른 은행은 모두 `거래일시` 한 열이다
+    return hasLabels(wb, SHINHAN_PERSONAL) ? 0.9 : 0;
   },
 
   parse(wb, opts) {
     const picked = pickSheet(wb, "sheet");
     if (!picked) return fail("시트를 찾지 못했습니다.", "");
     const { name, ws } = picked;
-    const head = findHeaderRow(ws, ["거래일시", "입금액", "출금액"]);
+    const head = findHeaderRow(ws, SHINHAN_GRID) ?? findHeaderRow(ws, SHINHAN_PERSONAL);
     if (!head) return fail("거래일시·입금액·출금액 열을 찾지 못했습니다.", name);
 
     const c = {
-      date: col(head.cols, "거래일시"),
+      date: col(head.cols, "거래일시", "거래일자"),
+      time: col(head.cols, "거래시간"),
       brief: col(head.cols, "적요"),
-      in: col(head.cols, "입금액"),
-      out: col(head.cols, "출금액"),
+      in: col(head.cols, "입금액", "입금"),
+      out: col(head.cols, "출금액", "출금"),
       content: col(head.cols, "내용"),
       balance: col(head.cols, "잔액"),
-      branch: col(head.cols, "거래점명"),
+      branch: col(head.cols, "거래점명", "거래점"),
     };
 
-    // 이 파일에는 계좌번호가 없다. 파일명이 유일한 단서.
-    const fromName = last4FromFileName(opts.fileName, opts.knownLast4);
+    // grid 에는 계좌번호가 없어 파일명이 유일한 단서다. 개인 양식은 헤더 위
+    // 요약 줄에 있다 — **헤더 위만** 본다 (거래 줄의 `내용` 을 번호로 읽지 않게).
+    const inFile = head.row > 0 ? scanAccountNumber(wb, name, head.row - 1) : undefined;
+    const fromName = inFile ?? last4FromFileName(opts.fileName, opts.knownLast4);
     const last4 = opts.last4 ?? fromName;
 
     const rows: ImportRow[] = [];
@@ -257,7 +280,7 @@ export const shinhanBankAdapter: SourceAdapter = {
     const range = sheetRange(ws);
     for (let r = head.row + 1; r <= range.e.r; r++) {
       const rowNo = r + 1;
-      const dt = parseDateTime(cellAt(ws, r, c.date));
+      const dt = parseDateTime(cellAt(ws, r, c.date), c.time >= 0 ? cellAt(ws, r, c.time) : undefined);
       if (!dt) continue;
       const inn = parseAmount(cellAt(ws, r, c.in)).amount;
       const out = parseAmount(cellAt(ws, r, c.out)).amount;
@@ -281,7 +304,8 @@ export const shinhanBankAdapter: SourceAdapter = {
           outAmount: out,
           knownLast4: opts.knownLast4,
           ownEntities: opts.ownEntities,
-          balance: c.balance >= 0 ? str(cellAt(ws, r, c.balance)) : undefined,
+          // 개인 양식은 잔액 0 을 빈 글자로 보여준다 — 다 빠져나간 통장도 잔액은 0 이다
+          balance: c.balance >= 0 ? str(cellAt(ws, r, c.balance)) || (cellNum(ws, r, c.balance) === 0 ? "0" : "") : undefined,
         }),
       );
     }

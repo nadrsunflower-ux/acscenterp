@@ -17,6 +17,9 @@
 //    ② 국민 법인카드의 해외 승인(달러) — 환율을 그 칸에서 받는다
 //    ③ 서버가 모르는 비밀번호로 잠긴 파일
 //
+//  거래가 한 건도 없는 달은 올릴 파일이 없다. 그 칸은 「이 달 거래 없음」
+//  으로 채운다 — 거래를 달지 않는 배치 하나가 남는다 (markNoActivity).
+//
 //  빠진 칸은 붉게, 채워진 칸은 초록으로 빛난다 (neander.css 의
 //  nd-puzzle-piece — 매출 적재와 같은 연출).
 //
@@ -97,6 +100,7 @@ import {
   looksEncrypted,
   parseWithAdapter,
   readWorkbook,
+  type ParseFileResult,
 } from "@/lib/neander/finance/adapters";
 import {
   reconcilePos,
@@ -112,8 +116,10 @@ import {
   buildFinSlots,
   finPuzzleOf,
   monthOfRows,
+  NO_ACTIVITY_LABEL,
   resolveFinSlot,
   splitAmounts,
+  withSlotAccount,
   type AccountGuess,
   type FinBank,
   type FinImportSlot,
@@ -125,8 +131,9 @@ import {
   decryptFinanceFile,
   undoFinImport,
 } from "@/lib/neander/finance/client";
-import type { FinTransactionInput } from "@/lib/neander/finance/types";
+import type { FinImportBatch, FinTransactionInput } from "@/lib/neander/finance/types";
 import { availableMonths } from "@/lib/neander/finance/aggregate";
+import { reviewHref } from "@/lib/neander/finance/ledgerLink";
 import {
   selectableMonths,
   workingMonthOf,
@@ -291,20 +298,31 @@ export default function ImportPage() {
         return;
       }
 
-      const result = parseWithAdapter(wb, {
-        fileName: file.name,
-        last4: opts.forceSlot?.kind === "account" ? opts.forceSlot.last4s[0] : undefined,
-        fxRate: opts.fxRate,
-        knownLast4,
-        ownEntities,
-      });
-      if (!result) {
+      const parse = (last4?: string) =>
+        parseWithAdapter(wb, { fileName: file.name, last4, fxRate: opts.fxRate, knownLast4, ownEntities });
+      const parsed = parse(opts.forceSlot?.kind === "account" ? opts.forceSlot.last4s[0] : undefined);
+      if (!parsed) {
         throw new Error(
           "이 파일의 출처를 알아내지 못했습니다. 은행·카드사에서 내려받은 원본 그대로 올려주세요.",
         );
       }
+      // 추정으로 칸을 찾으면 그 계좌로 다시 읽어 바꿔 끼운다 (③)
+      let result: ParseFileResult = parsed;
       if (result.rows.length === 0 && result.errors.length > 0) {
         throw new Error(result.errors[0].reason);
+      }
+      // 거래가 한 줄도 없는 파일 — 어느 달인지 알 수 없어 칸에 넣지 못한다.
+      // (예전에는 아래 ④에서 「한 달을 넘는 파일입니다」로 잘못 안내했다.)
+      // 어느 칸인지 알면 그 칸에 알린다 — 「거래 없음」 버튼이 바로 거기 있다.
+      if (result.rows.length === 0) {
+        const detected = result.detectedLast4[0];
+        const known =
+          opts.forceSlot ??
+          (detected ? slots.find((s) => s.kind === "account" && s.last4s.includes(detected)) : undefined);
+        if (known) slotKey = known.key;
+        throw new Error(
+          `거래가 한 건도 없는 파일입니다. ${monthLabel(activeMonth)}에 거래가 없었다면 칸의 「이 달 거래 없음」을 누르세요.`,
+        );
       }
 
       // ③ 어느 칸인가
@@ -329,6 +347,8 @@ export default function ImportPage() {
           return;
         }
         slot = res.slot;
+        // 추정으로 찾은 칸이면 줄에 아직 계좌가 없다 — 그 계좌로 다시 읽는다
+        result = withSlotAccount(result, slot, parse);
       }
       slotKey = slot.key;
       setAct(slot.key, { kind: "busy", step: "읽는 중…", fileName: file.name });
@@ -359,7 +379,10 @@ export default function ImportPage() {
 
       // ⑥ 이미 채워진 칸이면 바꿀지 묻는다
       const piece = puzzle.pieces.find((p) => p.slot.key === slot!.key);
-      if (piece?.filled) {
+      if (piece?.batch?.noActivity) {
+        // 「거래 없음」 표시만 있던 칸 — 지울 거래가 없으니 묻지 않고 표시를 거둔다
+        await undoFinImport(piece.batch.id);
+      } else if (piece?.filled) {
         const ok = await confirm({
           title: piece.batch
             ? `${slot.label} 칸에 이미 「${piece.batch.fileName}」이 있습니다`
@@ -518,8 +541,45 @@ export default function ImportPage() {
     }
   }
 
-  async function undoSlot(batchId: string, label: string) {
+  /**
+   * 「이 달 거래 없음」 — 파일 없이 칸을 채운다.
+   *
+   * 거래가 한 건도 없는 달은 은행이 줄 파일이 없다(0건짜리 파일은 달을 알 수
+   * 없어 받지 못한다). 그대로 두면 칸이 끝내 붉게 남아, 빠뜨린 것인지 없는
+   * 것인지 다음 사람이 알 수 없다. 거래를 달지 않는 배치 하나로 남긴다 —
+   * 그래서 지울 때도 적재 되돌리기와 같은 길을 쓴다.
+   */
+  async function markNoActivity(slot: FinImportSlot) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setAct(slot.key, { kind: "idle" });
+    try {
+      await createFinImport({
+        fileName: NO_ACTIVITY_LABEL,
+        inserted: 0,
+        skipped: 0,
+        byMemberId: currentMember?.id,
+        month: activeMonth,
+        slotKey: slot.key,
+        last4s: slot.last4s,
+        noActivity: true,
+      });
+      await refresh();
+      toast.success(`${slot.label} — ${monthLabel(activeMonth)} 거래 없음으로 표시했습니다.`);
+    } catch (e) {
+      const f = describeFinanceError(e);
+      toast.error(f.detail, { title: f.title });
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function undoSlot(target: Pick<FinImportBatch, "id" | "noActivity">, label: string) {
+    // 「거래 없음」 표시는 지울 거래가 없다 — 묻지 않는다
     if (
+      !target.noActivity &&
       !(await confirm({
         title: `${label} 칸의 적재를 되돌릴까요?`,
         message: "이 파일로 들어온 거래만 지웁니다. 다른 칸은 그대로 남습니다.",
@@ -530,10 +590,10 @@ export default function ImportPage() {
       return;
     setBusy(true);
     try {
-      await undoFinImport(batchId);
+      await undoFinImport(target.id);
       countsRef.current = null;
       await refresh();
-      toast.success("적재를 되돌렸습니다.");
+      toast.success(target.noActivity ? "「거래 없음」 표시를 지웠습니다." : "적재를 되돌렸습니다.");
     } catch (e) {
       const f = describeFinanceError(e);
       toast.error(f.detail, { title: f.title });
@@ -671,7 +731,9 @@ export default function ImportPage() {
               status={piece}
               activity={actOf(piece.slot.key)}
               onFiles={(files) => void ingest(files)}
-              onUndo={piece.batch ? () => void undoSlot(piece.batch!.id, piece.slot.label) : undefined}
+              onUndo={piece.batch ? () => void undoSlot(piece.batch!, piece.slot.label) : undefined}
+              onNoActivity={() => void markNoActivity(piece.slot)}
+              locked={busy}
               onFx={(rate) => {
                 const held = fxWaiting.current.get(piece.slot.key);
                 if (held) void ingest([held.file], { forceSlot: piece.slot, buf: held.buf, fxRate: rate });
@@ -748,7 +810,7 @@ export default function ImportPage() {
             tone={puzzle.complete ? "success" : undefined}
           />
           <NextStep
-            href="/neander/finance/review"
+            href={reviewHref(activeMonth)}
             icon={Inbox}
             n={2}
             title="검토 대기함"
@@ -934,11 +996,13 @@ export default function ImportPage() {
                     <Tr key={b.id}>
                       <Td className="pl-5">
                         <span className="block max-w-[22rem] truncate font-medium text-nd-fg" title={b.fileName}>
-                          {b.fileName}
+                          {b.noActivity
+                            ? `${slots.find((s) => s.key === b.slotKey)?.label ?? b.slotKey ?? ""} · ${NO_ACTIVITY_LABEL}`
+                            : b.fileName}
                         </span>
                       </Td>
                       <Td>{b.month ? <Badge size="sm">{b.month}</Badge> : <span className="text-nd-fg-3">—</span>}</Td>
-                      <Td num>{b.inserted.toLocaleString("ko-KR")}</Td>
+                      <Td num muted={b.noActivity}>{b.noActivity ? "—" : b.inserted.toLocaleString("ko-KR")}</Td>
                       <Td num muted>{b.skipped > 0 ? b.skipped.toLocaleString("ko-KR") : "—"}</Td>
                       <Td className="whitespace-nowrap text-nd-fg-2">
                         {b.createdAt ? formatTimestamp(b.createdAt) : "—"}
@@ -949,9 +1013,9 @@ export default function ImportPage() {
                           size="sm"
                           icon={Undo2}
                           disabled={busy}
-                          onClick={() => void undoSlot(b.id, b.fileName)}
+                          onClick={() => void undoSlot(b, b.fileName)}
                         >
-                          되돌리기
+                          {b.noActivity ? "표시 지우기" : "되돌리기"}
                         </Button>
                       </Td>
                     </Tr>

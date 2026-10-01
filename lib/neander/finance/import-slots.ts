@@ -11,7 +11,8 @@
 //    · 계좌      파일 위쪽 「계좌번호 : …」 (국민·우리·토스·카카오)
 //    · 신한      파일 안에 계좌번호가 없다 → ① 지난달 마지막 잔액과 이어지는
 //                계좌, ② 거래처 이력이 겹치는 계좌 순으로 가려내고, 둘 다
-//                애매하면 사람이 고른다
+//                애매하면 사람이 고른다. 찾은 뒤에는 그 계좌로 다시 읽는다
+//                (withSlotAccount). 개인 인터넷뱅킹 양식은 계좌번호가 있다
 //    · 카드      줄마다 카드번호 뒷자리 — 카드사 칸 하나로 모인다
 // ============================================================
 
@@ -33,6 +34,15 @@ export interface FinBank {
   kind: "account" | "card";
   /** 뱃지 색 — 그 회사 브랜드 색에 가깝게 */
   color: string;
+  /**
+   * 칸 바탕에 옅게 섞는 색 (없으면 color).
+   *
+   * 브랜드 색 그대로 섞으면 신한·토스가 같은 파랑, 국민·카카오가 같은 노랑이
+   * 된다 — 옅게 깔면 구분이 안 된다는 지적을 받았다. 그래서 같은 계열 안에서
+   * **서로 갈리는 쪽으로 밀어** 고른다: 신한은 남보라, 토스는 하늘, 국민은
+   * 주황빛 금색, 카카오는 레몬. 글자·점에 쓰는 color 는 그대로 둔다(읽혀야 한다).
+   */
+  tint?: string;
   /** 암호가 걸려 오는 파일 */
   encrypted?: boolean;
   /** 파일 안에 계좌번호가 없다 */
@@ -42,13 +52,13 @@ export interface FinBank {
 }
 
 export const FIN_BANKS: FinBank[] = [
-  { id: "shinhan", label: "신한은행", short: "신한", adapterId: "shinhan-bank", kind: "account", color: "#0046ff", noAccountInFile: true, source: "신한 기업뱅킹 › 거래내역조회 › 엑셀" },
-  { id: "kb", label: "국민은행", short: "국민", adapterId: "kb-bank", kind: "account", color: "#c8a23a", source: "KB스타기업뱅킹 › 거래내역조회 › 엑셀" },
+  { id: "shinhan", label: "신한은행", short: "신한", adapterId: "shinhan-bank", kind: "account", color: "#0046ff", tint: "#3a2be8", noAccountInFile: true, source: "신한 기업·개인뱅킹 › 거래내역조회 › 엑셀" },
+  { id: "kb", label: "국민은행", short: "국민", adapterId: "kb-bank", kind: "account", color: "#c8a23a", tint: "#e07a00", source: "KB스타기업뱅킹 › 거래내역조회 › 엑셀" },
   { id: "woori", label: "우리은행", short: "우리", adapterId: "woori-bank", kind: "account", color: "#0067ac", source: "우리WON기업 › 거래내역조회 › 엑셀" },
-  { id: "toss", label: "토스뱅크", short: "토스", adapterId: "toss-bank", kind: "account", color: "#0064ff", encrypted: true, source: "토스뱅크 앱 › 거래내역 내보내기" },
-  { id: "kakao", label: "카카오뱅크", short: "카카오", adapterId: "kakao-bank", kind: "account", color: "#b8a300", encrypted: true, source: "카카오뱅크 앱 › 거래내역 내보내기" },
-  { id: "shinhan-card", label: "신한 법인카드", short: "신한카드", adapterId: "shinhan-card", kind: "card", color: "#0046ff", source: "신한카드 기업 › 법인이용내역(전체)" },
-  { id: "kb-card", label: "국민 법인카드", short: "국민카드", adapterId: "kb-card", kind: "card", color: "#c8a23a", source: "KB국민카드 기업 › 승인내역조회" },
+  { id: "toss", label: "토스뱅크", short: "토스", adapterId: "toss-bank", kind: "account", color: "#0064ff", tint: "#00a8ff", encrypted: true, source: "토스뱅크 앱 › 거래내역 내보내기" },
+  { id: "kakao", label: "카카오뱅크", short: "카카오", adapterId: "kakao-bank", kind: "account", color: "#b8a300", tint: "#f2e000", encrypted: true, source: "카카오뱅크 앱 › 거래내역 내보내기" },
+  { id: "shinhan-card", label: "신한 법인카드", short: "신한카드", adapterId: "shinhan-card", kind: "card", color: "#0046ff", tint: "#3a2be8", source: "신한카드 기업 › 법인이용내역(전체)" },
+  { id: "kb-card", label: "국민 법인카드", short: "국민카드", adapterId: "kb-card", kind: "card", color: "#c8a23a", tint: "#e07a00", source: "KB국민카드 기업 › 승인내역조회" },
 ];
 
 export const bankById = (id: FinBankId | undefined) => FIN_BANKS.find((b) => b.id === id);
@@ -170,7 +180,15 @@ export interface FinSlotStatus {
   suggested: number;
   needsReview: number;
   filled: boolean;
+  /**
+   * 파일 없이 「이 달 거래 없음」으로 채운 칸.
+   * 표시가 있어도 장부에 그 달 거래가 있으면 거짓이다 — 숫자를 가리지 않는다.
+   */
+  noActivity: boolean;
 }
+
+/** 「이 달 거래 없음」 배치의 파일명 자리에 적는 말 (적재 이력에 그대로 보인다) */
+export const NO_ACTIVITY_LABEL = "거래 없음";
 
 /** 거래 묶음의 수입·지출 합 (환급은 지출을 깎는다) */
 export function splitAmounts(rows: Pick<FinTransaction, "txType" | "gross" | "adjust">[]) {
@@ -222,6 +240,7 @@ export function finPuzzleOf(
       suggested,
       needsReview,
       filled: !!batch || rows.length > 0,
+      noActivity: !!batch?.noActivity && rows.length === 0,
     };
   });
   const filled = pieces.filter((p) => p.filled).length;
@@ -375,4 +394,23 @@ export function resolveFinSlot(
   const guess = guessAccount(result.rows, candidates, transactions);
   if (guess.sure) return { kind: "slot", slot: guess.sure.slot, reason: guess.sure.reason };
   return { kind: "ambiguous", bank, ranked: guess.ranked };
+}
+
+/**
+ * 추정으로 칸을 찾은 파일의 줄에 그 계좌를 찍는다.
+ *
+ * 계좌번호 없는 파일(신한 grid)은 처음 읽을 때 줄에 계좌가 없다. 잔액·거래처로
+ * 칸을 찾아도 **줄은 그대로**라서, 다시 읽지 않으면 계좌 없는 거래가 장부에
+ * 들어간다 — 칸은 「적재됨 · 0건」으로 보이고, 중복 키와 사업장 기본값에도
+ * 계좌가 빠진다 (2026-09 신한 두 계좌 179건이 그렇게 들어갔다).
+ *
+ * 그래서 사람이 칸을 골랐을 때와 똑같이 그 계좌로 **다시 읽는다.**
+ */
+export function withSlotAccount(
+  result: ParseFileResult,
+  slot: FinImportSlot,
+  reparse: (last4: string) => ParseFileResult | null,
+): ParseFileResult {
+  if (slot.kind !== "account" || result.rows.every((r) => r.last4)) return result;
+  return reparse(slot.last4s[0]) ?? result;
 }

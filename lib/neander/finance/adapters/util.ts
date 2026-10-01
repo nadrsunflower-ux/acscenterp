@@ -22,6 +22,15 @@ export function cellAt(ws: WorkSheet, r: number, c: number): unknown {
   return cell.w ?? cell.v;
 }
 
+/**
+ * 숫자 칸의 원래 값. `cellAt` 은 화면에 보이는 글자를 먼저 주는데, 서식이
+ * 0 을 빈 글자로 그리는 파일이 있다 (신한 개인 양식의 잔액 0).
+ */
+export function cellNum(ws: WorkSheet, r: number, c: number): number | undefined {
+  const cell = ws[XLSX.utils.encode_cell({ r, c })];
+  return cell?.t === "n" && typeof cell.v === "number" ? cell.v : undefined;
+}
+
 export const str = (v: unknown): string => {
   if (v === null || v === undefined) return "";
   if (v instanceof Date) return v.toISOString();

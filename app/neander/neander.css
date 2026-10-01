@@ -207,6 +207,13 @@
     box-shadow var(--nd-dur) var(--nd-ease),
     background-color var(--nd-dur) var(--nd-ease);
 }
+/* 재무 엑셀 임포트의 칸 — 은행·카드사 색(--nd-piece-tint)을 바탕에 옅게 섞는다.
+   상태는 여전히 테두리와 바깥 빛이 말한다. 바탕색은 「어느 회사 칸인가」만
+   말하므로 채워졌든 비었든 같다. 끌어다 놓는 중의 색(data-over)이 이긴다 —
+   그래서 그 규칙보다 앞에 둔다. */
+[data-app="neander"] .nd-puzzle-piece.nd-puzzle-tinted {
+  background-color: color-mix(in srgb, var(--nd-piece-tint) 11%, rgb(var(--nd-bg-content)));
+}
 [data-app="neander"] .nd-puzzle-piece[data-state="missing"],
 [data-app="neander"] .nd-puzzle-piece[data-state="error"] {
   border-color: rgb(var(--nd-danger) / 0.55);
