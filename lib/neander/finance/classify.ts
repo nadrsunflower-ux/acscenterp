@@ -1,17 +1,50 @@
 // ============================================================
 //  자동분류 엔진
 // ------------------------------------------------------------
-//  임포트된 거래에 계정·사업구분을 자동으로 붙인다. 세 가지 근거를
-//  순서대로 시도하고, 어느 것도 못 맞히면 사람에게 넘긴다.
+//  임포트된 거래에 계정·사업구분을 자동으로 붙인다. 근거를 순서대로
+//  시도하고, 어느 것도 못 맞히면 사람에게 넘긴다.
 //
-//    1) 과거 이력   같은 거래처가 과거에 늘 같은 계정으로 분류됐다면
-//                   그 계정을 쓴다. 가장 강한 근거 — 실측상 이것만으로
-//                   전체 거래의 약 50% 가 커버된다.
+//    1) 과거 이력   확정된 장부가 곧 학습 자료다. 네 가지 열쇠로 찾는다 —
+//         ① 같은 거래처 · 같은 계좌   가장 강하다. **확정은 이것만** 만든다
+//         ② 같은 거래처 · 다른 계좌    제안
+//         ③ 이름 뼈대 (날짜·일련번호를 걷어낸 이름) · 같은 계좌   제안
+//              `2608고용보험` ↔ `2607고용보험`, `FACEBK *KEV69QZM62` ↔ `FACEBK *7WB84M9N62`
+//         ④ 이름 뼈대 · 다른 계좌     제안
+//       그리고 같은 거래처가 여러 계정으로 갈릴 때는 **같은 금액**을 본다
+//       (자동이체 14,900원은 급여가 아니라 구독료다).
 //    2) 구독 규칙   거래처명에 등록된 키워드가 포함되면 그 규칙을 쓴다.
 //                   (ANTHROPIC → Anthropic (Claude) 등)
 //    3) 어댑터 힌트 은행·카드 엑셀이 알려주는 것 (이자입금, 카드대금결제,
 //                   카드 업종 등). 확실한 것만 오므로 suggested 로 둔다.
-//    4) 계좌 기본값 계좌·카드 마스터의 사업장을 채운다. 계정은 못 정한다.
+//    4) 계좌 기본값 처음 보는 거래처라도 **그 계좌에 들어온(나간) 돈이 늘
+//                   무엇이었는지**는 안다 (우리온라인 통장 입금은 온라인판매).
+//                   한 가지 일만 하는 계좌에서만 쓴다.
+//
+//  ── 왜 이렇게 생겼나 (2026-10 백테스트) ──
+//  2026-03~08 여섯 달 2,802건을 「그 달 이전 장부만 보고」 맞혀 봤다
+//  (npm run finance:verify-classify).
+//
+//                        예전(거래처 이름만)   지금
+//    자동 확정            50.6%               45.0%
+//      그중 틀린 확정      42건 (3.0%)         18건 (1.4%)
+//    제안                 23.7%               33.2%
+//      제안의 적중률       46.7%               78.2%
+//    판단 불가            25.7%               21.8%
+//
+//  자동 확정이 줄어든 것은 일부러다 — 틀린 확정을 절반 넘게 걷어낸 값이다.
+//  남은 18건은 사람이 그 달에 분류를 바꾼 것이라(와우판매 ↔ 아이디판매,
+//  결제대행사 뒤의 품목이 달라진 경우) 이력으로는 알 수 없다.
+//
+//  · **계좌를 같이 본다.** 같은 「유재영」 이라도 급여 통장에서 나가면 급여,
+//    모임 통장에서 나가면 대납 정산이다. 이름만 보면 31% 짜리 제안이 된다.
+//  · **들어온 돈과 나간 돈을 따로 센다.** 직원 이름으로 들어온 돈에 급여
+//    계정을 붙이려다 「검토필요」 로 떨어지던 것이 사라진다.
+//  · **최근 12건만 본다.** 계정 체계도 매장도 바뀐다 (2026-08 분류 개편,
+//    신촌 폐점). 3년 전 분류가 지금 분류를 이기면 안 된다.
+//  · **한 달에 몰린 3~4건은 믿지 않는다.** 행사 준비로 며칠 사이 같은 곳에서
+//    여러 번 산 것은 「늘 그렇다」 가 아니다 — 실측 적중률 72%.
+//  · **절반도 못 맞히는 근거는 제안하지 않는다.** 27% 짜리 제안은 맞는
+//    것보다 틀리는 것이 많다. 후보만 사유에 적고 사람에게 넘긴다.
 //
 //  ⚠️ 자동분류는 절대 최종 확정을 남발하지 않는다. 확신이 충분할 때만
 //     confirmed 로 두고, 나머지는 suggested / needs_review 로 남겨
@@ -22,10 +55,43 @@
 import type { FinTransaction, ClassificationStatus, TxType } from "./types";
 import type { FinAccountDoc, FinPaymentMethodDoc, FinVendorRuleDoc } from "./db-types";
 
-/** 과거 이력에서 계정을 확정으로 볼 최소 건수 */
-const MIN_HISTORY_COUNT = 2;
-/** 과거 이력에서 계정을 확정으로 볼 최소 일치 비율 */
+/** 이력에서 「최근」 으로 보는 건수 — 오래된 분류보다 최근 분류를 따른다 */
+const RECENT = 12;
+/** 확정으로 볼 최소 건수 · 최소 일치 비율 (같은 거래처 · 같은 계좌) */
+const MIN_HISTORY_COUNT = 5;
 const MIN_HISTORY_RATIO = 0.95;
+/** 건수가 적어도 **두 달 이상에 걸쳐** 한 번도 안 갈렸으면 확정으로 본다 */
+const MIN_STEADY_COUNT = 3;
+/** 확정하려면 사업구분도 이만큼 한결같아야 한다 */
+const MIN_BIZ_RATIO = 0.95;
+/**
+ * 제안으로 올릴 최소 일치 비율 — 이보다 낮으면 맞는 것보다 틀리는 것이 많다.
+ *
+ * 다른 계좌의 이력은 훨씬 엄하게 본다. 같은 이름이 계좌마다 다른 일을 하기
+ * 때문이다 — 「다른 계좌까지 합쳐 50~79%」 인 제안은 실측 적중률이 18% 였다
+ * (직원 이름이 급여 통장에서는 급여, 다른 통장에서는 정산·환급).
+ */
+const MIN_SUGGEST_RATIO = 0.5;
+const MIN_SUGGEST_RATIO_ELSEWHERE = 0.8;
+/**
+ * 다른 계좌의 이력은 건수도 본다. 한두 건은 **동명이인**일 수 있다 — 다른
+ * 통장에 한 번 입금한 「이정현」 과 이번 「이정현」 이 같은 사람이라는 보장이
+ * 없다 (1~2건짜리 실측 적중률 53~63%, 3건 이상이면 92%).
+ */
+const MIN_ELSEWHERE_COUNT = 3;
+/** 같은 금액을 근거로 삼을 최소 건수 (모두 같은 분류여야 한다) */
+const MIN_SAME_AMOUNT = 2;
+/**
+ * 계좌 기본값 — 최근 몇 건을 보고, 몇 건 이상 · 얼마나 쏠려야 쓰는가.
+ *
+ * 한 가지 일만 하는 계좌에서만 통한다 (우리온라인 입금 → 온라인판매 48/48).
+ * 여러 용도가 섞인 계좌는 80% 가 쏠려 있어도 열에 넷은 틀린다 — 신한입금의
+ * 처음 보는 입금자를 「와우판매」 로 제안했더니 17건이 전부 틀렸다. 그래서
+ * 문턱이 높다.
+ */
+const PRIOR_RECENT = 60;
+const PRIOR_MIN_COUNT = 8;
+const PRIOR_MIN_RATIO = 0.9;
 
 export const normVendor = (s?: string) =>
   (s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -49,68 +115,176 @@ export interface ClassifySuggestion {
   classReason: string;
 }
 
-/** 거래처별 과거 분류 통계 */
-export interface VendorStat {
+/**
+ * 이름 뼈대 — 날짜·일련번호를 걷어낸 거래처 이름 (normVendor 를 거친 값에 쓴다).
+ *
+ *   `2608고용보험` → `#고용보험`        달마다 앞머리가 바뀐다
+ *   `삼성화09027`  → `삼성화#`          증권번호가 붙는다
+ *   `facebk *kev69qzm62` → `facebk *`  결제마다 코드가 바뀐다
+ */
+export const vendorFamily = (v: string) =>
+  v
+    .replace(/\*\s*\S+$/, "*")
+    .replace(/\d{2,}/g, "#")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** 들어온 돈 · 나간 돈 — 은행 엑셀이 확실히 아는 것은 이것뿐이다 */
+type Flow = "in" | "out";
+
+function flowOfInput(txType: TxType): Flow {
+  return txType === "수입" || txType === "환급" ? "in" : "out";
+}
+
+function flowOfHistory(t: FinTransaction): Flow {
+  if (t.txType === "수입" || t.txType === "환급") return "in";
+  if (t.txType === "지출" || t.txType === "카드대금결제") return "out";
+  // 자금거래는 유형에 방향이 없다 — 계정 이름이 말한다 (이체입금 · 가수금입금 · 보증금회수)
+  return /입금|회수|수령/.test(`${t.acctMid ?? ""} ${t.acctMinor ?? ""}`) ? "in" : "out";
+}
+
+/** 이력 한 건 — 색인에 담는 최소 정보 */
+interface Seen {
   vendor: string;
-  total: number;
-  /** 가장 많이 쓰인 분류 */
-  top: {
-    acctMajor: string;
-    acctMid: string;
-    acctMinor: string;
-    bizMajor: string;
-    bizMinor: string;
-    count: number;
-  } | null;
-  ratio: number;
+  txType: TxType;
+  acctMajor: string;
+  acctMid: string;
+  acctMinor: string;
+  bizMajor: string;
+  bizMinor: string;
+  /** `YYYY-MM` */
+  month: string;
+  /** 순금액 */
+  amount: number;
+}
+
+/** 찾는 열쇠의 종류 — 위에서부터 구체적이다 */
+type KeyKind =
+  /** 같은 거래처 · 같은 계좌 */
+  | "va"
+  /** 같은 거래처 (계좌 무관) */
+  | "v"
+  /** 이름 뼈대 · 같은 계좌 */
+  | "fa"
+  /** 이름 뼈대 (계좌 무관) */
+  | "f"
+  /** 계좌만 */
+  | "a";
+
+const keyOf = (kind: KeyKind, name: string, last4: string, flow: Flow) =>
+  kind === "va" || kind === "fa"
+    ? `${kind}|${name}|${last4}|${flow}`
+    : kind === "a"
+      ? `a|${last4}|${flow}`
+      : `${kind}|${name}|${flow}`;
+
+/**
+ * 확정된 과거 거래의 색인. 열쇠마다 그 열쇠로 본 분류를 **오래된 것부터**
+ * 담는다 — 최근 N건을 잘라 보기 위해서다.
+ */
+export interface VendorIndex {
+  seen: Map<string, Seen[]>;
 }
 
 /**
- * 확정된 과거 거래로 거래처 색인을 만든다.
+ * 확정된 과거 거래로 색인을 만든다.
  * 임포트 1건마다 전체 이력을 훑지 않도록 미리 한 번만 계산한다.
  */
-export function buildVendorIndex(history: FinTransaction[]): Map<string, VendorStat> {
-  const groups = new Map<string, Map<string, number>>();
-  const totals = new Map<string, number>();
+export function buildVendorIndex(history: FinTransaction[]): VendorIndex {
+  const seen = new Map<string, Seen[]>();
+  const push = (key: string, s: Seen) => {
+    const list = seen.get(key);
+    if (list) list.push(s);
+    else seen.set(key, [s]);
+  };
 
-  history.forEach((t) => {
-    if (t.status !== "confirmed") return;
-    const v = normVendor(t.vendor);
-    if (!v || !t.acctMinor) return;
-    const key = [t.acctMajor ?? "", t.acctMid ?? "", t.acctMinor ?? "", t.bizMajor ?? "", t.bizMinor ?? ""].join("|");
-    if (!groups.has(v)) groups.set(v, new Map());
-    const g = groups.get(v)!;
-    g.set(key, (g.get(key) ?? 0) + 1);
-    totals.set(v, (totals.get(v) ?? 0) + 1);
-  });
-
-  const out = new Map<string, VendorStat>();
-  groups.forEach((g, vendor) => {
-    const total = totals.get(vendor) ?? 0;
-    let bestKey = "";
-    let bestCount = 0;
-    g.forEach((count, key) => {
-      if (count > bestCount) {
-        bestCount = count;
-        bestKey = key;
+  history
+    .filter((t) => t.status === "confirmed" && !!t.acctMinor)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    .forEach((t) => {
+      const v = normVendor(t.vendor);
+      const last4 = t.last4 ?? "";
+      const flow = flowOfHistory(t);
+      const s: Seen = {
+        vendor: t.vendor ?? "",
+        txType: t.txType,
+        acctMajor: t.acctMajor ?? "",
+        acctMid: t.acctMid ?? "",
+        acctMinor: t.acctMinor ?? "",
+        bizMajor: t.bizMajor ?? "",
+        bizMinor: t.bizMinor ?? "",
+        month: (t.date ?? "").slice(0, 7),
+        amount: (t.gross ?? 0) - (t.adjust ?? 0),
+      };
+      if (v) {
+        const f = vendorFamily(v);
+        push(keyOf("va", v, last4, flow), s);
+        push(keyOf("v", v, last4, flow), s);
+        push(keyOf("fa", f, last4, flow), s);
+        push(keyOf("f", f, last4, flow), s);
       }
+      if (last4) push(keyOf("a", "", last4, flow), s);
     });
-    const [acctMajor, acctMid, acctMinor, bizMajor, bizMinor] = bestKey.split("|");
-    out.set(vendor, {
-      vendor,
-      total,
-      top: bestKey
-        ? { acctMajor, acctMid, acctMinor, bizMajor, bizMinor, count: bestCount }
-        : null,
-      ratio: total ? bestCount / total : 0,
-    });
+
+  return { seen };
+}
+
+/** 한 열쇠로 본 최근 이력의 요약 */
+interface KeyStat {
+  kind: KeyKind;
+  /** 본 건수 (최근 RECENT 건 이내) */
+  n: number;
+  /** 가장 많이 쓰인 분류 */
+  top: Seen;
+  count: number;
+  ratio: number;
+  /** 그 분류가 걸쳐 있는 달 수 */
+  months: number;
+  /** 그 분류 안에서 가장 많이 쓰인 사업구분과 그 비율 */
+  biz: { major: string; minor: string; ratio: number };
+  /** 분류별 건수 (많은 것부터) — 갈릴 때 사유에 적는다 */
+  spread: { label: string; count: number }[];
+}
+
+const classKey = (s: Seen) => `${s.txType}|${s.acctMajor}|${s.acctMid}|${s.acctMinor}`;
+
+function statOf(list: Seen[] | undefined, kind: KeyKind, recent: number): KeyStat | null {
+  if (!list || list.length === 0) return null;
+  const rows = list.slice(-recent);
+  const groups = new Map<string, Seen[]>();
+  rows.forEach((s) => {
+    const k = classKey(s);
+    const g = groups.get(k);
+    if (g) g.push(s);
+    else groups.set(k, [s]);
   });
-  return out;
+  // 건수가 같으면 더 최근에 쓰인 분류를 고른다 (rows 는 오래된 것부터)
+  const ranked = [...groups.values()].sort(
+    (a, b) => b.length - a.length || rows.lastIndexOf(b[b.length - 1]) - rows.lastIndexOf(a[a.length - 1]),
+  );
+  const best = ranked[0];
+  const bizCount = new Map<string, number>();
+  best.forEach((s) => {
+    const k = `${s.bizMajor}|${s.bizMinor}`;
+    bizCount.set(k, (bizCount.get(k) ?? 0) + 1);
+  });
+  const [bizKey, bizN] = [...bizCount.entries()].sort((a, b) => b[1] - a[1])[0];
+  const [bizMajor, bizMinor] = bizKey.split("|");
+  return {
+    kind,
+    n: rows.length,
+    top: best[best.length - 1],
+    count: best.length,
+    ratio: best.length / rows.length,
+    months: new Set(best.map((s) => s.month)).size,
+    biz: { major: bizMajor, minor: bizMinor, ratio: bizN / best.length },
+    spread: ranked.map((g) => ({ label: g[0].acctMinor || g[0].txType, count: g.length })),
+  };
 }
 
 /** 자동분류에 필요한 참조 데이터 묶음 */
 export interface ClassifyContext {
-  vendorIndex: Map<string, VendorStat>;
+  vendorIndex: VendorIndex;
   vendorRules: FinVendorRuleDoc[];
   paymentMethods: FinPaymentMethodDoc[];
   /**
@@ -133,9 +307,6 @@ function accountTxType(
   );
   return hit ? (hit.txType as TxType) : undefined;
 }
-
-/** 손익에 잡히지 않는 유형 — 계정이 이쪽이면 유형도 이쪽이어야 한다 */
-const NON_PL: TxType[] = ["자금거래", "카드대금결제"];
 
 /**
  * 계정의 거래유형과 실제 거래유형이 **의도적으로** 다른 조합.
@@ -181,6 +352,9 @@ export interface ClassifyInput {
   bizMajor?: string;
   bizMinor?: string;
   site?: string;
+  /** 원금액 · 조정금액 — 같은 거래처가 여러 계정으로 갈릴 때 같은 금액을 찾는다 */
+  gross?: number;
+  adjust?: number;
   /**
    * 임포트 어댑터의 추정 (확정 아님). 은행·카드 엑셀이 알려주는 것들 —
    * 「이자입금」적요, 카드대금 판정, 카드 업종명 같은 것. 과거 이력·구독
@@ -239,49 +413,154 @@ export function classifyOne(input: ClassifyInput, ctx: ClassifyContext): Classif
   }
 
   const v = normVendor(input.vendor);
+  const last4 = input.last4 ?? "";
+  const flow = flowOfInput(input.txType);
+  const where = pm?.alias ?? (last4 || "계좌 미지정");
+  const seen = ctx.vendorIndex.seen;
 
-  // 1) 과거 이력
-  const stat = v ? ctx.vendorIndex.get(v) : undefined;
-  if (stat?.top && stat.total >= MIN_HISTORY_COUNT) {
-    const pct = Math.round(stat.ratio * 100);
-    const strong = stat.ratio >= MIN_HISTORY_RATIO;
-    const base = {
-      acctMajor: stat.top.acctMajor || undefined,
-      acctMid: stat.top.acctMid || undefined,
-      acctMinor: stat.top.acctMinor || undefined,
-      bizMajor: input.bizMajor || stat.top.bizMajor || undefined,
-      bizMinor: input.bizMinor || stat.top.bizMinor || undefined,
-      site,
-    };
-    const why = `거래처 「${input.vendor}」 과거 ${stat.total}건 중 ${pct}% 가 같은 분류`;
+  /** 이력이 준 분류를 결과 모양으로 */
+  const fromStat = (s: KeyStat) => ({
+    // 은행 엑셀은 입출금 방향만 안다. 이력이 이 거래를 비손익·환급으로 분류해
+    // 왔다면 유형도 그것이어야 한다 — 고쳐 제안하고 사람이 확인한다.
+    ...(s.top.txType !== input.txType ? { txType: s.top.txType } : {}),
+    acctMajor: s.top.acctMajor || undefined,
+    acctMid: s.top.acctMid || undefined,
+    acctMinor: s.top.acctMinor || undefined,
+    bizMajor: input.bizMajor || s.biz.major || undefined,
+    bizMinor: input.bizMinor || s.biz.minor || undefined,
+    site,
+  });
 
-    // 이력이 준 계정의 거래유형이 지금 유형과 다르면 그냥 넘기면 안 된다.
-    const acctTx = accountTxType(ctx.accounts, base.acctMajor, base.acctMid, base.acctMinor);
-    if (acctTx && acctTx !== input.txType && !isAllowedTxAccountMismatch(input.txType, base.acctMinor, acctTx)) {
-      if (NON_PL.includes(acctTx)) {
-        // 은행은 입출금 방향만 안다. 이력이 이 거래처를 비손익으로 분류해
-        // 왔다면 그게 더 정확하다 — 유형을 고쳐 제안하고 사람이 확인한다.
+  /**
+   * 이력이 준 계정을 이번 거래에 쓸 수 있는가. 못 쓰면 사유를 돌려준다.
+   * (계정 마스터의 거래유형과 어긋나면 부호가 뒤집힌다 — 수입 ↔ 지출)
+   */
+  const unusable = (s: KeyStat): string | null => {
+    // 원본 장부가 대분류·중분류까지만 적어 둔 행 — 사람이 적은 것과 어긋나는 이력은 쓰지 않는다
+    if (input.acctMajor && s.top.acctMajor !== input.acctMajor) {
+      return `원본 장부의 대분류(${input.acctMajor})와 다릅니다`;
+    }
+    if (input.acctMid && s.top.acctMid !== input.acctMid) {
+      return `원본 장부의 중분류(${input.acctMid})와 다릅니다`;
+    }
+    const finalType = s.top.txType;
+    const acctTx = accountTxType(ctx.accounts, s.top.acctMajor, s.top.acctMid, s.top.acctMinor);
+    if (acctTx && acctTx !== finalType && !isAllowedTxAccountMismatch(finalType, s.top.acctMinor, acctTx)) {
+      return `그 계정(${s.top.acctMinor})은 ${acctTx} 용이라 이번 ${finalType} 에 맞지 않습니다`;
+    }
+    return null;
+  };
+
+  const pct = (s: KeyStat) => Math.round(s.ratio * 100);
+  const evidence = (s: KeyStat): string => {
+    const tail = `최근 ${s.n}건 중 ${pct(s)}% 가 같은 분류`;
+    if (s.kind === "va") return `거래처 「${input.vendor}」 — ${where} 에서 ${tail}`;
+    if (s.kind === "v") return `거래처 「${input.vendor}」 — 다른 계좌·카드까지 합쳐 ${tail}`;
+    const like = s.top.vendor && normVendor(s.top.vendor) !== v ? ` (「${s.top.vendor}」 등)` : "";
+    if (s.kind === "fa") return `거래처 「${input.vendor}」 와 이름이 닮은 거래${like} — ${where} 에서 ${tail}`;
+    return `거래처 「${input.vendor}」 와 이름이 닮은 거래${like} — ${tail}`;
+  };
+  const typeNote = (s: KeyStat) =>
+    s.top.txType !== input.txType ? ` → 거래유형을 ${input.txType} 에서 ${s.top.txType} 로 고쳐 제안` : "";
+
+  // 1) 과거 이력 — 구체적인 열쇠부터
+  const stats: KeyStat[] = v
+    ? (
+        [
+          statOf(seen.get(keyOf("va", v, last4, flow)), "va", RECENT),
+          statOf(seen.get(keyOf("v", v, last4, flow)), "v", RECENT),
+          statOf(seen.get(keyOf("fa", vendorFamily(v), last4, flow)), "fa", RECENT),
+          statOf(seen.get(keyOf("f", vendorFamily(v), last4, flow)), "f", RECENT),
+        ] as (KeyStat | null)[]
+      ).filter((s): s is KeyStat => s !== null)
+    : [];
+
+  // 1-가) 같은 거래처 · 같은 계좌가 한결같다 → 확정
+  const own = stats.find((s) => s.kind === "va");
+  if (own) {
+    const steady =
+      (own.n >= MIN_HISTORY_COUNT && own.ratio >= MIN_HISTORY_RATIO) ||
+      (own.n >= MIN_STEADY_COUNT && own.ratio === 1 && own.months >= 2);
+    if (steady) {
+      const why = unusable(own);
+      if (why) {
         return {
-          status: "suggested",
-          txType: acctTx,
-          ...base,
-          classReason: `${why} → 거래유형을 ${input.txType} 에서 ${acctTx} 로 고쳐 제안`,
+          status: "needs_review",
+          site,
+          bizMajor: input.bizMajor,
+          bizMinor: input.bizMinor,
+          classReason: `${evidence(own)} 이지만 ${why} — 직접 골라주세요`,
         };
       }
-      // 수입 ↔ 지출이 어긋나는 건 계정을 그대로 쓸 수 없다 (부호가 뒤집힌다)
+      const bizSteady = !!input.bizMajor || own.biz.ratio >= MIN_BIZ_RATIO;
+      const sameType = own.top.txType === input.txType;
       return {
-        status: "needs_review",
-        site,
-        bizMajor: input.bizMajor,
-        bizMinor: input.bizMinor,
-        classReason: `${why} 이지만 그 계정은 ${acctTx} 용이라 이번 ${input.txType} 에 맞지 않습니다 — 직접 골라주세요`,
+        status: bizSteady && sameType ? "confirmed" : "suggested",
+        ...fromStat(own),
+        classReason:
+          evidence(own) +
+          typeNote(own) +
+          (bizSteady ? "" : ` — 사업구분은 갈립니다 (${own.biz.minor || "미정"} ${Math.round(own.biz.ratio * 100)}%)`),
       };
     }
+  }
 
+  // 1-나) 거래처는 여러 계정으로 갈리지만 **같은 금액**은 늘 같은 분류였다
+  //       (자동이체 · 정기결제 — 이동주 14,900원은 급여가 아니라 유튜브 구독료)
+  const amount = (input.gross ?? 0) - (input.adjust ?? 0);
+  if (v && amount !== 0) {
+    for (const kind of ["va", "v"] as const) {
+      const same = (seen.get(keyOf(kind, v, last4, flow)) ?? []).filter((s) => s.amount === amount);
+      const st = statOf(same, kind, RECENT);
+      if (st && st.n >= MIN_SAME_AMOUNT && st.ratio === 1 && !unusable(st)) {
+        return {
+          status: "suggested",
+          ...fromStat(st),
+          classReason:
+            `거래처 「${input.vendor}」 — 같은 금액(${amount.toLocaleString("ko-KR")}원) 과거 ${st.n}건이 모두 같은 분류` +
+            typeNote(st),
+        };
+      }
+    }
+  }
+
+  // 1-다) 일치율이 가장 높은 근거로 제안 (같으면 구체적인 쪽)
+  const usable = stats.filter((s) => {
+    if (unusable(s)) return false;
+    if (s.kind === "va" || s.kind === "fa") return s.ratio >= MIN_SUGGEST_RATIO;
+    return s.ratio >= MIN_SUGGEST_RATIO_ELSEWHERE && s.n >= MIN_ELSEWHERE_COUNT;
+  });
+  const best = usable.reduce<KeyStat | null>((a, b) => (a === null || b.ratio > a.ratio ? b : a), null);
+  if (best) {
     return {
-      status: strong ? "confirmed" : "suggested",
-      ...base,
-      classReason: why,
+      status: "suggested",
+      ...fromStat(best),
+      classReason: evidence(best) + typeNote(best),
+    };
+  }
+
+  // 1-라) 아는 거래처인데 한쪽으로 모이지 않는다 — 제안하면 틀리는 쪽이 더
+  //       많다. 후보만 적어 사람에게 넘긴다. 구독 규칙·계좌 기본값으로 내려
+  //       보내지 않는다 — 「이동주」 70만원 이체가 유튜브 구독료가 되면 안 된다.
+  //       (엑셀의 적요가 알려준 것이 있으면 그쪽이 더 구체적이라 양보한다)
+  const split = stats.find((s) => s.kind === "va" || s.kind === "fa" || s.n >= MIN_ELSEWHERE_COUNT);
+  if (split && !(input.hint?.acctMinor || input.hint?.acctMajor)) {
+    const cands = split.spread
+      .slice(0, 3)
+      .map((c) => `${c.label} ${c.count}건`)
+      .join(" · ");
+    const mismatch = unusable(split);
+    return {
+      status: "needs_review",
+      acctMajor: input.acctMajor,
+      acctMid: input.acctMid,
+      acctMinor: input.acctMinor,
+      bizMajor: input.bizMajor,
+      bizMinor: input.bizMinor,
+      site,
+      classReason: mismatch
+        ? `${evidence(split)} 이지만 ${mismatch} — 직접 골라주세요`
+        : `거래처 「${input.vendor}」 는 분류가 갈립니다 (${split.kind === "va" ? `${where} ` : ""}최근 ${split.n}건: ${cands}) — 직접 골라주세요`,
     };
   }
 
@@ -317,7 +596,22 @@ export function classifyOne(input: ClassifyInput, ctx: ClassifyContext): Classif
     };
   }
 
-  // 4) 판단 불가 — 사람에게 넘긴다
+  // 4) 계좌 기본값 — 처음 보는 거래처. 그 계좌에 들어온(나간) 돈이 대개 무엇이었나
+  if (last4) {
+    const prior = statOf(seen.get(keyOf("a", "", last4, flow)), "a", PRIOR_RECENT);
+    if (prior && prior.n >= PRIOR_MIN_COUNT && prior.ratio >= PRIOR_MIN_RATIO && !unusable(prior)) {
+      return {
+        status: "suggested",
+        ...fromStat(prior),
+        classReason:
+          `${v ? `거래처 「${input.vendor}」 는 처음` : "거래처 없음"} — ${where} 의 ${flow === "in" ? "입금" : "출금"}은 ` +
+          `최근 ${prior.n}건 중 ${pct(prior)}% 가 이 분류` +
+          typeNote(prior),
+      };
+    }
+  }
+
+  // 5) 판단 불가 — 사람에게 넘긴다
   return {
     status: "needs_review",
     acctMajor: input.acctMajor,

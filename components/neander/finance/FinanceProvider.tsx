@@ -52,7 +52,7 @@ import type { FinTransaction, FinImportBatch } from "@/lib/neander/finance/types
 import type { MonthCloseDoc } from "@/lib/neander/finance/close";
 import type { FinProjectDoc } from "@/lib/neander/finance/project";
 import type { FinDoc } from "@/lib/neander/finance/docs";
-import { buildVendorIndex, type VendorStat } from "@/lib/neander/finance/classify";
+import { buildVendorIndex, type VendorIndex } from "@/lib/neander/finance/classify";
 import { useAuth } from "@/components/neander/auth";
 
 interface FinanceValue {
@@ -75,7 +75,7 @@ interface FinanceValue {
   /** 프로젝트 문서 — 견적서·계약서 (projectId 로 프로젝트에 붙는다) */
   docs: FinDoc[];
   /** 확정 거래로 만든 거래처 색인 (자동분류·검토함에서 사용) */
-  vendorIndex: Map<string, VendorStat>;
+  vendorIndex: VendorIndex;
   loading: boolean;
   /** 캐시로 먼저 띄운 뒤 뒤에서 최신으로 맞추는 중 */
   syncing: boolean;
