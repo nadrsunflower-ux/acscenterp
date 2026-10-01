@@ -174,7 +174,7 @@ interface SessionResult {
 let seq = 0;
 
 export default function ImportPage() {
-  const { transactions, accounts, paymentMethods, vendorRules, vendorIndex, imports, masterEmpty, loading, refresh } =
+  const { transactions, accounts, paymentMethods, vendorRules, classRules, vendorIndex, imports, masterEmpty, loading, refresh } =
     useFinance();
   const { currentMember } = useAppData();
   const toast = useToast();
@@ -420,6 +420,8 @@ export default function ImportPage() {
             vendorRules,
             paymentMethods,
             accounts,
+            // 사람이 정해 둔 분류 규칙 — 이력보다 먼저 본다 (class-rules.ts)
+            classRules,
           }),
         };
       });

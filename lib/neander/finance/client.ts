@@ -29,6 +29,7 @@ import type {
   FinAnomalyIgnoreDoc,
   FinVendorRuleDoc,
 } from "./db-types";
+import type { FinClassRule, FinClassRuleDoc, RuleProposal } from "./class-rules";
 
 import type { PresentationContext } from "@/lib/neander/ai/presentation";
 
@@ -48,6 +49,8 @@ export interface FinanceSnapshot {
   accounts: FinAccountDoc[];
   paymentMethods: FinPaymentMethodDoc[];
   vendorRules: FinVendorRuleDoc[];
+  /** 분류 규칙 — 사람이 정해 둔 「이 거래처는 이 계정」 (class-rules.ts) */
+  classRules?: FinClassRuleDoc[];
   /** 원장에 사람이 덧붙인 열 */
   ledgerColumns: FinLedgerColumnDoc[];
   /** 형광펜 끄기 — 신뢰 거래처 · 이 달 확인한 계정 */
@@ -402,6 +405,8 @@ export interface ChangeProposal {
     amount: number;
     status: string;
   }[];
+  /** 분류 규칙 제안이면 여기에 — 그때 ids·patch·before 는 비어 있다 (class-rules.ts) */
+  rule?: RuleProposal;
 }
 
 export interface ChatResult {
@@ -615,6 +620,20 @@ export const upsertFinVendorRule = (rule: {
 }) => mutate("vendorRule.upsert", rule);
 
 export const deleteFinVendorRule = (id: string) => mutate("vendorRule.delete", { id });
+
+/**
+ * 분류 규칙 — 만들기·고치기. 서버가 계정·계좌를 마스터에서 다시 확인하고,
+ * 조건이 같은 규칙이 이미 있으면 그것을 고친다 (class-rules.ts).
+ */
+export const upsertFinClassRule = (
+  rule: FinClassRule,
+  opts: { id?: string; source?: "assistant" | "manual" } = {},
+) => mutate<{ id: string; replaced: boolean }>("classRule.upsert", { rule, ...opts });
+
+export const setFinClassRuleActive = (id: string, active: boolean) =>
+  mutate("classRule.setActive", { id, active });
+
+export const deleteFinClassRule = (id: string) => mutate("classRule.delete", { id });
 
 /** 원장에 덧붙인 열 — 만들기·이름 바꾸기 */
 export const upsertFinLedgerColumn = (col: { id?: string; label: string; before?: string }) =>

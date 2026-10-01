@@ -13,6 +13,7 @@ import {
   MAX_ATTACH_TOTAL_BYTES,
 } from "@/lib/neander/ai/attachment-limits";
 import type { FinAccountDoc, FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
+import type { FinClassRuleDoc } from "@/lib/neander/finance/class-rules";
 import type { FinTransaction } from "@/lib/neander/finance/types";
 import {
   titleFrom,
@@ -118,16 +119,19 @@ export async function POST(req: Request) {
     }
 
     const db = adminDb();
-    const [txSnap, acctSnap, pmSnap] = await Promise.all([
+    const [txSnap, acctSnap, pmSnap, ruleSnap] = await Promise.all([
       db.collection(NEANDER_COL.finTransactions).get(),
       db.collection(NEANDER_COL.finAccounts).get(),
       db.collection(NEANDER_COL.finPaymentMethods).get(),
+      db.collection(NEANDER_COL.finClassRules).get(),
     ]);
 
     const ctx = {
       transactions: txSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as FinTransaction[],
       accounts: acctSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as FinAccountDoc[],
       paymentMethods: pmSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as FinPaymentMethodDoc[],
+      // 분류 규칙 — 비서가 겹치는 규칙을 보고, 고치거나 지울 대상을 찾는다
+      classRules: ruleSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as FinClassRuleDoc[],
     };
     if (ctx.accounts.length === 0) {
       return NextResponse.json(

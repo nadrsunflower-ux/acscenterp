@@ -18,7 +18,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { CreditCard, Database, FolderTree, Info, Plus, Repeat, Scale, Search, TriangleAlert } from "lucide-react";
+import { CreditCard, Database, FolderTree, Info, Plus, Repeat, Scale, Search, Sparkles, TriangleAlert } from "lucide-react";
 import {
   Badge,
   Button,
@@ -60,7 +60,14 @@ import {
   deleteFinSubscription,
   setFinAllocationActive,
   deleteFinAllocation,
+  setFinClassRuleActive,
+  deleteFinClassRule,
 } from "@/lib/neander/finance/client";
+import {
+  describeRuleCondition,
+  describeRuleResult,
+  ruleConfirms,
+} from "@/lib/neander/finance/class-rules";
 import { legacyPaymentMethods } from "@/lib/neander/finance/report";
 import { FIN_BANKS, bankOfMethod, isMonthlyAccount, type FinBankId } from "@/lib/neander/finance/import-slots";
 import {
@@ -84,7 +91,7 @@ const SEARCH_HINT: Record<Tab, string> = {
   methods: "뒷 4자리 · 별칭 · 사업장",
   subscriptions: "서비스명 · 키워드",
   allocations: "규칙명 · 계정",
-  rules: "서비스명 · 키워드",
+  rules: "키워드 · 계정 · 서비스명",
 };
 
 const ALL_TX = "__all__";
@@ -117,7 +124,7 @@ function Keyword({ children }: { children: React.ReactNode }) {
 }
 
 export default function MasterPage() {
-  const { accounts, paymentMethods, vendorRules, subscriptions, allocations, masterEmpty, loading, refresh } =
+  const { accounts, paymentMethods, vendorRules, classRules, subscriptions, allocations, masterEmpty, loading, refresh } =
     useFinance();
   const confirm = useConfirm();
   const [tab, setTab] = useState<Tab>("accounts");
@@ -213,12 +220,27 @@ export default function MasterPage() {
     return rows.filter((r) => [r.service, r.keyword].join(" ").toLowerCase().includes(s));
   }, [vendorRules, q]);
 
+  /** 분류 규칙 — 켜진 것 먼저, 그 안에서는 키워드 순 */
+  const filteredClassRules = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    const rows = [...classRules].sort(
+      (a, b) => Number(b.active) - Number(a.active) || a.keyword.localeCompare(b.keyword, "ko"),
+    );
+    if (!s) return rows;
+    return rows.filter((r) =>
+      [r.keyword, r.acctMajor, r.acctMid, r.acctMinor, r.bizMinor ?? "", r.note ?? "", r.last4 ?? ""]
+        .join(" ")
+        .toLowerCase()
+        .includes(s),
+    );
+  }, [classRules, q]);
+
   const countOf: Record<Tab, number> = {
     accounts: accounts.length,
     methods: paymentMethods.length,
     subscriptions: subscriptions.length,
     allocations: allocations.length,
-    rules: vendorRules.length,
+    rules: classRules.length + vendorRules.length,
   };
   const isSeeding = seeding === "적재 중…";
 
@@ -282,6 +304,20 @@ export default function MasterPage() {
     )
       return;
     await deleteFinVendorRule(id);
+    await refresh();
+  };
+
+  const removeClassRule = async (id: string, keyword: string) => {
+    if (
+      !(await confirm({
+        title: `분류 규칙 「${keyword}」 을 지울까요?`,
+        message: "앞으로 이 조건의 거래는 다시 과거 이력으로 분류됩니다. 이미 분류된 거래는 그대로입니다.",
+        confirmLabel: "삭제",
+        tone: "danger",
+      }))
+    )
+      return;
+    await deleteFinClassRule(id);
     await refresh();
   };
 
@@ -357,8 +393,9 @@ export default function MasterPage() {
               구독 추가
             </Button>
           ) : tab === "rules" ? (
+            // 분류 규칙은 재무 비서에게 말해서 만든다 — 이 버튼은 아래 구독 키워드 규칙용이다
             <Button size="sm" icon={Plus} onClick={() => setAdding("rule")}>
-              규칙 추가
+              구독 키워드 추가
             </Button>
           ) : undefined
         }
@@ -751,12 +788,94 @@ export default function MasterPage() {
         </Card>
       )}
 
-      {/* 자동분류 규칙 */}
+      {/* 분류 규칙 — 사람이 정해 둔 「이 거래처는 이 계정」 (class-rules.ts).
+          재무 비서에게 말해서 만든다. 여기서는 보고, 끄고, 지운다. */}
+      {tab === "rules" && (
+        <Card padding="none" className="mb-4 overflow-hidden">
+          <div className="px-5 pt-5">
+            <SectionHeader
+              title="분류 규칙"
+              hint={`${filteredClassRules.length.toLocaleString("ko-KR")}건`}
+              action={<TableNote>자동분류가 과거 이력보다 먼저 봅니다</TableNote>}
+            />
+            <InlineNotice tone="accent" icon={Sparkles} className="mb-3">
+              <b>재무 비서</b>에게 「쿠팡이츠는 앞으로 일반식대로 분류해줘」 처럼 말하면 규칙을 제안합니다.
+              승인하면 여기에 쌓이고, 다음 엑셀 임포트와 검토 대기함 AI 분류부터 적용됩니다. 이미 확정된
+              거래는 바뀌지 않습니다.
+            </InlineNotice>
+          </div>
+          {filteredClassRules.length === 0 ? (
+            <div className="px-5 pb-5">
+              <EmptyState
+                compact
+                icon={Search}
+                title={q ? "조건에 맞는 분류 규칙이 없습니다" : "분류 규칙이 아직 없습니다"}
+                description={q ? "검색어를 지워 보세요." : "화면 위쪽 「재무 비서」 를 열어 말로 만들어 보세요."}
+                className="border-0"
+              />
+            </div>
+          ) : (
+            <ul className="divide-y divide-nd-line border-t border-nd-line">
+              {filteredClassRules.map((rule) => (
+                <li key={rule.id} className="flex flex-wrap items-start gap-3 px-5 py-3">
+                  <div className="flex shrink-0 items-center gap-2 pt-0.5">
+                    {busy === rule.id ? (
+                      <LoadingState size="inline" label="" />
+                    ) : (
+                      <Switch
+                        size="sm"
+                        checked={Boolean(rule.active)}
+                        disabled={busy !== null}
+                        aria-label={`${rule.keyword} 규칙 ${rule.active ? "끄기" : "켜기"}`}
+                        onChange={async (next) => {
+                          setBusy(rule.id);
+                          try {
+                            await setFinClassRuleActive(rule.id, next);
+                            await refresh();
+                          } finally {
+                            setBusy(null);
+                          }
+                        }}
+                      />
+                    )}
+                    <span className={cn("text-nd-table font-medium", rule.active ? "text-nd-accent-strong" : "text-nd-fg-3")}>
+                      {rule.active ? "켜짐" : "꺼짐"}
+                    </span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-nd-body text-nd-fg">
+                      {describeRuleCondition(rule, paymentMethods)}
+                      <span className="mx-1.5 text-nd-fg-3">→</span>
+                      <b className="font-semibold">{describeRuleResult(rule)}</b>
+                    </p>
+                    <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-nd-table text-nd-fg-2">
+                      <Badge tone={ruleConfirms(rule, !!rule.bizMajor && !!rule.bizMinor) ? "success" : "warning"} size="sm">
+                        {ruleConfirms(rule, !!rule.bizMajor && !!rule.bizMinor) ? "바로 확정" : "제안으로 올림"}
+                      </Badge>
+                      {rule.note && <span className="min-w-0">{rule.note}</span>}
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`${rule.keyword} 분류 규칙 삭제`}
+                    onClick={() => void removeClassRule(rule.id, rule.keyword)}
+                  >
+                    삭제
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
+
+      {/* 자동분류 규칙 (구독 키워드) */}
       {tab === "rules" && (
         <Card padding="none" className="overflow-hidden">
           <div className="px-5 pt-5">
             <SectionHeader
-              title="자동분류 규칙"
+              title="구독 키워드 규칙"
               hint={`${filteredRules.length.toLocaleString("ko-KR")}건`}
               action={<TableNote>거래처명에 키워드가 포함되면 해당 서비스로 분류합니다</TableNote>}
             />

@@ -16,6 +16,15 @@ import type { FinAccountDoc } from "../db-types";
 import { netAmount, TX_TYPES, type FinTransaction, type TxType } from "../types";
 import { buildReport, makeIsCard, type Basis } from "../report";
 import type { FinPaymentMethodDoc } from "../db-types";
+import {
+  describeRuleCondition,
+  describeRuleResult,
+  normalizeClassRule,
+  previewClassRule,
+  sameCondition,
+  type FinClassRuleDoc,
+  type RuleProposal,
+} from "../class-rules";
 
 /** 한 번에 돌려줄 거래 행 수 상한 — 모델 컨텍스트를 지키기 위해 */
 const ROW_LIMIT = 50;
@@ -25,6 +34,8 @@ export interface ToolContext {
   transactions: FinTransaction[];
   accounts: FinAccountDoc[];
   paymentMethods: FinPaymentMethodDoc[];
+  /** 지금 저장돼 있는 분류 규칙 (class-rules.ts). 없으면 빈 것으로 본다 */
+  classRules?: FinClassRuleDoc[];
 }
 
 /** 사람이 승인해야 반영되는 변경 제안 */
@@ -44,6 +55,11 @@ export interface ChangeProposal {
     amount: number;
     status: string;
   }[];
+  /**
+   * 분류 규칙 제안이면 여기에 — 그때 ids·patch·before 는 비어 있다.
+   * 거래 변경과 **같은 길**(제안 → 사람이 적용)을 타게 하려고 같은 모양에 싣는다.
+   */
+  rule?: RuleProposal;
 }
 
 // ---- 도구 정의 (OpenAI function calling 형식) -------------------
@@ -166,6 +182,81 @@ export const TOOL_DEFS = [
             },
           },
           reason: { type: "string", description: "왜 이렇게 바꾸는지 한 문장. 사용자가 이걸 보고 승인한다" },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "list_class_rules",
+      description:
+        "지금 저장돼 있는 **분류 규칙**(사람이 정해 둔 「이 거래처는 이 계정」)을 본다. " +
+        "규칙을 새로 제안하기 전에 겹치는 것이 있는지 확인하고, 고치거나 지울 때 ruleId 를 여기서 얻는다.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: { keyword: { type: "string", description: "키워드에 이 글자가 든 규칙만" } },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "propose_class_rule",
+      description:
+        "앞으로 들어올 거래를 자동으로 분류할 **규칙을 제안**한다. 저장되지 않는다 — 사용자가 화면에서 승인해야 저장된다. " +
+        "저장되면 엑셀 임포트 자동분류와 검토 대기함 AI 분류가 과거 이력보다 **먼저** 이 규칙을 따른다. " +
+        "이미 확정된 거래는 바뀌지 않는다 — 지금 장부에 있는 거래를 바꾸려면 propose_update 를 따로 쓴다. " +
+        "제안 전에 find_accounts 로 계정이 실재하는지 확인할 것. 결과로 「지금 장부에서 이 규칙에 걸리는 거래」 가 돌아온다 — " +
+        "다른 계정으로 확정된 거래가 많으면 키워드가 너무 넓은 것이니 사용자에게 알리고 조건을 좁힌다.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        required: ["keyword", "acctMajor", "acctMid", "acctMinor", "reason"],
+        properties: {
+          keyword: {
+            type: "string",
+            description: "거래처명에 이 글자가 들어 있으면 적용 (대소문자·띄어쓰기 무시, 두 글자 이상). 가능한 한 구체적으로",
+          },
+          last4: { type: "string", description: "이 계좌·카드에서만 (뒷 4자리). 계좌마다 뜻이 다른 거래처일 때 쓴다" },
+          minAmount: { type: "number", description: "순금액 이상일 때만" },
+          maxAmount: { type: "number", description: "순금액 이하일 때만" },
+          flow: {
+            type: "string",
+            enum: ["in", "out"],
+            description: "자금거래 계정일 때만: 들어온 돈(in) / 나간 돈(out). 수입·지출 계정은 계정이 정한다",
+          },
+          acctMajor: { type: "string" },
+          acctMid: { type: "string" },
+          acctMinor: { type: "string" },
+          bizMajor: { type: "string", description: "B2C · B2B · 공용 · 해당없음" },
+          bizMinor: { type: "string", description: "와우·아이디·홍대공용·온라인·SMOAT·조향·개발·기타·공용" },
+          mode: {
+            type: "string",
+            enum: ["confirm", "suggest"],
+            description:
+              "confirm = 걸리면 바로 확정 (기본). suggest = 제안으로 올려 사람이 확인. 키워드가 넓거나 예외가 있을 수 있으면 suggest. " +
+              "수입·지출 규칙은 사업구분까지 적어야 실제로 확정된다 — 없으면 제안으로 올라간다",
+          },
+          replaceRuleId: { type: "string", description: "기존 규칙을 고치는 것이면 그 규칙의 id (list_class_rules)" },
+          reason: { type: "string", description: "왜 이 규칙인지 한 문장 — 사용자의 말을 살려서. 규칙에 메모로 남는다" },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "propose_class_rule_delete",
+      description: "분류 규칙을 지우자고 **제안**한다. 저장되지 않는다 — 사용자가 승인해야 지워진다.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        required: ["ruleId", "reason"],
+        properties: {
+          ruleId: { type: "string", description: "list_class_rules 로 얻은 id" },
+          reason: { type: "string" },
         },
       },
     },
@@ -439,6 +530,121 @@ export function runTool(name: string, args: Args, ctx: ToolContext): ToolOutcome
           note:
             "제안을 사용자 화면에 올렸습니다. **아직 저장되지 않았습니다** — 사용자가 승인해야 반영됩니다. " +
             "같은 내용을 다시 제안하지 마세요.",
+        },
+      };
+    }
+
+    case "list_class_rules": {
+      const kw = (s(args.keyword) ?? "").toLowerCase().replace(/\s+/g, "");
+      const rules = (ctx.classRules ?? []).filter(
+        (r) => !kw || r.keyword.toLowerCase().replace(/\s+/g, "").includes(kw),
+      );
+      return {
+        result: {
+          count: rules.length,
+          rules: rules.slice(0, 40).map((r) => ({
+            ruleId: r.id,
+            active: r.active,
+            condition: describeRuleCondition(r, ctx.paymentMethods),
+            result: describeRuleResult(r),
+            mode: r.mode,
+            note: r.note,
+          })),
+          truncated: rules.length > 40,
+        },
+      };
+    }
+
+    case "propose_class_rule": {
+      const reason = s(args.reason) ?? "";
+      if (!reason) {
+        return { result: { ok: false, error: "reason 이 필요합니다. 사용자가 이걸 보고 승인합니다." } };
+      }
+      const checked = normalizeClassRule(
+        { ...args, note: reason },
+        { accounts: ctx.accounts, paymentMethods: ctx.paymentMethods },
+      );
+      if (!checked.ok) {
+        return {
+          result: { ok: false, error: `${checked.error} find_accounts 로 실재하는 계정을 확인하세요.` },
+        };
+      }
+      const rule = checked.rule;
+      const existing = ctx.classRules ?? [];
+      const replaceId = s(args.replaceRuleId);
+      if (replaceId && !existing.some((r) => r.id === replaceId)) {
+        return { result: { ok: false, error: "replaceRuleId 의 규칙을 찾지 못했습니다. list_class_rules 로 확인하세요." } };
+      }
+      // 조건이 같은 규칙이 이미 있으면 서버가 그것을 고친다 — 사용자에게도 그렇게 알린다
+      const twin = existing.find((r) => (replaceId ? r.id === replaceId : sameCondition(r, rule)));
+      const { preview, pendingIds } = previewClassRule(rule, ctx.transactions);
+
+      const proposal: ChangeProposal = {
+        id: `r${++proposalSeq}-${Date.now()}`,
+        ids: [],
+        patch: {},
+        reason,
+        before: [],
+        rule: {
+          action: "save",
+          ...(twin ? { ruleId: twin.id } : {}),
+          rule,
+          condition: describeRuleCondition(rule, ctx.paymentMethods),
+          result: describeRuleResult(rule),
+          preview,
+        },
+      };
+      const pl = rule.txType === "수입" || rule.txType === "지출";
+      return {
+        proposal,
+        result: {
+          ok: true,
+          replaces: twin ? `같은 조건의 기존 규칙(${describeRuleResult(twin)})을 고칩니다` : undefined,
+          willConfirm: rule.mode === "confirm" && (!pl || (!!rule.bizMajor && !!rule.bizMinor)),
+          matchesNow: {
+            total: preview.total,
+            alreadyThisAccount: preview.same,
+            confirmedAsOtherAccount: preview.conflict,
+            notYetConfirmed: preview.pending,
+            byAccount: preview.byClass,
+          },
+          pendingIds: pendingIds.slice(0, ROW_LIMIT),
+          note:
+            "규칙 제안을 사용자 화면에 올렸습니다. **아직 저장되지 않았습니다** — 사용자가 승인해야 저장됩니다. " +
+            "이 규칙은 앞으로 들어올 거래에 적용되고, 이미 확정된 거래는 바꾸지 않습니다. 지금 장부에 있는 미확정 거래(pendingIds)도 바로 바꾸길 원하면 " +
+            "사용자에게 묻고 propose_update 로 따로 제안하세요. confirmedAsOtherAccount 가 많으면 키워드가 너무 넓다고 알리세요.",
+        },
+      };
+    }
+
+    case "propose_class_rule_delete": {
+      const ruleId = s(args.ruleId);
+      const reason = s(args.reason) ?? "";
+      const target = (ctx.classRules ?? []).find((r) => r.id === ruleId);
+      if (!target) {
+        return { result: { ok: false, error: "그 id 의 규칙을 찾지 못했습니다. list_class_rules 로 확인하세요." } };
+      }
+      if (!reason) return { result: { ok: false, error: "reason 이 필요합니다." } };
+      const proposal: ChangeProposal = {
+        id: `r${++proposalSeq}-${Date.now()}`,
+        ids: [],
+        patch: {},
+        reason,
+        before: [],
+        rule: {
+          action: "delete",
+          ruleId: target.id,
+          rule: target,
+          condition: describeRuleCondition(target, ctx.paymentMethods),
+          result: describeRuleResult(target),
+          preview: previewClassRule(target, ctx.transactions).preview,
+        },
+      };
+      return {
+        proposal,
+        result: {
+          ok: true,
+          note: "규칙 삭제 제안을 사용자 화면에 올렸습니다. **아직 지워지지 않았습니다** — 사용자가 승인해야 지워집니다.",
         },
       };
     }

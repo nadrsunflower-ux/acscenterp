@@ -4,6 +4,7 @@ import { requireErpUser, accessErrorResponse } from "@/lib/neander/server/auth";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import { AI_BATCH_LIMIT, suggestClassifications } from "@/lib/neander/finance/server/ai-classify";
 import type { FinAccountDoc } from "@/lib/neander/finance/db-types";
+import type { FinClassRuleDoc } from "@/lib/neander/finance/class-rules";
 import type { FinTransaction } from "@/lib/neander/finance/types";
 
 // ============================================================
@@ -43,10 +44,13 @@ export async function POST(req: Request) {
     }
 
     const db = adminDb();
-    const [txSnap, acctSnap] = await Promise.all([
+    const [txSnap, acctSnap, ruleSnap] = await Promise.all([
       db.collection(NEANDER_COL.finTransactions).get(),
       db.collection(NEANDER_COL.finAccounts).get(),
+      db.collection(NEANDER_COL.finClassRules).get(),
     ]);
+    // 사람이 정한 분류 규칙 — 걸리는 거래는 모델에 묻지 않고 규칙대로 답한다
+    const rules = ruleSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as FinClassRuleDoc[];
 
     const all = txSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as FinTransaction[];
     const accounts = acctSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as FinAccountDoc[];
@@ -63,7 +67,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "해당 거래를 찾지 못했습니다." }, { status: 404 });
     }
 
-    const result = await suggestClassifications({ items, history: all, accounts });
+    const result = await suggestClassifications({ items, history: all, accounts, rules });
     return NextResponse.json(result);
   } catch (e) {
     console.error("[finance/ai/suggest]", e);

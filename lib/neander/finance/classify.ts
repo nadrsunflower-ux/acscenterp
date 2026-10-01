@@ -4,6 +4,9 @@
 //  임포트된 거래에 계정·사업구분을 자동으로 붙인다. 근거를 순서대로
 //  시도하고, 어느 것도 못 맞히면 사람에게 넘긴다.
 //
+//    0) 분류 규칙   사람이 정해 둔 「이 거래처는 이 계정」 (class-rules.ts).
+//                   **이력보다 먼저** 본다 — 이력이 갈리거나 아직 없어서 사람이
+//                   직접 말해 둔 것이기 때문이다. 재무 비서에게 말해서 만든다.
 //    1) 과거 이력   확정된 장부가 곧 학습 자료다. 네 가지 열쇠로 찾는다 —
 //         ① 같은 거래처 · 같은 계좌   가장 강하다. **확정은 이것만** 만든다
 //         ② 같은 거래처 · 다른 계좌    제안
@@ -54,6 +57,12 @@
 
 import type { FinTransaction, ClassificationStatus, TxType } from "./types";
 import type { FinAccountDoc, FinPaymentMethodDoc, FinVendorRuleDoc } from "./db-types";
+import {
+  describeRuleResult,
+  matchClassRule,
+  ruleConfirms,
+  type FinClassRuleDoc,
+} from "./class-rules";
 
 /** 이력에서 「최근」 으로 보는 건수 — 오래된 분류보다 최근 분류를 따른다 */
 const RECENT = 12;
@@ -292,6 +301,8 @@ export interface ClassifyContext {
    * 없으면 검증을 건너뛴다(예전 호출부 호환).
    */
   accounts?: FinAccountDoc[];
+  /** 사람이 정한 분류 규칙 (class-rules.ts). 없으면 이력부터 본다 */
+  classRules?: FinClassRuleDoc[];
 }
 
 /** 계정 3단으로 마스터를 찾아 그 계정의 거래유형을 돌려준다 */
@@ -462,6 +473,40 @@ export function classifyOne(input: ClassifyInput, ctx: ClassifyContext): Classif
   };
   const typeNote = (s: KeyStat) =>
     s.top.txType !== input.txType ? ` → 거래유형을 ${input.txType} 에서 ${s.top.txType} 로 고쳐 제안` : "";
+
+  // 0-나) 사람이 정한 분류 규칙 — 이력보다 먼저.
+  //       이력은 「지금까지 그랬다」 이고 규칙은 「앞으로 이렇게 하라」 다. 다만
+  //       조용히 틀리지 않도록: 마스터에서 사라진 계정의 규칙은 쓰지 않고,
+  //       원본 장부가 적어 둔 대·중분류와 어긋나면 양보하고, 손익 거래인데
+  //       사업구분이 없으면 확정하지 않고 제안으로 올린다.
+  const ruled = v ? matchClassRule(input, ctx.classRules ?? []) : undefined;
+  if (ruled) {
+    const known =
+      !ctx.accounts?.length ||
+      accountTxType(ctx.accounts, ruled.acctMajor, ruled.acctMid, ruled.acctMinor) === ruled.txType;
+    const agrees =
+      (!input.acctMajor || input.acctMajor === ruled.acctMajor) &&
+      (!input.acctMid || input.acctMid === ruled.acctMid);
+    if (known && agrees) {
+      const bizMajor = input.bizMajor || ruled.bizMajor;
+      const bizMinor = input.bizMinor || ruled.bizMinor;
+      const confirm = ruleConfirms(ruled, !!bizMajor && !!bizMinor);
+      return {
+        status: confirm ? "confirmed" : "suggested",
+        ...(ruled.txType !== input.txType ? { txType: ruled.txType } : {}),
+        acctMajor: ruled.acctMajor,
+        acctMid: ruled.acctMid,
+        acctMinor: ruled.acctMinor,
+        bizMajor,
+        bizMinor,
+        site,
+        classReason:
+          `분류 규칙 「${ruled.keyword}」 → ${describeRuleResult(ruled)}` +
+          (ruled.mode === "confirm" && !confirm ? " — 사업구분이 규칙에 없어 확인 필요" : "") +
+          (ruled.txType !== input.txType ? ` (거래유형을 ${input.txType} 에서 ${ruled.txType} 로)` : ""),
+      };
+    }
+  }
 
   // 1) 과거 이력 — 구체적인 열쇠부터
   const stats: KeyStat[] = v

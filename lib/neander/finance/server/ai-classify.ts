@@ -37,6 +37,7 @@
 import type { FinAccountDoc } from "../db-types";
 import { netAmount, type FinTransaction } from "../types";
 import { normVendor } from "../classify";
+import { describeRuleResult, matchClassRule, type FinClassRuleDoc } from "../class-rules";
 
 /** 한 번에 물어볼 거래 수 상한 — 응답이 길어지면 품질이 떨어진다 */
 export const AI_BATCH_LIMIT = 40;
@@ -267,15 +268,57 @@ interface OpenRouterResponse {
   error?: { message?: string; code?: number | string };
 }
 
+/**
+ * 분류 규칙에 걸리는 거래 — 모델에 묻지 않고 규칙대로 답한다.
+ *
+ * 사람이 「이 거래처는 이 계정」 이라고 정해 둔 것을 모델이 다시 추측하게 두면
+ * 규칙과 다른 답이 나올 수 있고, 그러면 규칙을 만든 의미가 없다. 여기서는
+ * 거래유형을 바꾸지 못하므로(추천은 계정만 붙인다) 유형이 같은 규칙만 쓴다.
+ */
+export function suggestByRules(
+  items: FinTransaction[],
+  rules: FinClassRuleDoc[],
+  accounts: FinAccountDoc[],
+): AiSuggestion[] {
+  if (rules.length === 0) return [];
+  const valid = new Set(accounts.map((a) => `${a.txType}|${a.major}|${a.mid}|${a.minor}`));
+  const out: AiSuggestion[] = [];
+  items.forEach((t) => {
+    const rule = matchClassRule(
+      t,
+      rules.filter((r) => r.txType === t.txType),
+    );
+    if (!rule || !valid.has(`${t.txType}|${rule.acctMajor}|${rule.acctMid}|${rule.acctMinor}`)) return;
+    out.push({
+      id: t.id,
+      acctMajor: rule.acctMajor,
+      acctMid: rule.acctMid,
+      acctMinor: rule.acctMinor,
+      bizMajor: rule.bizMajor,
+      bizMinor: rule.bizMinor,
+      confidence: 1,
+      reason: `분류 규칙 「${rule.keyword}」 → ${describeRuleResult(rule)}`,
+    });
+  });
+  return out;
+}
+
 export async function suggestClassifications(args: {
   items: FinTransaction[];
   history: FinTransaction[];
   accounts: FinAccountDoc[];
+  /** 사람이 정한 분류 규칙 — 걸리는 거래는 모델에 보내지 않는다 */
+  rules?: FinClassRuleDoc[];
 }): Promise<AiResult> {
-  const { items, history } = args;
+  const { history } = args;
   // 은퇴 계정(active:false)은 추천 후보에서 뺀다 — 새 거래가 폐점 매장
   // 계정에 붙으면 안 된다. 프롬프트와 검증 집합이 같은 목록을 봐야 한다.
   const accounts = args.accounts.filter((a) => a.active !== false);
+  // 규칙이 답한 것은 빼고 나머지만 모델에 묻는다
+  const byRule = suggestByRules(args.items, args.rules ?? [], accounts);
+  const ruled = new Set(byRule.map((s) => s.id));
+  const items = args.items.filter((t) => !ruled.has(t.id));
+  if (items.length === 0) return { ...emptyResult(), suggestions: byRule };
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
     throw new Error(
@@ -284,8 +327,6 @@ export async function suggestClassifications(args: {
         `(기본 ${DEFAULT_MODEL}).`,
     );
   }
-  if (items.length === 0) return emptyResult();
-
   const model = process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
   const { system, user } = buildPrompt({ items, history, accounts });
 
@@ -389,7 +430,7 @@ export async function suggestClassifications(args: {
     });
   });
 
-  return { suggestions, rejected, usage, model: raw?.model ?? model };
+  return { suggestions: [...byRule, ...suggestions], rejected, usage, model: raw?.model ?? model };
 }
 
 function emptyResult(): AiResult {

@@ -49,6 +49,7 @@ import type {
   FinVendorRuleDoc,
 } from "@/lib/neander/finance/db-types";
 import type { FinTransaction, FinImportBatch } from "@/lib/neander/finance/types";
+import type { FinClassRuleDoc } from "@/lib/neander/finance/class-rules";
 import type { MonthCloseDoc } from "@/lib/neander/finance/close";
 import type { FinProjectDoc } from "@/lib/neander/finance/project";
 import type { FinDoc } from "@/lib/neander/finance/docs";
@@ -60,6 +61,8 @@ interface FinanceValue {
   accounts: FinAccountDoc[];
   paymentMethods: FinPaymentMethodDoc[];
   vendorRules: FinVendorRuleDoc[];
+  /** 분류 규칙 — 사람이 정해 둔 「이 거래처는 이 계정」 (class-rules.ts) */
+  classRules: FinClassRuleDoc[];
   subscriptions: FinSubscriptionDoc[];
   allocations: FinAllocationDoc[];
   budgets: FinBudgetDoc[];
@@ -100,6 +103,7 @@ const EMPTY = {
   accounts: [] as FinAccountDoc[],
   paymentMethods: [] as FinPaymentMethodDoc[],
   vendorRules: [] as FinVendorRuleDoc[],
+  classRules: [] as FinClassRuleDoc[],
   subscriptions: [] as FinSubscriptionDoc[],
   allocations: [] as FinAllocationDoc[],
   budgets: [] as FinBudgetDoc[],
@@ -155,6 +159,7 @@ const pick = (snap: FinanceSnapshot, transactions: FinTransaction[]): FinanceDat
   accounts: snap.accounts ?? [],
   paymentMethods: snap.paymentMethods ?? [],
   vendorRules: snap.vendorRules ?? [],
+  classRules: snap.classRules ?? [],
   subscriptions: snap.subscriptions ?? [],
   allocations: snap.allocations ?? [],
   budgets: snap.budgets ?? [],

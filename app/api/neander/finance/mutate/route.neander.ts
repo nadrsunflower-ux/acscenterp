@@ -7,6 +7,8 @@ import { fillHidden, moveToTrash, readBases } from "@/lib/neander/server/trash";
 import { seedFinanceMasterData } from "@/lib/neander/finance/server/seed";
 import { matchMemos, patchFromMemo, type FinCardMemo } from "@/lib/neander/finance/card-memo";
 import type { FinTransaction } from "@/lib/neander/finance/types";
+import type { FinAccountDoc, FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
+import { normalizeClassRule, sameCondition, type FinClassRuleDoc } from "@/lib/neander/finance/class-rules";
 import { sanitizeProject } from "@/lib/neander/finance/project";
 import { sanitizeFinDoc, sanitizeFiles } from "@/lib/neander/finance/docs";
 import { deleteFiles } from "@/lib/neander/server/storage";
@@ -389,6 +391,64 @@ export async function POST(req: Request) {
           .collection(NEANDER_COL.finVendorRules)
           .doc(safeId(keyword))
           .set(clean({ keyword, service, lookupKey }));
+        return NextResponse.json({ ok: true });
+      }
+
+      // ---- 분류 규칙 (finance/class-rules.ts) --------------------
+      /**
+       * 규칙을 만들거나 고친다. 검사는 비서 도구가 쓰는 것과 **같은 함수**다 —
+       * 화면이 보낸 값을 믿지 않고 계정·계좌를 마스터에서 다시 확인한다.
+       * 조건이 같은 규칙이 이미 있으면 새로 만들지 않고 그것을 고친다.
+       */
+      case "classRule.upsert": {
+        const { id, rule, source } = payload as { id?: string; rule?: Record<string, unknown>; source?: string };
+        const [acctSnap, pmSnap, ruleSnap] = await Promise.all([
+          db.collection(NEANDER_COL.finAccounts).get(),
+          db.collection(NEANDER_COL.finPaymentMethods).get(),
+          db.collection(NEANDER_COL.finClassRules).get(),
+        ]);
+        const checked = normalizeClassRule(rule ?? {}, {
+          accounts: acctSnap.docs.map((d) => d.data()) as FinAccountDoc[],
+          paymentMethods: pmSnap.docs.map((d) => d.data()) as FinPaymentMethodDoc[],
+        });
+        if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 });
+        const existing = ruleSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as FinClassRuleDoc);
+        const target = (id && existing.find((r) => r.id === id)) || existing.find((r) => sameCondition(r, checked.rule));
+        const col = db.collection(NEANDER_COL.finClassRules);
+        if (target) {
+          // set 으로 통째 바꾼다 — 조건을 지운 것(계좌·금액)이 옛 값으로 남으면 안 된다
+          await col.doc(target.id).set({
+            ...checked.rule,
+            createdAt: target.createdAt ?? now,
+            updatedAt: now,
+            byEmail: user.email,
+            source: target.source ?? (source === "assistant" ? "assistant" : "manual"),
+          });
+          return NextResponse.json({ ok: true, id: target.id, replaced: true });
+        }
+        const ref = await col.add({
+          ...checked.rule,
+          createdAt: now,
+          byEmail: user.email,
+          source: source === "assistant" ? "assistant" : "manual",
+        });
+        return NextResponse.json({ ok: true, id: ref.id, replaced: false });
+      }
+
+      case "classRule.setActive": {
+        const { id, active } = payload as { id: string; active: boolean };
+        if (!id) return NextResponse.json({ error: "id 가 필요합니다." }, { status: 400 });
+        await db
+          .collection(NEANDER_COL.finClassRules)
+          .doc(id)
+          .set({ active: !!active, updatedAt: now, byEmail: user.email }, { merge: true });
+        return NextResponse.json({ ok: true });
+      }
+
+      case "classRule.delete": {
+        const { id } = payload as { id: string };
+        if (!id) return NextResponse.json({ error: "id 가 필요합니다." }, { status: 400 });
+        await db.collection(NEANDER_COL.finClassRules).doc(id).delete();
         return NextResponse.json({ ok: true });
       }
 

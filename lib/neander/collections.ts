@@ -53,6 +53,11 @@ export const NEANDER_COL = {
   finPaymentMethods: "neander_fin_payment_methods",
   /** 거래처 키워드 → 구독 서비스 자동분류 규칙 */
   finVendorRules: "neander_fin_vendor_rules",
+  /**
+   * 분류 규칙 — 사람이 정해 둔 「이 거래처(·계좌·금액)는 이 계정·사업구분」.
+   * 재무 비서에게 말해서 만들고, 자동분류가 이력보다 먼저 본다 (finance/class-rules.ts)
+   */
+  finClassRules: "neander_fin_class_rules",
   /** 구독 서비스 마스터 (계정+거래처 키워드 매칭 · 결제수단 정비 계획) */
   finSubscriptions: "neander_fin_subscriptions",
   /** 공통비 배분 규칙 (공용·홍대공용 → 사업부) */
