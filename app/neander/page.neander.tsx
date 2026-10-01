@@ -2,11 +2,19 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Check, ChevronRight, ThumbsUp } from "lucide-react";
 import { useAppData } from "@/components/neander/app-data";
 import { useAuth } from "@/components/neander/auth";
 import { fetchSalesSummary, type SalesMonthSummary } from "@/lib/neander/sales/client";
 import { storeLabel } from "@/lib/neander/sales/types";
+import { fetchOpenProjects } from "@/lib/neander/finance/client";
+import {
+  PROJECT_STATUS_LABEL,
+  formatMargin,
+  type ProjectDigest,
+  type ProjectStatus,
+} from "@/lib/neander/finance/project";
 import {
   Badge,
   Card,
@@ -14,8 +22,16 @@ import {
   Icon,
   KpiItem,
   KpiStrip,
+  Money,
   SectionHeader,
   SegmentedControl,
+  Table,
+  TableNote,
+  TableScroll,
+  Td,
+  Th,
+  type Tone,
+  Tr,
   cn,
 } from "@/components/neander/ui";
 import {
@@ -227,6 +243,9 @@ export default function DashboardPage() {
         </Card>
       )}
 
+      {/* 진행 중 프로젝트 — 재무 권한이 있는 사람에게만 */}
+      <OpenProjects />
+
       {/* 주간 업무 (모두의 이번 주 일일업무) */}
       <WeeklyTasks tasks={tasks} members={members} today={today} />
 
@@ -315,6 +334,167 @@ export default function DashboardPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+/** 상태 → 의미 색 (프로젝트 목록 화면과 같은 표) */
+const PROJECT_STATUS_TONE: Record<ProjectStatus, Tone> = {
+  planning: "neutral",
+  active: "accent",
+  done: "success",
+  cancelled: "danger",
+};
+
+/** 대시보드에 펼쳐 두는 줄 수 — 나머지는 「외 N건」으로 목록에 넘긴다 */
+const OPEN_PROJECT_ROWS = 5;
+
+/**
+ * 진행 중 프로젝트 — 재무 › 프로젝트까지 두 번 들어가야 보이던 것을
+ * 첫 화면에 꺼내 둔다.
+ *
+ * 재무 권한이 없으면 서버가 거절하고, 카드는 **아예 그리지 않는다**.
+ * 매출 카드처럼 「권한이 없습니다」를 띄우면 볼 수 없는 사람에게 프로젝트
+ * 손익이 있다는 것만 알리게 된다. 불러오는 동안에도 비워 둔다 — 떴다가
+ * 사라지는 자리를 만들지 않으려고.
+ */
+function OpenProjects() {
+  const { user } = useAuth();
+  const router = useRouter();
+  const [projects, setProjects] = useState<ProjectDigest[] | null>(null);
+  useEffect(() => {
+    if (!user) return;
+    let alive = true;
+    fetchOpenProjects()
+      .then((list) => {
+        if (alive) setProjects(list);
+      })
+      .catch(() => {
+        // 권한 없음·일시 오류 모두 카드를 숨긴다 — 대시보드는 그대로 둔다
+      });
+    return () => {
+      alive = false;
+    };
+  }, [user]);
+
+  if (!projects) return null;
+  const shown = projects.slice(0, OPEN_PROJECT_ROWS);
+  const rest = projects.length - shown.length;
+  const href = (id: string) => `/neander/finance/projects/${id}`;
+
+  return (
+    <Card padding="none" className="mb-6 overflow-hidden">
+      <div className="px-5 pt-5">
+        <SectionHeader
+          title="진행 중 프로젝트"
+          hint={projects.length > 0 ? `${projects.length.toLocaleString("ko-KR")}건` : undefined}
+          action={
+            <Link
+              href="/neander/finance/projects"
+              className="text-nd-caption font-medium text-nd-accent-strong hover:underline"
+            >
+              {rest > 0 ? `외 ${rest.toLocaleString("ko-KR")}건 · 전체 →` : "전체 →"}
+            </Link>
+          }
+        />
+      </div>
+      {projects.length === 0 ? (
+        <p className="px-5 pb-6 pt-2 text-center text-nd-body text-nd-fg-3">
+          준비 중이거나 진행 중인 프로젝트가 없습니다.
+        </p>
+      ) : (
+        <>
+          <TableScroll>
+            <Table minWidth={760}>
+              <thead>
+                <tr>
+                  <Th className="pl-5">프로젝트</Th>
+                  <Th>상태</Th>
+                  <Th>기간</Th>
+                  <Th align="right" title="준비 완료 줄 / 전체 줄">
+                    준비물
+                  </Th>
+                  <Th align="right">수입</Th>
+                  <Th align="right">실질 이익</Th>
+                  <Th align="right" className="pr-5">
+                    미수금
+                  </Th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((p) => (
+                  <Tr
+                    key={p.id}
+                    onClick={(e) => {
+                      if ((e.target as HTMLElement).closest("a")) return;
+                      router.push(href(p.id));
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") router.push(href(p.id));
+                    }}
+                    tabIndex={0}
+                    role="link"
+                    aria-label={`${p.name} 상세`}
+                    className="cursor-pointer focus:bg-nd-accent-soft/60 focus:outline-none"
+                  >
+                    <Td className="pl-5">
+                      <Link
+                        href={href(p.id)}
+                        className="block max-w-[24rem] truncate font-medium text-nd-fg hover:text-nd-accent-strong"
+                        title={p.name}
+                      >
+                        {p.name}
+                      </Link>
+                      <div
+                        className="truncate text-nd-caption text-nd-fg-3"
+                        title={[p.code, p.client].filter(Boolean).join(" · ")}
+                      >
+                        <span className="font-mono">{p.code}</span>
+                        {p.client && <span> · {p.client}</span>}
+                      </div>
+                    </Td>
+                    <Td>
+                      <Badge tone={PROJECT_STATUS_TONE[p.status]} dot>
+                        {PROJECT_STATUS_LABEL[p.status]}
+                      </Badge>
+                    </Td>
+                    <Td className="whitespace-nowrap text-nd-caption text-nd-fg-2">
+                      {p.startDate ?? "—"}
+                      {p.endDate && p.endDate !== p.startDate ? ` ~ ${p.endDate}` : ""}
+                    </Td>
+                    <Td num muted className="text-nd-caption">
+                      {p.lineCount > 0 ? `${p.doneCount}/${p.lineCount}` : "—"}
+                    </Td>
+                    <Td num>
+                      <Money value={p.revenue} unit={false} flow="income" />
+                    </Td>
+                    <Td num className="font-medium" title={`이익률 ${formatMargin(p.marginActual)}`}>
+                      <Money value={p.profitActual} unit={false} flow="net" />
+                    </Td>
+                    <Td num className="pr-5">
+                      {p.unpaid === 0 ? (
+                        <span className="text-nd-fg-4">—</span>
+                      ) : (
+                        <span className={p.overdue > 0 ? "font-medium text-nd-danger-text" : undefined}>
+                          <Money
+                            value={p.unpaid}
+                            unit={false}
+                            className={p.overdue > 0 ? "text-nd-danger-text" : undefined}
+                          />
+                          {p.overdue > 0 && <span className="ml-1 text-nd-micro">연체</span>}
+                        </span>
+                      )}
+                    </Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
+          </TableScroll>
+          <div className="border-t border-nd-line px-5 py-2.5">
+            <TableNote>단위: 원 · 수입은 공급가액, 미수금은 부가세 포함</TableNote>
+          </div>
+        </>
+      )}
+    </Card>
   );
 }
 

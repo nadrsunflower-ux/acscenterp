@@ -17,7 +17,7 @@ import type { FinTransaction, FinImportBatch, FinTransactionInput } from "./type
 import type { CloseSnapshot, MonthCloseDoc } from "./close";
 import type { FinCardMemoView, ReceiptRead } from "./card-memo";
 import type { FinChatDoc, FinChatSummary } from "./chat-log";
-import type { FinProjectDoc, FinProjectInput } from "./project";
+import type { FinProjectDoc, FinProjectInput, ProjectDigest } from "./project";
 import type { FinDoc, FinDocFile, FinDocInput } from "./docs";
 import type {
   FinAccountDoc,
@@ -34,6 +34,7 @@ import type { PresentationContext } from "@/lib/neander/ai/presentation";
 
 const DATA_URL = "/api/neander/finance/data";
 const MUTATE_URL = "/api/neander/finance/mutate";
+const PROJECTS_URL = "/api/neander/finance/projects";
 
 export interface FinanceSnapshot {
   /** 거래 — 화면이 읽는 필드만 온다 (finance/payload.ts) */
@@ -86,6 +87,13 @@ export async function fetchFinanceData(since?: number): Promise<FinanceSnapshot>
   const res = await fetch(url, { headers: await authHeaders(), cache: "no-store" });
   if (!res.ok) throw Object.assign(new Error(await readError(res)), { status: res.status });
   return (await res.json()) as FinanceSnapshot;
+}
+
+/** 끝나지 않은 프로젝트 요약 — ERP 대시보드 카드용 (재무 권한이 없으면 던진다) */
+export async function fetchOpenProjects(): Promise<ProjectDigest[]> {
+  const res = await fetch(PROJECTS_URL, { headers: await authHeaders(), cache: "no-store" });
+  if (!res.ok) throw Object.assign(new Error(await readError(res)), { status: res.status });
+  return ((await res.json()) as { projects?: ProjectDigest[] }).projects ?? [];
 }
 
 /** id 로 거래 몇 건 — 동기화 중 캐시에 없는 거래를 채울 때 */

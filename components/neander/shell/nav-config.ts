@@ -81,6 +81,10 @@ export const GLOBAL_NAV: NavGroup[] = [
     items: [
       { href: "/neander/sales", label: "매출", icon: TrendingUp },
       { href: "/neander/finance", label: "재무", icon: Wallet },
+      // 프로젝트는 재무 워크스페이스 안의 화면이지만 여기에도 꺼내 둔다.
+      // 재무 › 분석 및 관리 맨 아래에만 있을 때는 두 번 들어가야 보여서
+      // 행사 건을 챙기는 사람이 찾지 못했다. 권한은 재무와 같다 (서버 게이트).
+      { href: "/neander/finance/projects", label: "프로젝트", icon: FolderOpen },
     ],
   },
   {
@@ -92,14 +96,17 @@ export const GLOBAL_NAV: NavGroup[] = [
 /**
  * 재무 메뉴도 매출처럼 **한 달을 닫는 순서**로 읽힌다.
  *
- *   데이터 : 엑셀 임포트 → 검토 대기함 → 월 마감   (이 달에 하는 일)
- *   재무   : 대시보드 · 거래 원장 · 카드 기록       (그래서 나온 결과)
+ *   데이터 : 엑셀 임포트 → 검토 대기함 → 월 마감           (이 달에 하는 일)
+ *   재무   : 대시보드 · 프로젝트 · 거래 원장 · 카드 기록   (그래서 나온 결과)
+ *
+ * 프로젝트는 매일 들여다보는 화면이라 「분석 및 관리」에서 맨 위로 올렸다.
  */
 export const FINANCE_NAV: NavGroup[] = [
   {
     label: "재무",
     items: [
       { href: "/neander/finance", label: "대시보드", icon: ChartNoAxesColumn, exact: true },
+      { href: "/neander/finance/projects", label: "프로젝트", icon: FolderOpen },
       { href: "/neander/finance/ledger", label: "거래 원장", icon: ScrollText },
       { href: "/neander/finance/card", label: "카드 기록", icon: CreditCard },
     ],
@@ -108,7 +115,6 @@ export const FINANCE_NAV: NavGroup[] = [
     label: "분석 및 관리",
     items: [
       { href: "/neander/finance/reports", label: "리포트", icon: ChartColumn },
-      { href: "/neander/finance/projects", label: "프로젝트", icon: FolderOpen },
     ],
   },
   {

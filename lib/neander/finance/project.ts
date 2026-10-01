@@ -862,3 +862,52 @@ export function sortProjects(list: FinProjectDoc[]): FinProjectDoc[] {
     return (b.updatedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.createdAt ?? 0);
   });
 }
+
+// ---- ERP 대시보드용 요약 ---------------------------------------
+//
+//  대시보드는 FinanceProvider 밖이라 원장 전체를 받지 않는다. 서버가 아직
+//  끝나지 않은 프로젝트만 골라 숫자 몇 개로 줄여 보낸다 (매출 요약 타일과
+//  같은 방식). 원장 참고값은 빼고 계산한다 — 카드에 싣지 않는 값이다.
+
+/** 대시보드 카드가 그리는 프로젝트 한 줄 */
+export interface ProjectDigest {
+  id: string;
+  name: string;
+  code: string;
+  client?: string;
+  status: ProjectStatus;
+  startDate?: string;
+  endDate?: string;
+  /** 수입 (공급가액) */
+  revenue: number;
+  profitActual: number;
+  marginActual: number | null;
+  unpaid: number;
+  overdue: number;
+  /** 준비물 — 준비 완료 줄 / 전체 줄 */
+  doneCount: number;
+  lineCount: number;
+}
+
+/** 아직 끝나지 않은 상태 — 대시보드에 올라오는 프로젝트 */
+export const OPEN_PROJECT_STATUSES: ProjectStatus[] = ["active", "planning"];
+
+export function projectDigest(p: FinProjectDoc): ProjectDigest {
+  const s = projectSummary(p);
+  return {
+    id: p.id,
+    name: p.name,
+    code: p.code,
+    client: p.client,
+    status: p.status,
+    startDate: p.startDate,
+    endDate: p.endDate,
+    revenue: s.revenue,
+    profitActual: s.profitActual,
+    marginActual: s.marginActual,
+    unpaid: s.unpaid,
+    overdue: s.overdue,
+    doneCount: s.doneCount,
+    lineCount: s.lineCount,
+  };
+}
