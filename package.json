@@ -26,6 +26,7 @@
     "finance:verify-close": "tsx scripts/neander/verify-close.ts",
     "finance:verify-classify": "tsx scripts/neander/verify-classify.ts",
     "finance:verify-relearn": "tsx scripts/neander/verify-relearn.ts",
+    "finance:ai-biz": "tsx scripts/neander/ai-biz-backlog.ts",
     "finance:verify-rules": "tsx scripts/neander/verify-class-rules.ts",
     "finance:reclassify-pending": "tsx scripts/neander/reclassify-pending.ts",
     "finance:fix-accounts": "tsx scripts/neander/fix-legacy-accounts.ts",
