@@ -38,8 +38,10 @@ import { initializeApp, cert, getApps } from "firebase-admin/app";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import { buildVendorIndex, classifyOne } from "@/lib/neander/finance/classify";
+import { ENGINE_REASON, engineSigOf } from "@/lib/neander/finance/relearn";
 import { netAmount, type FinTransaction, type TxType } from "@/lib/neander/finance/types";
 import type { FinAccountDoc, FinPaymentMethodDoc, FinVendorRuleDoc } from "@/lib/neander/finance/db-types";
+import type { FinClassRuleDoc } from "@/lib/neander/finance/class-rules";
 
 const APPLY = process.argv.includes("--apply");
 const AUDIT = process.argv.includes("--audit");
@@ -50,13 +52,11 @@ const BY = "script:reclassify-pending";
 
 const fmt = (n: number) => Math.round(n).toLocaleString("ko-KR");
 
-/** 엔진이 스스로 붙인 사유 (옛 엔진 · 지금 엔진 모두) */
-const ENGINE_REASON = /^거래처 「|^거래처가 비어 있어 판단 불가/;
 /** 옛 엔진이 거래유형을 고쳐 놓은 행 — 은행이 알려준 원래 유형을 사유에서 되찾는다 */
 const TYPE_FIXED = /거래유형을 (\S+) 에서 (\S+) 로 고쳐 제안/;
 
 /** 분류에 해당하는 필드 — 이것만 읽고 쓴다 */
-const FIELDS = ["status", "txType", "acctMajor", "acctMid", "acctMinor", "bizMajor", "bizMinor", "classReason"] as const;
+const FIELDS = ["status", "txType", "acctMajor", "acctMid", "acctMinor", "bizMajor", "bizMinor", "classReason", "engineSig"] as const;
 type Field = (typeof FIELDS)[number];
 type Snapshot = Partial<Record<Field, string>>;
 
@@ -101,16 +101,19 @@ const touchedByHuman = (t: FinTransaction) => !!t.updatedBy && !/^(script:|fix-)
     process.exit(0);
   }
 
-  const [txSnap, acctSnap, pmSnap, ruleSnap] = await Promise.all([
+  const [txSnap, acctSnap, pmSnap, ruleSnap, classRuleSnap] = await Promise.all([
     col.get(),
     db.collection(NEANDER_COL.finAccounts).get(),
     db.collection(NEANDER_COL.finPaymentMethods).get(),
     db.collection(NEANDER_COL.finVendorRules).get(),
+    db.collection(NEANDER_COL.finClassRules).get(),
   ]);
   const all = txSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as FinTransaction[];
   const accounts = acctSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as FinAccountDoc[];
   const paymentMethods = pmSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as FinPaymentMethodDoc[];
   const vendorRules = ruleSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as FinVendorRuleDoc[];
+  // 사람이 정해 둔 분류 규칙 — 대기함에 이미 있던 거래에도 닿게 한다 (class-rules.ts)
+  const classRules = classRuleSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as FinClassRuleDoc[];
 
   // 확정된 거래가 곧 학습 자료다 (대기함 행은 색인에 들어가지 않는다)
   const vendorIndex = buildVendorIndex(all);
@@ -130,7 +133,7 @@ const touchedByHuman = (t: FinTransaction) => !!t.updatedBy && !/^(script:|fix-)
           ? { acctMajor: t.acctMajor, acctMid: t.acctMid, bizMajor: t.bizMajor, bizMinor: t.bizMinor }
           : {}),
       },
-      { vendorIndex, vendorRules, paymentMethods, accounts },
+      { vendorIndex, vendorRules, paymentMethods, accounts, classRules },
     );
 
   // ---- 대조만: 옛 엔진이 자동 확정한 행을 지금 엔진은 어떻게 보는가 ----
@@ -158,8 +161,13 @@ const touchedByHuman = (t: FinTransaction) => !!t.updatedBy && !/^(script:|fix-)
   // ---- 다시 분류 ----
   const pending = all.filter((t) => t.status !== "confirmed");
   const mine = pending.filter((t) => ENGINE_REASON.test(t.classReason ?? ""));
-  const skippedHuman = mine.filter(touchedByHuman);
-  const targets = mine.filter((t) => !touchedByHuman(t));
+  // 엔진이 남긴 지문(engineSig)이 있으면 그것으로 가린다 — 화면의 「계속 배우기」
+  // 가 쓴 행은 updatedBy 가 팀원이지만 엔진이 붙인 그대로다. 지문이 없는 옛
+  // 행은 updatedBy 로 가린다 (화면은 updatedBy 를 못 보지만 여기서는 보인다).
+  const engineOwned = (t: FinTransaction) =>
+    t.engineSig ? t.engineSig === engineSigOf(t) : !touchedByHuman(t);
+  const skippedHuman = mine.filter((t) => !engineOwned(t));
+  const targets = mine.filter(engineOwned);
 
   const plan = targets
     .map((t) => {
@@ -180,6 +188,8 @@ const touchedByHuman = (t: FinTransaction) => !!t.updatedBy && !/^(script:|fix-)
         classReason: sug.classReason,
       };
       (Object.keys(after) as Field[]).forEach((f) => after[f] === undefined && delete after[f]);
+      // 지문을 남긴다 — 이게 있어야 화면이 「엔진이 붙인 뒤 아무도 안 고친 행」 임을 안다
+      after.engineSig = engineSigOf(after);
       const changed = FIELDS.some((f) => (before[f] ?? "") !== (after[f] ?? ""));
       return { t, before, after, changed, engineConfirmed: sug.status === "confirmed" };
     })
@@ -196,7 +206,15 @@ const touchedByHuman = (t: FinTransaction) => !!t.updatedBy && !/^(script:|fix-)
     const acctChanged = (before.acctMinor ?? "") !== (after.acctMinor ?? "") || (before.acctMid ?? "") !== (after.acctMid ?? "");
     const k =
       `${before.status === "needs_review" ? "검토필요" : "제안됨"} → ${after.status === "needs_review" ? "검토필요" : "제안됨"}` +
-      (acctChanged ? (before.acctMinor ? (after.acctMinor ? " (계정 바뀜)" : " (약한 제안을 거둠)") : " (계정 새로 붙음)") : " (계정 그대로 · 근거·사업구분만)");
+      (acctChanged
+        ? before.acctMinor
+          ? after.acctMinor
+            ? " (계정 바뀜)"
+            : " (약한 제안을 거둠)"
+          : " (계정 새로 붙음)"
+        : FIELDS.every((f) => f === "engineSig" || (before[f] ?? "") === (after[f] ?? ""))
+          ? " (그대로 — 지문만 남김)"
+          : " (계정 그대로 · 근거·사업구분만)");
     const r = tally.get(k) ?? { n: 0, amount: 0 };
     r.n += 1;
     r.amount += netAmount(t);

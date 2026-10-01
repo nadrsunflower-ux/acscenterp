@@ -21,6 +21,12 @@
 //     「적용」을 눌러야 저장된다. 확신도가 낮은 건은 눌러도 확정이 아니라
 //     제안됨으로 들어간다.
 //
+//  ── 계속 배우기 ──
+//  확정이 쌓일 때마다 남은 대기 건을 다시 분류한다 (finance/relearn.ts).
+//  한 건을 확정하면 같은 거래처의 남은 건에 제안이 붙고, 근거가 충분해진 건은
+//  스스로 확정되어 떠난다. 엔진이 붙인 뒤 아무도 안 고친 행만 손대고, 한 일은
+//  「방금 처리한 것」 에 남아 되돌릴 수 있다 — 되돌린 행은 다시 손대지 않는다.
+//
 //  화면: 행은 거래처·금액이 먼저(업무 화면은 작업·상태가 먼저), 근거는
 //  아래. 일괄 처리 바는 sticky 유리 캡슐 하나 — 그 안에는 유리가 없다.
 //
@@ -91,6 +97,8 @@ import { BIZ_MAJORS } from "@/lib/neander/finance/sheet";
 import { paymentIndex } from "@/lib/neander/finance/sheetScope";
 import { bankById, bankOfMethod } from "@/lib/neander/finance/import-slots";
 import { reviewMonthFromQuery } from "@/lib/neander/finance/ledgerLink";
+import { buildAccountBiz, ENGINE_HOLD, isEngineOwned, relearnPending } from "@/lib/neander/finance/relearn";
+import type { ClassifyContext } from "@/lib/neander/finance/classify";
 import type { FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
 import { monthLabel } from "@/lib/neander/format";
 import {
@@ -188,8 +196,14 @@ function Kbd({ children }: { children: string }) {
 }
 
 export default function ReviewPage() {
-  const { transactions, accounts, paymentMethods, loading, applyTransactions } = useFinance();
+  const finance = useFinance();
+  const { transactions, accounts, paymentMethods, vendorIndex, vendorRules, loading, applyTransactions } = finance;
   const confirm = useConfirm();
+  /**
+   * 사람이 되돌린 행 — 엔진이 다시 배워도 손대지 않는다. 되돌리자마자 같은
+   * 근거로 또 확정해 버리면 되돌리기가 헛돈다. (서버에도 engineSig 로 남긴다)
+   */
+  const heldRef = useRef<Set<string>>(new Set());
   /**
    * 되돌리기 — 처리 직전의 거래를 쌓아 두었다가 통째로 되쓴다 (매출 대기함과
    * 같은 부품). 확정·일괄 지정은 누르는 순간 대기함에서 사라져, 잘못 눌렀을 때
@@ -198,8 +212,18 @@ export default function ReviewPage() {
   const undoLog = useUndoHistory<FinTransaction>({
     // 되쓴 거래만 바꿔 끼운다 — 전체(거래 1만+ · 7MB)를 다시 받지 않는다
     restore: async (before) => {
+      const hold = before.filter((t) => t.status !== "confirmed").map((t) => t.id);
+      hold.forEach((id) => heldRef.current.add(id));
       const res = await restoreFinTransactions(before);
       applyTransactions({ upsert: res.transactions });
+      if (hold.length > 0) {
+        const marked = await applyFinEdits({
+          updates: hold.map((id) => ({ id, patch: { engineSig: ENGINE_HOLD } })),
+          inserts: [],
+          deletes: [],
+        });
+        applyTransactions({ upsert: marked.transactions });
+      }
     },
   });
   const txLabel = (t: FinTransaction) => `${t.date} ${netAmount(t).toLocaleString("ko-KR")}원`;
@@ -319,6 +343,40 @@ export default function ReviewPage() {
   );
 
   /**
+   * 사업대분류 → 그 아래에서 실제로 쓰인 소분류 (많이 쓰인 것부터).
+   * 목록을 따로 관리하지 않는다 — 장부에 쓰인 조합이 곧 후보다
+   * (B2C: 와우·아이디·홍대공용·SMOAT·온라인 …, 공용: 공용).
+   */
+  const bizMinorsOf = useMemo(() => {
+    const count = new Map<string, Map<string, number>>();
+    transactions.forEach((t) => {
+      if (!t.bizMajor || !t.bizMinor) return;
+      const m = count.get(t.bizMajor) ?? new Map<string, number>();
+      m.set(t.bizMinor, (m.get(t.bizMinor) ?? 0) + 1);
+      count.set(t.bizMajor, m);
+    });
+    const sorted = new Map<string, string[]>();
+    count.forEach((m, major) =>
+      sorted.set(major, [...m.entries()].sort((a, b) => b[1] - a[1]).map(([minor]) => minor)),
+    );
+    return (major?: string) => (major ? (sorted.get(major) ?? []) : []);
+  }, [transactions]);
+
+  /** 계정만 보고 사업구분을 아는 경우 (와우판매 → B2C·와우). 계정을 고르면 같이 채운다 */
+  const bizOfAccount = useMemo(() => buildAccountBiz(transactions), [transactions]);
+
+  /** 커서 행에서 사업구분을 바로 고친다 (계정 선택기와 같은 방식 — 상태는 그대로, 확정은 따로 누른다) */
+  const setBiz = async (t: FinTransaction, patch: { bizMajor?: string; bizMinor?: string }) => {
+    const res = await updateFinTransaction(t.id, patch);
+    undoLog.record(
+      "사업구분을 바꿨습니다.",
+      `${txLabel(t)} 사업구분 → ${patch.bizMinor ?? patch.bizMajor ?? "비움"}`,
+      [t],
+    );
+    applyTransactions({ upsert: res.transactions });
+  };
+
+  /**
    * 물어볼 대상: 계정이 아직 없거나 「검토필요」인 건. 최대 40건.
    * 「제안됨」이면서 계정이 있는 건은 규칙이 이미 근거를 댄 것이라 뺀다 —
    * 모델을 부를 값이 없고 비용만 든다.
@@ -394,6 +452,57 @@ export default function ReviewPage() {
    * 매출 검토 대기함과 같은 모습이다.
    */
   const leaving = useLeaving();
+
+  /**
+   * 계속 배우기 — 장부가 바뀔 때마다(확정 · 수정 · 새 적재) 남은 대기 건을 지금
+   * 색인으로 다시 분류하고, 달라진 것만 저장한다. 같은 입력이면 같은 결과라
+   * 달라질 게 없으면 아무 일도 안 한다.
+   */
+  const classRules = (finance as { classRules?: unknown }).classRules;
+  const relearning = useRef(false);
+  /** 이번 화면에서 이미 보낸 것 (id → 지문·사유) — 같은 것을 되풀이해 보내지 않는다 */
+  const sentRef = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    if (loading || busy || relearning.current) return;
+    const ctx = { vendorIndex, vendorRules, paymentMethods, accounts, ...(classRules ? { classRules } : {}) } as ClassifyContext;
+    const plan = relearnPending(transactions, ctx, {
+      owned: (t) => isEngineOwned(t) && !heldRef.current.has(t.id),
+    }).filter((c) => sentRef.current.get(c.id) !== `${c.patch.engineSig}|${c.patch.classReason}`);
+    if (plan.length === 0) return;
+    relearning.current = true;
+    plan.forEach((c) => sentRef.current.set(c.id, `${c.patch.engineSig}|${c.patch.classReason}`));
+    void (async () => {
+      try {
+        const res = await applyFinEdits({
+          updates: plan.map((c) => ({ id: c.id, patch: c.patch as unknown as Partial<FinTransaction> })),
+          inserts: [],
+          deletes: [],
+        });
+        const confirmed = plan.filter((c) => c.status === "confirmed");
+        const parts = [
+          confirmed.length > 0 ? `확정 ${confirmed.length}건` : "",
+          plan.length - confirmed.length > 0 ? `제안 갱신 ${plan.length - confirmed.length}건` : "",
+        ].filter(Boolean);
+        undoLog.record(
+          `자동분류가 다시 배웠습니다 — ${parts.join(" · ")}`,
+          `자동분류 다시 배움 (${parts.join(" · ")})`,
+          plan.map((c) => c.before),
+        );
+        await leaving.run(
+          confirmed.map((c) => c.id),
+          {},
+          () => applyTransactions({ upsert: res.transactions }),
+        );
+      } catch {
+        // 저장에 실패하면 다음에 장부가 바뀔 때 다시 본다 — 보낸 기록을 지운다
+        plan.forEach((c) => sentRef.current.delete(c.id));
+      } finally {
+        relearning.current = false;
+      }
+    })();
+    // undoLog.record · leaving.run 은 매 렌더 새 함수가 아니다 (훅이 고정해 준다)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transactions, vendorIndex, vendorRules, classRules, paymentMethods, accounts, loading, busy]);
 
   const approve = useCallback(
     async (t: FinTransaction) => {
@@ -513,14 +622,24 @@ export default function ReviewPage() {
     if (!bulkAcct.acctMinor || selectedRows.length === 0) return;
     setBusy(true);
     try {
-      const res = await bulkPatchFinTransactions(
-        selectedRows.map((t) => t.id),
-        {
-          ...bulkAcct,
-          status: "confirmed",
-          classReason: `검토 대기함에서 ${selectedRows.length}건 일괄 지정`,
-        },
-      );
+      const patch = {
+        ...bulkAcct,
+        status: "confirmed" as const,
+        classReason: `검토 대기함에서 ${selectedRows.length}건 일괄 지정`,
+      };
+      // 계정이 사업부를 말해 주면 사업구분이 빈 행에만 같이 채운다 (이미 있는 값은 두고)
+      const implied = bulkTxType ? bizOfAccount({ txType: bulkTxType, ...bulkAcct }) : undefined;
+      const res =
+        implied && selectedRows.some((t) => !t.bizMajor)
+          ? await applyFinEdits({
+              updates: selectedRows.map((t) => ({ id: t.id, patch: t.bizMajor ? patch : { ...patch, ...implied } })),
+              inserts: [],
+              deletes: [],
+            })
+          : await bulkPatchFinTransactions(
+              selectedRows.map((t) => t.id),
+              patch,
+            );
       undoLog.record(
         `${selectedRows.length}건을 확정했습니다.`,
         `계정 ${selectedRows.length}건 일괄 지정 → ${bulkAcct.acctMinor}`,
@@ -812,8 +931,12 @@ export default function ReviewPage() {
             </dd>
           </div>
         </dl>
+        <p className="mt-2 text-nd-table text-nd-fg-2">
+          확정할 때마다 자동분류가 다시 배웁니다 — 같은 거래처의 남은 건에 제안이 붙고, 근거가 충분해진 건은 스스로
+          확정됩니다. 한 일은 「방금 처리한 것」 에서 되돌릴 수 있고, 되돌린 건은 다시 손대지 않습니다.
+        </p>
         <p className="mt-2 text-nd-caption text-nd-fg-3">
-          커서가 놓인 행에서는 아래쪽 계정 칸이 선택기로 바뀌어 그 자리에서 바로 고칠 수 있습니다.
+          커서가 놓인 행에서는 아래쪽 계정·사업구분 칸이 선택기로 바뀌어 그 자리에서 바로 고칠 수 있습니다.
         </p>
       </Disclosure>
 
@@ -1040,32 +1163,92 @@ export default function ReviewPage() {
                     */}
                     <div className="mt-3 border-t border-nd-line pt-3">
                       {active ? (
-                        <AccountPicker
-                          accounts={accounts}
-                          txType={t.txType}
-                          compact
-                          value={{
-                            acctMajor: t.acctMajor,
-                            acctMid: t.acctMid,
-                            acctMinor: t.acctMinor,
-                          }}
-                          onChange={async (v) => {
-                            const res = await updateFinTransaction(t.id, v);
-                            undoLog.record(
-                              "계정을 바꿨습니다.",
-                              `${txLabel(t)} 계정 → ${v.acctMinor ?? "비움"}`,
-                              [t],
-                            );
-                            applyTransactions({ upsert: res.transactions });
-                          }}
-                        />
+                        <>
+                          <AccountPicker
+                            accounts={accounts}
+                            txType={t.txType}
+                            compact
+                            value={{
+                              acctMajor: t.acctMajor,
+                              acctMid: t.acctMid,
+                              acctMinor: t.acctMinor,
+                            }}
+                            onChange={async (v) => {
+                              // 사업구분이 비어 있고 계정이 사업부를 말해 주면 같이 채운다
+                              const implied = t.bizMajor ? undefined : bizOfAccount({ txType: t.txType, ...v });
+                              const res = await updateFinTransaction(t.id, { ...v, ...implied });
+                              undoLog.record(
+                                implied ? `계정을 바꾸고 사업구분을 ${implied.bizMinor}(으)로 채웠습니다.` : "계정을 바꿨습니다.",
+                                `${txLabel(t)} 계정 → ${v.acctMinor ?? "비움"}${implied ? ` · 사업구분 ${implied.bizMinor}` : ""}`,
+                                [t],
+                              );
+                              applyTransactions({ upsert: res.transactions });
+                            }}
+                          />
+                          {/*
+                            사업구분 — 계정과 같은 3칸 격자에 올려 칸이 위아래로 맞는다.
+                            대기함 대부분이 「사업구분만 비어서」 온 행이라, 상세를 열지
+                            않고 이 자리에서 고를 수 있어야 한다.
+                          */}
+                          <div className="mt-2 grid grid-cols-3 gap-2">
+                            <Select
+                              size="sm"
+                              aria-label="사업대분류"
+                              value={t.bizMajor ?? ""}
+                              onChange={(e) => {
+                                const major = e.target.value || undefined;
+                                const minors = bizMinorsOf(major);
+                                // 소분류가 하나뿐인 대분류(공용 · 해당없음)는 같이 채운다.
+                                // 다 골랐으면 선택기에서 손을 뗀다 — 포커스가 남아 있으면 Enter(확정)가 안 먹는다
+                                if (minors.length === 1) e.currentTarget.blur();
+                                void setBiz(t, { bizMajor: major, bizMinor: minors.length === 1 ? minors[0] : undefined });
+                              }}
+                            >
+                              <option value="">사업대분류</option>
+                              {BIZ_MAJORS.map((b) => (
+                                <option key={b} value={b}>{b}</option>
+                              ))}
+                            </Select>
+                            <Select
+                              size="sm"
+                              aria-label="사업소분류"
+                              value={t.bizMinor ?? ""}
+                              disabled={!t.bizMajor}
+                              onChange={(e) => {
+                                if (e.target.value) e.currentTarget.blur();
+                                void setBiz(t, { bizMajor: t.bizMajor, bizMinor: e.target.value || undefined });
+                              }}
+                            >
+                              <option value="">사업소분류</option>
+                              {/* 지금 값이 후보에 없어도(옛 표기) 사라지지 않게 */}
+                              {[...new Set([...(t.bizMinor ? [t.bizMinor] : []), ...bizMinorsOf(t.bizMajor)])].map((b) => (
+                                <option key={b} value={b}>{b}</option>
+                              ))}
+                            </Select>
+                            <p className="self-center text-nd-table text-nd-fg-3">
+                              {t.bizMajor && t.bizMinor ? (
+                                "사업구분 — 어느 사업부의 돈인가"
+                              ) : (
+                                <span className="text-nd-danger-text">사업구분이 비어 있습니다 — 사업부 손익에서 빠집니다</span>
+                              )}
+                            </p>
+                          </div>
+                        </>
                       ) : (
-                        <p className="flex flex-wrap items-baseline gap-x-2 text-nd-caption text-nd-fg-3">
+                        <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-nd-table text-nd-fg-3">
                           <span className="font-medium text-nd-fg-2">계정</span>
                           {t.acctMinor ? (
                             <span>{[t.acctMajor, t.acctMid, t.acctMinor].filter(Boolean).join(" › ")}</span>
                           ) : (
                             <span className="text-nd-danger-text">아직 없음 — 커서를 두면 고칠 수 있습니다</span>
+                          )}
+                          <span className="ml-3 font-medium text-nd-fg-2">사업구분</span>
+                          {t.bizMajor ? (
+                            <span>
+                              {t.bizMinor && t.bizMinor !== t.bizMajor ? `${t.bizMajor} › ${t.bizMinor}` : t.bizMajor}
+                            </span>
+                          ) : (
+                            <span className="text-nd-danger-text">아직 없음</span>
                           )}
                         </p>
                       )}
