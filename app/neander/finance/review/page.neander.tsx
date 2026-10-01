@@ -12,10 +12,10 @@
 //  근거 없이 승인 버튼만 있으면 사람은 그냥 다 눌러버린다.
 //
 //  ── AI 추천 ──
-//  규칙(classify.ts)은 거래처가 **정확히** 일치할 때만 맞힌다. 새 거래처가
-//  오면 손을 든다. 「AI 추천」은 그 남은 건들을 모델에게 물어본다 —
-//  `FACEBK *KEV69QZM62` 와 `FACEBK *FXEVTN5N62` 가 같은 메타 광고라는 걸
-//  알아보는 종류의 판단이다.
+//  규칙(classify.ts)은 과거 장부에 같은 거래처(또는 이름 뼈대가 같은 거래처)가
+//  있어야 맞힌다. 처음 보는 거래처가 오면 손을 든다. 「AI 추천」은 그 남은
+//  건들을 모델에게 물어본다 — 이름만 보고 무슨 가게인지 짐작하는 종류의
+//  판단이다.
 //
 //  ⚠️ AI 결과는 **자동 저장되지 않는다.** 화면에 추천으로 얹히고, 사람이
 //     「적용」을 눌러야 저장된다. 확신도가 낮은 건은 눌러도 확정이 아니라
@@ -39,8 +39,11 @@ import {
   useState,
 } from "react";
 import {
+  Banknote,
   CircleCheck,
+  CreditCard,
   Keyboard,
+  Landmark,
   Sparkles,
 } from "lucide-react";
 import {
@@ -85,6 +88,11 @@ import {
   type AiSuggestResult,
 } from "@/lib/neander/finance/client";
 import { BIZ_MAJORS } from "@/lib/neander/finance/sheet";
+import { paymentIndex } from "@/lib/neander/finance/sheetScope";
+import { bankById, bankOfMethod } from "@/lib/neander/finance/import-slots";
+import { reviewMonthFromQuery } from "@/lib/neander/finance/ledgerLink";
+import type { FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
+import { monthLabel } from "@/lib/neander/format";
 import {
   STATUS_LABEL,
   netAmount,
@@ -124,6 +132,53 @@ const PAGE_SIZE = 50;
 const acctPathOf = (t: FinTransaction) =>
   `${t.acctMajor ?? "-"} > ${t.acctMid ?? "-"} > ${t.acctMinor ?? "-"}`;
 
+/** 거래가 속한 달 `YYYY-MM` */
+const monthOf = (t: FinTransaction) => (t.date ?? "").slice(0, 7);
+
+const isPending = (t: FinTransaction) => t.status === "suggested" || t.status === "needs_review";
+
+/**
+ * 어느 계좌·카드의 거래인가 — 「신한 4248 | 신한입금」.
+ *
+ * 같은 거래처·같은 금액이라도 입금 통장이냐 출금 통장이냐에 따라 계정이
+ * 갈린다 (신한입금으로 들어온 돈은 매출, 신한출금에서 나간 돈은 비용).
+ * 그래서 근거 문장보다 먼저 눈에 들어와야 한다 — 카드 오른쪽에 크게 둔다.
+ */
+function PaymentTag({ last4, pm }: { last4?: string; pm?: FinPaymentMethodDoc }) {
+  if (!last4) {
+    return <span className="text-nd-section text-nd-fg-3">계좌 미지정</span>;
+  }
+  if (!pm) {
+    return (
+      <span className="flex items-baseline gap-2 text-nd-title text-nd-fg">
+        <span className="nd-num">{last4}</span>
+        <span className="text-nd-section text-nd-danger-text">계좌 마스터에 없는 번호</span>
+      </span>
+    );
+  }
+  const bank = bankById(bankOfMethod(pm));
+  const KindIcon = pm.kind === "card" ? CreditCard : pm.kind === "cash" ? Banknote : Landmark;
+  // 현금은 은행도 번호도 없다 (마스터의 9999 는 자리 채움이다)
+  const head = pm.kind === "cash" ? "현금" : `${bank?.short ?? (pm.kind === "card" ? "카드" : "계좌")} ${last4}`;
+  return (
+    <span
+      className="flex min-w-0 items-center gap-2 text-nd-title text-nd-fg"
+      title={`${bank?.label ?? head} · ${pm.alias} · ${pm.site}`}
+    >
+      <KindIcon
+        size={18}
+        strokeWidth={1.75}
+        className="shrink-0"
+        style={bank ? { color: bank.color } : undefined}
+        aria-hidden
+      />
+      <span className="nd-num shrink-0">{head}</span>
+      <span className="font-normal text-nd-fg-3" aria-hidden>|</span>
+      <span className="min-w-0 truncate">{pm.alias}</span>
+    </span>
+  );
+}
+
 function Kbd({ children }: { children: string }) {
   return (
     <kbd className="rounded-[6px] border border-nd-border bg-nd-sunken px-1.5 py-0.5 font-sans text-nd-micro text-nd-fg-2">
@@ -157,6 +212,17 @@ export default function ReviewPage() {
    * 묶음만 잡힌다.
    */
   const [acctFilter, setAcctFilter] = useState<string>(ALL);
+  /**
+   * 달로 좁히기. 기본은 전체다 — 대기함은 달을 가리지 않고 쌓이는 일감이라,
+   * 달부터 고르게 하면 지난 달에 남은 건이 안 보인다. 월 마감·엑셀 임포트
+   * 에서 넘어올 때는 그 달이 걸린 채로 열린다 (`?m=2026-09`).
+   */
+  const [monthFilter, setMonthFilter] = useState<string>(ALL);
+  // useSearchParams 대신 마운트 후에 읽는다 — 원장과 같은 이유(하이드레이션)
+  useEffect(() => {
+    const m = reviewMonthFromQuery(window.location.search);
+    if (m) setMonthFilter(m);
+  }, []);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
   /** 커서는 **현재 페이지 안**의 위치다 (0 ~ pageSize-1) */
@@ -182,15 +248,20 @@ export default function ReviewPage() {
     [ai],
   );
 
+  /** 대기함 전체 — 조회 조건을 걸기 전 */
+  const queue = useMemo(() => transactions.filter(isPending), [transactions]);
+
   const pending = useMemo(
     () =>
-      transactions
-        .filter((t) => t.status === "suggested" || t.status === "needs_review")
+      queue
         .filter((t) => statusFilter === ALL || t.status === statusFilter)
+        .filter((t) => monthFilter === ALL || monthOf(t) === monthFilter)
         .filter((t) => acctFilter === ALL || acctPathOf(t) === acctFilter)
         .sort((a, b) => (a.date < b.date ? 1 : -1)),
-    [transactions, statusFilter, acctFilter],
+    [queue, statusFilter, monthFilter, acctFilter],
   );
+
+  const pmIndex = useMemo(() => paymentIndex(paymentMethods), [paymentMethods]);
 
   // ---- 페이지 ----
   const pageCount = Math.max(1, Math.ceil(pending.length / pageSize));
@@ -211,15 +282,33 @@ export default function ReviewPage() {
     [pageCount],
   );
 
-  /** 계정 필터 후보 — 계정 필터를 **빼고** 센다 (좁힌 뒤에도 다른 계정으로 옮겨갈 수 있게) */
+  /**
+   * 계정 필터 후보 — 계정 필터를 **빼고** 센다 (좁힌 뒤에도 다른 계정으로 옮겨갈 수 있게).
+   *
+   * 지금 고른 값은 0건이어도 후보에 남긴다. 달을 바꾸거나 그 묶음을 다 처리해
+   * 후보에서 빠지면 선택기는 「모든 계정」을 보여주는데 목록은 여전히 좁혀져
+   * 있어, 빈 화면의 이유를 알 수 없게 된다.
+   */
   const acctGroups = useMemo(() => {
     const m = new Map<string, number>();
-    transactions
-      .filter((t) => t.status === "suggested" || t.status === "needs_review")
+    queue
       .filter((t) => statusFilter === ALL || t.status === statusFilter)
+      .filter((t) => monthFilter === ALL || monthOf(t) === monthFilter)
       .forEach((t) => m.set(acctPathOf(t), (m.get(acctPathOf(t)) ?? 0) + 1));
+    if (acctFilter !== ALL && !m.has(acctFilter)) m.set(acctFilter, 0);
     return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ko"));
-  }, [transactions, statusFilter]);
+  }, [queue, statusFilter, monthFilter, acctFilter]);
+
+  /** 달 필터 후보 — 같은 식으로 달 필터를 빼고 센다. 최신순 */
+  const monthGroups = useMemo(() => {
+    const m = new Map<string, number>();
+    queue
+      .filter((t) => statusFilter === ALL || t.status === statusFilter)
+      .filter((t) => acctFilter === ALL || acctPathOf(t) === acctFilter)
+      .forEach((t) => m.set(monthOf(t), (m.get(monthOf(t)) ?? 0) + 1));
+    if (monthFilter !== ALL && !m.has(monthFilter)) m.set(monthFilter, 0);
+    return [...m.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [queue, statusFilter, acctFilter, monthFilter]);
 
   const bizMinors = useMemo(
     () =>
@@ -457,7 +546,7 @@ export default function ReviewPage() {
     const ids = rows.map((t) => t.id);
     if (ids.length === 0) return;
     const ok = await confirm({
-      title: `제안됨 ${ids.length.toLocaleString("ko-KR")}건을 한 번에 확정할까요?`,
+      title: `${monthFilter !== ALL ? `${monthLabel(monthFilter)} ` : ""}제안됨 ${ids.length.toLocaleString("ko-KR")}건을 한 번에 확정할까요?`,
       message:
         "확정하면 대기함에서 빠집니다. 잘못 눌렀다면 이 화면의 「방금 처리한 것」에서 되돌릴 수 있습니다(새로고침 전까지).",
       confirmLabel: `${ids.length.toLocaleString("ko-KR")}건 확정`,
@@ -482,7 +571,18 @@ export default function ReviewPage() {
     return <LoadingState label="대기함을 불러오는 중…" />;
   }
 
-  const suggestedCount = transactions.filter((t) => t.status === "suggested").length;
+  // 일괄 확정은 **지금 걸러 보는 범위**만 확정한다 — 단추의 건수도 그 범위로 센다.
+  // 전체 건수를 적어 두면 9월만 보면서 「72건 확정」을 누르는 꼴이 된다.
+  const suggestedCount = pending.filter((t) => t.status === "suggested").length;
+  const filtered = statusFilter !== ALL || monthFilter !== ALL || acctFilter !== ALL;
+  const resetFilters = () => {
+    setStatusFilter(ALL);
+    setMonthFilter(ALL);
+    setAcctFilter(ALL);
+    setSelected(new Set());
+    setPage(0);
+    setCursor(0);
+  };
 
   // 페이지 넘김 — 화면마다 손으로 만들던 버튼 줄 대신 공통 부품.
   // 한 쪽 개수도 여기서 고른다 (Pagination 은 1-base, 내부 page 는 0-base)
@@ -511,7 +611,8 @@ export default function ReviewPage() {
         // 몰리면 무엇이 동작이고 무엇이 조건인지 구분되지 않는다.
         meta={
           <Badge tone={pending.length > 0 ? "warning" : "success"} dot>
-            검토 대기 <span className="nd-num">{pending.length.toLocaleString("ko-KR")}</span>건
+            {monthFilter !== ALL && `${monthLabel(monthFilter)} `}검토 대기{" "}
+            <span className="nd-num">{pending.length.toLocaleString("ko-KR")}</span>건
           </Badge>
         }
         actions={
@@ -612,6 +713,28 @@ export default function ReviewPage() {
           ) : undefined
         }
       >
+        <FilterField label="월" htmlFor="rv-month">
+          <Select
+            id="rv-month"
+            size="sm"
+            value={monthFilter}
+            className="w-auto"
+            onChange={(e) => {
+              setMonthFilter(e.target.value);
+              setSelected(new Set()); // 안 보이는 행이 선택된 채로 남으면 안 된다
+              setPage(0);
+              setCursor(0);
+            }}
+            title="달로 좁힌 뒤 「전체 선택」 · 「일괄 확정」 을 누르면 그 달만 잡힙니다"
+          >
+            <option value={ALL}>전체 기간 ({monthGroups.reduce((n, [, c]) => n + c, 0)})</option>
+            {monthGroups.map(([m, n]) => (
+              <option key={m} value={m}>
+                {m ? monthLabel(m) : "날짜 없음"} ({n})
+              </option>
+            ))}
+          </Select>
+        </FilterField>
         <FilterField label="상태" htmlFor="rv-status">
           <Select
             id="rv-status"
@@ -695,11 +818,29 @@ export default function ReviewPage() {
       </Disclosure>
 
       {pending.length === 0 ? (
-        <EmptyState
-          icon={CircleCheck}
-          title="검토할 거래가 없습니다"
-          description="모든 거래가 확정 상태입니다."
-        />
+        queue.length > 0 && filtered ? (
+          // 대기함은 남아 있는데 조건에 맞는 것만 없다 — 「모두 확정」 이라고 하면 거짓말이다
+          <EmptyState
+            icon={CircleCheck}
+            title={
+              monthFilter !== ALL
+                ? `${monthLabel(monthFilter)}에는 이 조건으로 검토할 거래가 없습니다`
+                : "이 조건으로 검토할 거래가 없습니다"
+            }
+            description={`다른 조건에는 ${queue.length.toLocaleString("ko-KR")}건이 남아 있습니다.`}
+            action={
+              <Button variant="secondary" size="sm" onClick={resetFilters}>
+                조건 지우고 전체 보기
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={CircleCheck}
+            title="검토할 거래가 없습니다"
+            description="모든 거래가 확정 상태입니다."
+          />
+        )
       ) : (
         <>
           {selected.size > 0 && (
@@ -872,11 +1013,14 @@ export default function ReviewPage() {
                           </InlineNotice>
                         )}
                       </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <Button variant="secondary" size="sm" onClick={() => setEditing(t)}>
-                          상세
-                        </Button>
-                        <Button size="sm" onClick={() => approve(t)}>확정</Button>
+                      <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-x-5 gap-y-2">
+                        <PaymentTag last4={t.last4} pm={t.last4 ? pmIndex.get(t.last4) : undefined} />
+                        <div className="flex items-center gap-2">
+                          <Button variant="secondary" size="sm" onClick={() => setEditing(t)}>
+                            상세
+                          </Button>
+                          <Button size="sm" onClick={() => approve(t)}>확정</Button>
+                        </div>
                       </div>
                     </div>
 

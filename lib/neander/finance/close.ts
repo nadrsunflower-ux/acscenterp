@@ -21,7 +21,7 @@
 // ============================================================
 
 import { isAllowedTxAccountMismatch } from "./classify";
-import { ledgerHref } from "./ledgerLink";
+import { ledgerHref, reviewHref } from "./ledgerLink";
 import { netAmount, PL_TX_TYPES, type FinTransaction } from "./types";
 import type { FinAccountDoc, FinPaymentMethodDoc } from "./db-types";
 
@@ -198,7 +198,7 @@ export function runMonthChecks(ctx: CheckContext): CheckResult[] {
             title: "검토가 끝나지 않은 거래",
             why: "분류가 확정되지 않은 거래가 리포트에 그대로 섞여 들어갑니다.",
             severity: "block",
-            href: "/neander/finance/review",
+            href: reviewHref(month),
           },
           hit,
           g,

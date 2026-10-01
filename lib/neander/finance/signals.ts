@@ -42,7 +42,7 @@ import type {
   FinSubscriptionDoc,
   FinVendorRuleDoc,
 } from "./db-types";
-import { ledgerHref } from "./ledgerLink";
+import { ledgerHref, reviewHref } from "./ledgerLink";
 import { FIN_ACCOUNTS } from "./master-data";
 import { buildMonthlyDeck } from "./monthlyDeck";
 import {
@@ -598,7 +598,7 @@ export function buildFinanceSignals(input: FinanceSignalInput): Signal[] {
           metric("미분류 지출", uncategorized, "원"),
         ],
         chapter: "집계 기준",
-        href: "/neander/finance/review",
+        href: reviewHref(month),
       });
     }
   }

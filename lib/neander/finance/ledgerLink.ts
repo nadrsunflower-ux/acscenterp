@@ -66,6 +66,20 @@ export function ledgerHref(q: LedgerQuery): string {
 }
 
 /**
+ * 검토 대기함 링크. 달을 주면 그 달로 좁힌 채 열린다 — 「이 달 미확정 12건」
+ * 을 눌렀는데 전체 1천 건이 뜨면 그 12건을 다시 찾아야 한다. 원장과 같은 `m`.
+ */
+export function reviewHref(month?: string): string {
+  return month ? `/neander/finance/review?${PARAM.month}=${month}` : "/neander/finance/review";
+}
+
+/** 쿼리스트링 → 검토 대기함이 처음 보여줄 달. 없거나 `YYYY-MM` 이 아니면 null */
+export function reviewMonthFromQuery(search: string): string | null {
+  const m = new URLSearchParams(search).get(PARAM.month) ?? "";
+  return /^\d{4}-\d{2}$/.test(m) ? m : null;
+}
+
+/**
  * 쿼리스트링 → 원장 필터.
  *
  * 값이 빈 문자열이면 "빈 값만 보기"라는 뜻이라 그대로 필터에 넣는다
