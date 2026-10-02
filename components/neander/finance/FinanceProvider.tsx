@@ -50,6 +50,7 @@ import type {
 } from "@/lib/neander/finance/db-types";
 import type { FinTransaction, FinImportBatch } from "@/lib/neander/finance/types";
 import type { FinClassRuleDoc } from "@/lib/neander/finance/class-rules";
+import type { FinSuspenseDoc } from "@/lib/neander/finance/suspense";
 import type { MonthCloseDoc } from "@/lib/neander/finance/close";
 import type { FinProjectDoc } from "@/lib/neander/finance/project";
 import type { FinDoc } from "@/lib/neander/finance/docs";
@@ -77,6 +78,8 @@ interface FinanceValue {
   projects: FinProjectDoc[];
   /** 프로젝트 문서 — 견적서·계약서 (projectId 로 프로젝트에 붙는다) */
   docs: FinDoc[];
+  /** 가수금 기록장 — 임직원과 오간 돈 한 건씩 (suspense.ts) */
+  suspense: FinSuspenseDoc[];
   /** 확정 거래로 만든 거래처 색인 (자동분류·검토함에서 사용) */
   vendorIndex: VendorIndex;
   loading: boolean;
@@ -113,6 +116,7 @@ const EMPTY = {
   closes: [] as MonthCloseDoc[],
   projects: [] as FinProjectDoc[],
   docs: [] as FinDoc[],
+  suspense: [] as FinSuspenseDoc[],
 };
 type FinanceData = typeof EMPTY;
 
@@ -169,6 +173,7 @@ const pick = (snap: FinanceSnapshot, transactions: FinTransaction[]): FinanceDat
   closes: snap.closes ?? [],
   projects: snap.projects ?? [],
   docs: snap.docs ?? [],
+  suspense: snap.suspense ?? [],
 });
 
 export function FinanceProvider({ children }: { children: ReactNode }) {

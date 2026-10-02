@@ -31,6 +31,7 @@ import type {
   FinVendorRuleDoc,
 } from "./db-types";
 import type { FinClassRule, FinClassRuleDoc, RuleProposal } from "./class-rules";
+import type { FinSuspenseDoc, FinSuspenseInput } from "./suspense";
 
 import type { PresentationContext } from "@/lib/neander/ai/presentation";
 import type { AssistantFocus } from "@/lib/neander/ai/focus";
@@ -64,6 +65,8 @@ export interface FinanceSnapshot {
   closes: MonthCloseDoc[];
   projects: FinProjectDoc[];
   docs: FinDoc[];
+  /** 가수금 기록장 — 임직원과 오간 돈 (suspense.ts) */
+  suspense?: FinSuspenseDoc[];
 }
 
 /** 서버가 신원을 검증할 수 있게 로그인 ID 토큰을 붙인다 */
@@ -581,6 +584,15 @@ export const deleteFinSubscription = (id: string) => mutate("subscription.delete
 /** 한 달치 예산을 통째로 저장 (0 인 줄은 서버에서 버린다) */
 export const saveFinBudget = (month: string, lines: Record<string, number>, note?: string) =>
   mutate<{ saved: number }>("budget.save", { month, lines, note });
+
+// ---- 가수금 기록장 ------------------------------------------
+
+/** 건을 통째로 저장. id 가 없으면 새로 만들고 id 를 돌려준다. 서버가 붙인 장부 거래를 다시 확인한다 */
+export const saveFinSuspense = (item: FinSuspenseInput, id?: string) =>
+  mutate<{ id: string }>("suspense.save", { id, item });
+
+/** 건을 지운다 (원본은 휴지통에 남는다). 붙여 둔 장부 거래는 안 붙은 목록으로 돌아간다 */
+export const deleteFinSuspense = (id: string) => mutate("suspense.delete", { id });
 
 // ---- 프로젝트 손익 ------------------------------------------
 

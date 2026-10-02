@@ -11,6 +11,7 @@ import type { FinAccountDoc, FinPaymentMethodDoc } from "@/lib/neander/finance/d
 import { normalizeClassRule, sameCondition, type FinClassRuleDoc } from "@/lib/neander/finance/class-rules";
 import { sanitizeProject } from "@/lib/neander/finance/project";
 import { sanitizeFinDoc, sanitizeFiles } from "@/lib/neander/finance/docs";
+import { allocatedByTx, checkNewLinks, sanitizeSuspense, type FinSuspenseDoc } from "@/lib/neander/finance/suspense";
 import { deleteFiles } from "@/lib/neander/server/storage";
 
 // 재무 쓰기 전체. 액션 하나로 모아둔 이유는 인증 게이트를 한 곳에서만
@@ -513,6 +514,52 @@ export async function POST(req: Request) {
             { merge: false },
           );
         return NextResponse.json({ ok: true, saved: Object.keys(kept).length });
+      }
+
+      // ---- 가수금 기록장 ------------------------------------------
+      case "suspense.save": {
+        // 건을 통째로 갈아치운다 (프로젝트와 같은 방식) — 줄 배열을 merge 하면 지운 줄이 되살아난다.
+        const { id, item } = payload as { id?: string; item: Record<string, unknown> };
+        const parsed = sanitizeSuspense(item ?? {});
+        if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+        const col = db.collection(NEANDER_COL.finSuspense);
+
+        // 한 거래를 두 건이 겹쳐 붙이면 잔액이 조용히 두 번 줄어든다 — 화면이 들고 있는
+        // 목록은 낡았을 수 있으니 저장 직전에 서버가 다시 센다.
+        const all = (await col.get()).docs.map((d) => ({ id: d.id, ...d.data() }) as FinSuspenseDoc);
+        const prev = id ? (all.find((x) => x.id === id) ?? null) : null;
+        if (id && !prev) return NextResponse.json({ error: "그 건이 없습니다." }, { status: 404 });
+        const linkedIds = [...allocatedByTx([parsed.value]).keys()];
+        const txs = (await readTransactions(db, linkedIds)) as unknown as FinTransaction[];
+        const problem = checkNewLinks(
+          parsed.value,
+          prev,
+          new Map(txs.map((t) => [t.id, t])),
+          allocatedByTx(all.filter((x) => x.id !== id)),
+        );
+        if (problem) return NextResponse.json({ error: problem }, { status: 409 });
+
+        const ref = id ? col.doc(id) : col.doc();
+        const prevRaw = prev as (FinSuspenseDoc & { createdBy?: string }) | null;
+        await ref.set(
+          clean({
+            ...parsed.value,
+            createdAt: prevRaw?.createdAt ?? now,
+            createdBy: prevRaw ? prevRaw.createdBy : user.email,
+            updatedAt: now,
+            updatedBy: user.email,
+          }),
+          { merge: false },
+        );
+        return NextResponse.json({ ok: true, id: ref.id });
+      }
+
+      case "suspense.delete": {
+        const { id } = payload as { id: string };
+        if (!id) return NextResponse.json({ error: "id 가 필요합니다." }, { status: 400 });
+        // 손으로 적은 기록이라 다시 만들 수 없다 — 원본을 휴지통에 남기고 지운다
+        await moveToTrash(db, NEANDER_COL.finSuspense, NEANDER_COL.finTrash, [id], user.email, now);
+        return NextResponse.json({ ok: true });
       }
 
       // ---- 법인카드 사용 메모 대조 ---------------------------------

@@ -90,6 +90,8 @@ export const NEANDER_COL = {
   finLedgerColumns: "neander_fin_ledger_columns",
   /** 형광펜 끄기 — 신뢰한 거래처(영구) · 이 달 확인한 계정 (finance/anomaly.ts) */
   finAnomalyIgnores: "neander_fin_anomaly_ignores",
+  /** 가수금 기록장 — 임직원과 오간 돈 한 건 = 문서 1개, 장부 거래를 건에 붙인다 (finance/suspense.ts) */
+  finSuspense: "neander_fin_suspense",
   /** 월간 인사이트 — 매출·재무 보고의 AI 해설 (문서 id = `${module}_${month}`, insights/types.ts) */
   insights: "neander_insights",
   /** 지운 거래의 원본 — 되돌리기가 숨긴 필드(dedupHash 등)를 되살리는 근거 (server/trash.ts) */

@@ -64,7 +64,7 @@ export async function GET(req: Request) {
     const raw = Number(new URL(req.url).searchParams.get("since"));
     const since = Number.isFinite(raw) && raw > 0 ? raw : null;
 
-    const [tx, accounts, paymentMethods, vendorRules, subscriptions, allocations, budgets, imports, closes, projects, docs, ledgerColumns, anomalyIgnores, classRules] =
+    const [tx, accounts, paymentMethods, vendorRules, subscriptions, allocations, budgets, imports, closes, projects, docs, ledgerColumns, anomalyIgnores, classRules, suspense] =
       await Promise.all([
         readTransactionPart(since),
         readAll(NEANDER_COL.finAccounts),
@@ -80,6 +80,7 @@ export async function GET(req: Request) {
         readAll(NEANDER_COL.finLedgerColumns),
         readAll(NEANDER_COL.finAnomalyIgnores),
         readAll(NEANDER_COL.finClassRules),
+        readAll(NEANDER_COL.finSuspense),
       ]);
 
     // 정렬은 서버에서 끝내둔다 — 클라이언트가 매번 다시 정렬할 이유가 없다
@@ -108,6 +109,7 @@ export async function GET(req: Request) {
       ledgerColumns,
       anomalyIgnores,
       classRules,
+      suspense,
     });
   } catch (e) {
     return failure(e);
