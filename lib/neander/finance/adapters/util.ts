@@ -110,7 +110,9 @@ export function parseDateTime(
   let time = "";
 
   if (dateVal instanceof Date) {
-    const d = dateVal;
+    // 초 단위로 반올림한다 — 엑셀 날짜는 소수라 0시가 23:59:59.999 로 읽히는 칸이
+    // 있고, 그대로 읽으면 하루 이르다 (xlsx.ts 의 toDateStr 와 같은 이유)
+    const d = new Date(Math.round(dateVal.getTime() / 1000) * 1000);
     date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     if (d.getHours() || d.getMinutes() || d.getSeconds()) {
       time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;

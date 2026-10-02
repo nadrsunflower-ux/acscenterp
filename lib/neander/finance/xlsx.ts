@@ -134,14 +134,23 @@ const num = (v: unknown): number => {
   return neg ? -n : n;
 };
 
-/** 엑셀 날짜 → `YYYY-MM-DD` (KST 기준으로 자른다) */
+/** 엑셀 날짜 → `YYYY-MM-DD` (엑셀에 적힌 그 날짜) */
 function toDateStr(v: unknown): { date: string; datetime?: string } {
   if (v instanceof Date) {
-    // cellDates:true 로 읽으면 Date 가 온다. 엑셀 날짜는 시각 정보가
-    // 의미 없는 경우가 많아 UTC 기준 연월일을 그대로 쓴다.
-    const y = v.getUTCFullYear();
-    const m = String(v.getUTCMonth() + 1).padStart(2, "0");
-    const d = String(v.getUTCDate()).padStart(2, "0");
+    // cellDates:true 로 읽으면 Date 가 온다. SheetJS 는 엑셀에 적힌 날짜·시각을
+    // **이 컴퓨터의 시간대**로 옮겨 준다 — 연월일도 같은 시간대로 읽어야 엑셀에
+    // 적힌 날짜가 나온다.
+    //
+    // ⚠️ UTC 로 읽으면 안 된다. 한국에서는 0시~9시가 UTC 로 전날이라, 날짜만 적힌
+    //    칸(0시)이 전부 하루 이르게 들어간다. 2026-10-02 까지 그랬고 4,472건을
+    //    scripts/neander/fix-ledger-dates.ts 로 고쳤다.
+    //
+    // 초 단위로 반올림한 뒤 읽는다 — 엑셀 날짜는 소수라 0시가 23:59:59.999 로
+    // 읽히는 칸이 있고, 그대로 자르면 그것도 하루 이르다.
+    const t = new Date(Math.round(v.getTime() / 1000) * 1000);
+    const y = t.getFullYear();
+    const m = String(t.getMonth() + 1).padStart(2, "0");
+    const d = String(t.getDate()).padStart(2, "0");
     return { date: `${y}-${m}-${d}`, datetime: v.toISOString() };
   }
   const s = str(v);
