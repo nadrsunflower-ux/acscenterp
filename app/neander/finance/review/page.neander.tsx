@@ -81,6 +81,7 @@ import { LeavingItem, useLeaving } from "@/components/neander/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import type { FinProjectDoc } from "@/lib/neander/finance/project";
 import { TransactionEditor } from "@/components/neander/finance/TransactionEditor";
+import { DayEventsLine, useDayEvents } from "@/components/neander/finance/DayEvents";
 import {
   AccountPicker,
   type AccountValue,
@@ -354,6 +355,8 @@ export default function ReviewPage() {
     },
   });
   /** 되돌리기 기록에 적는 거래 이름 — 날짜·금액만으로는 어느 건인지 알 수 없다 */
+  /** 그날 일정 (구글 캘린더) — 커서 행에 보인다. 한 달씩 받아 들고 있는다 */
+  const dayEvents = useDayEvents();
   const txLabel = (t: FinTransaction) =>
     `${t.vendor || "(거래처 없음)"} ${netAmount(t).toLocaleString("ko-KR")}원 (${(t.date ?? "").slice(5)})`;
 
@@ -1480,6 +1483,8 @@ export default function ReviewPage() {
                     */}
                     {active && (
                       <div className="mt-2.5 border-t border-nd-line pt-2.5">
+                            {/* 그날 무슨 일이 있었나 — 계정을 고르기 전에 읽는다 */}
+                            <DayEventsLine date={t.date} store={dayEvents} className="mb-2.5" />
                             <AccountPicker
                               accounts={accounts}
                               txType={t.txType}

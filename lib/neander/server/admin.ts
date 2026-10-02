@@ -31,7 +31,8 @@ interface ServiceAccountJson {
   private_key: string;
 }
 
-function loadServiceAccount(): ServiceAccountJson {
+/** 서버 계정 — 구글 캘린더 읽기(finance/server/gcal.ts)도 같은 계정으로 한다 */
+export function loadServiceAccount(): ServiceAccountJson {
   const b64 = process.env.FIREBASE_SERVICE_ACCOUNT_B64;
   if (!b64) {
     throw new Error(

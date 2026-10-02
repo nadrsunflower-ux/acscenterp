@@ -17,6 +17,7 @@ import type { FinTransaction, FinImportBatch, FinTransactionInput } from "./type
 import type { CloseSnapshot, MonthCloseDoc } from "./close";
 import type { FinCardMemoView, ReceiptRead } from "./card-memo";
 import type { FinChatDoc, FinChatSummary } from "./chat-log";
+import type { CalendarSnapshot, GcalCalendar } from "./calendar";
 import type { FinProjectDoc, FinProjectInput, ProjectDigest } from "./project";
 import type { FinDoc, FinDocFile, FinDocInput } from "./docs";
 import type {
@@ -123,6 +124,28 @@ export async function fetchFinDedupCounts(): Promise<Map<string, number>> {
   if (!res.ok) throw new Error(await readError(res));
   const body = (await res.json()) as { counts?: Record<string, number> };
   return new Map(Object.entries(body.counts ?? {}));
+}
+
+// ---- 그날 일정 (구글 캘린더) ------------------------------------
+
+const CALENDAR_URL = "/api/neander/finance/calendar";
+
+/** 그 기간의 일정 (한국 시간 · 양 끝 날짜 포함) — finance/calendar.ts */
+export async function fetchDayEvents(from: string, to: string): Promise<CalendarSnapshot> {
+  const res = await fetch(`${CALENDAR_URL}?from=${from}&to=${to}`, { headers: await authHeaders(), cache: "no-store" });
+  if (!res.ok) throw new Error(await readError(res));
+  return (await res.json()) as CalendarSnapshot;
+}
+
+/** 읽어 올 캘린더 목록을 바꾼다. 저장하자마자 읽어 본 결과(issues)가 같이 온다 */
+export async function saveGcalCalendars(calendars: GcalCalendar[]): Promise<CalendarSnapshot> {
+  const res = await fetch(CALENDAR_URL, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ calendars }),
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return (await res.json()) as CalendarSnapshot;
 }
 
 async function mutate<T = unknown>(action: string, payload?: unknown): Promise<T> {

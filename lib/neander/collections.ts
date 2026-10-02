@@ -81,6 +81,11 @@ export const NEANDER_COL = {
    * 보안 규칙에 없어 서버(api/neander/finance/seals)만 접근 — 깃·public/ 에 두지 않는다
    */
   finSeals: "neander_fin_seals",
+  /**
+   * 재무 설정 (문서 id = 설정 이름). `gcal` — 검토 대기함 옆에 보일 구글 캘린더 목록.
+   * 보안 규칙에 없어 서버(api/neander/finance/calendar)만 접근한다 (finance/calendar.ts)
+   */
+  finSettings: "neander_fin_settings",
   /** 원장에 사람이 덧붙인 열 (값은 거래 문서의 extra 에 담긴다) */
   finLedgerColumns: "neander_fin_ledger_columns",
   /** 형광펜 끄기 — 신뢰한 거래처(영구) · 이 달 확인한 계정 (finance/anomaly.ts) */
