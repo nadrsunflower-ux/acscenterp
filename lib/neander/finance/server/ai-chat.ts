@@ -13,6 +13,9 @@
 import { argBits, runAgent, type AgentMessage, type AgentResult } from "@/lib/neander/ai/agent";
 import { withNotion } from "@/lib/neander/ai/notion-tools";
 import { presentationNote, type PresentationContext } from "@/lib/neander/ai/presentation";
+import type { AssistantFocus } from "@/lib/neander/ai/focus";
+import type { DayEvent } from "../calendar";
+import { focusNote } from "./ai-focus";
 import { renderAccounts } from "./ai-classify";
 import { TOOL_DEFS, runTool, type ChangeProposal, type ToolContext } from "./ai-tools";
 import type { ExtractedAttachment } from "@/lib/neander/server/attachments";
@@ -68,7 +71,16 @@ export async function runFinanceChat(args: {
   attachments?: ExtractedAttachment[];
   /** 보고 슬라이드 발표 중이면 그 달 — 기간 없는 질문의 기준 */
   presentation?: PresentationContext;
+  /** 검토 대기함에서 보고 있는 거래 (id 만 — 내용은 장부에서 읽는다) */
+  focus?: AssistantFocus;
+  /** 그 거래 날짜의 캘린더 일정 (연결돼 있으면) */
+  dayEvents?: DayEvent[];
 }): Promise<ChatResult> {
+  // 요청마다 달라지는 안내들 — 캐시되는 앞부분 뒤에 붙인다
+  const notes = [
+    args.presentation ? presentationNote(args.presentation) : undefined,
+    args.focus ? focusNote(args.focus, args.ctx, args.dayEvents) : undefined,
+  ].filter(Boolean);
   return runAgent<ChangeProposal>(
     // 회사 노션 읽기 도구 — NOTION_TOKEN 이 없으면 아무것도 안 붙는다
     withNotion({
@@ -76,7 +88,7 @@ export async function runFinanceChat(args: {
       // 계정 마스터는 매 요청 같으므로 캐시를 건다 (≈4천 토큰)
       cachedContext: `== 계정 마스터 ==\n${renderAccounts(args.ctx.accounts)}`,
       // 발표 맥락은 캐시 뒤에 따로 — 달·장이 바뀌어도 앞의 긴 부분 캐시가 깨지지 않는다
-      note: args.presentation ? presentationNote(args.presentation) : undefined,
+      note: notes.length > 0 ? notes.join("\n\n") : undefined,
       tools: TOOL_DEFS,
       runTool: (name, a) => runTool(name, a, args.ctx),
       summarize,

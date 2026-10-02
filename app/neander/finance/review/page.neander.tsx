@@ -82,6 +82,7 @@ import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import type { FinProjectDoc } from "@/lib/neander/finance/project";
 import { TransactionEditor } from "@/components/neander/finance/TransactionEditor";
 import { DayEventsLine, useDayEvents } from "@/components/neander/finance/DayEvents";
+import { setAssistantFocus } from "@/components/neander/assistant/events";
 import {
   AccountPicker,
   type AccountValue,
@@ -780,6 +781,21 @@ export default function ReviewPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [pageRows, cursor, editing, approve, page, pageCount, pageSize, goPage]);
+
+  // 비서에게 지금 보고 있는 거래를 알린다 — 「이거 뭐로 분류해?」 가 통하게 (ai/focus.ts).
+  // 체크박스로 고른 거래도 함께 넘긴다. 화면을 떠나면 거둔다.
+  const focusTx = pageRows[cursor];
+  const focusLabel = focusTx ? txLabel(focusTx) : "";
+  const focusPicked = useMemo(() => [...selected].filter((id) => id !== focusTx?.id).slice(0, 30), [selected, focusTx?.id]);
+  useEffect(() => {
+    setAssistantFocus(
+      focusTx
+        ? { kind: "finTransaction", id: focusTx.id, label: focusLabel, ...(focusPicked.length ? { selectedIds: focusPicked } : {}) }
+        : null,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTx?.id, focusLabel, focusPicked]);
+  useEffect(() => () => setAssistantFocus(null), []);
 
   // 커서가 화면 밖으로 나가지 않게
   useEffect(() => {

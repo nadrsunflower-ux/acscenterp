@@ -41,6 +41,7 @@ import {
   MessageSquareText,
   PanelRight,
   Paperclip,
+  MousePointerClick,
   PictureInPicture2,
   Plus,
   SendHorizontal,
@@ -51,8 +52,11 @@ import { ToolbarPortal, useDockReservation } from "@/components/neander/shell/co
 import {
   ASSISTANT_CONTEXT_EVENT,
   ASSISTANT_EVENT,
+  ASSISTANT_FOCUS_EVENT,
   announceAssistant,
+  getAssistantFocus,
   type AssistantAction,
+  type AssistantFocus,
   type PresentationContext,
 } from "./events";
 import type { AgentMessage, AgentResult } from "@/lib/neander/ai/agent";
@@ -87,6 +91,8 @@ export interface AssistantAdapter<P> {
   /** 빈 대화에 보여줄 안내 */
   intro: ReactNode;
   examples: string[];
+  /** 화면에서 대상을 고른 채 열었을 때의 예시 — 없으면 examples 를 쓴다 */
+  focusExamples?: string[];
   inputPlaceholder: string;
   busyLabel: string;
 
@@ -97,6 +103,8 @@ export interface AssistantAdapter<P> {
     conversationId?: string,
     /** 보고 슬라이드 발표 중이면 그 달·장 — 서버가 기간 없는 질문의 기준으로 쓴다 */
     context?: PresentationContext,
+    /** 화면에서 보고 있는 대상 — 「이거」 가 무엇인지 서버가 안다 (ai/focus.ts) */
+    focus?: AssistantFocus,
   ) => Promise<AssistantResult<P>>;
   listChats: () => Promise<AssistantChatSummary[]>;
   loadChat: (id: string) => Promise<AssistantChatDoc<P>>;
@@ -188,6 +196,18 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
     window.addEventListener(ASSISTANT_CONTEXT_EVENT, onCtx);
     return () => window.removeEventListener(ASSISTANT_CONTEXT_EVENT, onCtx);
   }, []);
+
+  // 화면에서 보고 있는 대상 (검토 대기함의 커서 거래). 사람이 ✕ 로 떼면 그 대상은
+  // 다시 붙지 않는다 — 커서를 다른 거래로 옮기면 새 대상이 붙는다.
+  const [focus, setFocus] = useState<AssistantFocus | null>(null);
+  const [droppedFocus, setDroppedFocus] = useState<string | null>(null);
+  useEffect(() => {
+    setFocus(getAssistantFocus());
+    const onFocus = (e: Event) => setFocus((e as CustomEvent<AssistantFocus | null>).detail);
+    window.addEventListener(ASSISTANT_FOCUS_EVENT, onFocus);
+    return () => window.removeEventListener(ASSISTANT_FOCUS_EVENT, onFocus);
+  }, []);
+  const activeFocus = focus && focus.id !== droppedFocus ? focus : null;
 
   const addFiles = (list: FileList | File[] | null) => {
     if (!list || busy) return;
@@ -422,7 +442,14 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
         role: t.role,
         content: t.wireContent ?? t.content,
       }));
-      const res = await adapter.send(history, model, files, conversationId, presentation ?? undefined);
+      const res = await adapter.send(
+        history,
+        model,
+        files,
+        conversationId,
+        presentation ?? undefined,
+        activeFocus ?? undefined,
+      );
       if (res.conversationId) setConversationId(res.conversationId);
       const settled = res.sentUserContent
         ? next.map((t, k) => (k === next.length - 1 ? { ...t, wireContent: res.sentUserContent } : t))
@@ -655,7 +682,7 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
               <div className="pt-4">
                 <p className="text-nd-body text-nd-fg-2">{adapter.intro}</p>
                 <div className="mt-3 space-y-1.5">
-                  {adapter.examples.map((e) => (
+                  {(activeFocus && adapter.focusExamples ? adapter.focusExamples : adapter.examples).map((e) => (
                     <button
                       key={e}
                       type="button"
@@ -808,6 +835,26 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
                 }))}
               />
             </div>
+            {activeFocus && (
+              // 지금 무엇을 두고 묻는지 — 「이거」 라고만 해도 비서가 이 대상으로 알아듣는다
+              <div className="mb-2 flex items-center gap-1.5 rounded-nd-md bg-nd-accent-soft px-2.5 py-1.5">
+                <Icon icon={MousePointerClick} size={14} className="shrink-0 text-nd-accent" />
+                <span className="min-w-0 flex-1 truncate text-nd-table text-nd-fg" title={activeFocus.label}>
+                  <span className="text-nd-fg-2">보고 있는 거래</span>{" "}
+                  <b className="font-semibold">{activeFocus.label ?? activeFocus.id}</b>
+                  {activeFocus.selectedIds?.length ? (
+                    <span className="text-nd-fg-2"> 외 체크 {activeFocus.selectedIds.length}건</span>
+                  ) : null}
+                </span>
+                <IconButton
+                  icon={X}
+                  label="이 거래를 떼고 묻기"
+                  size="sm"
+                  onClick={() => setDroppedFocus(activeFocus.id)}
+                  disabled={busy}
+                />
+              </div>
+            )}
             {pendingFiles.length > 0 && (
               <div className="mb-2 flex flex-wrap gap-1.5">
                 {pendingFiles.map((f, k) => (

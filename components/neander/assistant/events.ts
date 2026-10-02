@@ -22,6 +22,25 @@ export function setAssistantContext(ctx: PresentationContext | null) {
   window.dispatchEvent(new CustomEvent(ASSISTANT_CONTEXT_EVENT, { detail: ctx }));
 }
 
+// ---- 보고 있는 것 ---------------------------------------------
+//  화면 → 비서: 지금 고른 대상 (검토 대기함의 커서 거래). null 이면 없음.
+//  비서 패널은 화면보다 **늦게** 귀를 열 수 있다 (레이아웃의 효과가 화면의 효과 뒤에
+//  돈다). 그래서 이벤트만 쏘지 않고 마지막 값을 들고 있는다 — 패널이 뜰 때 읽어 간다.
+
+export const ASSISTANT_FOCUS_EVENT = "neander:assistant-focus";
+export type { AssistantFocus } from "@/lib/neander/ai/focus";
+import type { AssistantFocus } from "@/lib/neander/ai/focus";
+
+let currentFocus: AssistantFocus | null = null;
+
+/** 보고 있는 대상을 비서에게 알린다 (null = 고른 것 없음 · 화면을 떠남) */
+export function setAssistantFocus(focus: AssistantFocus | null) {
+  currentFocus = focus;
+  window.dispatchEvent(new CustomEvent(ASSISTANT_FOCUS_EVENT, { detail: focus }));
+}
+
+export const getAssistantFocus = () => currentFocus;
+
 export type AssistantAction = "toggle" | "open" | "close" | "ping";
 
 export interface AssistantState {

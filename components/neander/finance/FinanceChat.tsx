@@ -52,6 +52,14 @@ const EXAMPLES = [
   "지난달 대비 이번 달에 크게 늘어난 계정은?",
 ];
 
+/** 검토 대기함에서 거래 하나를 보고 있을 때 — 대상을 말하지 않아도 그 거래로 알아듣는다 */
+const FOCUS_EXAMPLES = [
+  "이 거래 어떻게 분류하면 좋을까?",
+  "이 거래처의 과거 거래를 보여줘",
+  "같은 날 다른 거래는 뭐가 있었어?",
+  "이 거래처는 앞으로 이렇게 분류해줘",
+];
+
 export function FinanceChat() {
   const { refresh } = useFinance();
 
@@ -70,11 +78,12 @@ export function FinanceChat() {
         </>
       ),
       examples: EXAMPLES,
+      focusExamples: FOCUS_EXAMPLES,
       inputPlaceholder: "거래·계정·구독에 대해 물어보세요 (Enter 전송 · Shift+Enter 줄바꿈)",
       busyLabel: "장부를 보고 있습니다…",
 
-      send: (messages, model, files, conversationId, context) =>
-        sendFinanceChat(messages, model, files, conversationId, context),
+      send: (messages, model, files, conversationId, context, focus) =>
+        sendFinanceChat(messages, model, files, conversationId, context, focus),
       listChats: fetchChatList,
       loadChat: fetchChat,
       deleteChat,

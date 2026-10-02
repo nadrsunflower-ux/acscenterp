@@ -33,6 +33,7 @@ import type {
 import type { FinClassRule, FinClassRuleDoc, RuleProposal } from "./class-rules";
 
 import type { PresentationContext } from "@/lib/neander/ai/presentation";
+import type { AssistantFocus } from "@/lib/neander/ai/focus";
 
 const DATA_URL = "/api/neander/finance/data";
 const MUTATE_URL = "/api/neander/finance/mutate";
@@ -470,13 +471,18 @@ export async function sendFinanceChat(
   conversationId?: string,
   /** 보고 슬라이드 발표 중이면 그 달 — 기간 없는 질문의 기준 (ai/presentation.ts) */
   context?: PresentationContext,
+  /** 검토 대기함에서 보고 있는 거래 — id 만 보낸다 (ai/focus.ts) */
+  focus?: AssistantFocus,
 ): Promise<ChatResult> {
+  // 이름표(label)는 화면용이다 — 서버로 보내지 않는다
+  const wireFocus = focus ? { kind: focus.kind, id: focus.id, selectedIds: focus.selectedIds } : undefined;
   if (!files || files.length === 0) {
     return mutateJson<ChatResult>("/api/neander/finance/ai/chat", {
       messages,
       model,
       conversationId,
       context,
+      focus: wireFocus,
     });
   }
   const user = getNeanderAuth().currentUser;
@@ -486,6 +492,7 @@ export async function sendFinanceChat(
   if (model) form.append("model", model);
   if (conversationId) form.append("conversationId", conversationId);
   if (context) form.append("context", JSON.stringify(context));
+  if (wireFocus) form.append("focus", JSON.stringify(wireFocus));
   for (const f of files) form.append("files", f);
   const res = await fetch("/api/neander/finance/ai/chat", {
     method: "POST",

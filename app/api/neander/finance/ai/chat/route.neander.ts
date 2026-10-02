@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { parsePresentation, type PresentationContext } from "@/lib/neander/ai/presentation";
+import { parseFocus, type AssistantFocus } from "@/lib/neander/ai/focus";
+import { cleanCalendars, type DayEvent } from "@/lib/neander/finance/calendar";
+import { listDayEvents } from "@/lib/neander/finance/server/gcal";
 import { adminDb } from "@/lib/neander/server/admin";
 import { requireErpUser, accessErrorResponse } from "@/lib/neander/server/auth";
 import { NEANDER_COL } from "@/lib/neander/collections";
@@ -58,6 +61,8 @@ export async function POST(req: Request) {
     let conversationId: string | undefined;
     /** 보고 슬라이드 발표 중이면 그 달 — 검사를 통과한 것만 (ai/presentation.ts) */
     let presentation: PresentationContext | undefined;
+    /** 검토 대기함에서 보고 있는 거래 — id 만 받는다 (ai/focus.ts) */
+    let focus: AssistantFocus | undefined;
     const files: File[] = [];
     if ((req.headers.get("content-type") ?? "").includes("multipart/form-data")) {
       const form = await req.formData();
@@ -72,17 +77,20 @@ export async function POST(req: Request) {
       if (typeof m === "string" && m) model = m;
       for (const f of form.getAll("files")) if (f instanceof File) files.push(f);
       presentation = parsePresentation(form.get("context"));
+      focus = parseFocus(form.get("focus"));
     } else {
       const body = (await req.json()) as {
         messages?: ChatMessage[];
         model?: string;
         conversationId?: string;
         context?: unknown;
+        focus?: unknown;
       };
       conversationId = body.conversationId;
       rawMessages = body.messages;
       model = body.model;
       presentation = parsePresentation(body.context);
+      focus = parseFocus(body.focus);
     }
     const messages = Array.isArray(rawMessages) ? (rawMessages as ChatMessage[]) : [];
     if (messages.length === 0) {
@@ -140,7 +148,21 @@ export async function POST(req: Request) {
       );
     }
 
-    const result = await runFinanceChat({ messages: trimmed, ctx, model, attachments, presentation });
+    // 보고 있는 거래의 그날 일정 — 사람이 검토 화면에서 보는 것과 같은 것을 비서도 본다.
+    // 캘린더가 없거나 못 읽어도 대화는 그대로 간다.
+    let dayEvents: DayEvent[] = [];
+    const focusDate = focus ? ctx.transactions.find((t) => t.id === focus!.id)?.date : undefined;
+    if (focusDate) {
+      try {
+        const gcal = await db.collection(NEANDER_COL.finSettings).doc("gcal").get();
+        const calendars = cleanCalendars(gcal.get("calendars"));
+        if (calendars.length > 0) dayEvents = (await listDayEvents(calendars, focusDate, focusDate)).events;
+      } catch (e) {
+        console.warn("[finance/ai/chat] 그날 일정을 읽지 못했습니다", e);
+      }
+    }
+
+    const result = await runFinanceChat({ messages: trimmed, ctx, model, attachments, presentation, focus, dayEvents });
 
     // 답을 만든 뒤 기록한다. 화면이 저장하게 하면 브라우저가 닫히거나 중간에
     // 끊겼을 때 정작 무엇을 제안받았는지가 사라진다. 서버는 답을 만든 그
