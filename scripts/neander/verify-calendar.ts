@@ -17,6 +17,7 @@ import {
   cleanCalendars,
   dayLabel,
   expandGoogleEvent,
+  groupDayEvents,
   monthRange,
   sortDayEvents,
 } from "@/lib/neander/finance/calendar";
@@ -84,6 +85,15 @@ async function main() {
       ...expandGoogleEvent({ id: "3", summary: "행사", start: { date: "2026-09-27" }, end: { date: "2026-09-28" } }, CAL),
     ]);
     ok(day.map((e) => e.title).join(">") === "행사>아침>저녁", "종일 일정이 먼저, 그다음 시각순");
+  }
+  {
+    const slot = (id: string, time: string, summary = "[뿌리는 덕질] AI 이미지 분석 퍼퓸") =>
+      expandGoogleEvent({ id, summary, start: { dateTime: `2026-09-19T${time}:00+09:00` }, end: { dateTime: `2026-09-19T${time}:59+09:00` } }, CAL);
+    const groups = groupDayEvents([...slot("a", "14:30"), ...slot("b", "13:00"), ...slot("c", "15:00"), ...slot("d", "14:00", "임원진 회의")]);
+    ok(groups.length === 2 && groups[0].count === 3 && groups[0].first.time === "13:00" && groups[0].times.join(",") === "13:00,14:30,15:00",
+      "같은 제목의 시간대들은 한 묶음 — 가장 이른 시각과 횟수", groups.map((g) => `${g.first.time} ${g.first.title} ×${g.count}`).join(" / "));
+    const other = groupDayEvents([...slot("a", "13:00"), ...expandGoogleEvent({ id: "z", summary: "[뿌리는 덕질] AI 이미지 분석 퍼퓸", start: { dateTime: "2026-09-19T13:00:00+09:00" }, end: { dateTime: "2026-09-19T14:00:00+09:00" } }, { id: "other", label: "와우" })]);
+    ok(other.length === 2, "캘린더가 다르면 제목이 같아도 따로 둔다");
   }
   ok(addDays("2026-09-30", 3) === "2026-10-03" && addDays("2026-03-01", -1) === "2026-02-28", "날짜 더하기는 달을 넘는다");
   ok(JSON.stringify(monthRange("2026-02")) === JSON.stringify({ from: "2026-02-01", to: "2026-02-28" }) && monthRange("2028-02").to === "2028-02-29",

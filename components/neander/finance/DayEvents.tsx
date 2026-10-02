@@ -32,11 +32,13 @@ import { fetchDayEvents, saveGcalCalendars } from "@/lib/neander/finance/client"
 import {
   addDays,
   dayLabel,
+  groupDayEvents,
   monthRange,
   sortDayEvents,
   type CalendarIssue,
   type CalendarSnapshot,
   type DayEvent,
+  type DayEventGroup,
   type GcalCalendar,
 } from "@/lib/neander/finance/calendar";
 
@@ -106,15 +108,24 @@ export function useDayEvents(): DayEventsStore {
   return { meta, error, eventsOn, ensure, reset };
 }
 
-/** 일정 하나 — `14:00 제목` */
-function EventChip({ ev, showCalendar }: { ev: DayEvent; showCalendar: boolean }) {
+/** 일정 한 묶음 — `14:00 제목 ×3`. 같은 제목이 시간대마다 있으면 한 칸으로 줄인다 */
+function EventChip({ group, showCalendar }: { group: DayEventGroup; showCalendar: boolean }) {
+  const ev = group.first;
   return (
     <span
-      className="inline-flex max-w-[22rem] items-baseline gap-x-1.5 rounded-nd-md bg-nd-sunken px-2.5 py-0.5 text-[15px] leading-snug text-nd-fg"
-      title={[ev.title, ev.location, showCalendar ? ev.calendar : ""].filter(Boolean).join(" · ")}
+      className="inline-flex max-w-[24rem] items-baseline gap-x-1.5 rounded-nd-md bg-nd-sunken px-2.5 py-0.5 text-[15px] leading-snug text-nd-fg"
+      title={[
+        ev.title,
+        group.times.length > 1 ? group.times.join(" · ") : "",
+        ev.location,
+        showCalendar ? ev.calendar : "",
+      ]
+        .filter(Boolean)
+        .join(" — ")}
     >
       {ev.time && <span className="nd-num shrink-0 text-nd-table text-nd-fg-2">{ev.time}</span>}
       <span className="min-w-0 truncate font-medium">{ev.title}</span>
+      {group.count > 1 && <span className="nd-num shrink-0 text-nd-table font-semibold text-nd-fg-2">×{group.count}</span>}
       {showCalendar && <span className="shrink-0 text-nd-table text-nd-fg-3">{ev.calendar}</span>}
     </span>
   );
@@ -160,7 +171,7 @@ export function DayEventsLine({ date, store, className }: { date: string; store:
       </>
     );
   } else {
-    const list = events ?? [];
+    const list = groupDayEvents(events ?? []);
     body = (
       <>
         {events === undefined ? (
@@ -169,8 +180,8 @@ export function DayEventsLine({ date, store, className }: { date: string; store:
           <span className="text-nd-body text-nd-fg-3">{issues.length > 0 ? "읽은 일정이 없습니다" : "일정 없음"}</span>
         ) : (
           <>
-            {list.slice(0, MAX_INLINE).map((ev) => (
-              <EventChip key={ev.key} ev={ev} showCalendar={many} />
+            {list.slice(0, MAX_INLINE).map((g) => (
+              <EventChip key={g.first.key} group={g} showCalendar={many} />
             ))}
             {list.length > MAX_INLINE && (
               <span className="nd-num text-nd-body text-nd-fg-2">+{list.length - MAX_INLINE}</span>
@@ -233,11 +244,17 @@ export function DayEventsLine({ date, store, className }: { date: string; store:
                   ) : dayEvents.length === 0 ? (
                     <span className="text-nd-body text-nd-fg-3">—</span>
                   ) : (
-                    dayEvents.map((ev) => (
+                    groupDayEvents(dayEvents).map(({ first: ev, count, times }) => (
                       <span key={ev.key} className="flex min-w-0 items-baseline gap-x-2 text-nd-body leading-snug text-nd-fg">
                         {ev.time && <span className="nd-num shrink-0 text-nd-table text-nd-fg-2">{ev.time}</span>}
                         <span className="min-w-0 break-words">
                           {ev.title}
+                          {count > 1 && (
+                            <span className="nd-num font-semibold text-nd-fg-2" title={times.join(" · ")}>
+                              {" "}
+                              ×{count}
+                            </span>
+                          )}
                           {ev.location && <span className="text-nd-fg-3"> · {ev.location}</span>}
                         </span>
                         {many && <span className="shrink-0 text-nd-table text-nd-fg-3">{ev.calendar}</span>}

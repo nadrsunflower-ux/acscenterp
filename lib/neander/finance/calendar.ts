@@ -155,6 +155,33 @@ export function sortDayEvents(events: DayEvent[]): DayEvent[] {
   );
 }
 
+/** 같은 제목의 일정 묶음 — 예약 시간대처럼 하루에 여러 번 나오는 것 */
+export interface DayEventGroup {
+  /** 그날 가장 이른 것 */
+  first: DayEvent;
+  count: number;
+  /** 시작 시각들 (이른 순) */
+  times: string[];
+}
+
+/**
+ * 하루치 일정을 **같은 제목 · 같은 캘린더**끼리 묶는다.
+ * 예약 캘린더는 한 프로그램이 시간대마다 한 줄씩 들어 있어서(13:00 · 14:30 · 15:00 …),
+ * 그대로 늘어놓으면 같은 말이 세 줄을 채운다. 「13:00 제목 ×9」 한 줄이면 된다.
+ */
+export function groupDayEvents(events: DayEvent[]): DayEventGroup[] {
+  const groups = new Map<string, DayEventGroup>();
+  sortDayEvents(events).forEach((e) => {
+    const k = `${e.calendarId}|${e.title}`;
+    const g = groups.get(k);
+    if (g) {
+      g.count += 1;
+      if (e.time) g.times.push(e.time);
+    } else groups.set(k, { first: e, count: 1, times: e.time ? [e.time] : [] });
+  });
+  return [...groups.values()];
+}
+
 /** 사람이 적은 캘린더 목록을 다듬는다 — 빈 줄·중복을 버리고 이름이 없으면 ID 앞머리로 */
 export function cleanCalendars(input: unknown): GcalCalendar[] {
   if (!Array.isArray(input)) return [];
