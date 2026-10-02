@@ -743,6 +743,10 @@ export default function ReviewPage() {
       if (editing) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+      // 창 · 판 안에서 누른 글쇠는 그 안의 것이다 (캘린더 연결 창에서 Enter 가 확정이 되면 안 된다)
+      if ((e.target as HTMLElement)?.closest?.('[role="dialog"]')) return;
+      // 단추 위의 Enter 는 그 단추를 누르는 것이다 — 커서 행까지 확정하지 않는다
+      if (e.key === "Enter" && (tag === "BUTTON" || tag === "A")) return;
       if (pageRows.length === 0) return;
 
       if (e.key === "ArrowDown" || e.key === "j") {
