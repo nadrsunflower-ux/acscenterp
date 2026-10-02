@@ -1315,7 +1315,9 @@ export default function ReviewPage() {
                 >
                   <Card
                     onClick={() => setCursor(i)}
-                    className={cn("px-4 py-2.5 transition-shadow duration-nd-fast", active && "ring-2 ring-nd-accent/60")}
+                    // 지금 보고 있는 건 — 파란 테두리. ring(box-shadow)으로는 안 보인다:
+                    // 카드 표면(.nd-surface)이 자기 그림자를 더 센 선택자로 덮어쓴다. outline 은 겹치지 않는다
+                    className={cn("px-4 py-2.5", active && "outline outline-2 outline-nd-accent")}
                   >
                     {/*
                       한 줄 배치 — 거래처·금액 → 상태·날짜 → 근거 → 분류가 왼쪽에서 오른쪽으로
