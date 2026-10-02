@@ -16,7 +16,7 @@ export { Dialog, Sheet, ConfirmDialog, ConfirmProvider, useConfirm, type DialogP
 export { Popover, Menu, Tooltip, type MenuItem, type PopoverProps } from "./popover";
 export { ChartTooltip, useChartHover, type ChartTooltipRow } from "./chart-tooltip";
 export { ToastProvider, useToast, type ToastOptions } from "./toast";
-export { useUndoHistory, UndoHistory, type UndoEntry } from "./undo";
+export { useUndoHistory, UndoHistory, type UndoEntry, type UndoRowLabel } from "./undo";
 export { TableScroll, Table, Th, SortTh, Td, Tr, TotalRow, TableNote, type SortState, type SortDir } from "./table";
 export { Spinner, LoadingState, Skeleton, EmptyState, ErrorState, InlineNotice } from "./state";
 export { KpiStrip, KpiItem, Metric, RatioTile } from "./metric";

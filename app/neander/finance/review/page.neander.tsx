@@ -266,6 +266,8 @@ export default function ReviewPage() {
    * 원장에서 한 건씩 찾아 되돌려야 했다.
    */
   const undoLog = useUndoHistory<FinTransaction>({
+    // 한 거래의 계정 · 사업구분 · 프로젝트를 이어서 고치면 한 건으로 묶는다
+    keyOf: (t) => t.id,
     // 되쓴 거래만 바꿔 끼운다 — 전체(거래 1만+ · 7MB)를 다시 받지 않는다
     restore: async (before) => {
       const hold = before.filter((t) => t.status !== "confirmed").map((t) => t.id);
@@ -282,7 +284,9 @@ export default function ReviewPage() {
       }
     },
   });
-  const txLabel = (t: FinTransaction) => `${t.date} ${netAmount(t).toLocaleString("ko-KR")}원`;
+  /** 되돌리기 기록에 적는 거래 이름 — 날짜·금액만으로는 어느 건인지 알 수 없다 */
+  const txLabel = (t: FinTransaction) =>
+    `${t.vendor || "(거래처 없음)"} ${netAmount(t).toLocaleString("ko-KR")}원 (${(t.date ?? "").slice(5)})`;
 
   const [statusFilter, setStatusFilter] = useState<string>(ALL);
   /**
@@ -452,7 +456,7 @@ export default function ReviewPage() {
       code
         ? `프로젝트를 지정했습니다${major ? ` · 사업구분 ${project?.bizMinor}` : ""}.`
         : "프로젝트 지정을 풀었습니다.",
-      `${txLabel(t)} 프로젝트 → ${project?.name ?? code ?? "없음"}`,
+      { subject: txLabel(t), change: `프로젝트 → ${project?.name ?? code ?? "없음"}` },
       [t],
     );
     applyTransactions({ upsert: res.transactions });
@@ -490,7 +494,7 @@ export default function ReviewPage() {
     const res = await updateFinTransaction(t.id, patch);
     undoLog.record(
       "사업구분을 바꿨습니다.",
-      `${txLabel(t)} 사업구분 → ${patch.bizMinor ?? patch.bizMajor ?? "비움"}`,
+      { subject: txLabel(t), change: `사업구분 → ${patch.bizMinor ?? patch.bizMajor ?? "비움"}` },
       [t],
     );
     applyTransactions({ upsert: res.transactions });
@@ -607,6 +611,9 @@ export default function ReviewPage() {
           `자동분류가 다시 배웠습니다 — ${parts.join(" · ")}`,
           `자동분류 다시 배움 (${parts.join(" · ")})`,
           plan.map((c) => c.before),
+          undefined,
+          // 사람이 누른 게 아니다 — 막대의 「되돌리기」 자리를 차지하지 않는다
+          { auto: true },
         );
         await leaving.run(
           confirmed.map((c) => c.id),
@@ -1382,7 +1389,11 @@ export default function ReviewPage() {
                                 const res = await updateFinTransaction(t.id, { ...v, ...implied });
                                 undoLog.record(
                                   implied ? `계정을 바꾸고 사업구분을 ${implied.bizMinor}(으)로 채웠습니다.` : "계정을 바꿨습니다.",
-                                  `${txLabel(t)} 계정 → ${v.acctMinor ?? "비움"}${implied ? ` · 사업구분 ${implied.bizMinor}` : ""}`,
+                                  {
+                                    subject: txLabel(t),
+                                    // 대분류 · 중분류만 고른 중간 단계도 무엇을 골랐는지 적는다
+                                    change: `계정 → ${v.acctMinor ?? v.acctMid ?? v.acctMajor ?? "비움"}${implied ? ` · 사업구분 ${implied.bizMinor}` : ""}`,
+                                  },
                                   [t],
                                 );
                                 applyTransactions({ upsert: res.transactions });
