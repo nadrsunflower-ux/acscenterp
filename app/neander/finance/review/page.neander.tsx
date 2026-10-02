@@ -65,6 +65,7 @@ import {
   FilterBar,
   FilterField,
   InlineNotice,
+  Input,
   LoadingState,
   Money,
   PageHeader,
@@ -98,7 +99,7 @@ import { BIZ_MAJORS } from "@/lib/neander/finance/sheet";
 import { paymentIndex } from "@/lib/neander/finance/sheetScope";
 import { bankById, bankOfMethod } from "@/lib/neander/finance/import-slots";
 import { reviewMonthFromQuery } from "@/lib/neander/finance/ledgerLink";
-import { buildAccountBiz, ENGINE_HOLD, isEngineOwned, relearnPending } from "@/lib/neander/finance/relearn";
+import { buildAccountBiz, ENGINE_HOLD, engineSigOf, isEngineOwned, relearnPending } from "@/lib/neander/finance/relearn";
 import type { ClassifyContext } from "@/lib/neander/finance/classify";
 import type { FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
 import { monthLabel } from "@/lib/neander/format";
@@ -240,6 +241,74 @@ function ReasonText({ text, vendor, alias }: { text: string; vendor?: string; al
         );
       })}
     </>
+  );
+}
+
+/**
+ * 비고 — 커서 행에서 바로 적는다. 왜 이렇게 분류했는지, 누구에게 물어봐야 하는지처럼
+ * 계정·사업구분으로는 남길 수 없는 말을 적는 칸이다 (원장의 「비고」 열과 같은 값).
+ *
+ * 글자를 칠 때마다 저장하지 않는다. **Enter 를 누르거나 칸을 떠날 때** 한 번 저장하고,
+ * Esc 는 치던 것을 버린다. Enter 뒤에는 칸에서 손을 떼므로 이어서 Enter 로 확정할 수 있다.
+ *
+ * 비고는 비어 있지 않은 경우가 많다 — 은행·카드 엑셀을 올릴 때 적요가 여기 들어온다
+ * (`입금 · 하나은행 · 잔액 1,396,939` · `결제예정 2026.10.15`). 그 뒤에 이어 쓰기 쉽게,
+ * 칸에 들어가면 끝에 가름점(` · `)을 붙여 둔다. 아무것도 안 치고 나오면 도로 뗀다.
+ */
+const NOTE_SEP = " · ";
+function NoteInput({ id, value, onSave }: { id?: string; value: string; onSave: (next: string) => Promise<void> }) {
+  const [text, setText] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const cancelled = useRef(false);
+  // 저장된 값이 바뀌면(되돌리기 · 다른 곳에서 수정) 따라간다
+  useEffect(() => setText(value), [value]);
+
+  const commit = async () => {
+    if (cancelled.current) {
+      cancelled.current = false;
+      setText(value);
+      return;
+    }
+    // 붙여 둔 가름점만 남아 있으면 친 것이 없다
+    const next = text.trim().replace(/\s*·$/, "").trim();
+    if (next === value.trim()) {
+      setText(value);
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(next);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Input
+      id={id}
+      aria-label="비고"
+      placeholder="비고 — 이 거래에 남길 말 (Enter 로 저장)"
+      value={text}
+      disabled={saving}
+      maxLength={300}
+      onChange={(e) => setText(e.target.value)}
+      onClick={(e) => e.stopPropagation()}
+      onFocus={() => {
+        if (text.trim() && !/[·\s]$/.test(text)) setText(`${text}${NOTE_SEP}`);
+      }}
+      onBlur={() => void commit()}
+      onKeyDown={(e) => {
+        // 한글을 조합하는 중의 Enter 는 글자를 확정하는 것이지 저장이 아니다
+        if (e.nativeEvent.isComposing) return;
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.currentTarget.blur();
+        } else if (e.key === "Escape") {
+          cancelled.current = true;
+          e.currentTarget.blur();
+        }
+      }}
+    />
   );
 }
 
@@ -501,6 +570,27 @@ export default function ReviewPage() {
   };
 
   /**
+   * 커서 행에 비고를 적는다. 분류는 건드리지 않으므로, 자동분류가 붙인 채 아무도 안 고친
+   * 거래는 지문을 같이 남겨 계속 배울 수 있게 한다 (저장하면 수정 시각이 찍힌다 — relearn.ts).
+   */
+  const setNote = async (t: FinTransaction, note: string) => {
+    const res = await updateFinTransaction(t.id, {
+      note: note || undefined,
+      ...(isEngineOwned(t) ? { engineSig: engineSigOf(t) } : {}),
+    });
+    // 기록에는 **이번에 덧붙인 말**을 적는다 — 은행 적요 뒤에 이어 쓴 경우 앞머리는 늘 같다
+    const old = (t.note ?? "").trim();
+    const added = old && note.startsWith(old) ? note.slice(old.length).replace(/^[\s·]+/, "") : note;
+    const shown = added.length > 24 ? `${added.slice(0, 24)}…` : added;
+    undoLog.record(
+      note ? "비고를 적었습니다." : "비고를 지웠습니다.",
+      { subject: txLabel(t), change: `비고 → ${note ? (added !== note ? `… ${shown}` : shown) : "비움"}` },
+      [t],
+    );
+    applyTransactions({ upsert: res.transactions });
+  };
+
+  /**
    * 물어볼 대상: 계정이 아직 없거나 「검토필요」인 건. 최대 40건.
    * 「제안됨」이면서 계정이 있는 건은 규칙이 이미 근거를 댄 것이라 뺀다 —
    * 모델을 부를 값이 없고 비용만 든다.
@@ -674,6 +764,10 @@ export default function ReviewPage() {
       } else if (e.key === "e" || e.key === "E") {
         e.preventDefault();
         setEditing(pageRows[cursor] ?? null);
+      } else if (e.key === "n" || e.key === "N" || e.key === "ㅜ") {
+        // 비고 칸으로 — 한글 자판 상태에서는 같은 글쇠가 「ㅜ」 로 온다
+        e.preventDefault();
+        document.getElementById("rv-note")?.focus();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -1035,6 +1129,7 @@ export default function ReviewPage() {
             <Kbd>↓</Kbd>
             <Kbd>Enter</Kbd>
             <Kbd>E</Kbd>
+            <Kbd>N</Kbd>
           </span>
         }
       >
@@ -1050,6 +1145,10 @@ export default function ReviewPage() {
           <div className="flex items-center gap-2">
             <dt className="shrink-0"><Kbd>E</Kbd></dt>
             <dd className="text-nd-fg-2">상세 열기 (분류를 고쳐야 할 때)</dd>
+          </div>
+          <div className="flex items-center gap-2">
+            <dt className="shrink-0"><Kbd>N</Kbd></dt>
+            <dd className="text-nd-fg-2">비고 쓰기 (Enter 로 저장 · Esc 로 취소)</dd>
           </div>
           <div className="flex items-center gap-2">
             <dt className="shrink-0 text-nd-fg-3">체크박스</dt>
@@ -1270,7 +1369,7 @@ export default function ReviewPage() {
                         )}
                         {!active && (
                           // 분류 — 커서가 없는 행은 결론만 같은 줄에 잇는다. 마지막 단계는 굵게
-                          <div className="flex flex-wrap items-baseline gap-x-8 gap-y-1.5 text-[15px] leading-snug">
+                          <div className="flex min-w-0 max-w-full flex-wrap items-baseline gap-x-8 gap-y-1.5 text-[15px] leading-snug">
                             <p className="flex min-w-0 flex-wrap items-baseline gap-x-2">
                               <span className="text-nd-table text-nd-fg-3">계정</span>
                               {t.acctMinor ? (
@@ -1306,6 +1405,14 @@ export default function ReviewPage() {
                                   {projectOptions.find((p) => projectKey(p.code) === projectKey(t.projectCode))?.name ??
                                     `${t.projectCode} · 미등록`}
                                 </b>
+                              </p>
+                            )}
+                            {t.note && (
+                              <p className="flex min-w-0 max-w-full items-baseline gap-x-2">
+                                <span className="shrink-0 text-nd-table text-nd-fg-3">비고</span>
+                                <span className="min-w-0 max-w-[24rem] truncate text-nd-fg-2" title={t.note}>
+                                  {t.note}
+                                </span>
                               </p>
                             )}
                           </div>
@@ -1462,6 +1569,10 @@ export default function ReviewPage() {
                                   </option>
                                 ))}
                               </Select>
+                              {/* 비고 — 위 세 칸과 좌우 끝을 맞춘다 */}
+                              <div className="col-span-3">
+                                <NoteInput id="rv-note" value={t.note ?? ""} onSave={(next) => setNote(t, next)} />
+                              </div>
                             </div>
                             {!(t.bizMajor && t.bizMinor) && (
                               <p className="mt-1.5 text-nd-table text-nd-danger-text">
