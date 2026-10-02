@@ -861,6 +861,13 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
+                  // 한글은 글자를 조합하는 중에 Enter 를 누르면 「조합 확정」 키다운이 먼저
+                  // 온다. 그때 보내 버리면 입력창을 비운 직후 확정된 마지막 글자가 다시
+                  // 들어와 잔상처럼 남는다 (「…틀림없다」 를 보내면 「다」 가 남았다).
+                  // 조합 중의 Enter 는 흘려보낸다 — 크롬은 바로 뒤에 조합이 끝난 Enter 를
+                  // 한 번 더 주므로 그때 보낸다. (사파리는 조합이 끝난 뒤에 한 번만 주고
+                  // isComposing 이 false 라 그대로 보낸다 — 그래서 keyCode 229 는 막지 않는다.)
+                  if (e.nativeEvent.isComposing) return;
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     void send(input);
