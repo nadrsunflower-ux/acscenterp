@@ -116,6 +116,16 @@ export interface FinTransaction {
    */
   vendorKind?: string;
   /**
+   * 나눈 거래의 묶음 — 원래 거래의 id (finance/split.ts). 한 번에 결제한 것을 프로젝트 ·
+   * 사업부별로 여러 줄로 가른 것이다. 조각들의 금액 합이 `splitTotal` 과 같아야 한다.
+   */
+  splitGroup?: string;
+  /** 몇 번째 조각인가 (1부터) · 모두 몇 조각인가 */
+  splitNo?: number;
+  splitCount?: number;
+  /** 나누기 전의 금액 (통장 · 카드에 찍힌 그 숫자) */
+  splitTotal?: number;
+  /**
    * 환급 매칭 라벨 (`RF-2607-01`). 엑셀에서는 원거래와 환급 거래가
    * 이 값을 **공유**한다. 1:1 FK 가 아니라 그룹 라벨이므로 그대로 보존한다.
    */

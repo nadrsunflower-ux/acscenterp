@@ -50,8 +50,10 @@ import {
   CreditCard,
   Keyboard,
   Landmark,
+  Merge,
   MessageSquareText,
   Sparkles,
+  Split,
 } from "lucide-react";
 import {
   Badge,
@@ -75,6 +77,7 @@ import {
   type Tone,
   UndoHistory,
   useConfirm,
+  useToast,
   useUndoHistory,
 } from "@/components/neander/ui";
 import { LeavingItem, useLeaving } from "@/components/neander/ui";
@@ -82,6 +85,9 @@ import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import type { FinProjectDoc } from "@/lib/neander/finance/project";
 import { TransactionEditor } from "@/components/neander/finance/TransactionEditor";
 import { DayEventsLine, useDayEvents } from "@/components/neander/finance/DayEvents";
+import { SplitDialog } from "@/components/neander/finance/SplitDialog";
+import { mergeFinSplit, splitFinTransaction } from "@/lib/neander/finance/split-client";
+import { splitBlocker, type SplitPart } from "@/lib/neander/finance/split";
 import { setAssistantFocus } from "@/components/neander/assistant/events";
 import {
   AccountPicker,
@@ -338,6 +344,7 @@ export default function ReviewPage() {
   const finance = useFinance();
   const { transactions, accounts, paymentMethods, vendorIndex, vendorRules, projects, loading, applyTransactions } = finance;
   const confirm = useConfirm();
+  const toast = useToast();
   /**
    * 사람이 되돌린 행 — 엔진이 다시 배워도 손대지 않는다. 되돌리자마자 같은
    * 근거로 또 확정해 버리면 되돌리기가 헛돈다. (서버에도 engineSig 로 남긴다)
@@ -352,11 +359,16 @@ export default function ReviewPage() {
     // 한 거래의 계정 · 사업구분 · 프로젝트를 이어서 고치면 한 건으로 묶는다
     keyOf: (t) => t.id,
     // 되쓴 거래만 바꿔 끼운다 — 전체(거래 1만+ · 7MB)를 다시 받지 않는다
-    restore: async (before) => {
+    restore: async (before, created) => {
       const hold = before.filter((t) => t.status !== "confirmed").map((t) => t.id);
       hold.forEach((id) => heldRef.current.add(id));
       const res = await restoreFinTransactions(before);
       applyTransactions({ upsert: res.transactions });
+      // 처리 때 새로 생긴 줄(나눈 조각)은 지운다 — 원래 거래가 금액째 되돌아왔다
+      if (created.length > 0) {
+        await applyFinEdits({ updates: [], inserts: [], deletes: created });
+        applyTransactions({ remove: created });
+      }
       if (hold.length > 0) {
         const marked = await applyFinEdits({
           updates: hold.map((id) => ({ id, patch: { engineSig: ENGINE_HOLD } })),
@@ -420,15 +432,24 @@ export default function ReviewPage() {
   /** 대기함 전체 — 조회 조건을 걸기 전 */
   const queue = useMemo(() => transactions.filter(isPending), [transactions]);
 
-  const pending = useMemo(
-    () =>
-      queue
-        .filter((t) => statusFilter === ALL || t.status === statusFilter)
-        .filter((t) => monthFilter === ALL || monthOf(t) === monthFilter)
-        .filter((t) => acctFilter === ALL || acctPathOf(t) === acctFilter)
-        .sort((a, b) => (a.date < b.date ? 1 : -1)),
-    [queue, statusFilter, monthFilter, acctFilter],
-  );
+  const pending = useMemo(() => {
+    const rows = queue
+      .filter((t) => statusFilter === ALL || t.status === statusFilter)
+      .filter((t) => monthFilter === ALL || monthOf(t) === monthFilter)
+      .filter((t) => acctFilter === ALL || acctPathOf(t) === acctFilter);
+    // 나눈 조각은 붙어서 1 · 2 · 3 순으로 나온다 — 묶음마다 처음 나온 자리를 기억해 둔다
+    const seat = new Map<string, number>();
+    rows.forEach((t, i) => {
+      const k = t.splitGroup ?? t.id;
+      if (!seat.has(k)) seat.set(k, i);
+    });
+    return rows.sort(
+      (a, b) =>
+        (a.date < b.date ? 1 : a.date > b.date ? -1 : 0) ||
+        (seat.get(a.splitGroup ?? a.id) ?? 0) - (seat.get(b.splitGroup ?? b.id) ?? 0) ||
+        (a.splitNo ?? 0) - (b.splitNo ?? 0),
+    );
+  }, [queue, statusFilter, monthFilter, acctFilter]);
 
   const pmIndex = useMemo(() => paymentIndex(paymentMethods), [paymentMethods]);
 
@@ -750,6 +771,33 @@ export default function ReviewPage() {
     [applyTransactions, undoLog.record, leaving.run],
   );
 
+  /** 나눌 거래 — 창이 열려 있는 동안 든다 (finance/split.ts) */
+  const [splitting, setSplitting] = useState<FinTransaction | null>(null);
+
+  /** 한 거래를 조각으로 — 원래 거래는 첫 조각이 되고 나머지는 새 줄로 생긴다 */
+  const doSplit = async (t: FinTransaction, parts: SplitPart[]) => {
+    const res = await splitFinTransaction(t.id, parts);
+    undoLog.record(`거래를 ${parts.length}조각으로 나눴습니다.`, `${txLabel(t)} ${parts.length}조각으로 나눔`, [t], res.created);
+    applyTransactions({ upsert: res.transactions });
+  };
+
+  /** 나눴던 조각들을 다시 한 줄로 */
+  const doMerge = async (t: FinTransaction) => {
+    if (!t.splitGroup) return;
+    const parts = transactions.filter((x) => x.splitGroup === t.splitGroup);
+    setBusy(true);
+    try {
+      const res = await mergeFinSplit(t.id);
+      // 되돌리면 조각들이 그대로 되살아난다 (지운 조각은 휴지통에서)
+      undoLog.record("조각들을 다시 한 줄로 합쳤습니다.", `${txLabel(t)} 합치기`, parts);
+      applyTransactions({ upsert: res.transactions, remove: res.removed });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "합치지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   /**
    * 커서 행의 후보 — 이 거래처가 과거에 쓰인 분류들. 「분류가 갈립니다」 의 사유에는 소분류
    * 이름과 건수만 적혀 있어서, 읽고도 선택기 세 칸을 다시 골라야 했다. 같은 이력을 누를 수
@@ -798,7 +846,7 @@ export default function ReviewPage() {
   // 키보드 조작
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (editing) return;
+      if (editing || splitting) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
       // 창 · 판 안에서 누른 글쇠는 그 안의 것이다 (캘린더 연결 창에서 Enter 가 확정이 되면 안 된다)
@@ -834,6 +882,11 @@ export default function ReviewPage() {
         e.preventDefault();
         const t = pageRows[cursor];
         if (t) void pickCandidate(t, candidates.items[Number(e.key) - 1]);
+      } else if (e.key === "s" || e.key === "S" || e.key === "ㄴ") {
+        // 나누기 — 한글 자판 상태에서는 같은 글쇠가 「ㄴ」 으로 온다
+        e.preventDefault();
+        const t = pageRows[cursor];
+        if (t && !splitBlocker(t)) setSplitting(t);
       } else if (e.key === "n" || e.key === "N" || e.key === "ㅜ") {
         // 비고 칸으로 — 한글 자판 상태에서는 같은 글쇠가 「ㅜ」 로 온다
         e.preventDefault();
@@ -842,7 +895,7 @@ export default function ReviewPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pageRows, cursor, editing, approve, page, pageCount, pageSize, goPage, candidates, pickCandidate]);
+  }, [pageRows, cursor, editing, splitting, approve, page, pageCount, pageSize, goPage, candidates, pickCandidate]);
 
   // 비서에게 지금 보고 있는 거래를 알린다 — 「이거 뭐로 분류해?」 가 통하게 (ai/focus.ts).
   // 체크박스로 고른 거래도 함께 넘긴다. 화면을 떠나면 거둔다.
@@ -1236,6 +1289,10 @@ export default function ReviewPage() {
             <dd className="text-nd-fg-2">후보 고르기 (분류가 갈리는 거래처 — 대·중·소분류가 한 번에 채워진다)</dd>
           </div>
           <div className="flex items-center gap-2">
+            <dt className="shrink-0"><Kbd>S</Kbd></dt>
+            <dd className="text-nd-fg-2">거래 나누기 (한 번에 결제한 것을 프로젝트 · 사업부별로)</dd>
+          </div>
+          <div className="flex items-center gap-2">
             <dt className="shrink-0"><Kbd>N</Kbd></dt>
             <dd className="text-nd-fg-2">비고 쓰기 (Enter 로 저장 · Esc 로 취소)</dd>
           </div>
@@ -1436,6 +1493,13 @@ export default function ReviewPage() {
                           </Badge>
                           <span className="nd-num font-medium text-nd-fg">{t.date}</span>
                           <span>{t.txType}</span>
+                          {t.splitGroup && (
+                            <span title={`한 번에 결제한 ${(t.splitTotal ?? 0).toLocaleString("ko-KR")}원을 ${t.splitCount ?? "?"}조각으로 나눈 것 중 ${t.splitNo ?? "?"}번째`}>
+                              <Badge tone="info">
+                                나눔 {t.splitNo}/{t.splitCount}
+                              </Badge>
+                            </span>
+                          )}
                         </p>
                         {t.cardMemo && (
                           // 단톡방 카드 기록 — 명세서의 거래처(결제대행사)가 말해 주지 않는
@@ -1512,6 +1576,18 @@ export default function ReviewPage() {
                       <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-x-5 gap-y-2">
                         <PaymentTag last4={t.last4} pm={t.last4 ? pmIndex.get(t.last4) : undefined} />
                         <div className="flex items-center gap-2">
+                          {active &&
+                            (t.splitGroup ? (
+                              <Button variant="ghost" size="sm" icon={Merge} disabled={busy} onClick={() => void doMerge(t)}>
+                                합치기
+                              </Button>
+                            ) : (
+                              !splitBlocker(t) && (
+                                <Button variant="ghost" size="sm" icon={Split} onClick={() => setSplitting(t)}>
+                                  나누기
+                                </Button>
+                              )
+                            ))}
                           <Button variant="secondary" size="sm" onClick={() => setEditing(t)}>
                             상세
                           </Button>
@@ -1717,6 +1793,15 @@ export default function ReviewPage() {
           <div className="mt-3">{pager}</div>
         </>
       )}
+
+      <SplitDialog
+        tx={splitting}
+        accounts={accounts}
+        projects={projectOptions}
+        bizMinorsOf={bizMinorsOf}
+        onClose={() => setSplitting(null)}
+        onSplit={doSplit}
+      />
 
       {editing && (
         <TransactionEditor
