@@ -208,9 +208,9 @@
     background-color var(--nd-dur) var(--nd-ease);
 }
 /* 재무 엑셀 임포트의 칸 — 은행·카드사 색(--nd-piece-tint)을 바탕에 옅게 섞는다.
-   상태는 여전히 테두리와 바깥 빛이 말한다. 바탕색은 「어느 회사 칸인가」만
-   말하므로 채워졌든 비었든 같다. 끌어다 놓는 중의 색(data-over)이 이긴다 —
-   그래서 그 규칙보다 앞에 둔다. */
+   바탕색은 「어느 회사 칸인가」 를 말한다. 채워졌는지는 아래 nd-puzzle-tinted
+   의 상태 규칙이 테두리 모양과 농도로 말한다 (이 줄은 진행 중 같은 나머지
+   상태의 기본값). */
 [data-app="neander"] .nd-puzzle-piece.nd-puzzle-tinted {
   background-color: color-mix(in srgb, var(--nd-piece-tint) 11%, rgb(var(--nd-bg-content)));
 }
@@ -235,6 +235,34 @@
     0 0 28px rgb(var(--nd-success) / 0.24);
 }
 [data-app="neander"] .nd-puzzle-piece[data-over="true"] {
+  border-color: rgb(var(--nd-accent));
+  background-color: rgb(var(--nd-accent-soft));
+}
+/* 색을 깐 칸(재무 임포트)은 상태를 **색 말고도** 말해야 한다.
+   바탕이 파스텔이 되자 초록·빨강 빛이 거기 묻혀 「비어 있는 칸」 과 「채워진
+   칸」 이 한눈에 안 갈린다는 지적을 받았다. 그래서 셋으로 가른다 —
+     테두리 모양   채워짐 = 굵은 실선 · 비어 있음 = 굵은 점선
+     바탕 농도     채워짐 = 진하게 · 비어 있음 = 아주 옅게 (속이 빈 칸으로 보이게)
+     상태 표시     꽉 찬 초록 · 꽉 찬 빨강 (ImportPuzzle 의 StateMark)
+   은행 색은 둘 다 남는다. 농도만 다르다. */
+[data-app="neander"] .nd-puzzle-piece.nd-puzzle-tinted {
+  border-width: 2px;
+}
+[data-app="neander"] .nd-puzzle-piece.nd-puzzle-tinted[data-state="done"] {
+  border-color: rgb(var(--nd-success) / 0.9);
+  background-color: color-mix(in srgb, var(--nd-piece-tint) 14%, rgb(var(--nd-bg-content)));
+  box-shadow:
+    0 0 0 3px rgb(var(--nd-success) / 0.16),
+    0 0 24px rgb(var(--nd-success) / 0.2);
+}
+[data-app="neander"] .nd-puzzle-piece.nd-puzzle-tinted[data-state="missing"],
+[data-app="neander"] .nd-puzzle-piece.nd-puzzle-tinted[data-state="error"] {
+  border-style: dashed;
+  border-color: rgb(var(--nd-danger) / 0.85);
+  background-color: color-mix(in srgb, var(--nd-piece-tint) 4%, rgb(var(--nd-bg-content)));
+}
+[data-app="neander"] .nd-puzzle-piece.nd-puzzle-tinted[data-over="true"] {
+  border-style: solid;
   border-color: rgb(var(--nd-accent));
   background-color: rgb(var(--nd-accent-soft));
 }

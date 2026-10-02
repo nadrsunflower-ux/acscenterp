@@ -294,17 +294,21 @@ export function PuzzlePiece({
   );
 }
 
+/**
+ * 상태 표시. 채워짐·비어 있음은 **꽉 찬 색**이다 — 칸 바탕에 은행 색을 깔고
+ * 나니 옅은 초록·옅은 빨강 표시는 거기 묻혀 두 상태가 안 갈렸다.
+ */
 function StateMark({ state, none = false }: { state: PieceState; none?: boolean }) {
-  const cls = "flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-nd-table font-medium";
+  const cls = "flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-nd-table font-semibold";
   if (none)
     return (
-      <span className={cn(cls, "bg-nd-success-soft text-nd-success-text")}>
+      <span className={cn(cls, "bg-nd-success text-white")}>
         <Icon icon={CircleMinus} size={13} /> 거래 없음
       </span>
     );
   if (state === "done")
     return (
-      <span className={cn(cls, "bg-nd-success-soft text-nd-success-text")}>
+      <span className={cn(cls, "bg-nd-success text-white")}>
         <Icon icon={CircleCheck} size={13} /> 적재됨
       </span>
     );
@@ -322,7 +326,7 @@ function StateMark({ state, none = false }: { state: PieceState; none?: boolean 
       </span>
     );
   return (
-    <span className={cn(cls, "bg-nd-danger-soft text-nd-danger-text")}>
+    <span className={cn(cls, "bg-nd-danger text-white")}>
       <Icon icon={CircleAlert} size={13} /> 비어 있음
     </span>
   );
