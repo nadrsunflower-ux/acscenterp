@@ -214,7 +214,7 @@ function ReasonText({ text, vendor, alias }: { text: string; vendor?: string; al
   }
   const esc = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const pattern = new RegExp(
-    `(\\d+(?:\\.\\d+)?%|\\d[\\d,]*건|\\d[\\d,]*원${alias ? `|${esc(alias)}` : ""})`,
+    `(\\d+(?:\\.\\d+)?%|\\d[\\d,]*건|\\d[\\d,]*곳|\\d[\\d,]*원${alias ? `|${esc(alias)}` : ""})`,
     "g",
   );
   const parts = body.split(pattern);

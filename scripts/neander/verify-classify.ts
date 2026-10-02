@@ -139,6 +139,52 @@ function ruleChecks() {
   ok(j.status === "confirmed" && j.acctMinor === "구독서비스비", "원본에 분류가 있으면 그대로 둔다");
 }
 
+// ---- ①′ 업종 — 처음 보는 가맹점 --------------------------------
+console.log("\n=== 업종 (처음 보는 카드 가맹점) ===");
+{
+  const FOOD: [string, string, string] = ["인건비", "복리후생비", "일반식대"];
+  const MEET: [string, string, string] = ["영업비", "대외관계거래관리비", "B2B영업미팅비"];
+  const CAR: [string, string, string] = ["운영비", "차량관리비", "차량유지비"];
+  const CARD = [{ id: "4528", last4: "4528", alias: "(신법)유재영", site: "네안데르", personal: false, kind: "card" }] as FinPaymentMethodDoc[];
+  const ACCTS = [acct(...FOOD, "지출"), acct(...MEET, "지출"), acct(...CAR, "지출"), acct(...SUBS, "지출")];
+  const eat = (i: number, name: string, path = FOOD, biz: [string, string] = ["공용", "공용"]) =>
+    ({ ...tx(`2026-0${(i % 6) + 1}-1${i % 9}`, name, "4528", "지출", path, 12_000 + i, biz), vendorKind: "음식점" }) as FinTransaction;
+  // 식당 여섯 곳 — 이름에 공통된 낱말이 없다
+  const diners = ["연길반점", "만게츠", "대박", "정정", "달달나라", "심야식당"].map((n, i) => eat(i, n));
+  const ask = (history: FinTransaction[], over: Partial<ClassifyInput>) =>
+    classifyOne({ vendor: "카페엔젤(cafe angel)", last4: "4528", txType: "지출", gross: 9_600, ...over },
+      { vendorIndex: buildVendorIndex(history), vendorRules: [], paymentMethods: CARD, accounts: ACCTS });
+
+  const a = ask(diners, { vendorKind: "음식점" });
+  ok(a.status === "suggested" && a.acctMinor === "일반식대", "그 업종의 다른 가맹점들이 한결같으면 처음 보는 곳에도 제안한다", a.classReason);
+  ok(a.bizMinor === "공용", "사업구분은 같은 카드로 같은 계정을 쓴 거래에서 얻는다");
+  ok(ask(diners, {}).status === "needs_review", "업종이 없으면 예전처럼 사람에게 넘긴다");
+  ok(ask(diners, { vendorKind: "기타" }).status === "needs_review" && ask(diners, { vendorKind: "모름" }).status === "needs_review",
+    "「기타」·「모름」 은 근거로 쓰지 않는다");
+  ok(ask(diners.slice(0, 4), { vendorKind: "음식점" }).status === "needs_review", "가맹점이 다섯 곳이 안 되면 믿지 않는다");
+
+  // 한 식당을 스무 번 간 것은 가맹점 한 곳이다
+  const regular = Array.from({ length: 20 }, (_, i) => eat(i, "단골집"));
+  // (이 카드가 식대에만 쓰였다면 계좌 기본값이 대신 답할 수 있다 — 업종 근거가 아닌지만 본다)
+  const r = ask(regular, { vendorKind: "음식점" });
+  ok(!/업종 「/.test(r.classReason), "거래 건수가 아니라 가맹점 수로 센다 (단골집 스무 번은 한 곳)", r.classReason);
+
+  // 절반이 영업미팅이면 제안하지 않는다
+  const mixed = [...diners.slice(0, 3), ...["봄이보리밥", "여의도연탄집", "성광갈매기"].map((n, i) => eat(i, n, MEET, ["B2B", "조향"]))];
+  ok(ask(mixed, { vendorKind: "음식점" }).status === "needs_review", "업종 안에서 계정이 갈리면 제안하지 않는다");
+
+  // 아는 가맹점은 자기 이력이 먼저다
+  const known = [...diners, ...["03", "04", "05", "06", "07"].map((m) =>
+    ({ ...tx(`2026-${m}-02`, "카페엔젤(cafe angel)", "4528", "지출", MEET, 9_600, ["B2B", "조향"]), vendorKind: "카페·베이커리" }) as FinTransaction)];
+  const b = ask(known, { vendorKind: "음식점" });
+  ok(b.status === "confirmed" && b.acctMinor === "B2B영업미팅비", "이력이 있는 가맹점은 업종보다 자기 이력을 따른다", b.classReason);
+
+  // 사업구분이 카드에서 갈리면 비워 둔다
+  const split = diners.map((d, i) => ({ ...d, bizMajor: i % 2 ? "B2C" : "공용", bizMinor: i % 2 ? "와우" : "공용" }));
+  const c = ask(split, { vendorKind: "음식점" });
+  ok(c.acctMinor === "일반식대" && !c.bizMinor, "사업구분이 갈리면 계정만 제안하고 사업구분은 비워 둔다");
+}
+
 // ---- ② 백테스트 ---------------------------------------------
 
 /** 은행 엑셀이 아는 거래유형 — 입금이면 수입, 출금이면 지출 */
@@ -193,7 +239,7 @@ async function backtest() {
     for (const t of truth.filter((x) => x.date.slice(0, 7) === M)) {
       const sug = classifyOne(
         // 카드 메모는 적재할 때 이미 아는 것이라 같이 준다 (단톡방 기록 — card-chat.ts)
-        { vendor: t.vendor, last4: t.last4, txType: bankType(t), gross: t.gross, adjust: t.adjust, site: t.site, cardMemo: t.cardMemo },
+        { vendor: t.vendor, last4: t.last4, txType: bankType(t), gross: t.gross, adjust: t.adjust, site: t.site, cardMemo: t.cardMemo, vendorKind: t.vendorKind },
         { vendorIndex: index, vendorRules: [], paymentMethods, accounts },
       );
       const hit = !!sug.acctMinor && pathOf(sug) === pathOf(t);

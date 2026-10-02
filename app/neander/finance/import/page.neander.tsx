@@ -131,6 +131,13 @@ import {
 } from "@/lib/neander/finance/card-chat";
 import { engineSigOf, isEngineOwned, relearnPending } from "@/lib/neander/finance/relearn";
 import {
+  cardLast4Of,
+  vendorKindKey,
+  vendorKindLookup,
+  vendorsToLabel,
+  wantsVendorKind,
+} from "@/lib/neander/finance/vendor-kind";
+import {
   buildFinSlots,
   finPuzzleOf,
   monthOfRows,
@@ -144,6 +151,7 @@ import {
 } from "@/lib/neander/finance/import-slots";
 import {
   applyFinEdits,
+  fetchVendorKinds,
   fetchFinDedupCounts,
   bulkAddFinTransactions,
   createFinImport,
@@ -463,26 +471,52 @@ export default function ImportPage() {
         }
       }
 
-      // ⑦ 중복 검사 · 자동분류
+      // ⑦ 중복 검사 — 이미 들어와 있는 거래를 먼저 가린다
       setAct(slot.key, { kind: "busy", step: "분류 중…", fileName: file.name });
       const existingCounts = await ensureCounts();
       const seen = new Map<string, number>();
-      const prepared = result.rows.map((row) => {
+      const flagged = result.rows.map((row) => {
         const nth = seen.get(row.dedupHash) ?? 0;
         seen.set(row.dedupHash, nth + 1);
-        return {
-          row,
-          duplicate: nth < (existingCounts.get(row.dedupHash) ?? 0),
-          suggestion: classifyOne({ ...row, hint: row.hint }, {
-            vendorIndex,
-            vendorRules,
-            paymentMethods,
-            accounts,
-            // 사람이 정해 둔 분류 규칙 — 이력보다 먼저 본다 (class-rules.ts)
-            classRules,
-          }),
-        };
+        return { row, duplicate: nth < (existingCounts.get(row.dedupHash) ?? 0) };
       });
+
+      // ⑦-가) 처음 보는 카드 가맹점의 업종 — 이름을 보고 무슨 가게인지 붙인다 (vendor-kind.ts).
+      //        같은 가맹점이 전에 왔으면 그때 것을 쓰고, 처음인 곳만 모델에게 묻는다.
+      //        새로 들어올 거래만 묻는다 (중복은 어차피 적재하지 않는다).
+      //        못 물어도 적재는 간다 — 업종이 없으면 그 근거만 빠진다.
+      const cards = cardLast4Of(paymentMethods);
+      const kindOf = vendorKindLookup(txRef.current);
+      const newVendors = vendorsToLabel(
+        flagged.filter((p) => !p.duplicate).map((p) => p.row),
+        kindOf,
+        cards,
+      );
+      if (newVendors.length > 0) {
+        setAct(slot.key, { kind: "busy", step: `새 가맹점 ${won(newVendors.length)}곳 업종 확인 중…`, fileName: file.name });
+        try {
+          Object.entries(await fetchVendorKinds(newVendors)).forEach(([k, v]) => kindOf.set(k, v));
+        } catch {
+          // 모델을 못 불렀다 (키 없음 · 네트워크) — 업종 없이 간다
+        }
+        setAct(slot.key, { kind: "busy", step: "분류 중…", fileName: file.name });
+      }
+      const vendorKindOf = (row: { vendor?: string; last4?: string; txType: FinTransaction["txType"] }) =>
+        wantsVendorKind(row, cards) ? kindOf.get(vendorKindKey(row.vendor)) : undefined;
+
+      // ⑦-나) 자동분류
+      const prepared = flagged.map(({ row, duplicate }) => ({
+        row,
+        duplicate,
+        suggestion: classifyOne({ ...row, hint: row.hint, vendorKind: vendorKindOf(row) }, {
+          vendorIndex,
+          vendorRules,
+          paymentMethods,
+          accounts,
+          // 사람이 정해 둔 분류 규칙 — 이력보다 먼저 본다 (class-rules.ts)
+          classRules,
+        }),
+      }));
       const fresh = prepared.filter((p) => !p.duplicate);
       const skipped = prepared.length - fresh.length;
       if (fresh.length === 0) {
@@ -544,6 +578,7 @@ export default function ImportPage() {
         adjust: row.adjust,
         site: suggestion.site,
         note: row.note,
+        vendorKind: vendorKindOf(row),
         status: suggestion.status,
         classReason: suggestion.classReason,
         refundMatchId: row.refundMatchId,

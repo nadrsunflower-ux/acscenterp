@@ -127,6 +127,18 @@ export async function fetchFinDedupCounts(): Promise<Map<string, number>> {
   return new Map(Object.entries(body.counts ?? {}));
 }
 
+// ---- 업종 (처음 보는 카드 가맹점) --------------------------------
+
+/**
+ * 가맹점 이름들의 업종을 받는다 (finance/vendor-kind.ts). 가맹점 열쇠 → 업종.
+ * 모델을 부르므로 실패할 수 있다 — 부르는 쪽은 업종 없이도 적재를 이어 가야 한다.
+ */
+export async function fetchVendorKinds(names: string[]): Promise<Record<string, string>> {
+  if (names.length === 0) return {};
+  const res = await mutateJson<{ kinds: Record<string, string> }>("/api/neander/finance/ai/vendor-kinds", { names });
+  return res.kinds ?? {};
+}
+
 // ---- 그날 일정 (구글 캘린더) ------------------------------------
 
 const CALENDAR_URL = "/api/neander/finance/calendar";

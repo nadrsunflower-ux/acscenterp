@@ -129,6 +129,7 @@ const touchedByHuman = (t: FinTransaction) => !!t.updatedBy && !/^(script:|fix-)
         // 단톡방 카드 기록 · 프로젝트 — 결제대행사 이름으로는 모르는 것을 말해 준다 (card-chat.ts)
         cardMemo: t.cardMemo,
         projectCode: t.projectCode,
+        vendorKind: t.vendorKind,
         // 원본 장부에 사람이 적어 둔 대분류·중분류 (relearn.ts)
         ...ledgerPartial(t),
       },

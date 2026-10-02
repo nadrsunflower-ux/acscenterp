@@ -107,6 +107,7 @@ export function relearnPending(
         site: t.site,
         cardMemo: t.cardMemo,
         projectCode: t.projectCode,
+        vendorKind: t.vendorKind,
         ...ledgerPartial(t),
       },
       ctx,

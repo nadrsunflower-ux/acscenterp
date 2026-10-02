@@ -25,6 +25,9 @@
 //                   (ANTHROPIC → Anthropic (Claude) 등)
 //    3) 어댑터 힌트 은행·카드 엑셀이 알려주는 것 (이자입금, 카드대금결제,
 //                   카드 업종 등). 확실한 것만 오므로 suggested 로 둔다.
+//    3′) 업종      처음 보는 가맹점인데 무슨 가게인지는 이름이 말해 준다 (음식점 · 카페 ·
+//                   주유소). 업종은 모델이 이름을 보고 붙이고(vendor-kind.ts), 여기서는
+//                   그 업종의 다른 가맹점들이 어떻게 분류돼 왔는지만 본다. 제안까지만.
 //    4) 계좌 기본값 처음 보는 거래처라도 **그 계좌에 들어온(나간) 돈이 늘
 //                   무엇이었는지**는 안다 (우리온라인 통장 입금은 온라인판매).
 //                   한 가지 일만 하는 계좌에서만 쓴다.
@@ -70,6 +73,7 @@ import {
   type FinClassRuleDoc,
 } from "./class-rules";
 import { memoParts } from "./card-chat";
+import { isUsefulKind } from "./vendor-kind";
 
 /** 이력에서 「최근」 으로 보는 건수 — 오래된 분류보다 최근 분류를 따른다 */
 const RECENT = 12;
@@ -126,6 +130,24 @@ const MEMO_STORE_MIN_MONTHS = 2;
 /** 프로젝트가 말해 주는 사업구분 — 그 프로젝트의 확정 거래가 이만큼 한결같을 때 */
 const PROJECT_MIN_COUNT = 3;
 const PROJECT_MIN_RATIO = 0.9;
+/**
+ * 업종 — 처음 보는 가맹점이라도 **무슨 가게인지**는 이름이 말해 준다 (`카페엔젤` ·
+ * `연길반점` · `시화주유소`). 그 판단은 사람의 상식이라 모델에게 맡기고(vendor-kind.ts),
+ * 여기서는 「그 업종의 다른 가맹점들이 어떻게 분류돼 왔나」 만 본다.
+ *
+ * 거래 건수가 아니라 **가맹점 수**로 센다 — 한 식당을 백 번 간 것은 「음식점은 늘
+ * 식대다」 의 근거가 아니다.
+ *
+ * (2026-03~09, 처음 보는 카드 가맹점 190건: 100건에 제안이 붙고 89% 가 맞았다.
+ *  틀린 것은 회식 · 영업미팅처럼 같은 식당이라도 **자리의 성격**이 다른 경우다.
+ *  이름의 낱말을 직접 세는 방식은 26~36건 · 81~88% 였다 — 식당 이름에는 공통
+ *  낱말이 없다. 카드 · 시간대 · 금액으로 식대를 짐작하는 것은 59% 가 한계였다)
+ */
+const KIND_MIN_VENDORS = 5;
+const KIND_MIN_RATIO = 0.8;
+/** 같은 카드 · 같은 계정의 사업구분을 쓸 최소 건수 · 일치 비율 */
+const CARD_BIZ_MIN_COUNT = 3;
+const CARD_BIZ_MIN_RATIO = 0.9;
 
 export const normVendor = (s?: string) =>
   (s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -225,7 +247,15 @@ const projectKey = (code: string, flow: Flow) => `pj|${code.trim().toLowerCase()
  */
 export interface VendorIndex {
   seen: Map<string, Seen[]>;
+  /**
+   * 업종 → 그 업종의 가맹점들 (가맹점마다 **가장 최근 분류 하나**). 나간 돈만 담는다.
+   */
+  kinds: Map<string, Seen[]>;
 }
+
+/** 같은 카드 · 같은 계정으로 쓴 거래들 — 사업구분을 고를 때 본다 */
+const cardClassKey = (last4: string, s: Pick<Seen, "txType" | "acctMajor" | "acctMid" | "acctMinor">) =>
+  `cb|${last4}|${s.txType}|${s.acctMajor}|${s.acctMid}|${s.acctMinor}`;
 
 /**
  * 확정된 과거 거래로 색인을 만든다.
@@ -238,6 +268,8 @@ export function buildVendorIndex(history: FinTransaction[]): VendorIndex {
     if (list) list.push(s);
     else seen.set(key, [s]);
   };
+  // 업종 → 가맹점 → 가장 최근 분류 (오래된 것부터 훑으므로 나중 것이 덮는다)
+  const byKind = new Map<string, Map<string, Seen>>();
 
   history
     .filter((t) => t.status === "confirmed" && !!t.acctMinor)
@@ -265,6 +297,12 @@ export function buildVendorIndex(history: FinTransaction[]): VendorIndex {
         push(keyOf("f", f, last4, flow), s);
       }
       if (last4) push(keyOf("a", "", last4, flow), s);
+      if (last4) push(cardClassKey(last4, s), s);
+      if (v && flow === "out" && isUsefulKind(t.vendorKind)) {
+        const vendors = byKind.get(t.vendorKind);
+        if (vendors) vendors.set(v, s);
+        else byKind.set(t.vendorKind, new Map([[v, s]]));
+      }
       if (t.projectCode) push(projectKey(t.projectCode, flow), s);
       const memo = memoParts(t.cardMemo);
       if (memo) {
@@ -273,7 +311,10 @@ export function buildVendorIndex(history: FinTransaction[]): VendorIndex {
       }
     });
 
-  return { seen };
+  const kinds = new Map<string, Seen[]>();
+  byKind.forEach((vendors, k) => kinds.set(k, [...vendors.values()]));
+
+  return { seen, kinds };
 }
 
 /** 한 열쇠로 본 최근 이력의 요약 */
@@ -466,6 +507,8 @@ export interface ClassifyInput {
   cardMemo?: string;
   /** 이 거래가 묶인 프로젝트 — 사업구분의 근거가 된다 (JIMFF 는 조향) */
   projectCode?: string;
+  /** 가맹점의 업종 (음식점 · 카페 · 주유소 …) — 모델이 이름을 보고 붙인다 (vendor-kind.ts) */
+  vendorKind?: string;
   /**
    * 임포트 어댑터의 추정 (확정 아님). 은행·카드 엑셀이 알려주는 것들 —
    * 「이자입금」적요, 카드대금 판정, 카드 업종명 같은 것. 과거 이력·구독
@@ -810,6 +853,49 @@ function classifyByEvidence(input: ClassifyInput, ctx: ClassifyContext): Classif
       site,
       classReason: input.hint.reason,
     };
+  }
+
+  // 3′) 업종 — 처음 보는 가맹점인데 무슨 가게인지는 안다 (음식점 · 카페 · 주유소).
+  //      그 업종의 다른 가맹점들이 한쪽으로 모여 있을 때만. 제안까지만 — 같은 식당이라도
+  //      회식 · 영업미팅은 계정이 다르고, 그것은 사람이 안다.
+  const kindVendors =
+    flow === "out" && stats.length === 0 && isUsefulKind(input.vendorKind)
+      ? ctx.vendorIndex.kinds?.get(input.vendorKind)
+      : undefined;
+  if (v && kindVendors && kindVendors.length >= KIND_MIN_VENDORS) {
+    const count = new Map<string, number>();
+    kindVendors.forEach((s) => count.set(classKey(s), (count.get(classKey(s)) ?? 0) + 1));
+    const [topClass, topN] = [...count.entries()].sort((a, b) => b[1] - a[1])[0];
+    const ratio = topN / kindVendors.length;
+    const hit = { top: [...kindVendors].reverse().find((s) => classKey(s) === topClass)! };
+    if (ratio >= KIND_MIN_RATIO && !unusable(hit)) {
+      const t = hit.top;
+      // 사업구분은 업종이 아니라 **누가 긁었나**가 말해 준다 — 같은 카드로 같은 계정을 쓴 거래들
+      const mine = (seen.get(cardClassKey(last4, t)) ?? []).filter((s) => bizKey(s) !== "").slice(-RECENT);
+      const bizCount = new Map<string, number>();
+      mine.forEach((s) => bizCount.set(bizKey(s), (bizCount.get(bizKey(s)) ?? 0) + 1));
+      const topBiz = [...bizCount.entries()].sort((a, b) => b[1] - a[1])[0];
+      const cardBiz =
+        topBiz && mine.length >= CARD_BIZ_MIN_COUNT && topBiz[1] / mine.length >= CARD_BIZ_MIN_RATIO
+          ? topBiz[0].split("|")
+          : undefined;
+      return {
+        status: "suggested",
+        ...(t.txType !== input.txType ? { txType: t.txType } : {}),
+        acctMajor: t.acctMajor || undefined,
+        acctMid: t.acctMid || undefined,
+        acctMinor: t.acctMinor || undefined,
+        bizMajor: input.bizMajor || cardBiz?.[0],
+        bizMinor: input.bizMinor || cardBiz?.[1],
+        site,
+        classReason:
+          `거래처 「${input.vendor}」 는 처음 — 업종 「${input.vendorKind}」 인 다른 가맹점 ${kindVendors.length}곳 중 ${Math.round(ratio * 100)}% 가 이 분류` +
+          (cardBiz
+            ? ` · 사업구분은 ${where} 로 쓴 같은 계정 ${mine.length}건 중 ${Math.round((topBiz[1] / mine.length) * 100)}% 가 ${cardBiz[1]}`
+            : "") +
+          (t.txType !== input.txType ? ` → 거래유형을 ${input.txType} 에서 ${t.txType} 로 고쳐 제안` : ""),
+      };
+    }
   }
 
   // 4) 계좌 기본값 — 처음 보는 거래처. 그 계좌에 들어온(나간) 돈이 대개 무엇이었나
