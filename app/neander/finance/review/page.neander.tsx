@@ -77,7 +77,7 @@ import {
 } from "@/components/neander/ui";
 import { LeavingItem, useLeaving } from "@/components/neander/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
-import { ProjectTag } from "@/components/neander/finance/ProjectTag";
+import type { FinProjectDoc } from "@/lib/neander/finance/project";
 import { TransactionEditor } from "@/components/neander/finance/TransactionEditor";
 import {
   AccountPicker,
@@ -187,6 +187,61 @@ function PaymentTag({ last4, pm }: { last4?: string; pm?: FinPaymentMethodDoc })
   );
 }
 
+/**
+ * 근거 문장 — 검토할 때 가장 많이 읽는 줄이다.
+ *
+ * 사유(classReason)는 문장 그대로 저장돼 있다. 여기서는 **읽는 순서**만 바꾼다:
+ *   · 제목에 이미 있는 거래처 이름을 되풀이하지 않는다
+ *       「거래처 「TEMU.COM」 — 카카오와작 에서 …」 → 「카카오와작 에서 …」
+ *   · 판단에 쓰는 숫자를 눈에 띄게 — 비율은 색 알약(높을수록 초록), 건수·금액은 굵게
+ *   · 어느 통장·카드 이야기인지(이 거래의 결제수단 이름)를 굵게
+ * 저장된 글은 건드리지 않는다 — AI 추천·스크립트가 쓴 사유도 같은 규칙으로 보인다.
+ */
+function ReasonText({ text, vendor, alias }: { text: string; vendor?: string; alias?: string }) {
+  let body = text;
+  if (vendor && body.startsWith(`거래처 「${vendor}」`)) {
+    body = body
+      .slice(`거래처 「${vendor}」`.length)
+      // 조사는 뒤에 빈칸이 있을 때만 뗀다 — 「과거 이력」 의 「과」 를 떼면 안 된다
+      .replace(/^\s*(?:—|는|은|와|과)\s+/, "")
+      .trimStart()
+      .replace(/^처음 —/, "처음 보는 거래처 —")
+      .replace(/^과거 이력·규칙 없음$/, "과거 이력·규칙이 없습니다 — 처음 보는 거래처");
+  }
+  const esc = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(
+    `(\\d+(?:\\.\\d+)?%|\\d[\\d,]*건|\\d[\\d,]*원${alias ? `|${esc(alias)}` : ""})`,
+    "g",
+  );
+  const parts = body.split(pattern);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (i % 2 === 0) return part;
+        if (part.endsWith("%")) {
+          const n = Number(part.slice(0, -1));
+          const tone =
+            n >= 90
+              ? "bg-nd-success-soft text-nd-success-text"
+              : n >= 60
+                ? "bg-nd-warning-soft text-nd-warning-text"
+                : "bg-nd-danger-soft text-nd-danger-text";
+          return (
+            <span key={i} className={cn("nd-num mx-0.5 rounded-[6px] px-1.5 py-0.5 font-semibold", tone)}>
+              {part}
+            </span>
+          );
+        }
+        return (
+          <b key={i} className={cn("font-semibold text-nd-fg", part !== alias && "nd-num")}>
+            {part}
+          </b>
+        );
+      })}
+    </>
+  );
+}
+
 function Kbd({ children }: { children: string }) {
   return (
     <kbd className="rounded-[6px] border border-nd-border bg-nd-sunken px-1.5 py-0.5 font-sans text-nd-micro text-nd-fg-2">
@@ -197,7 +252,7 @@ function Kbd({ children }: { children: string }) {
 
 export default function ReviewPage() {
   const finance = useFinance();
-  const { transactions, accounts, paymentMethods, vendorIndex, vendorRules, loading, applyTransactions } = finance;
+  const { transactions, accounts, paymentMethods, vendorIndex, vendorRules, projects, loading, applyTransactions } = finance;
   const confirm = useConfirm();
   /**
    * 사람이 되돌린 행 — 엔진이 다시 배워도 손대지 않는다. 되돌리자마자 같은
@@ -361,6 +416,70 @@ export default function ReviewPage() {
     );
     return (major?: string) => (major ? (sorted.get(major) ?? []) : []);
   }, [transactions]);
+
+  /**
+   * 프로젝트 후보 — 진행 중·준비 중이 위, 끝난 것이 아래 (그 안에서는 최근 것부터).
+   * 지난 행사의 정산이 뒤늦게 들어오므로 끝난 프로젝트도 고를 수 있어야 한다.
+   */
+  const projectOptions = useMemo(() => {
+    const rank = { active: 0, planning: 1, done: 2, cancelled: 3 } as const;
+    return [...(projects ?? [])].sort(
+      (a, b) =>
+        rank[a.status] - rank[b.status] ||
+        (b.startDate ?? "").localeCompare(a.startDate ?? "") ||
+        a.name.localeCompare(b.name, "ko"),
+    );
+  }, [projects]);
+  const projectLabel = (p: FinProjectDoc) => (p.name === p.code ? p.code : `${p.name} (${p.code})`);
+  /** 코드 비교는 대소문자·앞뒤 공백을 무시한다 (ProjectTag 와 같은 규칙) */
+  const projectKey = (c?: string) => (c ?? "").trim().toLowerCase();
+
+  /**
+   * 커서 행에 프로젝트를 지정한다. 프로젝트에 사업소분류가 적혀 있고 거래의
+   * 사업구분이 비어 있으면 같이 채운다 (JIMFF → B2B·조향) — 프로젝트를 고른
+   * 사람이 그 자리에서 보고 바꿀 수 있다.
+   */
+  const setProject = async (t: FinTransaction, code: string | undefined) => {
+    const project = projectOptions.find((p) => projectKey(p.code) === projectKey(code));
+    const major =
+      !t.bizMajor && project?.bizMinor
+        ? BIZ_MAJORS.find((m) => bizMinorsOf(m).includes(project.bizMinor as string))
+        : undefined;
+    const biz = major ? { bizMajor: major, bizMinor: project?.bizMinor } : {};
+    const res = await updateFinTransaction(t.id, { projectCode: code, ...biz });
+    undoLog.record(
+      code
+        ? `프로젝트를 지정했습니다${major ? ` · 사업구분 ${project?.bizMinor}` : ""}.`
+        : "프로젝트 지정을 풀었습니다.",
+      `${txLabel(t)} 프로젝트 → ${project?.name ?? code ?? "없음"}`,
+      [t],
+    );
+    applyTransactions({ upsert: res.transactions });
+  };
+
+  /** 고른 여러 건에 같은 프로젝트를 지정한다 — 상태는 그대로 (확정은 따로) */
+  const [bulkProject, setBulkProject] = useState("");
+  const applyBulkProject = async () => {
+    if (!bulkProject || selectedRows.length === 0) return;
+    setBusy(true);
+    try {
+      const res = await applyFinEdits({
+        updates: selectedRows.map((t) => ({ id: t.id, patch: { projectCode: bulkProject } })),
+        inserts: [],
+        deletes: [],
+      });
+      const project = projectOptions.find((p) => p.code === bulkProject);
+      undoLog.record(
+        `${selectedRows.length}건에 프로젝트를 지정했습니다.`,
+        `프로젝트 ${selectedRows.length}건 → ${project?.name ?? bulkProject}`,
+        selectedRows,
+      );
+      setBulkProject("");
+      applyTransactions({ upsert: res.transactions });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   /** 계정만 보고 사업구분을 아는 경우 (와우판매 → B2C·와우). 계정을 고르면 같이 채운다 */
   const bizOfAccount = useMemo(() => buildAccountBiz(transactions), [transactions]);
@@ -936,7 +1055,7 @@ export default function ReviewPage() {
           확정됩니다. 한 일은 「방금 처리한 것」 에서 되돌릴 수 있고, 되돌린 건은 다시 손대지 않습니다.
         </p>
         <p className="mt-2 text-nd-caption text-nd-fg-3">
-          커서가 놓인 행에서는 아래쪽 계정·사업구분 칸이 선택기로 바뀌어 그 자리에서 바로 고칠 수 있습니다.
+          커서가 놓인 행에서는 아래쪽 계정·사업구분·프로젝트 칸이 선택기로 바뀌어 그 자리에서 바로 고칠 수 있습니다.
         </p>
       </Disclosure>
 
@@ -1045,6 +1164,30 @@ export default function ReviewPage() {
                   계정까지 멀쩡한 행만 확정으로 올라갑니다
                 </span>
               </div>
+
+              {/* 프로젝트도 거래유형과 무관하다 — 지정만 하고 상태는 건드리지 않는다 */}
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-nd-line pt-3">
+                <span className="text-nd-caption font-medium text-nd-fg-2">프로젝트 일괄</span>
+                <Select
+                  size="sm"
+                  aria-label="프로젝트"
+                  value={bulkProject}
+                  onChange={(e) => setBulkProject(e.target.value)}
+                  className="w-auto max-w-[20rem]"
+                >
+                  <option value="">프로젝트 고르기</option>
+                  {projectOptions.map((p) => (
+                    <option key={p.id} value={p.code}>
+                      {projectLabel(p)}
+                      {p.status === "done" ? " · 완료" : p.status === "cancelled" ? " · 취소" : ""}
+                    </option>
+                  ))}
+                </Select>
+                <Button variant="secondary" size="sm" onClick={applyBulkProject} disabled={busy || !bulkProject}>
+                  {selected.size}건에 프로젝트 지정
+                </Button>
+                <span className="text-nd-caption text-nd-fg-3">지정만 합니다 — 확정은 따로 누릅니다</span>
+              </div>
             </div>
           )}
 
@@ -1064,76 +1207,88 @@ export default function ReviewPage() {
                   gap="0.5rem"
                 >
                   <Card
-                    padding="sm"
                     onClick={() => setCursor(i)}
-                    className={cn("transition-shadow duration-nd-fast", active && "ring-2 ring-nd-accent/60")}
+                    className={cn("px-4 py-2.5 transition-shadow duration-nd-fast", active && "ring-2 ring-nd-accent/60")}
                   >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        {/* 거래처·금액이 먼저 */}
-                        <div className="flex items-start gap-2.5">
-                          <Checkbox
-                            checked={selected.has(t.id)}
-                            onChange={() => toggle(t.id)}
-                            onClick={(e) => e.stopPropagation()}
-                            aria-label={`${t.vendor || "(거래처 없음)"} 선택`}
-                            className="mt-0.5"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <p className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-                              <span className="min-w-0 truncate text-nd-body font-semibold text-nd-fg" title={t.vendor || undefined}>
-                                {t.vendor || "(거래처 없음)"}
-                              </span>
-                              <span className="text-nd-section">
-                                <Money value={netAmount(t)} flow={txFlow(t.txType)} />
-                              </span>
+                    {/*
+                      한 줄 배치 — 거래처·금액 → 상태·날짜 → 근거 → 분류가 왼쪽에서 오른쪽으로
+                      이어진다. 세 줄로 쌓던 것을 눕혀 한 화면에 두 배쯤 더 보인다.
+                      넓은 모니터에서는 한 줄, 좁으면 덩어리째 다음 줄로 넘어간다 (flex-wrap).
+                      글씨는 줄이지 않았다 — 거래처·금액 18px, 근거 16px, 가장 작은 글씨 13px.
+                    */}
+                    <div className="flex flex-wrap items-center justify-between gap-x-5 gap-y-2">
+                      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-1.5">
+                        <Checkbox
+                          checked={selected.has(t.id)}
+                          onChange={() => toggle(t.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label={`${t.vendor || "(거래처 없음)"} 선택`}
+                        />
+                        {/* 넓은 화면에서는 거래처·금액과 상태·날짜 칸의 폭을 고정한다 — 줄마다
+                            근거가 같은 자리에서 시작해야 위아래로 훑을 수 있다 */}
+                        <p className="flex min-w-0 items-baseline gap-x-2.5 text-[18px] font-semibold leading-snug 2xl:w-[21rem] 2xl:shrink-0">
+                          <span className="min-w-0 truncate text-nd-fg" title={t.vendor || undefined}>
+                            {t.vendor || "(거래처 없음)"}
+                          </span>
+                          <Money value={netAmount(t)} flow={txFlow(t.txType)} className="shrink-0" />
+                        </p>
+                        <p className="flex shrink-0 items-center gap-x-2.5 text-nd-body text-nd-fg-2 2xl:w-[13.5rem]">
+                          <Badge tone={STATUS_TONE[t.status]} dot>
+                            {STATUS_LABEL[t.status]}
+                          </Badge>
+                          <span className="nd-num font-medium text-nd-fg">{t.date}</span>
+                          <span>{t.txType}</span>
+                        </p>
+                        {t.classReason && (
+                          <p className="max-w-full rounded-nd-md bg-nd-sunken px-3 py-1 text-[16px] leading-snug text-nd-fg">
+                            <ReasonText
+                              text={t.classReason}
+                              vendor={t.vendor}
+                              alias={t.last4 ? pmIndex.get(t.last4)?.alias : undefined}
+                            />
+                          </p>
+                        )}
+                        {!active && (
+                          // 분류 — 커서가 없는 행은 결론만 같은 줄에 잇는다. 마지막 단계는 굵게
+                          <div className="flex flex-wrap items-baseline gap-x-8 gap-y-1.5 text-[15px] leading-snug">
+                            <p className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+                              <span className="text-nd-table text-nd-fg-3">계정</span>
+                              {t.acctMinor ? (
+                                <span className="text-nd-fg-2">
+                                  {[t.acctMajor, t.acctMid].filter(Boolean).join(" › ")}
+                                  {" › "}
+                                  <b className="font-semibold text-nd-fg">{t.acctMinor}</b>
+                                </span>
+                              ) : (
+                                <span className="font-medium text-nd-danger-text">아직 없음</span>
+                              )}
                             </p>
-                            <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-nd-caption text-nd-fg-2">
-                              <Badge tone={STATUS_TONE[t.status]} size="sm" dot>
-                                {STATUS_LABEL[t.status]}
-                              </Badge>
-                              <span className="nd-num">{t.date}</span>
-                              <span>{t.txType}</span>
-                              <ProjectTag code={t.projectCode} />
+                            <p className="flex flex-wrap items-baseline gap-x-2">
+                              <span className="text-nd-table text-nd-fg-3">사업구분</span>
+                              {t.bizMajor ? (
+                                <span className="text-nd-fg-2">
+                                  {t.bizMinor && t.bizMinor !== t.bizMajor ? (
+                                    <>
+                                      {t.bizMajor} › <b className="font-semibold text-nd-fg">{t.bizMinor}</b>
+                                    </>
+                                  ) : (
+                                    <b className="font-semibold text-nd-fg">{t.bizMajor}</b>
+                                  )}
+                                </span>
+                              ) : (
+                                <span className="font-medium text-nd-danger-text">아직 없음</span>
+                              )}
                             </p>
-                            {t.classReason && (
-                              <p className="mt-1.5 text-nd-caption leading-relaxed text-nd-fg-3">{t.classReason}</p>
+                            {t.projectCode && (
+                              <p className="flex flex-wrap items-baseline gap-x-2">
+                                <span className="text-nd-table text-nd-fg-3">프로젝트</span>
+                                <b className="font-semibold text-nd-fg">
+                                  {projectOptions.find((p) => projectKey(p.code) === projectKey(t.projectCode))?.name ??
+                                    `${t.projectCode} · 미등록`}
+                                </b>
+                              </p>
                             )}
                           </div>
-                        </div>
-
-                        {suggestion && (
-                          <InlineNotice
-                            tone={suggestion.confidence >= 0.7 ? "info" : "warning"}
-                            icon={Sparkles}
-                            className="mt-2"
-                            action={
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                onClick={(ev) => { ev.stopPropagation(); void applyAi([t.id]); }}
-                                disabled={busy}
-                              >
-                                적용
-                              </Button>
-                            }
-                          >
-                            <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                              <span className="text-nd-micro uppercase tracking-wide opacity-80">AI 추천</span>
-                              <span className="font-medium text-nd-fg">
-                                {[suggestion.acctMajor, suggestion.acctMid, suggestion.acctMinor].join(" › ")}
-                              </span>
-                              {suggestion.bizMinor && (
-                                <span className="text-nd-caption text-nd-fg-2">
-                                  {suggestion.bizMajor} · {suggestion.bizMinor}
-                                </span>
-                              )}
-                              <span className="nd-num text-nd-caption font-medium">
-                                확신 {Math.round(suggestion.confidence * 100)}%
-                              </span>
-                            </p>
-                            <p className="mt-0.5 text-nd-caption text-nd-fg-2">{suggestion.reason}</p>
-                          </InlineNotice>
                         )}
                       </div>
                       <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-x-5 gap-y-2">
@@ -1146,6 +1301,39 @@ export default function ReviewPage() {
                         </div>
                       </div>
                     </div>
+                    {suggestion && (
+                      <InlineNotice
+                        tone={suggestion.confidence >= 0.7 ? "info" : "warning"}
+                        icon={Sparkles}
+                        className="mt-2"
+                        action={
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={(ev) => { ev.stopPropagation(); void applyAi([t.id]); }}
+                            disabled={busy}
+                          >
+                            적용
+                          </Button>
+                        }
+                      >
+                        <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                          <span className="text-nd-table font-medium opacity-80">AI 추천</span>
+                          <span className="text-[15px] font-semibold text-nd-fg">
+                            {[suggestion.acctMajor, suggestion.acctMid, suggestion.acctMinor].join(" › ")}
+                          </span>
+                          {suggestion.bizMinor && (
+                            <span className="text-nd-body text-nd-fg-2">
+                              {suggestion.bizMajor} · {suggestion.bizMinor}
+                            </span>
+                          )}
+                          <span className="nd-num text-nd-body font-medium">
+                            확신 {Math.round(suggestion.confidence * 100)}%
+                          </span>
+                        </p>
+                        <p className="mt-0.5 text-nd-body text-nd-fg-2">{suggestion.reason}</p>
+                      </InlineNotice>
+                    )}
 
                     {/*
                       계정 자리 — 커서 행에서만 선택기로 바뀐다. 선택기는 50행에
@@ -1161,98 +1349,103 @@ export default function ReviewPage() {
                          ({block:"nearest"})` 가 **커서 행을 제자리에 붙들어** 두므로,
                          아래 행들이 밀려도 읽던 자리는 그대로다.
                     */}
-                    <div className="mt-3 border-t border-nd-line pt-3">
-                      {active ? (
-                        <>
-                          <AccountPicker
-                            accounts={accounts}
-                            txType={t.txType}
-                            compact
-                            value={{
-                              acctMajor: t.acctMajor,
-                              acctMid: t.acctMid,
-                              acctMinor: t.acctMinor,
-                            }}
-                            onChange={async (v) => {
-                              // 사업구분이 비어 있고 계정이 사업부를 말해 주면 같이 채운다
-                              const implied = t.bizMajor ? undefined : bizOfAccount({ txType: t.txType, ...v });
-                              const res = await updateFinTransaction(t.id, { ...v, ...implied });
-                              undoLog.record(
-                                implied ? `계정을 바꾸고 사업구분을 ${implied.bizMinor}(으)로 채웠습니다.` : "계정을 바꿨습니다.",
-                                `${txLabel(t)} 계정 → ${v.acctMinor ?? "비움"}${implied ? ` · 사업구분 ${implied.bizMinor}` : ""}`,
-                                [t],
-                              );
-                              applyTransactions({ upsert: res.transactions });
-                            }}
-                          />
-                          {/*
-                            사업구분 — 계정과 같은 3칸 격자에 올려 칸이 위아래로 맞는다.
-                            대기함 대부분이 「사업구분만 비어서」 온 행이라, 상세를 열지
-                            않고 이 자리에서 고를 수 있어야 한다.
-                          */}
-                          <div className="mt-2 grid grid-cols-3 gap-2">
-                            <Select
-                              size="sm"
-                              aria-label="사업대분류"
-                              value={t.bizMajor ?? ""}
-                              onChange={(e) => {
-                                const major = e.target.value || undefined;
-                                const minors = bizMinorsOf(major);
-                                // 소분류가 하나뿐인 대분류(공용 · 해당없음)는 같이 채운다.
-                                // 다 골랐으면 선택기에서 손을 뗀다 — 포커스가 남아 있으면 Enter(확정)가 안 먹는다
-                                if (minors.length === 1) e.currentTarget.blur();
-                                void setBiz(t, { bizMajor: major, bizMinor: minors.length === 1 ? minors[0] : undefined });
+                    {active && (
+                      <div className="mt-2.5 border-t border-nd-line pt-2.5">
+                            <AccountPicker
+                              accounts={accounts}
+                              txType={t.txType}
+                              compact
+                              controlSize="md"
+                              // 회계코드·부가세·자산·지점은 계정을 따라오는 값이다 — 여기서는 쓰임만 보인다
+                              info="example"
+                              value={{
+                                acctMajor: t.acctMajor,
+                                acctMid: t.acctMid,
+                                acctMinor: t.acctMinor,
                               }}
-                            >
-                              <option value="">사업대분류</option>
-                              {BIZ_MAJORS.map((b) => (
-                                <option key={b} value={b}>{b}</option>
-                              ))}
-                            </Select>
-                            <Select
-                              size="sm"
-                              aria-label="사업소분류"
-                              value={t.bizMinor ?? ""}
-                              disabled={!t.bizMajor}
-                              onChange={(e) => {
-                                if (e.target.value) e.currentTarget.blur();
-                                void setBiz(t, { bizMajor: t.bizMajor, bizMinor: e.target.value || undefined });
+                              onChange={async (v) => {
+                                // 사업구분이 비어 있고 계정이 사업부를 말해 주면 같이 채운다
+                                const implied = t.bizMajor ? undefined : bizOfAccount({ txType: t.txType, ...v });
+                                const res = await updateFinTransaction(t.id, { ...v, ...implied });
+                                undoLog.record(
+                                  implied ? `계정을 바꾸고 사업구분을 ${implied.bizMinor}(으)로 채웠습니다.` : "계정을 바꿨습니다.",
+                                  `${txLabel(t)} 계정 → ${v.acctMinor ?? "비움"}${implied ? ` · 사업구분 ${implied.bizMinor}` : ""}`,
+                                  [t],
+                                );
+                                applyTransactions({ upsert: res.transactions });
                               }}
-                            >
-                              <option value="">사업소분류</option>
-                              {/* 지금 값이 후보에 없어도(옛 표기) 사라지지 않게 */}
-                              {[...new Set([...(t.bizMinor ? [t.bizMinor] : []), ...bizMinorsOf(t.bizMajor)])].map((b) => (
-                                <option key={b} value={b}>{b}</option>
-                              ))}
-                            </Select>
-                            <p className="self-center text-nd-table text-nd-fg-3">
-                              {t.bizMajor && t.bizMinor ? (
-                                "사업구분 — 어느 사업부의 돈인가"
-                              ) : (
-                                <span className="text-nd-danger-text">사업구분이 비어 있습니다 — 사업부 손익에서 빠집니다</span>
-                              )}
-                            </p>
-                          </div>
-                        </>
-                      ) : (
-                        <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-nd-table text-nd-fg-3">
-                          <span className="font-medium text-nd-fg-2">계정</span>
-                          {t.acctMinor ? (
-                            <span>{[t.acctMajor, t.acctMid, t.acctMinor].filter(Boolean).join(" › ")}</span>
-                          ) : (
-                            <span className="text-nd-danger-text">아직 없음 — 커서를 두면 고칠 수 있습니다</span>
-                          )}
-                          <span className="ml-3 font-medium text-nd-fg-2">사업구분</span>
-                          {t.bizMajor ? (
-                            <span>
-                              {t.bizMinor && t.bizMinor !== t.bizMajor ? `${t.bizMajor} › ${t.bizMinor}` : t.bizMajor}
-                            </span>
-                          ) : (
-                            <span className="text-nd-danger-text">아직 없음</span>
-                          )}
-                        </p>
-                      )}
-                    </div>
+                            />
+                            {/*
+                              사업구분 — 계정과 같은 3칸 격자에 올려 칸이 위아래로 맞는다.
+                              대기함 대부분이 「사업구분만 비어서」 온 행이라, 상세를 열지
+                              않고 이 자리에서 고를 수 있어야 한다.
+                            */}
+                            <div className="mt-2 grid grid-cols-3 gap-2">
+                              <Select
+                                aria-label="사업대분류"
+                                value={t.bizMajor ?? ""}
+                                onChange={(e) => {
+                                  const major = e.target.value || undefined;
+                                  const minors = bizMinorsOf(major);
+                                  // 소분류가 하나뿐인 대분류(공용 · 해당없음)는 같이 채운다.
+                                  // 다 골랐으면 선택기에서 손을 뗀다 — 포커스가 남아 있으면 Enter(확정)가 안 먹는다
+                                  if (minors.length === 1) e.currentTarget.blur();
+                                  void setBiz(t, { bizMajor: major, bizMinor: minors.length === 1 ? minors[0] : undefined });
+                                }}
+                              >
+                                <option value="">사업대분류</option>
+                                {BIZ_MAJORS.map((b) => (
+                                  <option key={b} value={b}>{b}</option>
+                                ))}
+                              </Select>
+                              <Select
+                                aria-label="사업소분류"
+                                value={t.bizMinor ?? ""}
+                                disabled={!t.bizMajor}
+                                onChange={(e) => {
+                                  if (e.target.value) e.currentTarget.blur();
+                                  void setBiz(t, { bizMajor: t.bizMajor, bizMinor: e.target.value || undefined });
+                                }}
+                              >
+                                <option value="">사업소분류</option>
+                                {/* 지금 값이 후보에 없어도(옛 표기) 사라지지 않게 */}
+                                {[...new Set([...(t.bizMinor ? [t.bizMinor] : []), ...bizMinorsOf(t.bizMajor)])].map((b) => (
+                                  <option key={b} value={b}>{b}</option>
+                                ))}
+                              </Select>
+                              {/* 프로젝트 — 이 돈이 어느 행사·계약에 쓰였나 (프로젝트 손익과 이어진다) */}
+                              <Select
+                                aria-label="프로젝트"
+                                value={
+                                  projectOptions.find((p) => projectKey(p.code) === projectKey(t.projectCode))?.code ??
+                                  (t.projectCode ?? "")
+                                }
+                                onChange={(e) => {
+                                  e.currentTarget.blur();
+                                  void setProject(t, e.target.value || undefined);
+                                }}
+                              >
+                                <option value="">프로젝트 없음</option>
+                                {/* 목록에 없는 코드가 이미 붙어 있으면(오타 · 미등록) 사라지지 않게 */}
+                                {t.projectCode &&
+                                  !projectOptions.some((p) => projectKey(p.code) === projectKey(t.projectCode)) && (
+                                    <option value={t.projectCode}>{t.projectCode} · 미등록</option>
+                                  )}
+                                {projectOptions.map((p) => (
+                                  <option key={p.id} value={p.code}>
+                                    {projectLabel(p)}
+                                    {p.status === "done" ? " · 완료" : p.status === "cancelled" ? " · 취소" : ""}
+                                  </option>
+                                ))}
+                              </Select>
+                            </div>
+                            {!(t.bizMajor && t.bizMinor) && (
+                              <p className="mt-1.5 text-nd-table text-nd-danger-text">
+                                사업구분이 비어 있습니다 — 사업부 손익에서 빠집니다
+                              </p>
+                            )}
+                      </div>
+                    )}
                   </Card>
                 </LeavingItem>
               );

@@ -29,12 +29,22 @@ export function AccountPicker({
   value,
   onChange,
   compact = false,
+  controlSize,
+  info = "full",
 }: {
   accounts: FinAccountDoc[];
   txType: TxType;
   value: AccountValue;
   onChange: (v: AccountValue) => void;
   compact?: boolean;
+  /** 선택기 크기. 비우면 compact 는 작게(sm), 아니면 보통(md) */
+  controlSize?: "sm" | "md";
+  /**
+   * 고른 계정의 딸린 정보를 얼마나 보일까.
+   *   full     회계코드 · 부가세 · 자산 · 지점 + 쓰임 (기본)
+   *   example  쓰임 한 줄만 — 회계코드 등은 계정을 따라오는 값이라 건마다 볼 것이 아니다
+   */
+  info?: "full" | "example";
 }) {
   // 은퇴 계정(active:false)은 후보에서 뺀다 — 단, 지금 이 거래가 이미 그
   // 계정을 들고 있으면 보여준다 (과거 거래를 열었을 때 값이 사라지면 안 된다)
@@ -69,7 +79,7 @@ export function AccountPicker({
       a.major === value.acctMajor && a.mid === value.acctMid && a.minor === value.acctMinor,
   );
 
-  const size = compact ? "sm" : "md";
+  const size = controlSize ?? (compact ? "sm" : "md");
 
   // compact 는 라벨 없이 한 줄 — 접근 가능한 이름은 aria-label 로 준다
   const major = (
@@ -134,8 +144,13 @@ export function AccountPicker({
         </div>
       )}
 
-      {picked && (
-        <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-nd-caption text-nd-fg-3">
+      {picked && info === "example" && picked.example && (
+        <p className="mt-1.5 text-nd-table text-nd-fg-3">
+          이 계정의 쓰임 <b className="font-medium text-nd-fg-2">{picked.example}</b>
+        </p>
+      )}
+      {picked && info === "full" && (
+        <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-nd-table text-nd-fg-3">
           <span>회계코드 <b className="font-medium text-nd-fg-2">{picked.code}</b></span>
           <span>부가세 <b className="font-medium text-nd-fg-2">{picked.vat}</b></span>
           <span>자산 <b className="font-medium text-nd-fg-2">{picked.asset}</b></span>
