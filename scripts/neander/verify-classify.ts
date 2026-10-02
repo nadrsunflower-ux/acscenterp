@@ -24,7 +24,7 @@
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
-import { buildVendorIndex, classifyOne, vendorFamily, type ClassifyInput } from "@/lib/neander/finance/classify";
+import { buildVendorIndex, classCandidates, classifyOne, vendorFamily, type ClassifyInput } from "@/lib/neander/finance/classify";
 import type { FinTransaction, TxType } from "@/lib/neander/finance/types";
 import type { FinAccountDoc, FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
 
@@ -137,6 +137,26 @@ function ruleChecks() {
 
   const j = run({ vendor: "유재영", last4: "4223", txType: "지출", acctMajor: "운영비", acctMid: "일반운영비", acctMinor: "구독서비스비" });
   ok(j.status === "confirmed" && j.acctMinor === "구독서비스비", "원본에 분류가 있으면 그대로 둔다");
+}
+
+// ---- ①″ 후보 — 갈리는 거래처에서 사람이 누를 것들 ----------------
+console.log("\n=== 후보 (분류가 갈리는 거래처) ===");
+{
+  const ctx = { vendorIndex: buildVendorIndex(HISTORY), vendorRules: [], paymentMethods: PMS, accounts: ACCOUNTS };
+  // 모임 통장의 유재영 — 향료구입비 4건 · 구독서비스비 3건
+  const c = classCandidates({ vendor: "유재영", last4: "0429", txType: "지출" }, ctx);
+  ok(c?.items.length === 2 && c.items[0].acctMinor === "향료구입비" && c.items[0].count === 4 && c.items[1].acctMinor === "구독서비스비",
+    "과거에 쓰인 분류를 많이 쓰인 순으로 돌려준다", c?.items.map((i) => `${i.acctMinor} ${i.count}건`).join(" · "));
+  ok(c?.items[0].acctMajor === "제품개발운영비" && c.items[0].acctMid === "공통원자재", "대·중·소분류가 다 들어 있다 (누르면 세 칸이 채워진다)");
+  ok(c?.items[0].bizMinor === "조향" && c.items[1].bizMinor === "공용", "그 분류가 늘 한 사업부였으면 사업구분도 같이 준다");
+  ok(/토스모임 에서 최근 7건/.test(c?.basis ?? ""), "무엇을 보고 뽑았는지 적는다", c?.basis);
+  ok(classCandidates({ vendor: "처음보는곳", last4: "0429", txType: "지출" }, ctx) === null, "이력이 없으면 후보도 없다");
+  ok(classCandidates({ vendor: "유재영", last4: "0429", txType: "수입" }, ctx) === null, "나간 돈의 이력을 들어온 돈의 후보로 쓰지 않는다");
+  const narrowed = classCandidates({ vendor: "유재영", last4: "0429", txType: "지출", acctMajor: "운영비" }, ctx);
+  ok(narrowed?.items.length === 1 && narrowed.items[0].acctMinor === "구독서비스비", "원본 장부가 적어 둔 대분류와 어긋나는 것은 후보에서 뺀다");
+  // 급여 통장 — 한결같다 (후보는 하나)
+  const one = classCandidates({ vendor: "유재영", last4: "4223", txType: "지출" }, ctx);
+  ok(one?.items.length === 1 && one.items[0].acctMinor === "임원급여", "같은 계좌의 이력을 먼저 본다 (급여 통장의 유재영은 급여뿐)");
 }
 
 // ---- ①′ 업종 — 처음 보는 가맹점 --------------------------------

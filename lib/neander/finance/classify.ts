@@ -331,7 +331,7 @@ interface KeyStat {
   /** 그 분류 안에서 가장 많이 쓰인 사업구분과 그 비율 */
   biz: { major: string; minor: string; ratio: number };
   /** 분류별 건수 (많은 것부터) — 갈릴 때 사유에 적는다 */
-  spread: { label: string; count: number }[];
+  spread: { label: string; count: number; rows: Seen[] }[];
 }
 
 const classKey = (s: Seen) => `${s.txType}|${s.acctMajor}|${s.acctMid}|${s.acctMinor}`;
@@ -366,7 +366,7 @@ function statOf(list: Seen[] | undefined, kind: KeyKind, recent: number): KeySta
     ratio: best.length / rows.length,
     months: new Set(best.map((s) => s.month)).size,
     biz: { major: bizMajor, minor: bizMinor, ratio: bizN / best.length },
-    spread: ranked.map((g) => ({ label: g[0].acctMinor || g[0].txType, count: g.length })),
+    spread: ranked.map((g) => ({ label: g[0].acctMinor || g[0].txType, count: g.length, rows: g })),
   };
 }
 
@@ -925,6 +925,99 @@ function classifyByEvidence(input: ClassifyInput, ctx: ClassifyContext): Classif
     classReason: v
       ? `거래처 「${input.vendor}」 과거 이력·규칙 없음`
       : "거래처가 비어 있어 판단 불가",
+  };
+}
+
+// ---- 후보 — 갈리는 거래처에서 사람이 고를 것들 --------------------
+
+/** 과거에 이 거래처가 쓰인 분류 하나 — 검토 화면이 누르는 단추로 보인다 */
+export interface ClassCandidate {
+  txType: TxType;
+  acctMajor: string;
+  acctMid: string;
+  acctMinor: string;
+  /** 그 분류 안에서 사업구분이 한결같을 때만 (아니면 사람이 고른다) */
+  bizMajor?: string;
+  bizMinor?: string;
+  /** 그 분류로 쓰인 건수 */
+  count: number;
+}
+
+export interface ClassCandidates {
+  /** 무엇을 보고 뽑았나 — `(신법)이동주 에서 최근 12건` */
+  basis: string;
+  /** 본 건수 */
+  n: number;
+  /** 많이 쓰인 순 */
+  items: ClassCandidate[];
+}
+
+/** 후보로 보여 줄 최대 수 — 그 아래는 한두 건짜리 예외다 */
+const MAX_CANDIDATES = 4;
+
+/**
+ * 이 거래처가 과거에 어떤 분류들로 쓰였나. 「분류가 갈립니다」 의 후보를 **누를 수 있는
+ * 것**으로 돌려준다 (사유 문장에는 소분류 이름과 건수만 있다).
+ *
+ * 자동분류가 사유를 만들 때 본 것과 같은 이력을 본다 — 같은 거래처 · 같은 계좌가 먼저,
+ * 없으면 다른 계좌까지. 이번 거래에 쓸 수 없는 분류(수입 계정을 지출에)는 뺀다.
+ * 이력이 없으면 null.
+ */
+export function classCandidates(
+  input: Pick<ClassifyInput, "vendor" | "last4" | "txType" | "acctMajor" | "acctMid">,
+  ctx: ClassifyContext,
+): ClassCandidates | null {
+  const v = normVendor(input.vendor);
+  if (!v) return null;
+  const last4 = input.last4 ?? "";
+  const flow = flowOfInput(input.txType);
+  const seen = ctx.vendorIndex.seen;
+  const stats = (
+    [
+      statOf(seen.get(keyOf("va", v, last4, flow)), "va", RECENT),
+      statOf(seen.get(keyOf("v", v, last4, flow)), "v", RECENT),
+      statOf(seen.get(keyOf("fa", vendorFamily(v), last4, flow)), "fa", RECENT),
+      statOf(seen.get(keyOf("f", vendorFamily(v), last4, flow)), "f", RECENT),
+    ] as (KeyStat | null)[]
+  ).filter((s): s is KeyStat => s !== null);
+  // 사유를 만들 때와 같은 순서로 고른다 (classifyByEvidence 의 1-라)
+  const st = stats.find((s) => s.kind === "va" || s.kind === "fa" || s.n >= MIN_ELSEWHERE_COUNT) ?? stats[0];
+  if (!st) return null;
+
+  const pm = last4 ? ctx.paymentMethods.find((p) => p.last4 === last4) : undefined;
+  const where = pm?.alias ?? (last4 || "계좌 미지정");
+  const items = st.spread
+    .filter(({ rows }) => {
+      const top = rows[rows.length - 1];
+      if (!top.acctMinor) return false;
+      // 원본 장부가 적어 둔 대·중분류와 어긋나는 것은 후보가 아니다
+      if (input.acctMajor && top.acctMajor !== input.acctMajor) return false;
+      if (input.acctMid && top.acctMid !== input.acctMid) return false;
+      const acctTx = accountTxType(ctx.accounts, top.acctMajor, top.acctMid, top.acctMinor);
+      return !acctTx || acctTx === top.txType || isAllowedTxAccountMismatch(top.txType, top.acctMinor, acctTx);
+    })
+    .slice(0, MAX_CANDIDATES)
+    .map(({ rows, count }): ClassCandidate => {
+      const top = rows[rows.length - 1];
+      const bizCount = new Map<string, number>();
+      rows.forEach((s) => bizCount.set(bizKey(s), (bizCount.get(bizKey(s)) ?? 0) + 1));
+      const [biz, bizN] = [...bizCount.entries()].sort((a, b) => b[1] - a[1])[0];
+      const steady = biz !== "" && bizN / rows.length >= MIN_BIZ_RATIO;
+      const [bizMajor, bizMinor] = biz.split("|");
+      return {
+        txType: top.txType,
+        acctMajor: top.acctMajor,
+        acctMid: top.acctMid,
+        acctMinor: top.acctMinor,
+        ...(steady ? { bizMajor, bizMinor } : {}),
+        count,
+      };
+    });
+  if (items.length === 0) return null;
+  return {
+    basis: st.kind === "va" || st.kind === "fa" ? `${where} 에서 최근 ${st.n}건` : `다른 계좌·카드까지 최근 ${st.n}건`,
+    n: st.n,
+    items,
   };
 }
 

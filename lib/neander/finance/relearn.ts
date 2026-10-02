@@ -30,6 +30,15 @@ import type { ClassificationStatus, FinTransaction, TxType } from "./types";
 export const ENGINE_REASON = /^거래처 「|^거래처가 비어 있어 판단 불가|^구독 규칙 「|^분류 규칙 「|^카드 메모 「/;
 /** 엔진이 거래유형을 고쳐 둔 행 — 은행이 알려준 원래 유형을 사유에서 되찾는다 */
 const TYPE_FIXED = /거래유형을 (\S+) 에서 (\S+) 로/;
+/**
+ * 은행·카드가 알려준 원래 거래유형. 엔진이 유형을 고쳐 둔 행(수입 → 자금거래)은 사유에서
+ * 되찾는다 — 이력을 찾을 때는 들어온 돈인지 나간 돈인지가 원래 유형에 있다.
+ */
+export function bankTypeOf(t: Pick<FinTransaction, "txType" | "classReason">): TxType {
+  const fixed = (t.classReason ?? "").match(TYPE_FIXED);
+  return (fixed && fixed[2] === t.txType ? fixed[1] : t.txType) as TxType;
+}
+
 /** 사람이 되돌린 행 — 엔진이 다시 손대지 않는다 */
 export const ENGINE_HOLD = "hold";
 
@@ -95,8 +104,7 @@ export function relearnPending(
   const out: RelearnChange[] = [];
   transactions.forEach((t) => {
     if (t.status === "confirmed" || !owned(t)) return;
-    const fixed = (t.classReason ?? "").match(TYPE_FIXED);
-    const bankType = (fixed && fixed[2] === t.txType ? fixed[1] : t.txType) as TxType;
+    const bankType = bankTypeOf(t);
     const sug = classifyOne(
       {
         vendor: t.vendor,

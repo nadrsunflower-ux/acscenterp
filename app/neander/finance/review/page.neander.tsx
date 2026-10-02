@@ -101,8 +101,16 @@ import { BIZ_MAJORS } from "@/lib/neander/finance/sheet";
 import { paymentIndex } from "@/lib/neander/finance/sheetScope";
 import { bankById, bankOfMethod } from "@/lib/neander/finance/import-slots";
 import { reviewMonthFromQuery } from "@/lib/neander/finance/ledgerLink";
-import { buildAccountBiz, ENGINE_HOLD, engineSigOf, isEngineOwned, relearnPending } from "@/lib/neander/finance/relearn";
-import type { ClassifyContext } from "@/lib/neander/finance/classify";
+import {
+  bankTypeOf,
+  buildAccountBiz,
+  ENGINE_HOLD,
+  engineSigOf,
+  isEngineOwned,
+  ledgerPartial,
+  relearnPending,
+} from "@/lib/neander/finance/relearn";
+import { classCandidates, type ClassCandidate, type ClassifyContext } from "@/lib/neander/finance/classify";
 import type { FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
 import { monthLabel } from "@/lib/neander/format";
 import {
@@ -313,6 +321,10 @@ function NoteInput({ id, value, onSave }: { id?: string; value: string; onSave: 
     />
   );
 }
+
+/** 이 거래가 지금 그 후보의 분류인가 */
+const isCandidateOf = (t: FinTransaction, c: ClassCandidate) =>
+  t.acctMajor === c.acctMajor && t.acctMid === c.acctMid && t.acctMinor === c.acctMinor;
 
 function Kbd({ children }: { children: string }) {
   return (
@@ -738,6 +750,51 @@ export default function ReviewPage() {
     [applyTransactions, undoLog.record, leaving.run],
   );
 
+  /**
+   * 커서 행의 후보 — 이 거래처가 과거에 쓰인 분류들. 「분류가 갈립니다」 의 사유에는 소분류
+   * 이름과 건수만 적혀 있어서, 읽고도 선택기 세 칸을 다시 골라야 했다. 같은 이력을 누를 수
+   * 있는 단추로 보인다 (classify.ts classCandidates).
+   */
+  const candidates = useMemo(() => {
+    const t = pageRows[cursor];
+    if (!t) return null;
+    const ctx = { vendorIndex, vendorRules, paymentMethods, accounts, ...(classRules ? { classRules } : {}) } as ClassifyContext;
+    const partial = ledgerPartial(t);
+    const found = classCandidates(
+      { vendor: t.vendor, last4: t.last4, txType: bankTypeOf(t), acctMajor: partial.acctMajor, acctMid: partial.acctMid },
+      ctx,
+    );
+    // 후보가 하나뿐인데 이미 그 분류면 보일 것이 없다 (제안이 붙어 있는 흔한 경우)
+    if (!found || (found.items.length === 1 && isCandidateOf(t, found.items[0]))) return null;
+    return found;
+  }, [pageRows, cursor, vendorIndex, vendorRules, classRules, paymentMethods, accounts]);
+
+  /** 후보를 눌렀다 — 대·중·소분류를 한 번에 채운다. 상태는 그대로다 (확정은 따로 누른다) */
+  const pickCandidate = useCallback(
+    async (t: FinTransaction, c: ClassCandidate) => {
+      const path = { acctMajor: c.acctMajor, acctMid: c.acctMid, acctMinor: c.acctMinor };
+      // 사업구분이 비어 있을 때만 — 그 분류가 늘 한 사업부였으면 그것, 아니면 계정이 말해 주는 것
+      const implied = t.bizMajor
+        ? undefined
+        : c.bizMajor && c.bizMinor
+          ? { bizMajor: c.bizMajor, bizMinor: c.bizMinor }
+          : bizOfAccount({ txType: c.txType, ...path });
+      const res = await updateFinTransaction(t.id, {
+        ...path,
+        ...(c.txType !== t.txType ? { txType: c.txType } : {}),
+        ...implied,
+      });
+      undoLog.record(
+        implied ? `계정을 고르고 사업구분을 ${implied.bizMinor}(으)로 채웠습니다.` : "계정을 골랐습니다.",
+        { subject: txLabel(t), change: `계정 → ${c.acctMinor}${implied ? ` · 사업구분 ${implied.bizMinor}` : ""}` },
+        [t],
+      );
+      applyTransactions({ upsert: res.transactions });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [applyTransactions, undoLog.record, bizOfAccount],
+  );
+
   // 키보드 조작
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -772,6 +829,11 @@ export default function ReviewPage() {
       } else if (e.key === "e" || e.key === "E") {
         e.preventDefault();
         setEditing(pageRows[cursor] ?? null);
+      } else if (/^[1-9]$/.test(e.key) && candidates?.items[Number(e.key) - 1]) {
+        // 후보 고르기 — 숫자가 후보 단추의 번호다
+        e.preventDefault();
+        const t = pageRows[cursor];
+        if (t) void pickCandidate(t, candidates.items[Number(e.key) - 1]);
       } else if (e.key === "n" || e.key === "N" || e.key === "ㅜ") {
         // 비고 칸으로 — 한글 자판 상태에서는 같은 글쇠가 「ㅜ」 로 온다
         e.preventDefault();
@@ -780,7 +842,7 @@ export default function ReviewPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pageRows, cursor, editing, approve, page, pageCount, pageSize, goPage]);
+  }, [pageRows, cursor, editing, approve, page, pageCount, pageSize, goPage, candidates, pickCandidate]);
 
   // 비서에게 지금 보고 있는 거래를 알린다 — 「이거 뭐로 분류해?」 가 통하게 (ai/focus.ts).
   // 체크박스로 고른 거래도 함께 넘긴다. 화면을 떠나면 거둔다.
@@ -1170,6 +1232,10 @@ export default function ReviewPage() {
             <dd className="text-nd-fg-2">상세 열기 (분류를 고쳐야 할 때)</dd>
           </div>
           <div className="flex items-center gap-2">
+            <dt className="flex shrink-0 items-center gap-1"><Kbd>1</Kbd><Kbd>2</Kbd><Kbd>3</Kbd></dt>
+            <dd className="text-nd-fg-2">후보 고르기 (분류가 갈리는 거래처 — 대·중·소분류가 한 번에 채워진다)</dd>
+          </div>
+          <div className="flex items-center gap-2">
             <dt className="shrink-0"><Kbd>N</Kbd></dt>
             <dd className="text-nd-fg-2">비고 쓰기 (Enter 로 저장 · Esc 로 취소)</dd>
           </div>
@@ -1505,6 +1571,40 @@ export default function ReviewPage() {
                       <div className="mt-2.5 border-t border-nd-line pt-2.5">
                             {/* 그날 무슨 일이 있었나 — 계정을 고르기 전에 읽는다 */}
                             <DayEventsLine date={t.date} store={dayEvents} className="mb-2.5" />
+                            {/* 후보 — 이 거래처가 과거에 쓰인 분류. 누르면 아래 세 칸이 한 번에 채워진다 */}
+                            {candidates && (
+                              <div className="mb-2.5 flex flex-wrap items-center gap-x-2 gap-y-1.5" onClick={(e) => e.stopPropagation()}>
+                                <span className="shrink-0 text-nd-body font-semibold text-nd-fg">후보</span>
+                                {candidates.items.map((c, k) => {
+                                  const on = isCandidateOf(t, c);
+                                  return (
+                                    <button
+                                      key={`${c.txType}|${c.acctMajor}|${c.acctMid}|${c.acctMinor}`}
+                                      type="button"
+                                      aria-pressed={on}
+                                      title={`${[c.acctMajor, c.acctMid, c.acctMinor].join(" › ")}${c.bizMinor ? ` · ${c.bizMajor} › ${c.bizMinor}` : ""}${c.txType !== t.txType ? ` · 거래유형 ${c.txType}` : ""}`}
+                                      onClick={(e) => {
+                                        // 손을 뗀다 — 단추에 포커스가 남으면 Enter(확정)가 안 먹는다
+                                        e.currentTarget.blur();
+                                        if (!on) void pickCandidate(t, c);
+                                      }}
+                                      className={cn(
+                                        "inline-flex max-w-full items-baseline gap-x-1.5 rounded-nd-md border px-2.5 py-1 text-[15px] leading-snug transition-colors duration-nd-fast",
+                                        on
+                                          ? "border-nd-accent bg-nd-accent-soft text-nd-fg"
+                                          : "border-nd-border bg-nd-content text-nd-fg hover:border-nd-accent hover:bg-nd-accent-soft/50",
+                                      )}
+                                    >
+                                      <span className="nd-num shrink-0 text-nd-table text-nd-fg-3">{k + 1}</span>
+                                      <b className="font-semibold">{c.acctMinor}</b>
+                                      <span className="min-w-0 truncate text-nd-table text-nd-fg-2">{c.acctMid}</span>
+                                      <span className="nd-num shrink-0 text-nd-table text-nd-fg-2">{c.count}건</span>
+                                    </button>
+                                  );
+                                })}
+                                <span className="text-nd-table text-nd-fg-3">{candidates.basis} · 누르면 대·중·소분류가 채워집니다</span>
+                              </div>
+                            )}
                             <AccountPicker
                               accounts={accounts}
                               txType={t.txType}
