@@ -115,7 +115,10 @@ export interface AssistantAdapter<P> {
   proposalKey: (proposal: P) => string;
   renderProposal: (props: {
     proposal: P;
+    /** 사람이 「적용」 을 눌러 저장까지 끝났다 */
     applied: boolean;
+    /** 사람이 「무시」 를 눌렀다 — 저장하지 않았다 */
+    dismissed: boolean;
     busy: boolean;
     onApply: () => void;
     onDismiss: () => void;
@@ -138,6 +141,45 @@ interface Turn<P> {
   model?: string;
 }
 
+/**
+ * 제안 카드의 색 — 상태가 색으로 읽히게 한다.
+ *   아직 안 누름  노랑(고칠 것) · 파랑(규칙)   「보고 정해 주세요」
+ *   적용함        초록                          「저장됐습니다」
+ *   무시함        회색                          「저장하지 않았습니다」
+ * 무시한 것까지 초록으로 칠하면 저장된 줄 안다 — 둘을 가른다.
+ */
+export function proposalLook(applied: boolean, dismissed: boolean, base: "warning" | "accent" = "warning") {
+  if (applied) {
+    return {
+      card: "border-nd-success/50 bg-nd-success-soft/60",
+      ring: "ring-nd-success/40",
+      more: "text-nd-success-text hover:bg-nd-success-soft/60",
+      badge: "success" as const,
+    };
+  }
+  if (dismissed) {
+    return {
+      card: "border-nd-line bg-nd-sunken",
+      ring: "ring-nd-border",
+      more: "text-nd-fg-2 hover:bg-nd-sunken",
+      badge: "neutral" as const,
+    };
+  }
+  return base === "accent"
+    ? {
+        card: "border-nd-accent/40 bg-nd-accent-soft/40",
+        ring: "ring-nd-accent/30",
+        more: "text-nd-accent-strong hover:bg-nd-accent-soft/50",
+        badge: "accent" as const,
+      }
+    : {
+        card: "border-nd-warning/50 bg-nd-warning-soft/50",
+        ring: "ring-nd-warning/40",
+        more: "text-nd-warning-text hover:bg-nd-warning-soft/50",
+        badge: "warning" as const,
+      };
+}
+
 export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) {
   const ask = useConfirm();
   const narrow = useMediaQuery(NARROW_QUERY);
@@ -147,6 +189,8 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [applied, setApplied] = useState<Set<string>>(new Set());
+  // 무시한 제안은 따로 든다 — 적용한 것과 같은 초록으로 보이면 저장된 줄 안다
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [model, setModel] = useState(DEFAULT_FIN_AI_MODEL);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelToConfirm, setModelToConfirm] = useState<FinAiModelOption | null>(null);
@@ -390,6 +434,7 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
         // 「적용」 상태는 남기지 않는다 — 이미 적용됐는지는 데이터를 봐야 알고,
         // 여기서 짐작하면 두 번 적용된다.
         setApplied(new Set());
+        setDismissed(new Set());
         setListOpen(false);
       } catch (e) {
         setError(e instanceof Error ? e.message : "대화를 불러오지 못했습니다.");
@@ -760,9 +805,10 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
                         {adapter.renderProposal({
                           proposal: p,
                           applied: applied.has(key),
+                          dismissed: dismissed.has(key),
                           busy,
                           onApply: () => void apply(p),
-                          onDismiss: () => setApplied((prev) => new Set(prev).add(key)),
+                          onDismiss: () => setDismissed((prev) => new Set(prev).add(key)),
                         })}
                       </div>
                     );

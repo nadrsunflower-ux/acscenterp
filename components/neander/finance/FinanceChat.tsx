@@ -21,6 +21,7 @@ import { useMemo, useState } from "react";
 import {
   Badge,
   Button,
+  cn,
   Money,
   Table,
   Td,
@@ -29,6 +30,7 @@ import {
 } from "@/components/neander/ui";
 import {
   AssistantChat,
+  proposalLook,
   type AssistantAdapter,
 } from "@/components/neander/assistant/AssistantChat";
 import { useFinance } from "./FinanceProvider";
@@ -153,6 +155,7 @@ function RuleCard({
   rule,
   reason,
   applied,
+  dismissed,
   busy,
   onApply,
   onDismiss,
@@ -160,6 +163,7 @@ function RuleCard({
   rule: RuleProposal;
   reason: string;
   applied: boolean;
+  dismissed: boolean;
   busy: boolean;
   onApply: () => void;
   onDismiss: () => void;
@@ -169,18 +173,21 @@ function RuleCard({
   const r = rule.rule;
   const pl = r.txType === "수입" || r.txType === "지출";
   const confirms = r.mode === "confirm" && (!pl || (!!r.bizMajor && !!r.bizMinor));
+  const look = proposalLook(applied, dismissed, "accent");
 
   return (
-    <div className="rounded-nd-lg border border-nd-accent/40 bg-nd-accent-soft/40 p-3">
+    <div className={cn("rounded-nd-lg border p-3 transition-colors duration-nd", look.card)}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <p className="text-nd-body font-semibold text-nd-fg">
-          <Badge tone={del ? "danger" : "accent"} size="sm" className="mr-1.5 align-middle">
+          <Badge tone={applied || dismissed ? look.badge : del ? "danger" : "accent"} size="sm" className="mr-1.5 align-middle">
             {del ? "규칙 삭제 제안" : rule.ruleId ? "규칙 고치기 제안" : "규칙 제안"}
           </Badge>
           분류 규칙
         </p>
         {applied ? (
           <Badge tone="success">처리됨</Badge>
+        ) : dismissed ? (
+          <Badge>무시함</Badge>
         ) : (
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="sm" onClick={onDismiss} disabled={busy}>
@@ -196,7 +203,7 @@ function RuleCard({
       <p className="mt-1 text-nd-table leading-relaxed text-nd-fg-2">{reason}</p>
 
       {/* 조건 → 결과 */}
-      <dl className="mt-2 space-y-1 rounded-nd-md bg-nd-content px-3 py-2 text-nd-table ring-1 ring-nd-accent/30">
+      <dl className={cn("mt-2 space-y-1 rounded-nd-md bg-nd-content px-3 py-2 text-nd-table ring-1", look.ring)}>
         <div className="flex gap-2">
           <dt className="w-9 shrink-0 text-nd-fg-3">조건</dt>
           <dd className="min-w-0 text-nd-fg">{rule.condition}</dd>
@@ -285,12 +292,14 @@ function RuleCard({
 function ProposalCard({
   proposal,
   applied,
+  dismissed,
   busy,
   onApply,
   onDismiss,
 }: {
   proposal: ChangeProposal;
   applied: boolean;
+  dismissed: boolean;
   busy: boolean;
   onApply: () => void;
   onDismiss: () => void;
@@ -298,12 +307,14 @@ function ProposalCard({
   const [expanded, setExpanded] = useState(false);
   const rows = expanded ? proposal.before : proposal.before.slice(0, 5);
   const total = proposal.before.reduce((s, b) => s + b.amount, 0);
+  // 적용하면 초록, 무시하면 회색 — 저장됐는지가 색으로 보인다
+  const look = proposalLook(applied, dismissed);
 
   return (
-    <div className="rounded-nd-lg border border-nd-warning/50 bg-nd-warning-soft/50 p-3">
+    <div className={cn("rounded-nd-lg border p-3 transition-colors duration-nd", look.card)}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <p className="text-nd-body font-semibold text-nd-fg">
-          <Badge tone="warning" size="sm" className="mr-1.5 align-middle">제안</Badge>
+          <Badge tone={look.badge} size="sm" className="mr-1.5 align-middle">제안</Badge>
           변경 {proposal.ids.length}건
           <span className="ml-2 text-nd-caption font-normal text-nd-fg-2">
             합계 <Money value={total} unit={false} />원
@@ -311,6 +322,8 @@ function ProposalCard({
         </p>
         {applied ? (
           <Badge tone="success">처리됨</Badge>
+        ) : dismissed ? (
+          <Badge>무시함</Badge>
         ) : (
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="sm" onClick={onDismiss} disabled={busy}>
@@ -328,7 +341,7 @@ function ProposalCard({
       {/* 바뀔 값 */}
       <div className="mt-2 flex flex-wrap gap-1.5">
         {Object.entries(proposal.patch).map(([k, v]) => (
-          <span key={k} className="rounded-[6px] bg-nd-content px-2 py-0.5 text-nd-caption ring-1 ring-nd-warning/40">
+          <span key={k} className={cn("rounded-[6px] bg-nd-content px-2 py-0.5 text-nd-caption ring-1", look.ring)}>
             <span className="text-nd-fg-2">{FIELD_LABEL[k] ?? k}</span>{" "}
             <b className="text-nd-fg">{String(v)}</b>
           </span>
@@ -361,7 +374,10 @@ function ProposalCard({
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
-            className="w-full border-t border-nd-line px-2 py-1.5 text-nd-caption font-medium text-nd-warning-text transition-colors duration-nd-fast hover:bg-nd-warning-soft/50"
+            className={cn(
+              "w-full border-t border-nd-line px-2 py-1.5 text-nd-caption font-medium transition-colors duration-nd-fast",
+              look.more,
+            )}
           >
             {expanded ? "접기" : `나머지 ${proposal.before.length - 5}건 보기`}
           </button>

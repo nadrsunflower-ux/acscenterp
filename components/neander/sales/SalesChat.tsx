@@ -19,6 +19,7 @@ import {
 import {
   Badge,
   Button,
+  cn,
   Money,
   Table,
   Td,
@@ -27,6 +28,7 @@ import {
 } from "@/components/neander/ui";
 import {
   AssistantChat,
+  proposalLook,
   type AssistantAdapter,
 } from "@/components/neander/assistant/AssistantChat";
 import { useSales } from "./SalesProvider";
@@ -101,20 +103,26 @@ export function SalesChat() {
 function SalesProposalCard({
   proposal,
   applied,
+  dismissed,
   busy,
   onApply,
   onDismiss,
 }: {
   proposal: SalesProposal;
   applied: boolean;
+  dismissed: boolean;
   busy: boolean;
   onApply: () => void;
   onDismiss: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
+  // 적용하면 초록, 무시하면 회색 — 저장됐는지가 색으로 보인다
+  const look = proposalLook(applied, dismissed);
   const actions = applied ? (
     <Badge tone="success">처리됨</Badge>
+  ) : dismissed ? (
+    <Badge>무시함</Badge>
   ) : (
     <div className="flex items-center gap-1">
       <Button variant="ghost" size="sm" onClick={onDismiss} disabled={busy}>
@@ -128,10 +136,10 @@ function SalesProposalCard({
 
   if (proposal.kind === "alias") {
     return (
-      <div className="rounded-nd-lg border border-nd-warning/50 bg-nd-warning-soft/50 p-3">
+      <div className={cn("rounded-nd-lg border p-3 transition-colors duration-nd", look.card)}>
         <div className="flex flex-wrap items-start justify-between gap-2">
           <p className="text-nd-body font-semibold text-nd-fg">
-            <Badge tone="warning" size="sm" className="mr-1.5 align-middle">
+            <Badge tone={look.badge} size="sm" className="mr-1.5 align-middle">
               제안
             </Badge>
             별칭 추가
@@ -140,11 +148,11 @@ function SalesProposalCard({
         </div>
         <p className="mt-1 text-nd-caption leading-relaxed text-nd-fg-2">{proposal.reason}</p>
         <div className="mt-2 flex flex-wrap items-center gap-1.5 text-nd-caption">
-          <span className="rounded-[6px] bg-nd-content px-2 py-0.5 ring-1 ring-nd-warning/40">
+          <span className={cn("rounded-[6px] bg-nd-content px-2 py-0.5 ring-1", look.ring)}>
             <b className="text-nd-fg">「{proposal.alias}」</b>
           </span>
           <span className="text-nd-fg-3">→</span>
-          <span className="rounded-[6px] bg-nd-content px-2 py-0.5 text-nd-fg ring-1 ring-nd-warning/40">
+          <span className={cn("rounded-[6px] bg-nd-content px-2 py-0.5 text-nd-fg ring-1", look.ring)}>
             {proposal.productLabel}
           </span>
         </div>
@@ -172,10 +180,10 @@ function SalesProposalCard({
   const scopes = [...new Set(proposal.before.map((b) => b.event).filter(Boolean))] as string[];
 
   return (
-    <div className="rounded-nd-lg border border-nd-warning/50 bg-nd-warning-soft/50 p-3">
+    <div className={cn("rounded-nd-lg border p-3 transition-colors duration-nd", look.card)}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <p className="text-nd-body font-semibold text-nd-fg">
-          <Badge tone="warning" size="sm" className="mr-1.5 align-middle">
+          <Badge tone={look.badge} size="sm" className="mr-1.5 align-middle">
             제안
           </Badge>
           확정 {proposal.ids.length}건
@@ -189,15 +197,15 @@ function SalesProposalCard({
       <p className="mt-1 text-nd-caption leading-relaxed text-nd-fg-2">{proposal.reason}</p>
 
       <div className="mt-2 flex flex-wrap gap-1.5">
-        <span className="rounded-[6px] bg-nd-content px-2 py-0.5 text-nd-caption ring-1 ring-nd-warning/40">
+        <span className={cn("rounded-[6px] bg-nd-content px-2 py-0.5 text-nd-caption ring-1", look.ring)}>
           <span className="text-nd-fg-2">상품</span> <b className="text-nd-fg">{proposal.productLabel}</b>
         </span>
-        <span className="rounded-[6px] bg-nd-content px-2 py-0.5 text-nd-caption ring-1 ring-nd-warning/40">
+        <span className={cn("rounded-[6px] bg-nd-content px-2 py-0.5 text-nd-caption ring-1", look.ring)}>
           <span className="text-nd-fg-2">줄마다 수량</span> <b className="nd-num text-nd-fg">{proposal.qty}</b>
         </span>
         {/* 어느 행사의 판매인지 — 승인 판단의 핵심이다. 여러 이벤트에 걸쳐
             있으면 그 사실 자체가 신호이므로 개수를 보여준다. */}
-        <span className="rounded-[6px] bg-nd-content px-2 py-0.5 text-nd-caption ring-1 ring-nd-warning/40">
+        <span className={cn("rounded-[6px] bg-nd-content px-2 py-0.5 text-nd-caption ring-1", look.ring)}>
           <span className="text-nd-fg-2">이벤트</span>{" "}
           <b className="text-nd-fg">
             {scopes.length === 0
@@ -252,7 +260,10 @@ function SalesProposalCard({
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
-            className="w-full border-t border-nd-line px-2 py-1.5 text-nd-caption font-medium text-nd-warning-text transition-colors duration-nd-fast hover:bg-nd-warning-soft/50"
+            className={cn(
+              "w-full border-t border-nd-line px-2 py-1.5 text-nd-caption font-medium transition-colors duration-nd-fast",
+              look.more,
+            )}
           >
             {expanded ? "접기" : `나머지 ${proposal.before.length - 5}건 보기`}
           </button>
