@@ -192,7 +192,8 @@ async function backtest() {
     const index = buildVendorIndex(truth.filter((t) => t.date.slice(0, 7) < M));
     for (const t of truth.filter((x) => x.date.slice(0, 7) === M)) {
       const sug = classifyOne(
-        { vendor: t.vendor, last4: t.last4, txType: bankType(t), gross: t.gross, adjust: t.adjust, site: t.site },
+        // 카드 메모는 적재할 때 이미 아는 것이라 같이 준다 (단톡방 기록 — card-chat.ts)
+        { vendor: t.vendor, last4: t.last4, txType: bankType(t), gross: t.gross, adjust: t.adjust, site: t.site, cardMemo: t.cardMemo },
         { vendorIndex: index, vendorRules: [], paymentMethods, accounts },
       );
       const hit = !!sug.acctMinor && pathOf(sug) === pathOf(t);

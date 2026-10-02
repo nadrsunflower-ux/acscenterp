@@ -34,6 +34,7 @@
     "finance:backfill-biz-decisions": "tsx scripts/neander/backfill-biz-decisions.ts",
     "finance:queue-ambiguous": "tsx scripts/neander/queue-ambiguous.ts",
     "finance:verify-card-memo": "tsx scripts/neander/verify-card-memo.ts",
+    "finance:verify-card-chat": "tsx scripts/neander/verify-card-chat.ts",
     "finance:verify-slots": "tsx scripts/neander/verify-import-slots.ts",
     "finance:backfill-slot-account": "tsx scripts/neander/backfill-slot-account.ts",
     "ui:login": "node e2e/login.mjs",

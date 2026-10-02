@@ -27,11 +27,32 @@ import { classifyOne, type ClassifyContext } from "./classify";
 import type { ClassificationStatus, FinTransaction, TxType } from "./types";
 
 /** 엔진이 스스로 붙인 사유 */
-export const ENGINE_REASON = /^거래처 「|^거래처가 비어 있어 판단 불가|^구독 규칙 「|^분류 규칙 「/;
+export const ENGINE_REASON = /^거래처 「|^거래처가 비어 있어 판단 불가|^구독 규칙 「|^분류 규칙 「|^카드 메모 「/;
 /** 엔진이 거래유형을 고쳐 둔 행 — 은행이 알려준 원래 유형을 사유에서 되찾는다 */
 const TYPE_FIXED = /거래유형을 (\S+) 에서 (\S+) 로/;
 /** 사람이 되돌린 행 — 엔진이 다시 손대지 않는다 */
 export const ENGINE_HOLD = "hold";
+
+/** 엔진이 계정은 모른 채 사업구분만 채워 둔 행 (카드 메모 · 프로젝트 근거 — classify.ts) */
+const ENGINE_BIZ = / · 사업구분[은도] (?:카드 메모|프로젝트|같은 메모) ?/;
+
+/**
+ * 「검토필요」 행에 남아 있는 분류 — 엔진이 붙인 게 아니라 **원본 장부에 사람이 적어 둔
+ * 것**이다 (소분류만 비어 있던 행). 그대로 넘겨 엔진이 그것과 어긋나는 제안을 하지 않게 한다.
+ *
+ * 예외는 사업구분 하나다. 엔진이 메모·프로젝트를 근거로 사업구분만 채워 둔 행은 사유에
+ * 그렇게 적혀 있다 — 그 값을 사람이 적은 것으로 읽으면 다음 번에 근거를 잃는다.
+ */
+export function ledgerPartial(
+  t: FinTransaction,
+): Pick<FinTransaction, "acctMajor" | "acctMid" | "bizMajor" | "bizMinor"> | Record<string, never> {
+  if (t.status !== "needs_review" || t.acctMinor) return {};
+  return {
+    acctMajor: t.acctMajor,
+    acctMid: t.acctMid,
+    ...(ENGINE_BIZ.test(t.classReason ?? "") ? {} : { bizMajor: t.bizMajor, bizMinor: t.bizMinor }),
+  };
+}
 
 /** 분류에 해당하는 필드 — 엔진은 이것만 읽고 쓴다 */
 const CLASS_FIELDS = ["status", "txType", "acctMajor", "acctMid", "acctMinor", "bizMajor", "bizMinor"] as const;
@@ -84,11 +105,9 @@ export function relearnPending(
         gross: t.gross,
         adjust: t.adjust,
         site: t.site,
-        // 「검토필요」 행에 남아 있는 대분류·중분류는 엔진이 붙인 게 아니라 원본
-        // 장부에 사람이 적어 둔 것이다 (소분류만 비어 있던 행).
-        ...(t.status === "needs_review" && !t.acctMinor
-          ? { acctMajor: t.acctMajor, acctMid: t.acctMid, bizMajor: t.bizMajor, bizMinor: t.bizMinor }
-          : {}),
+        cardMemo: t.cardMemo,
+        projectCode: t.projectCode,
+        ...ledgerPartial(t),
       },
       ctx,
     );

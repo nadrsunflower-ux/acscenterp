@@ -38,7 +38,7 @@ import { initializeApp, cert, getApps } from "firebase-admin/app";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import { buildVendorIndex, classifyOne } from "@/lib/neander/finance/classify";
-import { ENGINE_REASON, engineSigOf } from "@/lib/neander/finance/relearn";
+import { ENGINE_REASON, engineSigOf, ledgerPartial } from "@/lib/neander/finance/relearn";
 import { netAmount, type FinTransaction, type TxType } from "@/lib/neander/finance/types";
 import type { FinAccountDoc, FinPaymentMethodDoc, FinVendorRuleDoc } from "@/lib/neander/finance/db-types";
 import type { FinClassRuleDoc } from "@/lib/neander/finance/class-rules";
@@ -126,12 +126,11 @@ const touchedByHuman = (t: FinTransaction) => !!t.updatedBy && !/^(script:|fix-)
         gross: t.gross,
         adjust: t.adjust,
         site: t.site,
-        // 「검토필요」 행에 남아 있는 대분류·중분류는 엔진이 붙인 게 아니라 원본
-        // 장부에 사람이 적어 둔 것이다 (소분류만 비어 있던 행). 그대로 넘겨
-        // 엔진이 그것과 어긋나는 제안을 하지 않게 한다.
-        ...(t.status === "needs_review" && !t.acctMinor
-          ? { acctMajor: t.acctMajor, acctMid: t.acctMid, bizMajor: t.bizMajor, bizMinor: t.bizMinor }
-          : {}),
+        // 단톡방 카드 기록 · 프로젝트 — 결제대행사 이름으로는 모르는 것을 말해 준다 (card-chat.ts)
+        cardMemo: t.cardMemo,
+        projectCode: t.projectCode,
+        // 원본 장부에 사람이 적어 둔 대분류·중분류 (relearn.ts)
+        ...ledgerPartial(t),
       },
       { vendorIndex, vendorRules, paymentMethods, accounts, classRules },
     );

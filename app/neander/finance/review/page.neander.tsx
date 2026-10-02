@@ -50,6 +50,7 @@ import {
   CreditCard,
   Keyboard,
   Landmark,
+  MessageSquareText,
   Sparkles,
 } from "lucide-react";
 import {
@@ -1239,6 +1240,18 @@ export default function ReviewPage() {
                           <span className="nd-num font-medium text-nd-fg">{t.date}</span>
                           <span>{t.txType}</span>
                         </p>
+                        {t.cardMemo && (
+                          // 단톡방 카드 기록 — 명세서의 거래처(결제대행사)가 말해 주지 않는
+                          // 「무엇을 샀는가」. 근거보다 먼저 읽힌다
+                          <p
+                            className="flex max-w-full items-baseline gap-x-2 rounded-nd-md bg-nd-accent-soft px-3 py-1 text-[16px] leading-snug text-nd-fg"
+                            title="법인카드 단톡방에 남긴 기록 — 금액과 날짜가 같아 이 거래에 붙었습니다"
+                          >
+                            <MessageSquareText size={15} className="shrink-0 translate-y-0.5 text-nd-accent" aria-hidden />
+                            <span className="sr-only">카드 메모</span>
+                            <span className="min-w-0 break-words font-medium">{t.cardMemo}</span>
+                          </p>
+                        )}
                         {t.classReason && (
                           <p className="max-w-full rounded-nd-md bg-nd-sunken px-3 py-1 text-[16px] leading-snug text-nd-fg">
                             <ReasonText

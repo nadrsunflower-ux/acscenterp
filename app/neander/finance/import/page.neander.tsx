@@ -26,6 +26,12 @@
 //  ⚠️ 페이히어·네이버 파일은 여기서 적재하지 않고 **대사**만 한다. 매장
 //     매출은 이미 정산 입금으로 장부에 있어서 넣으면 두 번 잡힌다.
 //
+//  ── 카드 사용 메모 (카카오톡) ──
+//  법인카드 단톡방의 「대화 내보내기」(.csv)도 같은 자리에 놓는다. 거래를 만들지
+//  않고, 이미 들어온 카드 거래에 「구매처 / 품목」 메모를 붙인다 (card-chat.ts).
+//  명세서의 거래처는 결제대행사라 그 메모가 자동분류의 근거가 된다. 내보내기는
+//  늘 방 전체라 몇 번을 올려도 된다 — 새로 붙는 것만 붙는다.
+//
 //  화면 순서는 승인 목업(all-pages/finance-import.png)을 따른다:
 //  제목 줄 → 진행 단계 → 칸(퍼즐) → 파일 놓는 자리 → 손봐야 할 파일 →
 //  다음 할 일 → 이번에 적재한 것 → 접어 둔 보조(추가 확인·적재 이력).
@@ -45,6 +51,7 @@ import {
   Inbox,
   Info,
   KeyRound,
+  MessageSquareText,
   Puzzle,
   Settings2,
   TriangleAlert,
@@ -109,9 +116,20 @@ import {
 } from "@/lib/neander/finance/adapters/pos";
 import { parseReconcileSource } from "@/lib/neander/finance/adapters";
 import {
+  buildVendorIndex,
   classifyOne,
   summarize,
+  type ClassifyContext,
 } from "@/lib/neander/finance/classify";
+import {
+  looksLikeKakaoChat,
+  matchCardChat,
+  parseCardChat,
+  planCardChat,
+  waitingForStatement,
+  type CardChatPatch,
+} from "@/lib/neander/finance/card-chat";
+import { engineSigOf, isEngineOwned, relearnPending } from "@/lib/neander/finance/relearn";
 import {
   buildFinSlots,
   finPuzzleOf,
@@ -125,13 +143,14 @@ import {
   type FinImportSlot,
 } from "@/lib/neander/finance/import-slots";
 import {
+  applyFinEdits,
   fetchFinDedupCounts,
   bulkAddFinTransactions,
   createFinImport,
   decryptFinanceFile,
   undoFinImport,
 } from "@/lib/neander/finance/client";
-import type { FinImportBatch, FinTransactionInput } from "@/lib/neander/finance/types";
+import type { FinImportBatch, FinTransaction, FinTransactionInput } from "@/lib/neander/finance/types";
 import { availableMonths } from "@/lib/neander/finance/aggregate";
 import { reviewHref } from "@/lib/neander/finance/ledgerLink";
 import {
@@ -171,11 +190,45 @@ interface SessionResult {
   needsReview: number;
 }
 
+/** 카톡 카드 메모를 올린 결과 */
+interface ChatResult {
+  fileName: string;
+  /** 파일에서 읽은 결제 기록 */
+  entries: number;
+  /** 이번에 새로 붙인 메모 */
+  attached: number;
+  /** 전에 올려서 이미 붙어 있던 것 */
+  already: number;
+  /** 메모를 보고 프로젝트를 지정한 거래 */
+  projects: { id: string; date: string; vendor: string; amount: number; memo: string; code: string }[];
+  /** 메모 덕에 제안이 바뀐 대기 건 */
+  relearned: number;
+  /** 카드 명세서가 아직 없는 달의 기록 */
+  waiting: { month: string; count: number }[];
+  /** 그대로 되돌리는 패치 */
+  undo: CardChatPatch[];
+}
+
+/** 한 요청에 보내는 메모 수 — 진행률을 보이려고 끊는다 */
+const CHAT_CHUNK = 300;
+
 let seq = 0;
 
 export default function ImportPage() {
-  const { transactions, accounts, paymentMethods, vendorRules, classRules, vendorIndex, imports, masterEmpty, loading, refresh } =
-    useFinance();
+  const {
+    transactions,
+    accounts,
+    paymentMethods,
+    vendorRules,
+    classRules,
+    vendorIndex,
+    projects,
+    imports,
+    masterEmpty,
+    loading,
+    refresh,
+    applyTransactions,
+  } = useFinance();
   const { currentMember } = useAppData();
   const toast = useToast();
   const confirm = useConfirm();
@@ -207,6 +260,11 @@ export default function ImportPage() {
   const [unassigned, setUnassigned] = useState<Unassigned[]>([]);
   const [posResults, setPosResults] = useState<{ id: string; pos: PosResult }[]>([]);
   const [results, setResults] = useState<SessionResult[]>([]);
+  const [chatResult, setChatResult] = useState<ChatResult | null>(null);
+  const [chatStep, setChatStep] = useState<string | null>(null);
+  /** 카톡 파일은 명세서 뒤에 처리한다 — 방금 적재한 거래까지 봐야 해서 최신 목록을 든다 */
+  const txRef = useRef(transactions);
+  txRef.current = transactions;
   const [pageError, setPageError] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [askPassword, setAskPassword] = useState(false);
@@ -525,6 +583,138 @@ export default function ImportPage() {
     }
   }
 
+  // ---- 카톡 카드 메모 ----------------------------------------
+  /** 여러 줄 패치를 끊어 보내고, 서버가 돌려준 거래를 모은다 */
+  async function sendPatches(patches: CardChatPatch[], label: string): Promise<FinTransaction[]> {
+    const saved: FinTransaction[] = [];
+    for (let i = 0; i < patches.length; i += CHAT_CHUNK) {
+      setChatStep(`${label} ${won(Math.min(i + CHAT_CHUNK, patches.length))}/${won(patches.length)}`);
+      const res = await applyFinEdits({
+        // 지울 값은 null 로 보낸다 (서버가 그대로 저장한다)
+        updates: patches.slice(i, i + CHAT_CHUNK) as { id: string; patch: Partial<FinTransactionInput> }[],
+        inserts: [],
+        deletes: [],
+      });
+      saved.push(...res.transactions);
+    }
+    if (saved.length) applyTransactions({ upsert: saved });
+    return saved;
+  }
+
+  /**
+   * 법인카드 단톡방 내보내기 — 거래를 만들지 않고 메모를 붙인다.
+   * 붙인 뒤에는 그 메모를 근거로 대기 건을 다시 분류한다 (제안까지만 — relearn.ts).
+   */
+  async function ingestChat(file: File, text: string): Promise<void> {
+    try {
+      setChatStep("읽는 중…");
+      const entries = parseCardChat(text);
+      if (entries.length === 0) {
+        throw new Error("결제 기록을 찾지 못했습니다. 법인카드 단톡방의 「대화 내보내기」 파일이 맞는지 확인해 주세요.");
+      }
+      const rows = txRef.current;
+      const match = matchCardChat(entries, rows, paymentMethods);
+      const plan = planCardChat(match.matched, projects, (t) => (isEngineOwned(t) ? engineSigOf(t) : undefined));
+      const saved = await sendPatches(plan.updates, "메모 붙이는 중");
+
+      // 메모가 붙은 대기 건을 다시 분류한다. 확정은 만들지 않는다 — 여기는 아무도
+      // 한 건씩 보지 않는 일괄 작업이다. 확정할 만한 것은 검토 대기함이 알아서 한다.
+      const byId = new Map(saved.map((t) => [t.id, t]));
+      const merged = rows.map((t) => byId.get(t.id) ?? t);
+      const ctx = {
+        vendorIndex: buildVendorIndex(merged),
+        vendorRules,
+        paymentMethods,
+        accounts,
+        ...(classRules ? { classRules } : {}),
+      } as ClassifyContext;
+      const relearned = relearnPending(merged, ctx, {
+        confirm: false,
+        owned: (t) => !!t.cardMemo && isEngineOwned(t),
+      });
+      await sendPatches(
+        relearned.map((c) => ({ id: c.id, patch: c.patch })),
+        "제안 고치는 중",
+      );
+
+      // 되돌리기 — 메모를 떼고, 다시 분류한 건은 분류도 전으로
+      const undo = new Map(plan.undo.map((u) => [u.id, { ...u.patch }]));
+      relearned.forEach((c) => {
+        const b = c.before;
+        undo.set(c.id, {
+          ...(undo.get(c.id) ?? {}),
+          status: b.status,
+          txType: b.txType,
+          acctMajor: b.acctMajor ?? null,
+          acctMid: b.acctMid ?? null,
+          acctMinor: b.acctMinor ?? null,
+          bizMajor: b.bizMajor ?? null,
+          bizMinor: b.bizMinor ?? null,
+          classReason: b.classReason ?? null,
+          engineSig: engineSigOf(b),
+        });
+      });
+
+      // 같은 파일을 다시 올리면 새로 붙는 것이 없다 — 그때 앞서 붙인 것의 되돌리기를 잃지 않게
+      // 이어 붙인다. 같은 거래는 먼저 것이 이긴다 (가장 처음 상태로 돌아가야 한다).
+      const earlier = chatResult?.undo ?? [];
+      earlier.forEach((u) => undo.set(u.id, { ...(undo.get(u.id) ?? {}), ...u.patch }));
+
+      setChatResult({
+        fileName: file.name,
+        entries: entries.length,
+        attached: plan.updates.length,
+        already: match.already,
+        projects: plan.projects.map((p) => ({
+          id: p.tx.id,
+          date: p.tx.date,
+          vendor: p.tx.vendor ?? "",
+          amount: p.tx.gross ?? 0,
+          memo: p.memo,
+          code: p.code,
+        })),
+        relearned: relearned.length,
+        waiting: waitingForStatement(match.unmatched, merged, paymentMethods),
+        undo: [...undo.entries()].map(([id, patch]) => ({ id, patch })),
+      });
+      toast.success(
+        plan.updates.length > 0
+          ? `카드 메모 ${won(plan.updates.length)}건을 거래에 붙였습니다.`
+          : "새로 붙일 메모가 없습니다 — 모두 이미 붙어 있거나 짝이 될 카드 거래가 아직 없습니다.",
+      );
+    } catch (e) {
+      const f = describeFinanceError(e);
+      setPageError(`${file.name} — ${f.detail || f.title}`);
+    } finally {
+      setChatStep(null);
+    }
+  }
+
+  async function undoChat() {
+    if (!chatResult || busyRef.current) return;
+    const ok = await confirm({
+      title: `이 화면에서 붙인 카드 메모를 뗄까요? (거래 ${won(chatResult.undo.length)}건)`,
+      message: "메모와, 메모를 보고 지정한 프로젝트·고친 제안을 올리기 전으로 돌립니다. 그 거래의 분류를 그 뒤에 고쳤다면 그것도 같이 돌아갑니다.",
+      confirmLabel: "되돌리기",
+      tone: "danger",
+    });
+    if (!ok) return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await sendPatches(chatResult.undo, "되돌리는 중");
+      setChatResult(null);
+      toast.success("카드 메모를 올리기 전으로 되돌렸습니다.");
+    } catch (e) {
+      const f = describeFinanceError(e);
+      toast.error(f.detail, { title: f.title });
+    } finally {
+      setChatStep(null);
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
   /** 여러 파일을 한 번에 — 순서대로 (바꾸기 확인이 겹치지 않게) */
   const busyRef = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -534,9 +724,25 @@ export default function ImportPage() {
     setBusy(true);
     setPageError(null);
     try {
-      for (const f of files) await ingestOne(f, opts ?? {});
-      countsRef.current = null;
-      await refresh();
+      // 카톡 내보내기는 따로 모아 **맨 뒤에** 처리한다 — 같이 올린 카드 명세서가
+      // 먼저 들어와 있어야 그 거래에 메모가 붙는다.
+      const chats: { file: File; text: string }[] = [];
+      const sheets: File[] = [];
+      for (const f of files) {
+        const text = !opts?.forceSlot && /\.csv$/i.test(f.name) ? await f.text() : "";
+        if (looksLikeKakaoChat(text.slice(0, 40))) chats.push({ file: f, text });
+        else sheets.push(f);
+      }
+      for (const f of sheets) await ingestOne(f, opts ?? {});
+      if (sheets.length > 0) {
+        countsRef.current = null;
+        await refresh();
+      }
+      if (chats.length > 0) {
+        // 방금 받은 거래가 화면 상태에 자리 잡을 때까지 한 박자 기다린다 (txRef)
+        if (sheets.length > 0) await new Promise((r) => setTimeout(r, 0));
+        for (const c of chats) await ingestChat(c.file, c.text);
+      }
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -611,6 +817,13 @@ export default function ImportPage() {
     (t) => t.date?.startsWith(activeMonth) && t.status !== "confirmed",
   ).length;
   const sessionInserted = results.reduce((s, r) => s + r.inserted, 0);
+
+  // 이 달 카드 지출 중 메모가 붙은 것 — 카톡 파일을 올릴 때가 됐는지 알려 준다
+  const cardLast4 = new Set(paymentMethods.filter((p) => p.kind === "card").map((p) => p.last4));
+  const cardRows = transactions.filter(
+    (t) => t.date?.startsWith(activeMonth) && cardLast4.has(t.last4 ?? "") && (t.txType === "지출" || t.txType === "환급"),
+  );
+  const chatMonth = { cards: cardRows.length, withMemo: cardRows.filter((t) => !!t.cardMemo).length };
 
   /**
    * 지금 어느 단계인가 — **새 상태를 두지 않고** 이미 있는 것에서 읽는다.
@@ -755,16 +968,28 @@ export default function ImportPage() {
           accept=".xlsx,.xls,.csv"
           multiple
           busy={busy}
-          title={busy ? "읽는 중…" : "이 달 파일을 한꺼번에 끌어다 놓으세요"}
+          title={busy ? (chatStep ?? "읽는 중…") : "이 달 파일을 한꺼번에 끌어다 놓으세요"}
           hint={
             <>
-              신한·국민·우리은행 · 토스뱅크 · 카카오뱅크 · 신한/국민 법인카드
+              신한·국민·우리은행 · 토스뱅크 · 카카오뱅크 · 신한/국민 법인카드 · 법인카드 단톡방 내보내기
               <br />
               어느 칸에 놓든 파일 안의 계좌번호로 제자리를 찾아갑니다 · 암호는 서버가 풉니다
             </>
           }
         />
       )}
+
+      {/* ---- 카드 사용 메모 (카카오톡) ---- */}
+      <ChatMemoCard
+        month={activeMonth}
+        memo={chatMonth}
+        result={chatResult}
+        busy={busy}
+        step={chatStep}
+        onFiles={(files) => void ingest(files)}
+        onUndo={() => void undoChat()}
+        onDismiss={() => setChatResult(null)}
+      />
 
       {/* ---- 계좌를 못 정한 파일 ---- */}
       {unassigned.length > 0 && (
@@ -1029,6 +1254,169 @@ export default function ImportPage() {
         </Disclosure>
       </DisclosureGroup>
     </PageShell>
+  );
+}
+
+// ============================================================
+//  카드 사용 메모 (카카오톡) — 단톡방 내보내기를 받는 칸
+// ------------------------------------------------------------
+//  은행·카드 칸과 달리 달마다 채우는 퍼즐이 아니다. 내보내기는 늘 방 전체라
+//  한 파일이 모든 달에 걸친다. 그래서 퍼즐 밖에 따로 두고, 이 달 카드 지출에
+//  메모가 얼마나 붙어 있는지만 보여 준다.
+// ============================================================
+
+function ChatMemoCard({
+  month,
+  memo,
+  result,
+  busy,
+  step,
+  onFiles,
+  onUndo,
+  onDismiss,
+}: {
+  month: string;
+  memo: { cards: number; withMemo: number };
+  result: ChatResult | null;
+  busy: boolean;
+  step: string | null;
+  onFiles: (files: File[]) => void;
+  onUndo: () => void;
+  onDismiss: () => void;
+}) {
+  const missing = memo.cards - memo.withMemo;
+  return (
+    <Card className="mb-5">
+      <div className="grid items-center gap-x-6 gap-y-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
+        <div className="min-w-0">
+          <p className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[16px] font-semibold text-nd-fg">
+            <Icon icon={MessageSquareText} size={18} className="text-nd-fg-2" />
+            카드 사용 메모 (카카오톡)
+            {memo.cards > 0 && (
+              <Badge tone={missing === 0 ? "success" : memo.withMemo === 0 ? "warning" : "neutral"}>
+                {monthLabel(month)} 카드 지출 {won(memo.cards)}건 중 {won(memo.withMemo)}건에 메모
+              </Badge>
+            )}
+          </p>
+          <p className="mt-1 text-nd-body leading-relaxed text-nd-fg-2">
+            법인카드 단톡방에서 <b className="font-medium text-nd-fg">대화 내보내기</b>로 받은 파일(.csv)을 올리면, 금액과 날짜가 같은 카드
+            거래에 「구매처 / 품목」 메모가 붙습니다. 명세서에는 결제대행사 이름만 찍히는 결제를 자동분류가 이 메모로
+            맞힙니다. 몇 번을 올려도 새로 붙는 것만 붙습니다.
+          </p>
+        </div>
+        <DropZone
+          compact
+          onFiles={onFiles}
+          accept=".csv"
+          busy={busy}
+          icon={MessageSquareText}
+          title={busy && step ? step : "카톡 내보내기 파일(.csv) 올리기"}
+        />
+      </div>
+
+      {result && (
+        <div className="mt-4 border-t border-nd-border pt-4">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="min-w-0 text-nd-body text-nd-fg-2">
+              <span className="font-medium text-nd-fg">방금 올린 파일</span>{" "}
+              <span className="break-all">{result.fileName}</span> · 결제 기록 {won(result.entries)}건
+            </p>
+            <div className="flex items-center gap-1">
+              {result.undo.length > 0 && (
+                <Button variant="ghost" size="sm" icon={Undo2} disabled={busy} onClick={onUndo}>
+                  되돌리기
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={onDismiss}>
+                닫기
+              </Button>
+            </div>
+          </div>
+          <KpiStrip columns={4}>
+            <KpiItem
+              label="새로 붙인 메모"
+              value={<span className="nd-num">{won(result.attached)}</span>}
+              unit="건"
+              tone={result.attached > 0 ? "success" : "neutral"}
+              hint={result.already > 0 ? `이미 붙어 있던 것 ${won(result.already)}건` : undefined}
+            />
+            <KpiItem
+              label="고쳐진 제안"
+              value={<span className="nd-num">{won(result.relearned)}</span>}
+              unit="건"
+              hint="메모를 근거로 다시 분류 · 확정은 사람이"
+            />
+            <KpiItem
+              label="프로젝트 지정"
+              value={<span className="nd-num">{won(result.projects.length)}</span>}
+              unit="건"
+              hint="메모에 프로젝트 이름이 적힌 거래"
+            />
+            <KpiItem
+              label="명세서를 기다리는 기록"
+              value={<span className="nd-num">{won(result.waiting.reduce((s, w) => s + w.count, 0))}</span>}
+              unit="건"
+              tone={result.waiting.length > 0 ? "warning" : "neutral"}
+              hint={
+                result.waiting.length > 0
+                  ? result.waiting
+                      .slice(0, 3)
+                      .map((w) => `${monthLabel(w.month)} ${won(w.count)}건`)
+                      .join(" · ")
+                  : "모두 짝을 찾았습니다"
+              }
+            />
+          </KpiStrip>
+          {result.waiting.length > 0 && (
+            <InlineNotice tone="info" icon={Info} className="mt-3">
+              {result.waiting.map((w) => monthLabel(w.month)).join(" · ")} 카드 명세서가 아직 장부에 없습니다. 명세서를 올린 뒤{" "}
+              <b>이 파일을 다시 올리면</b> 그 달 결제에도 메모가 붙습니다.
+            </InlineNotice>
+          )}
+          {result.projects.length > 0 && (
+            <div className="mt-3">
+              <p className="mb-1.5 text-nd-body font-medium text-nd-fg">메모를 보고 프로젝트를 지정한 거래</p>
+              <TableScroll maxHeight={260}>
+                <Table minWidth={720} dense>
+                  <thead>
+                    <tr>
+                      <Th sticky="top">거래일</Th>
+                      <Th sticky="top">거래처</Th>
+                      <Th sticky="top" align="right">금액</Th>
+                      <Th sticky="top">카드 메모</Th>
+                      <Th sticky="top">프로젝트</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.projects.map((p) => (
+                      <Tr key={p.id}>
+                        <Td className="nd-num whitespace-nowrap">{p.date}</Td>
+                        <Td>
+                          <span className="block max-w-[14rem] truncate" title={p.vendor}>
+                            {p.vendor || "—"}
+                          </span>
+                        </Td>
+                        <Td num>
+                          <Money value={p.amount} unit={false} flow="expense" />
+                        </Td>
+                        <Td>
+                          <span className="block max-w-[28rem] truncate" title={p.memo}>
+                            {p.memo}
+                          </span>
+                        </Td>
+                        <Td>
+                          <Badge size="sm">{p.code}</Badge>
+                        </Td>
+                      </Tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </TableScroll>
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
   );
 }
 

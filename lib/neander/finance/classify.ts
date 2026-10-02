@@ -15,6 +15,12 @@
 //         ④ 이름 뼈대 · 다른 계좌     제안
 //       그리고 같은 거래처가 여러 계정으로 갈릴 때는 **같은 금액**을 본다
 //       (자동이체 14,900원은 급여가 아니라 구독료다).
+//    1′) 카드 메모  결제한 사람이 단톡방에 남긴 「구매처 / 품목」 (card-chat.ts).
+//                   명세서의 거래처가 결제대행사(`KCP_1`)라 이름으로는 알 수 없는
+//                   결제를 맞힌다. **제안까지만** — 메모는 금액과 날짜로 붙인 것이라
+//                   다른 결제에 잘못 붙어 있을 수 있다.
+//                   (2026-03~08 메모가 붙은 423건: 메모가 계정을 정한 96건 중 93% 가 맞았다.
+//                    같은 건들의 거래처 이력 제안은 59% 였다)
 //    2) 구독 규칙   거래처명에 등록된 키워드가 포함되면 그 규칙을 쓴다.
 //                   (ANTHROPIC → Anthropic (Claude) 등)
 //    3) 어댑터 힌트 은행·카드 엑셀이 알려주는 것 (이자입금, 카드대금결제,
@@ -63,6 +69,7 @@ import {
   ruleConfirms,
   type FinClassRuleDoc,
 } from "./class-rules";
+import { memoParts } from "./card-chat";
 
 /** 이력에서 「최근」 으로 보는 건수 — 오래된 분류보다 최근 분류를 따른다 */
 const RECENT = 12;
@@ -101,6 +108,24 @@ const MIN_SAME_AMOUNT = 2;
 const PRIOR_RECENT = 60;
 const PRIOR_MIN_COUNT = 8;
 const PRIOR_MIN_RATIO = 0.9;
+
+/**
+ * 카드 메모 근거 — 몇 건 이상 · 얼마나 쏠려야 · 몇 달에 걸쳐 나와야 쓰는가.
+ *
+ * 품목 낱말은 **여러 달에 걸쳐 나온 것만** 쓴다. 한두 달만 나오는 낱말은 대개
+ * 그 달 생일카페의 아이돌 이름이고, 그 이름이 가리키던 분류는 다음 달에 맞지 않는다.
+ *
+ * 구매처 없이 **낱말만으로는 보지 않는다.** 재 보니 7건 중 3건만 맞았다 — 여러 달
+ * 나오는 아이돌 이름(`아이유`)과 낱말 조각(`스포이드` 의 `이드`)이 걸린다.
+ * 구매처가 붙으면 96건 중 89건(93%)이 맞는다.
+ */
+const MEMO_MIN_COUNT = 4;
+const MEMO_MIN_RATIO = 0.9;
+const MEMO_MIN_MONTHS = 3;
+const MEMO_STORE_MIN_MONTHS = 2;
+/** 프로젝트가 말해 주는 사업구분 — 그 프로젝트의 확정 거래가 이만큼 한결같을 때 */
+const PROJECT_MIN_COUNT = 3;
+const PROJECT_MIN_RATIO = 0.9;
 
 export const normVendor = (s?: string) =>
   (s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -187,6 +212,13 @@ const keyOf = (kind: KeyKind, name: string, last4: string, flow: Flow) =>
       ? `a|${last4}|${flow}`
       : `${kind}|${name}|${flow}`;
 
+/** 카드 메모 열쇠 — 구매처+낱말 · 구매처 */
+type MemoKind = "msw" | "ms";
+const memoKey = (kind: MemoKind, store: string, word: string, flow: Flow) => `${kind}|${store}|${word}|${flow}`;
+
+/** 프로젝트 열쇠 — 그 프로젝트로 묶인 거래들 */
+const projectKey = (code: string, flow: Flow) => `pj|${code.trim().toLowerCase()}|${flow}`;
+
 /**
  * 확정된 과거 거래의 색인. 열쇠마다 그 열쇠로 본 분류를 **오래된 것부터**
  * 담는다 — 최근 N건을 잘라 보기 위해서다.
@@ -233,6 +265,12 @@ export function buildVendorIndex(history: FinTransaction[]): VendorIndex {
         push(keyOf("f", f, last4, flow), s);
       }
       if (last4) push(keyOf("a", "", last4, flow), s);
+      if (t.projectCode) push(projectKey(t.projectCode, flow), s);
+      const memo = memoParts(t.cardMemo);
+      if (memo) {
+        push(memoKey("ms", memo.store, "", flow), s);
+        memo.words.forEach((w) => push(memoKey("msw", memo.store, w, flow), s));
+      }
     });
 
   return { seen };
@@ -290,6 +328,64 @@ function statOf(list: Seen[] | undefined, kind: KeyKind, recent: number): KeySta
     spread: ranked.map((g) => ({ label: g[0].acctMinor || g[0].txType, count: g.length })),
   };
 }
+
+/** 카드 메모가 가리킨 분류 */
+interface MemoHit {
+  kind: MemoKind;
+  store: string;
+  word: string;
+  /** 본 건수 (최근 RECENT 건 이내) */
+  n: number;
+  ratio: number;
+  /** 가장 많이 쓰인 분류의 가장 최근 거래 */
+  top: Seen;
+}
+
+/** 앞자리부터 견줘 a 가 앞서는가 */
+const outranks = (a: number[], b: number[]) => {
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] > b[i];
+  return false;
+};
+
+const bizKey = (s: Seen) => (s.bizMinor ? `${s.bizMajor}|${s.bizMinor}` : "");
+
+/**
+ * 메모로 찾은 가장 믿을 만한 근거. 구매처+낱말이 구매처만보다 구체적이고,
+ * 같은 급이면 더 쏠린 쪽 · 더 긴 낱말 · 더 많이 본 쪽이다.
+ *
+ * `classOf` 가 무엇을 맞히는지 정한다 (계정 · 사업구분). 빈 값을 돌려주는
+ * 이력은 세지 않는다 — 사업구분이 비어 있던 거래가 「미정」 한 표가 되면 안 된다.
+ */
+function memoEvidence(
+  seen: Map<string, Seen[]>,
+  memo: { store: string; words: string[] },
+  flow: Flow,
+  classOf: (s: Seen) => string,
+): MemoHit | null {
+  let best: { hit: MemoHit; rank: number[] } | null = null;
+  const look = (kind: MemoKind, word: string, tier: number, minCount: number, minMonths: number) => {
+    const all = seen.get(memoKey(kind, memo.store, word, flow));
+    if (!all || all.length < minCount) return;
+    const list = all.filter((s) => classOf(s) !== "");
+    if (list.length < minCount || new Set(list.map((s) => s.month)).size < minMonths) return;
+    const rows = list.slice(-RECENT);
+    const count = new Map<string, number>();
+    rows.forEach((s) => count.set(classOf(s), (count.get(classOf(s)) ?? 0) + 1));
+    const [topClass, topN] = [...count.entries()].sort((a, b) => b[1] - a[1])[0];
+    const ratio = topN / rows.length;
+    if (ratio < MEMO_MIN_RATIO) return;
+    const rank = [tier, ratio, word.length, rows.length];
+    if (best && !outranks(rank, best.rank)) return;
+    const top = [...rows].reverse().find((s) => classOf(s) === topClass)!;
+    best = { rank, hit: { kind, store: memo.store, word, n: rows.length, ratio, top } };
+  };
+  memo.words.forEach((w) => look("msw", w, 2, MEMO_MIN_COUNT, MEMO_MIN_MONTHS));
+  look("ms", "", 1, MEMO_MIN_COUNT, MEMO_STORE_MIN_MONTHS);
+  return (best as { hit: MemoHit } | null)?.hit ?? null;
+}
+
+/** 메모 근거를 사람이 읽는 말로 — `「배너공장 · 배너」` */
+const memoLabel = (h: MemoHit) => (h.kind === "msw" ? `「${h.store} · ${h.word}」` : `「${h.store}」`);
 
 /** 자동분류에 필요한 참조 데이터 묶음 */
 export interface ClassifyContext {
@@ -366,6 +462,10 @@ export interface ClassifyInput {
   /** 원금액 · 조정금액 — 같은 거래처가 여러 계정으로 갈릴 때 같은 금액을 찾는다 */
   gross?: number;
   adjust?: number;
+  /** 단톡방 카드 기록에서 붙은 한 줄 — `구매처 / 품목` (card-chat.ts) */
+  cardMemo?: string;
+  /** 이 거래가 묶인 프로젝트 — 사업구분의 근거가 된다 (JIMFF 는 조향) */
+  projectCode?: string;
   /**
    * 임포트 어댑터의 추정 (확정 아님). 은행·카드 엑셀이 알려주는 것들 —
    * 「이자입금」적요, 카드대금 판정, 카드 업종명 같은 것. 과거 이력·구독
@@ -382,6 +482,52 @@ export interface ClassifyInput {
 }
 
 export function classifyOne(input: ClassifyInput, ctx: ClassifyContext): ClassifySuggestion {
+  const sug = classifyByEvidence(input, ctx);
+
+  // 사업구분은 거래처보다 **무엇을 샀는가**가 말해 준다 — 같은 쿠팡이라도 향료 원료는
+  // 조향, 매장 비품은 와우다. 엔진이 확정하지 못한 건에 메모가 사업구분을 알면 그것을 쓴다.
+  // (확정은 건드리지 않는다. 원본 장부가 적어 둔 사업구분도 그대로 둔다)
+  if (sug.status === "confirmed" || input.bizMajor || input.bizMinor) return sug;
+  if (input.txType === "자금거래" || input.txType === "카드대금결제") return sug;
+  const seen = ctx.vendorIndex.seen;
+  const flow = flowOfInput(input.txType);
+
+  // 프로젝트에 묶인 지출은 그 프로젝트의 사업부 것이다 — 무엇을 어디서 샀든.
+  // (JIMFF 엽서를 애즈랜드에서 샀다고 생카 소모품이 되지 않는다)
+  if (input.projectCode) {
+    const rows = (seen.get(projectKey(input.projectCode, flow)) ?? []).filter((s) => bizKey(s) !== "").slice(-RECENT);
+    const count = new Map<string, number>();
+    rows.forEach((s) => count.set(bizKey(s), (count.get(bizKey(s)) ?? 0) + 1));
+    const top = [...count.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (!top || rows.length < PROJECT_MIN_COUNT || top[1] / rows.length < PROJECT_MIN_RATIO) return sug;
+    const [bizMajor, bizMinor] = top[0].split("|");
+    if (sug.bizMajor === bizMajor && sug.bizMinor === bizMinor) return sug;
+    return {
+      ...sug,
+      bizMajor,
+      bizMinor,
+      classReason: `${sug.classReason} · 사업구분은 프로젝트 「${input.projectCode}」 의 최근 ${rows.length}건 중 ${Math.round((top[1] / rows.length) * 100)}% 가 ${bizMinor}`,
+    };
+  }
+
+  const memo = memoParts(input.cardMemo);
+  const hit = memo ? memoEvidence(seen, memo, flow, bizKey) : null;
+  if (!hit || (sug.bizMajor === hit.top.bizMajor && sug.bizMinor === hit.top.bizMinor)) return sug;
+  return {
+    ...sug,
+    bizMajor: hit.top.bizMajor,
+    bizMinor: hit.top.bizMinor,
+    classReason:
+      sug.classReason +
+      // 계정과 같은 메모에서 나온 근거면 되풀이하지 않는다 — 검토할 때 가장 많이 읽는 줄이다
+      (sug.classReason.startsWith(`카드 메모 ${memoLabel(hit)} `)
+        ? ` · 사업구분도 같은 메모에서 ${Math.round(hit.ratio * 100)}% 가 ${hit.top.bizMinor}`
+        : ` · 사업구분은 카드 메모 ${memoLabel(hit)} 최근 ${hit.n}건 중 ${Math.round(hit.ratio * 100)}% 가 ${hit.top.bizMinor}`),
+  };
+}
+
+/** 근거를 순서대로 시도한다 (파일 머리 주석) */
+function classifyByEvidence(input: ClassifyInput, ctx: ClassifyContext): ClassifySuggestion {
   const pm = input.last4
     ? ctx.paymentMethods.find((p) => p.last4 === input.last4)
     : undefined;
@@ -446,7 +592,7 @@ export function classifyOne(input: ClassifyInput, ctx: ClassifyContext): Classif
    * 이력이 준 계정을 이번 거래에 쓸 수 있는가. 못 쓰면 사유를 돌려준다.
    * (계정 마스터의 거래유형과 어긋나면 부호가 뒤집힌다 — 수입 ↔ 지출)
    */
-  const unusable = (s: KeyStat): string | null => {
+  const unusable = (s: { top: Seen }): string | null => {
     // 원본 장부가 대분류·중분류까지만 적어 둔 행 — 사람이 적은 것과 어긋나는 이력은 쓰지 않는다
     if (input.acctMajor && s.top.acctMajor !== input.acctMajor) {
       return `원본 장부의 대분류(${input.acctMajor})와 다릅니다`;
@@ -548,6 +694,31 @@ export function classifyOne(input: ClassifyInput, ctx: ClassifyContext): Classif
           (bizSteady ? "" : ` — 사업구분은 갈립니다 (${own.biz.minor || "미정"} ${Math.round(own.biz.ratio * 100)}%)`),
       };
     }
+  }
+
+  // 1′) 카드 메모 — 명세서의 거래처는 결제대행사라도 메모는 무엇을 샀는지 안다.
+  //     같은 거래처 · 같은 계좌가 한결같을 때(위)는 그쪽이 더 정확해서 그 뒤에 본다.
+  //     확정은 만들지 않는다 — 메모가 엉뚱한 결제에 붙어 있을 수 있다 (card-chat.ts).
+  //     프로젝트에 묶인 결제에는 쓰지 않는다 — 같은 가게의 같은 품목이라도 프로젝트 것은
+  //     계정이 다르다 (생카 엽서는 소모품, JIMFF 엽서는 원자재). 7건 중 4건만 맞았다.
+  const memo = input.projectCode ? null : memoParts(input.cardMemo);
+  const memoHit = memo ? memoEvidence(seen, memo, flow, classKey) : null;
+  if (memoHit && !unusable(memoHit)) {
+    const t = memoHit.top;
+    return {
+      status: "suggested",
+      ...(t.txType !== input.txType ? { txType: t.txType } : {}),
+      acctMajor: t.acctMajor || undefined,
+      acctMid: t.acctMid || undefined,
+      acctMinor: t.acctMinor || undefined,
+      // 사업구분은 classifyOne 이 메모의 사업구분 근거로 따로 채운다
+      bizMajor: input.bizMajor,
+      bizMinor: input.bizMinor,
+      site,
+      classReason:
+        `카드 메모 ${memoLabel(memoHit)} — 최근 ${memoHit.n}건 중 ${Math.round(memoHit.ratio * 100)}% 가 같은 분류` +
+        (t.txType !== input.txType ? ` → 거래유형을 ${input.txType} 에서 ${t.txType} 로 고쳐 제안` : ""),
+    };
   }
 
   // 1-나) 거래처는 여러 계정으로 갈리지만 **같은 금액**은 늘 같은 분류였다
