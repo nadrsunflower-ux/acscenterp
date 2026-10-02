@@ -34,6 +34,7 @@
     "finance:fix-accounts": "tsx scripts/neander/fix-legacy-accounts.ts",
     "finance:fix-dates": "tsx scripts/neander/fix-ledger-dates.ts",
     "finance:verify-dates": "tsx scripts/neander/verify-ledger-dates.ts",
+    "finance:rename-major": "tsx --conditions react-server scripts/neander/rename-account-major.ts",
     "finance:backfill-biz-learned": "tsx scripts/neander/backfill-biz-learned.ts",
     "finance:backfill-biz-decisions": "tsx scripts/neander/backfill-biz-decisions.ts",
     "finance:queue-ambiguous": "tsx scripts/neander/queue-ambiguous.ts",
