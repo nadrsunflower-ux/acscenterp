@@ -73,8 +73,9 @@ export interface Member {
   /** 캐릭터 이모지 아바타 (없으면 이름 첫 글자 표시) */
   avatar?: string;
   /**
-   * 회의 때마다 여는 발표 자료 주소 — 회의록 화면에 「○○○ 발표 자료」 로 바로 가는
-   * 링크가 뜬다. 저장소가 public 이라 주소를 코드에 적지 않고 팀원 문서에 둔다.
+   * 회의 때 여는 발표 자료 주소 — 회의 문서 머리의 「발표 자료」 줄에 팀원마다 버튼이
+   * 하나씩 서고, 본인이 거기서 걸고 바꾼다 (meetings/PrepButtons.tsx). 비어 있으면
+   * 빈 버튼. 저장소가 public 이라 주소를 코드에 적지 않고 팀원 문서에 둔다.
    */
   prepUrl?: string;
   createdAt: number;
