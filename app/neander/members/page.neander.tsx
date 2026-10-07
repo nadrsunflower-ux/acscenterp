@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronRight, Pencil, Trash2, Users } from "lucide-react";
+import { ChevronRight, ExternalLink, Pencil, Trash2, Users } from "lucide-react";
 import { useAppData } from "@/components/neander/app-data";
 import { addMember, updateMember, deleteMember } from "@/lib/neander/db/members";
 import { emptyToUndef } from "@/lib/neander/db/helpers";
+import { linkHost, normalizeLinkUrl } from "@/lib/neander/prep-docs";
 import {
   Badge,
   Button,
@@ -148,6 +149,7 @@ function MemberCard({ member, isMe }: { member: Member; isMe: boolean }) {
   const [email, setEmail] = useState(member.email ?? "");
   const [color, setColor] = useState(member.color ?? PALETTE[0]);
   const [avatar, setAvatar] = useState(member.avatar ?? "");
+  const [prepUrl, setPrepUrl] = useState(member.prepUrl ?? "");
   const [busy, setBusy] = useState(false);
 
   // 원격 변경(onSnapshot)이 prop으로 내려오면 표시값 동기화 (편집 중이 아닐 때)
@@ -158,7 +160,8 @@ function MemberCard({ member, isMe }: { member: Member; isMe: boolean }) {
     setEmail(member.email ?? "");
     setColor(member.color ?? PALETTE[0]);
     setAvatar(member.avatar ?? "");
-  }, [member.name, member.role, member.email, member.color, member.avatar, editing]);
+    setPrepUrl(member.prepUrl ?? "");
+  }, [member.name, member.role, member.email, member.color, member.avatar, member.prepUrl, editing]);
 
   async function save() {
     if (!name.trim()) {
@@ -173,6 +176,7 @@ function MemberCard({ member, isMe }: { member: Member; isMe: boolean }) {
         email: emptyToUndef(email)?.toLowerCase(),
         color,
         avatar: emptyToUndef(avatar),
+        prepUrl: prepUrl.trim() ? normalizeLinkUrl(prepUrl) : undefined,
       });
       setEditing(false);
     } finally {
@@ -215,6 +219,15 @@ function MemberCard({ member, isMe }: { member: Member; isMe: boolean }) {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="로그인 연결용 (선택)"
+            />
+          </Field>
+          <Field label="발표 자료 주소" hint="회의 때마다 여는 자료 — 회의록에 바로 가는 링크로 뜹니다">
+            <Input
+              size="sm"
+              inputMode="url"
+              value={prepUrl}
+              onChange={(e) => setPrepUrl(e.target.value)}
+              placeholder="https://… (선택)"
             />
           </Field>
           <Field label="색상">
@@ -261,6 +274,18 @@ function MemberCard({ member, isMe }: { member: Member; isMe: boolean }) {
       <span className="w-full truncate text-nd-micro text-nd-fg-3" title={member.email ?? ""}>
         {member.email || "이메일 미등록"}
       </span>
+      {member.prepUrl && (
+        <a
+          href={member.prepUrl}
+          target={member.prepUrl.startsWith("/") ? undefined : "_blank"}
+          rel="noreferrer"
+          title={`회의 때마다 쓰는 발표 자료 · ${linkHost(member.prepUrl)}`}
+          className="inline-flex max-w-full items-center gap-1 rounded-[6px] text-nd-table font-medium text-nd-accent-strong hover:underline"
+        >
+          <Icon icon={ExternalLink} size={13} className="shrink-0" />
+          <span className="truncate">발표 자료</span>
+        </a>
+      )}
       <div className="mt-1 flex gap-1">
         <Button variant="ghost" size="sm" icon={Pencil} onClick={() => setEditing(true)}>
           수정

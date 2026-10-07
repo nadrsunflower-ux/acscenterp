@@ -48,6 +48,47 @@ export const PREP_DOCS: PrepDoc[] = [
   },
 ];
 
+// ---- 매번 쓰는 발표 자료 ------------------------------------
+//  팀원마다 회의 때 늘 같은 주소(자기 발표 자료 사이트)를 여는 일이 있다.
+//  그 주소는 팀원 문서의 prepUrl 에 둔다 (팀원 관리 → 수정). 저장소가 public
+//  이라 여기 코드에 적지 않는다. 회의록 문서 머리와 「준비 자료」 메뉴가 쓴다.
+
+/** "/neander/…" 내부 경로와 프로토콜 있는 URL 은 그대로, 그 외에는 https:// 를 붙인다 */
+export function normalizeLinkUrl(u: string): string {
+  const t = u.trim();
+  if (t.startsWith("/") || /^https?:\/\//i.test(t)) return t;
+  return `https://${t}`;
+}
+
+/** 주소에서 사람이 알아볼 부분 — "https://a.vercel.app/" → "a.vercel.app" */
+export function linkHost(url: string): string {
+  return url
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/+$/, "");
+}
+
+/** 같은 곳을 가리키는 주소인지 볼 때 쓰는 열쇠 (끝 빗금 · 대소문자 무시) */
+export const linkKey = (url: string) => linkHost(url).toLowerCase();
+
+export interface StandingPrep {
+  /** 팀원 id */
+  id: string;
+  name: string;
+  color?: string;
+  avatar?: string;
+  url: string;
+}
+
+/** 발표 자료 주소를 적어 둔 팀원들 (팀원 등록 순서) */
+export function standingPreps(
+  members: { id: string; name: string; color?: string; avatar?: string; prepUrl?: string }[],
+): StandingPrep[] {
+  return members
+    .filter((m) => m.prepUrl?.trim())
+    .map((m) => ({ id: m.id, name: m.name, color: m.color, avatar: m.avatar, url: normalizeLinkUrl(m.prepUrl!) }));
+}
+
 /** 발표자 탭 목록 — 자료가 있는 발표자만, 등록 순서 유지 */
 export function prepDocAuthors(): string[] {
   const seen = new Set<string>();

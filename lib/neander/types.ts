@@ -72,6 +72,11 @@ export interface Member {
   color?: string;
   /** 캐릭터 이모지 아바타 (없으면 이름 첫 글자 표시) */
   avatar?: string;
+  /**
+   * 회의 때마다 여는 발표 자료 주소 — 회의록 화면에 「○○○ 발표 자료」 로 바로 가는
+   * 링크가 뜬다. 저장소가 public 이라 주소를 코드에 적지 않고 팀원 문서에 둔다.
+   */
+  prepUrl?: string;
   createdAt: number;
 }
 export type MemberInput = Omit<Member, "id" | "createdAt">;

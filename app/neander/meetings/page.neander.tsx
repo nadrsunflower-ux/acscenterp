@@ -89,6 +89,7 @@ import {
 import type { MeetingFile } from "@/lib/neander/meetings/types";
 import { todayStr, formatDateKo, formatTimestamp, isOverdue } from "@/lib/neander/format";
 import { PrepDocsButton } from "@/components/neander/PrepDocsSection";
+import { linkHost, linkKey, normalizeLinkUrl, standingPreps, type StandingPrep } from "@/lib/neander/prep-docs";
 import { deleteMeetingLog, logMeetingEvent } from "@/lib/neander/meetings/log-client";
 import { MeetingLog, useMeetingLog } from "@/components/neander/meetings/MeetingLog";
 import { describeMeetingEdit, type MeetingEvent } from "@/lib/neander/meetings/log";
@@ -140,13 +141,6 @@ interface LinkDraft {
 }
 
 type MemberLite = { id: string; name: string; color?: string; avatar?: string };
-
-/** "/neander/…" 내부 경로와 프로토콜 있는 URL 은 그대로, 그 외에는 https:// 를 붙인다 */
-function normalizeLinkUrl(u: string): string {
-  const t = u.trim();
-  if (t.startsWith("/") || /^https?:\/\//i.test(t)) return t;
-  return `https://${t}`;
-}
 
 /** 아무것도 안 쓴 회의 — 「+ 새 회의」 로 만들고 그대로 떠나면 지운다 */
 const isBlankMeeting = (m: Meeting) =>
@@ -273,6 +267,9 @@ export default function MeetingsPage() {
   }, [pendingOpen, meetings]);
 
   const memberById = useMemo(() => new Map(members.map((m) => [m.id, m])), [members]);
+
+  /** 팀원이 회의 때마다 여는 발표 자료 (팀원 관리의 「발표 자료 주소」) — 회의 문서 머리에 칩으로 */
+  const preps = useMemo(() => standingPreps(members), [members]);
 
   /** 올린 사람 이메일 → 팀원 (팀원 목록에 없으면 이메일 앞부분을 이름으로) */
   const memberOf = useMemo(() => {
@@ -701,6 +698,7 @@ export default function MeetingsPage() {
               key={selected.id}
               meeting={selected}
               memberById={memberById}
+              preps={preps}
               log={<MeetingLog events={log.events} loaded={log.loaded} memberOf={memberOf} />}
               lastEdit={log.lastEdit}
               memberOf={memberOf}
@@ -1003,6 +1001,7 @@ function DocBody({ children }: { children: ReactNode }) {
 function MeetingReader({
   meeting,
   memberById,
+  preps,
   log,
   lastEdit,
   memberOf,
@@ -1024,6 +1023,8 @@ function MeetingReader({
 }: {
   meeting: Meeting;
   memberById: Map<string, MemberLite>;
+  /** 팀원이 회의 때마다 여는 발표 자료 */
+  preps: StandingPrep[];
   /** 기록 칸 (MeetingLog) */
   log: ReactNode;
   /** 문서를 마지막으로 고친 일 — 머리에 「누가 고쳤는지」 를 적는다 */
@@ -1060,6 +1061,11 @@ function MeetingReader({
     recordings ? `녹음 ${recordings}개` : "",
     editedAt ? `${editedBy ? `${editedBy}가 ` : ""}${formatTimestamp(editedAt)} 고침` : "",
   ].filter(Boolean);
+  // 매번 쓰는 발표 자료는 회의에도 자료 문서에도 뜬다 — 넓은 화면은 가장 최근 문서(대개
+  // 누군가의 자료)를 먼저 펴므로, 어느 문서를 보고 있든 다음 발표자의 링크가 한 번에 닿아야
+  // 한다. 이 문서에 같은 주소를 이미 걸어 두었으면 두 번 보이지 않게 뺀다
+  const linked = new Set((meeting.links ?? []).map((l) => linkKey(l.url)));
+  const standing = preps.filter((p) => !linked.has(linkKey(p.url)));
 
   return (
     <>
@@ -1144,9 +1150,12 @@ function MeetingReader({
             )}
           </p>
 
-          {(meeting.links?.length ?? 0) > 0 && (
+          {(standing.length > 0 || (meeting.links?.length ?? 0) > 0) && (
             <div className="mt-4 flex flex-wrap gap-1.5">
-              {meeting.links!.map((l, i) => (
+              {standing.map((p) => (
+                <MeetingLinkChip key={p.id} link={{ label: `${p.name} 발표 자료`, url: p.url }} presenter={p} />
+              ))}
+              {meeting.links?.map((l, i) => (
                 <MeetingLinkChip key={`${l.url}-${i}`} link={l} />
               ))}
             </div>
@@ -1298,23 +1307,35 @@ function ActionList({ items, memberById }: { items: ActionItem[]; memberById: Ma
   );
 }
 
-/** 회의록 자료 링크 — 내부 경로("/…")는 같은 탭, 외부 URL은 새 탭 */
-function MeetingLinkChip({ link }: { link: MeetingLink }) {
+/**
+ * 회의록 자료 링크 — 내부 경로("/…")는 같은 탭, 외부 URL은 새 탭.
+ * presenter 가 있으면 그 팀원이 회의 때마다 여는 발표 자료다 — 얼굴을 앞에 세운다.
+ */
+function MeetingLinkChip({ link, presenter }: { link: MeetingLink; presenter?: StandingPrep }) {
   const internal = link.url.startsWith("/");
-  const className =
-    "inline-flex h-7 max-w-full items-center gap-1.5 rounded-full bg-nd-fg/[.05] px-3 text-nd-caption font-medium text-nd-fg-2 transition-colors duration-nd-fast hover:bg-nd-accent-soft hover:text-nd-accent-strong";
+  const className = cn(
+    "inline-flex h-8 max-w-full items-center gap-1.5 rounded-full bg-nd-fg/[.05] text-nd-table font-medium text-nd-fg-2 transition-colors duration-nd-fast hover:bg-nd-accent-soft hover:text-nd-accent-strong",
+    presenter ? "pl-1.5 pr-3" : "px-3",
+  );
+  const title = presenter ? `${presenter.name} — 회의 때마다 쓰는 발표 자료 · ${linkHost(link.url)}` : link.label;
+  const icon = <Icon icon={internal ? Link2 : ExternalLink} size={13} className="shrink-0" />;
   const label = (
     <>
-      <Icon icon={internal ? Link2 : ExternalLink} size={12} className="shrink-0" />
+      {presenter ? (
+        <MemberAvatar name={presenter.name} color={presenter.color} avatar={presenter.avatar} className="h-5 w-5 text-[11px]" />
+      ) : (
+        icon
+      )}
       <span className="max-w-[220px] truncate">{link.label}</span>
+      {presenter && icon}
     </>
   );
   return internal ? (
-    <Link href={link.url} className={className} title={link.label}>
+    <Link href={link.url} className={className} title={title}>
       {label}
     </Link>
   ) : (
-    <a href={link.url} target="_blank" rel="noreferrer" className={className} title={link.label}>
+    <a href={link.url} target="_blank" rel="noreferrer" className={className} title={title}>
       {label}
     </a>
   );
