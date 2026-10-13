@@ -20,6 +20,9 @@
 //  회의 전에 팀원이 미리 올려 두는 「자료」 은 상위 회의(parentId)에 매단다.
 //  목록에서 상위 회의 아래에 들여쓰고, 그날 녹음·AI 회의록·액션플랜은 상위
 //  회의에 남긴다 (lib/neander/types.ts 의 Meeting.parentId 주석).
+//  「자료 추가」 는 문서 도구 막대에 늘 있다 — 자료가 아직 없는 회의에서도,
+//  자료 문서 안에서도(같은 회의 아래에 하나 더). 회의 본문의 「자료」 칸도
+//  비어 있을 때 그 자리에서 올리는 단추로 선다.
 //
 //  회의 녹음(MeetingRecording)도 회의에 매인다. 녹음기는 셸의 RecordingProvider
 //  가 들고 있어 화면을 옮겨도 이어진다. AI 회의록 초안은 편집 폼에 채워질
@@ -36,6 +39,7 @@ import {
   CalendarDays,
   ChevronLeft,
   ExternalLink,
+  FilePlus2,
   FileText,
   Link2,
   ListChecks,
@@ -215,6 +219,8 @@ export default function MeetingsPage() {
   const [query, setQuery] = useState("");
   /** 「+ 새 회의」 로 막 만든 회의 — 아무것도 안 쓰고 떠나면 지운다 */
   const fresh = useRef(new Set<string>());
+  /** 새 회의·자료를 만들기 전에 보던 문서 — 빈 채로 취소하면 그리로 돌아간다 */
+  const returnTo = useRef<string | null>(null);
   const mf = useMeetingFiles();
   const rec = useRecording();
   /** 모든 녹음 (조각 없이) — 목록의 녹음 표시 · 빈 회의 판단 · 삭제 안내 */
@@ -436,6 +442,8 @@ export default function MeetingsPage() {
 
   const selectedId = mode.kind === "idle" ? null : mode.id;
   const selected = selectedId ? meetings?.find((m) => m.id === selectedId) ?? null : null;
+  /** 연 문서가 자료이면 그 상위 회의 (상위가 사라졌으면 null — 홀로 선 회의로 다룬다) */
+  const selectedParent = selected?.parentId ? byId.get(selected.parentId) ?? null : null;
 
   const hasAttachments = (id: string) =>
     filesOf(id).length > 0 || mf.uploads.some((u) => u.meetingId === id) || recordingsOf(id) > 0 || rec.isBusy(id);
@@ -481,6 +489,7 @@ export default function MeetingsPage() {
         ...(opts?.parentId ? { parentId: opts.parentId } : {}),
       });
       fresh.current.add(id);
+      returnTo.current = selectedId;
       logMeetingEvent(id, "created", opts?.parentId ? "자료" : undefined);
       setQuery("");
       setMode({ kind: "edit", id });
@@ -670,6 +679,7 @@ export default function MeetingsPage() {
               key={selected.id}
               members={members}
               initial={selected}
+              parent={selectedParent}
               fresh={fresh.current.has(selected.id)}
               attachments={attachments(selected.id)}
               recording={recording(selected, true)}
@@ -682,14 +692,14 @@ export default function MeetingsPage() {
                 setMode({ kind: "read", id: selected.id });
                 void log.refresh();
               }}
-              onBack={() =>
-                // 막 만든 빈 회의를 취소하면 목록으로 (위 effect 가 지운다)
-                setMode(
-                  fresh.current.has(selected.id) && isBlankMeeting(selected) && !hasAttachments(selected.id)
-                    ? { kind: "idle" }
-                    : { kind: "read", id: selected.id },
-                )
-              }
+              onBack={() => {
+                // 막 만든 빈 회의·자료를 취소하면 만들기 전에 보던 문서로, 없으면 목록으로
+                // (위 effect 가 빈 문서를 지운다)
+                if (fresh.current.has(selected.id) && isBlankMeeting(selected) && !hasAttachments(selected.id)) {
+                  const back = returnTo.current && byId.has(returnTo.current) ? returnTo.current : null;
+                  setMode(back ? { kind: "read", id: back } : { kind: "idle" });
+                } else setMode({ kind: "read", id: selected.id });
+              }}
             />
           ) : mode.kind === "read" && selected ? (
             <MeetingReader
@@ -702,13 +712,18 @@ export default function MeetingsPage() {
               files={filesOf(selected.id).length}
               recordings={recordingsOf(selected.id)}
               agenda={agendaOf.get(selected.id) ?? []}
-              parent={selected.parentId ? meetings?.find((m) => m.id === selected.parentId) ?? null : null}
+              parent={selectedParent}
               attachmentsOf={(id) => filesOf(id).length}
               attachments={attachments(selected.id)}
               recording={recording(selected, false)}
               recordingControls={recordingControls(selected)}
+              adding={creating}
               onOpen={openMeeting}
-              onAddAgenda={() => void createMeeting({ parentId: selected.id, date: selected.date })}
+              onAddAgenda={() => {
+                // 자료 안에서 누르면 같은 회의 아래에 하나 더 (자료의 자료는 없다)
+                const root = selectedParent ?? selected;
+                void createMeeting({ parentId: root.id, date: root.date });
+              }}
               onLink={() => setLinking(selected)}
               onUnlink={() => {
                 void updateMeeting(selected.id, { parentId: undefined });
@@ -1009,6 +1024,7 @@ function MeetingReader({
   attachments,
   recording,
   recordingControls,
+  adding,
   onOpen,
   onAddAgenda,
   onLink,
@@ -1037,7 +1053,10 @@ function MeetingReader({
   recording: ReactNode;
   /** 도구 막대의 녹음 · 파일 올리기 단추 */
   recordingControls: ReactNode;
+  /** 「자료 추가」 로 새 문서를 만드는 중 */
+  adding: boolean;
   onOpen: (id: string) => void;
+  /** 이 회의 아래에 새 자료 — 자료 문서에서 부르면 같은 상위 회의 아래에 하나 더 */
   onAddAgenda: () => void;
   onLink: () => void;
   onUnlink: () => void;
@@ -1066,6 +1085,18 @@ function MeetingReader({
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
           {recordingControls}
           <span className="mx-1 hidden h-5 w-px bg-nd-line sm:block" aria-hidden />
+          {/* 자료가 아직 없는 회의에서도, 자료 문서 안에서도 늘 보인다. 좁은 화면은 아이콘만 */}
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={FilePlus2}
+            loading={adding}
+            onClick={onAddAgenda}
+            aria-label="자료 추가"
+            title={parent ? `「${parent.title || formatDateKo(parent.date)}」 아래에 자료 하나 더` : "이 회의 아래에 새 자료(글)"}
+          >
+            <span className="max-sm:hidden">자료 추가</span>
+          </Button>
           <Button variant="secondary" size="sm" icon={Pencil} onClick={onEdit}>
             수정
           </Button>
@@ -1089,7 +1120,13 @@ function MeetingReader({
                       onSelect: onLink,
                     },
                   ]),
-              ...(parent ? [] : [{ key: "add", label: "자료 추가", icon: Plus, hint: "이 회의 아래 새 문서", onSelect: onAddAgenda }]),
+              {
+                key: "add",
+                label: "자료 추가",
+                icon: FilePlus2,
+                hint: parent ? "같은 회의 아래 새 문서" : "이 회의 아래 새 문서",
+                onSelect: onAddAgenda,
+              },
               { type: "separator" as const, key: "s1" },
               { key: "del", label: parent ? "자료 삭제" : "회의 삭제", icon: Trash2, danger: true, onSelect: onRemove },
             ]}
@@ -1120,7 +1157,7 @@ function MeetingReader({
               meeting.title ? "text-nd-fg" : "text-nd-fg-3",
             )}
           >
-            {meeting.title || "제목 없는 회의"}
+            {meeting.title || (parent ? "제목 없는 자료" : "제목 없는 회의")}
           </h1>
           <p className="nd-num mt-2 flex flex-wrap items-center gap-x-1.5 text-nd-caption text-nd-fg-3">
             {facts.join(" · ")}
@@ -1152,20 +1189,44 @@ function MeetingReader({
             </div>
           )}
 
-          {/* 자료가 있을 때만 — 없는 회의에 빈 칸을 두지 않는다 (「자료 추가」 는 ⋯ 메뉴에 있다) */}
-          {agenda.length > 0 && (
+          {/* 회의에는 늘 선다 — 자료가 아직 없어도 여기서 바로 올릴 수 있게. 자료 문서에는 없다
+              (자료의 자료는 없다 · 같은 회의에 하나 더 올리는 길은 도구 막대의 「자료 추가」) */}
+          {!parent && (
             <section className="mt-7">
               <SectionHeader
                 as="h3"
                 title="자료"
-                hint={`${agenda.length}건 · 회의 전에 팀원이 미리 올린 문서`}
+                hint={
+                  agenda.length
+                    ? `${agenda.length}건 · 회의 전에 팀원이 미리 올린 문서`
+                    : "회의 전에 팀원이 미리 올리는 문서"
+                }
                 action={
-                  <Button variant="ghost" size="sm" icon={Plus} onClick={onAddAgenda}>
-                    자료 추가
-                  </Button>
+                  agenda.length > 0 && (
+                    <Button variant="ghost" size="sm" icon={Plus} loading={adding} onClick={onAddAgenda}>
+                      자료 추가
+                    </Button>
+                  )
                 }
               />
-              {(
+              {agenda.length === 0 ? (
+                <button
+                  type="button"
+                  onClick={onAddAgenda}
+                  disabled={adding}
+                  className="flex w-full items-center gap-3 rounded-nd-lg border border-dashed border-nd-border px-4 py-3 text-left transition-colors duration-nd-fast hover:border-nd-accent/40 hover:bg-nd-accent-soft/40 disabled:cursor-wait disabled:opacity-60"
+                >
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-nd-accent-soft text-nd-accent-strong">
+                    <Icon icon={FilePlus2} size={15} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-nd-body font-medium text-nd-fg">자료 추가</span>
+                    <span className="block text-nd-caption text-nd-fg-3">
+                      발제 · 발표 글을 이 회의 아래에 올려 두면 목록에서도 회의 밑에 묶입니다
+                    </span>
+                  </span>
+                </button>
+              ) : (
                 <ol className="divide-y divide-nd-line overflow-hidden rounded-nd-lg border border-nd-line">
                   {agenda.map((a, i) => (
                     <li key={a.id}>
@@ -1324,6 +1385,7 @@ function MeetingLinkChip({ link }: { link: MeetingLink }) {
 function MeetingEditor({
   members,
   initial,
+  parent = null,
   fresh = false,
   attachments,
   recording,
@@ -1336,6 +1398,8 @@ function MeetingEditor({
   members: MemberLite[];
   /** 「+ 새 회의」 가 이미 만들어 둔 회의도 여기로 온다 — 편집은 늘 있는 회의를 고친다 */
   initial: Meeting;
+  /** 이 문서가 자료이면 그 상위 회의 — 어느 회의 아래에 들어가는지 머리에 적는다 */
+  parent?: Meeting | null;
   /** 막 만든 회의 (제목·버튼 문구만 다르다) */
   fresh?: boolean;
   /** 첨부 파일 칸 — 올리는 즉시 저장되어 아래 「저장」 과 상관없다 */
@@ -1547,7 +1611,15 @@ function MeetingEditor({
       // 초안을 넣은 녹음은 이제 확정 — 30일 뒤 음성을 지운다. 실패해도 회의록 저장은 된 것이다
       for (const recId of draftedFrom.current) await confirmRecording(recId).catch(() => undefined);
       draftedFrom.current.clear();
-      toast.success(fresh ? "회의록을 저장했습니다" : "회의록을 수정했습니다");
+      toast.success(
+        parent
+          ? fresh
+            ? "자료를 올렸습니다"
+            : "자료를 수정했습니다"
+          : fresh
+            ? "회의록을 저장했습니다"
+            : "회의록을 수정했습니다",
+      );
       onDone?.();
     } finally {
       setSaving(false);
@@ -1559,7 +1631,7 @@ function MeetingEditor({
       <PaneBar>
         {onBack && <BackToList onBack={onBack} />}
         <span className="hidden min-w-0 truncate text-nd-caption font-medium text-nd-fg-3 sm:block">
-          {fresh ? "새 회의" : "회의록 편집"}
+          {parent ? (fresh ? "새 자료" : "자료 편집") : fresh ? "새 회의" : "회의록 편집"}
         </span>
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
           {recordingControls}
@@ -1577,13 +1649,21 @@ function MeetingEditor({
 
       <DocBody>
         <form id={EDIT_FORM_ID} onSubmit={submit} className="flex flex-col">
+          {/* 자료이면 어느 회의 아래에 올라가는지 — 읽기 화면의 상위 회의 칩과 같은 자리 */}
+          {parent && (
+            <span className="mb-2 inline-flex h-7 max-w-full self-start items-center gap-1.5 rounded-full bg-nd-accent-soft px-3 text-nd-caption font-medium text-nd-accent-strong">
+              <Icon icon={ListTree} size={12} className="shrink-0" />
+              <span className="truncate">{parent.title || formatDateKo(parent.date)}</span>
+              <span className="shrink-0">의 자료</span>
+            </span>
+          )}
           {/* 제목 — 읽기 화면의 제목과 같은 자리 · 같은 크기 */}
           <textarea
             ref={titleRef}
             rows={1}
             value={title}
             onChange={(e) => setTitle(e.target.value.replace(/\n/g, ""))}
-            placeholder="제목 없는 회의"
+            placeholder={parent ? "제목 없는 자료" : "제목 없는 회의"}
             aria-label="제목"
             className="w-full resize-none overflow-hidden bg-transparent text-[28px] font-bold leading-[1.25] tracking-[-0.02em] text-nd-fg outline-none placeholder:text-nd-fg-4"
           />
