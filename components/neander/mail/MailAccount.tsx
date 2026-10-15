@@ -22,6 +22,7 @@ import {
   Icon,
   InlineNotice,
   Input,
+  NumberInput,
   SegmentedControl,
   Select,
   Switch,
@@ -378,7 +379,7 @@ function BasicSettings({ onDone }: { onDone: () => void }) {
       </div>
       {isCafe24 && (
         <Field label="카페24 메일함 용량 (MB)" hint="사이드바의 용량 막대 기준입니다. 카페24 웹메일 왼쪽 위의 전체 용량을 넣으세요.">
-          <Input type="number" min={1} value={quotaMB} onChange={(e) => setQuotaMB(e.target.value)} />
+          <NumberInput value={quotaMB} onValueChange={setQuotaMB} />
         </Field>
       )}
       {owner && (

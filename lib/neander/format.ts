@@ -231,3 +231,63 @@ export function shortWon(n: number): string {
   if (parts.length === 0) return sign + a.toLocaleString("ko-KR");
   return sign + parts.join(" ");
 }
+
+// ---- 입력칸의 천 단위 쉼표 ----------------------------------------
+//
+//  금액 칸에 「1200000」 이 그대로 보이면 120만인지 1,200만인지 자릿수를
+//  세어 봐야 한다. 그래서 **치는 동안에도** 쉼표를 찍는다. 값은 쉼표 없는
+//  글자로 따로 다룬다 — 쉼표는 보이는 모양일 뿐이다.
+
+/**
+ * 숫자 모양 글자에 쉼표를 찍는다 — 「-1234.5」 → 「-1,234.5」.
+ * 숫자 모양이 아니면(△ · 괄호 · 글자가 섞인 붙여넣기) 손대지 않고 돌려준다.
+ */
+export function groupDigits(text: string): string {
+  const m = /^(-?)([\d,]*)(\.\d*)?$/.exec(text);
+  if (!m) return text;
+  const int = m[2].replace(/,/g, "").replace(/^0+(?=\d)/, "");
+  return m[1] + int.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (m[3] ?? "");
+}
+
+/**
+ * 칸에 친 글자에서 값으로 쓸 부분만 남긴다. 쉼표·글자는 빼고, 음수 부호와
+ * 소수점은 허용할 때만 하나씩 둔다. 「-」 「1.」 처럼 치는 중인 모양은 남긴다.
+ */
+export function cleanNumberText(text: string, opts: { negative?: boolean; decimal?: boolean } = {}): string {
+  const neg = !!opts.negative && text.trimStart().startsWith("-");
+  let s = text.replace(/[^\d.]/g, "");
+  if (opts.decimal) {
+    const i = s.indexOf(".");
+    if (i >= 0) s = s.slice(0, i + 1) + s.slice(i + 1).replace(/\./g, "");
+  } else {
+    s = s.replace(/\./g, "");
+  }
+  return (neg ? "-" : "") + s;
+}
+
+/**
+ * 쉼표를 다시 찍은 뒤 커서가 갈 자리. 커서 앞에 있던 숫자·부호·소수점 수를
+ * 새 글자에서 똑같이 센다 — 쉼표가 하나 늘어도 커서가 끝으로 튀지 않고,
+ * 잘못 친 글자가 빠져도 커서가 한 칸 밀리지 않는다.
+ */
+export function caretAfterRegroup(before: string, caret: number, after: string): number {
+  const kept = before.slice(0, caret).replace(/[^\d.-]/g, "").length;
+  let seen = 0;
+  for (let i = 0; i < after.length; i++) {
+    if (seen === kept) return i;
+    if (after[i] !== ",") seen++;
+  }
+  return after.length;
+}
+
+/**
+ * 지우기 키가 쉼표에 걸렸을 때 커서를 한 칸 옮길 자리. 쉼표만 지우면 다시
+ * 찍혀 아무 일도 안 일어난 것처럼 보이므로, 그 너머의 숫자를 지우게 한다.
+ * 옮길 필요가 없으면 null.
+ */
+export function caretPastComma(text: string, start: number, end: number, key: string): number | null {
+  if (start !== end) return null;
+  if (key === "Backspace" && start > 0 && text[start - 1] === ",") return start - 1;
+  if (key === "Delete" && text[start] === ",") return start + 1;
+  return null;
+}

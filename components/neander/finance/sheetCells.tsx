@@ -15,6 +15,7 @@
 import React, { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, ChevronDown, Funnel, Grid2x2 } from "lucide-react";
 import { Icon, Portal, type LucideIcon } from "@/components/neander/ui";
+import { caretAfterRegroup, caretPastComma, groupDigits } from "@/lib/neander/format";
 import { clampColWidth, clampRowHeight } from "./useSheetLayout";
 import {
   createAddRowsComponent,
@@ -141,6 +142,8 @@ interface TextColumnData<V> {
   formatEditing: (value: V) => string;
   alignRight?: boolean;
   placeholder?: string;
+  /** 숫자 칸 — 치는 동안에도 천 단위 쉼표를 다시 찍는다 */
+  group?: boolean;
 }
 
 function TextCellInner<V>({
@@ -237,6 +240,24 @@ function TextCellInner<V>({
       }}
       onKeyDown={(e) => {
         if (e.key === "Escape") async.current.esc = true;
+        // 쉼표만 지우면 곧바로 다시 찍혀 아무 일도 없는 것처럼 보인다 — 그 너머 숫자를 지운다
+        if (columnData.group) {
+          const el = e.currentTarget;
+          const to = caretPastComma(el.value, el.selectionStart ?? 0, el.selectionEnd ?? 0, e.key);
+          if (to !== null) el.setSelectionRange(to, to);
+        }
+      }}
+      onChange={(e) => {
+        // 값은 칸을 떠날 때 확정한다(위 효과). 여기서는 보이는 쉼표만 다시 찍는다.
+        // 숫자 모양이 아닌 글자(△·괄호)는 groupDigits 가 그대로 둔다.
+        if (!columnData.group || async.current.composing) return;
+        const el = e.currentTarget;
+        const typed = el.value;
+        const grouped = groupDigits(typed);
+        if (grouped === typed) return;
+        const caret = caretAfterRegroup(typed, el.selectionStart ?? typed.length, grouped);
+        el.value = grouped;
+        el.setSelectionRange(caret, caret);
       }}
     />
   );
@@ -256,6 +277,7 @@ export function createSheetTextColumn<V>({
   deletedValue,
   alignRight,
   placeholder,
+  group,
 }: {
   parse: (raw: string) => V;
   formatBlurred: (value: V) => string;
@@ -265,12 +287,13 @@ export function createSheetTextColumn<V>({
   deletedValue: V;
   alignRight?: boolean;
   placeholder?: string;
+  group?: boolean;
 }): Column<V, TextColumnData<V>, string> {
   const copy = formatForCopy ?? formatEditing;
   const paste = parsePasted ?? ((raw: string) => parse(raw.replace(/[\n\r]+/g, " ")));
   return {
     component: TextCell as Column<V, TextColumnData<V>, string>["component"],
-    columnData: { parse, formatBlurred, formatEditing, alignRight, placeholder },
+    columnData: { parse, formatBlurred, formatEditing, alignRight, placeholder, group },
     deleteValue: () => deletedValue,
     copyValue: ({ rowData }) => copy(rowData),
     pasteValue: ({ value }) => paste(value),

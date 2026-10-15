@@ -17,7 +17,7 @@
 //  놓이기 때문이다. 파일 올리기가 실패해도 문서는 남고, 편집창은 열린
 //  채로 사유를 보여 준다.
 //
-//  「계약금액으로 반영」 은 프로젝트 초안에 총액과 부가세 기준을 넣어 줄
+//  「계약금액으로 반영」 은 프로젝트 초안에 표의 합과 그 부가세 기준을 넣어 줄
 //  뿐, 프로젝트를 저장하지는 않는다 — 프로젝트 화면의 「저장」 이 그 일을
 //  한다. 두 저장이 한 버튼에 묶이면 어디까지 반영됐는지 흐려진다.
 // ============================================================
@@ -217,12 +217,14 @@ export function QuoteEditor({
               <Button
                 variant="secondary"
                 size="sm"
-                disabled={saving || totals.total === 0}
+                disabled={saving || totals.sum === 0}
                 onClick={() => {
-                  onApplyAmount(totals.total, form.vatMode);
-                  setOkMsg(`프로젝트 계약금액 칸에 ${totals.total.toLocaleString("ko-KR")} (${QUOTE_VAT_LABEL[form.vatMode]}) 을 넣었습니다. 프로젝트 화면에서 「저장」 해야 남습니다.`);
+                  // 표의 합을 단가 기준과 함께 넘긴다. 총액(부가세 포함)을 「별도」 로 넘기면
+                  // 프로젝트가 거기에 부가세를 한 번 더 얹어 계약이 10% 부풀었다
+                  onApplyAmount(totals.sum, form.vatMode);
+                  setOkMsg(`프로젝트 계약금액 칸에 ${totals.sum.toLocaleString("ko-KR")} (${QUOTE_VAT_LABEL[form.vatMode]}) 을 넣었습니다. 프로젝트 화면에서 「저장」 해야 남습니다.`);
                 }}
-                title="프로젝트 수입 칸의 계약금액에 이 견적 총액을 넣습니다 (프로젝트 저장은 따로)"
+                title="프로젝트 수입 칸의 계약금액에 이 견적 금액을 단가 기준(VAT 별도·포함) 그대로 넣습니다 (프로젝트 저장은 따로)"
               >
                 계약금액으로 반영
               </Button>

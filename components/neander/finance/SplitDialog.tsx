@@ -21,6 +21,7 @@ import {
   IconButton,
   InlineNotice,
   Input,
+  NumberInput,
   Money,
   Select,
 } from "@/components/neander/ui";
@@ -222,13 +223,12 @@ export function SplitDialog({
               <li key={i} className="rounded-nd-lg border border-nd-border p-3">
                 <div className="grid grid-cols-2 items-center gap-2 lg:grid-cols-[2.25rem_9.5rem_minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
                   <span className="nd-num hidden text-center text-[15px] font-semibold text-nd-fg-2 lg:block">{i + 1}</span>
-                  <Input
+                  <NumberInput
                     aria-label={`조각 ${i + 1} 금액`}
-                    inputMode="numeric"
-                    className="nd-num text-right font-semibold"
+                    className="text-right font-semibold"
                     placeholder="금액"
-                    value={r.amount ? won(toAmount(r.amount)) : ""}
-                    onChange={(e) => setAmount(i, e.target.value)}
+                    value={r.amount ? String(toAmount(r.amount)) : ""}
+                    onValueChange={(v) => setAmount(i, v)}
                   />
                   <Select aria-label={`조각 ${i + 1} 프로젝트`} value={r.projectCode ?? ""} onChange={(e) => pickProject(i, e.target.value)}>
                     <option value="">프로젝트 없음</option>

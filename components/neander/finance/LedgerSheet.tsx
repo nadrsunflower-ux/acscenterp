@@ -94,6 +94,7 @@ import {
 } from "@/lib/neander/finance/sheetFilter";
 import {
   formatSigned,
+  groupDigits,
 } from "@/lib/neander/format";
 
 type Col = Column<FinTransaction, any, any>;
@@ -193,9 +194,10 @@ const amount = createSheetTextColumn<number>({
   alignRight: true,
   parse: parseAmountInput,
   parsePasted: parseAmountInput,
-  // 읽을 때는 천 단위 콤마, 편집할 때는 맨 숫자 — 엑셀과 같은 느낌
+  // 읽을 때도 고칠 때도 천 단위 쉼표 — 치는 동안 자릿수를 세지 않게
   formatBlurred: (n) => (Number.isFinite(n) ? formatSigned(n) : "⚠"),
-  formatEditing: (n) => (Number.isFinite(n) ? String(n) : ""),
+  formatEditing: (n) => (Number.isFinite(n) ? groupDigits(String(n)) : ""),
+  group: true,
   deletedValue: 0,
 });
 

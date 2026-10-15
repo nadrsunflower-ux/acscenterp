@@ -37,11 +37,13 @@ import {
   Field,
   FilterBar,
   FilterField,
+  FormRow,
   InlineNotice,
   Input,
   KpiStrip,
   LoadingState,
   Money,
+  NumberInput,
   PageHeader,
   PageShell,
   Pagination,
@@ -63,12 +65,17 @@ import { saveFinProject } from "@/lib/neander/finance/client";
 import {
   PROJECT_STATUSES,
   PROJECT_STATUS_LABEL,
+  VAT_HINT,
+  VAT_LABEL,
+  VAT_MODES,
   emptyProject,
   formatMargin,
   projectSummary,
   sortProjects,
+  splitVat,
   type FinProjectInput,
   type ProjectStatus,
+  type VatMode,
 } from "@/lib/neander/finance/project";
 
 /** 상태 → 의미 색. 데이터가 가진 색이 아니라 상태의 뜻이라 tone 으로 */
@@ -384,6 +391,17 @@ export default function ProjectsPage() {
   );
 }
 
+const won = (n: number) => n.toLocaleString("ko-KR");
+
+/** 계약금액 칸 아래 줄 — 적은 금액을 기준대로 풀어 「받을 돈」 까지 보여 준다 */
+function contractHint(amount: number, mode: VatMode): string {
+  if (!amount) return VAT_HINT[mode];
+  const s = splitVat(amount, mode);
+  if (mode === "exempt") return `면세 — 받을 돈 ${won(s.total)}`;
+  if (mode === "included") return `받을 돈 ${won(s.total)} = 공급가액 ${won(s.supply)} + 부가세 ${won(s.vat)}`;
+  return `공급가액 ${won(s.supply)} + 부가세 ${won(s.vat)} = 받을 돈 ${won(s.total)}`;
+}
+
 /** 새 프로젝트 — 이름·코드·계약금액만 받고 나머지는 상세에서 채운다 */
 function NewProjectDialog({
   onCancel,
@@ -463,16 +481,25 @@ function NewProjectDialog({
         <Field label="발주처 · 주최">
           <Input value={form.client ?? ""} onChange={(e) => set("client", e.target.value || undefined)} />
         </Field>
-        <Field label="계약금액">
-          <Input
-            type="number"
-            inputMode="numeric"
-            value={form.contractAmount || ""}
-            onChange={(e) => set("contractAmount", Number(e.target.value) || 0)}
-            className="nd-num text-right"
-            placeholder="0"
-          />
-        </Field>
+        {/* 계약금액만 덩그러니 있으면 공급가액인지 부가세 포함인지 알 수 없다 —
+            기준을 옆에서 고르게 하고, 아래 줄에 공급가액·부가세·받을 돈을 바로 푼다 */}
+        <FormRow className="grid-cols-[minmax(0,1fr)_minmax(0,8.5rem)]">
+          <Field label="계약금액" hint={contractHint(form.contractAmount, form.vatMode ?? "excluded")}>
+            <NumberInput
+              value={form.contractAmount || ""}
+              onValueChange={(v) => set("contractAmount", Number(v) || 0)}
+              className="text-right"
+              placeholder="0"
+            />
+          </Field>
+          <Field label="부가세">
+            <Select value={form.vatMode ?? "excluded"} onChange={(e) => set("vatMode", e.target.value as VatMode)}>
+              {VAT_MODES.map((m) => (
+                <option key={m} value={m}>{VAT_LABEL[m]}</option>
+              ))}
+            </Select>
+          </Field>
+        </FormRow>
         <Field label="상태">
           <Select value={form.status} onChange={(e) => set("status", e.target.value as ProjectStatus)}>
             {PROJECT_STATUSES.map((st) => (

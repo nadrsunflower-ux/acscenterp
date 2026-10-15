@@ -46,6 +46,7 @@ import {
   InfoPopover,
   InlineNotice,
   Input,
+  NumberInput,
   LoadingState,
   MasterDetail,
   PageHeader,
@@ -601,25 +602,23 @@ function ProductDetail({
       <div className="border-t border-nd-line px-5 py-4">
         <FormRow className="grid-cols-2 sm:grid-cols-4">
           <Field label="판매가" required>
-            <Input
+            <NumberInput
               size="sm"
-              inputMode="numeric"
-              className="nd-num text-right"
+              className="text-right"
               aria-label={`${p.name} 판매가`}
-              value={String(price)}
-              onChange={(e) => onEdit({ price: Number(e.target.value.replace(/[^\d]/g, "")) || 0 })}
+              value={price}
+              onValueChange={(v) => onEdit({ price: Number(v) || 0 })}
             />
           </Field>
           <Field label="재료비" hint={itemized ? "아래 상세의 합계" : undefined}>
-            <Input
+            <NumberInput
               size="sm"
-              inputMode="numeric"
-              className="nd-num text-right"
+              className="text-right"
               aria-label={`${p.name} 재료비`}
-              value={String(material)}
+              value={material}
               // 상세 줄이 있으면 합계는 줄에서 나온다 — 여기서 고치면 줄과 어긋난다
               disabled={itemized}
-              onChange={(e) => onEdit({ material: Number(e.target.value.replace(/[^\d]/g, "")) || 0 })}
+              onValueChange={(v) => onEdit({ material: Number(v) || 0 })}
             />
           </Field>
           <Field label="전용 이벤트" hint="비우면 매장 공용" className="col-span-2">
@@ -833,22 +832,14 @@ function DecimalInput({
   className?: string;
   ariaLabel: string;
 }) {
-  const [text, setText] = useState(String(value));
-  useEffect(() => {
-    setText((t) => (Number(t) === value ? t : String(value)));
-  }, [value]);
   return (
-    <Input
+    <NumberInput
       size="sm"
-      inputMode="decimal"
-      className={cn("nd-num text-right", className)}
+      decimal
+      className={cn("text-right", className)}
       aria-label={ariaLabel}
-      value={text}
-      onChange={(e) => {
-        const t = e.target.value.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1");
-        setText(t);
-        onChange(Number(t) || 0);
-      }}
+      value={value}
+      onValueChange={(v) => onChange(Number(v) || 0)}
     />
   );
 }
@@ -1060,32 +1051,13 @@ function ProductForm({
           <Input size="sm" value={option} onChange={(e) => setOption(e.target.value)} />
         </Field>
         <Field label="판매가" required>
-          <Input
-            size="sm"
-            inputMode="numeric"
-            className="nd-num"
-            value={price}
-            onChange={(e) => setPrice(e.target.value.replace(/[^\d]/g, ""))}
-          />
+          <NumberInput size="sm" value={price} onValueChange={setPrice} />
         </Field>
         <Field label="재료비" hint="모르면 0">
-          <Input
-            size="sm"
-            inputMode="numeric"
-            className="nd-num"
-            value={material}
-            placeholder="0"
-            onChange={(e) => setMaterial(e.target.value.replace(/[^\d]/g, ""))}
-          />
+          <NumberInput size="sm" value={material} placeholder="0" onValueChange={setMaterial} />
         </Field>
         <Field label="세트 병수">
-          <Input
-            size="sm"
-            inputMode="numeric"
-            className="nd-num"
-            value={bottles}
-            onChange={(e) => setBottles(e.target.value.replace(/[^\d]/g, ""))}
-          />
+          <NumberInput size="sm" value={bottles} onValueChange={setBottles} />
         </Field>
         <Field label="전용 이벤트" hint="비우면 공용" className="col-span-2 xl:col-span-3">
           <Select

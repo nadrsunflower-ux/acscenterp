@@ -25,6 +25,7 @@ import {
   Field,
   InlineNotice,
   Input,
+  NumberInput,
   Money,
   Select,
   Textarea,
@@ -211,13 +212,11 @@ export function ContractEditor({
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="계약금액" hint="적힌 그대로">
-            <Input
-              type="number"
-              inputMode="numeric"
+            <NumberInput
               value={form.amount || ""}
               placeholder="0"
-              onChange={(e) => set("amount", Number(e.target.value) || 0)}
-              className="nd-num text-right font-semibold"
+              onValueChange={(v) => set("amount", Number(v) || 0)}
+              className="text-right font-semibold"
             />
           </Field>
           <Field label="부가세">

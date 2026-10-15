@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, EyeOff } from "lucide-react";
-import { Button, Checkbox, Icon, Input, Popover, cn } from "@/components/neander/ui";
+import { Button, Checkbox, Icon, Input, NumberInput, Popover, cn } from "@/components/neander/ui";
 import {
   isRangeKey,
   type ColumnFilter,
@@ -201,24 +201,22 @@ export function ColumnMenu({
           <div className="p-2.5">
             <p className="mb-1.5 text-nd-micro text-nd-fg-2">금액 범위</p>
             <div className="flex items-center gap-1.5">
-              <Input
+              <NumberInput
                 size="sm"
-                type="number"
+                negative
                 placeholder="최소"
                 aria-label="최소 금액"
-                defaultValue={rangeValue?.min ?? ""}
-                onChange={(e) => setRange("min", e.target.value)}
-                className="nd-num"
+                value={rangeValue?.min ?? ""}
+                onValueChange={(v) => setRange("min", v === "-" ? "" : v)}
               />
               <span className="text-nd-caption text-nd-fg-3">~</span>
-              <Input
+              <NumberInput
                 size="sm"
-                type="number"
+                negative
                 placeholder="최대"
                 aria-label="최대 금액"
-                defaultValue={rangeValue?.max ?? ""}
-                onChange={(e) => setRange("max", e.target.value)}
-                className="nd-num"
+                value={rangeValue?.max ?? ""}
+                onValueChange={(v) => setRange("max", v === "-" ? "" : v)}
               />
             </div>
           </div>

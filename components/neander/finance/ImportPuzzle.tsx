@@ -35,6 +35,7 @@ import {
   cn,
   Icon,
   Input,
+  NumberInput,
   Money,
 } from "@/components/neander/ui";
 import type {
@@ -188,14 +189,14 @@ export function PuzzlePiece({
               {activity.fileName}
             </p>
             <div className="mt-auto flex items-center gap-1.5">
-              <Input
+              <NumberInput
                 size="sm"
-                inputMode="decimal"
-                className="nd-num w-24"
-                placeholder="예: 1380"
+                decimal
+                className="w-24"
+                placeholder="예: 1,380"
                 aria-label={`${activity.currency} 환율`}
                 value={rate}
-                onChange={(e) => setRate(e.target.value.replace(/[^\d.]/g, ""))}
+                onValueChange={setRate}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && Number(rate) > 0) onFx?.(Number(rate));
                 }}

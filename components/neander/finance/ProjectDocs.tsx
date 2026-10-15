@@ -206,8 +206,13 @@ export function ProjectDocs({
                             {formatQuoteNo(q.quoteNo) || "번호 없음"} · {q.date} · {q.recipient || "수신 없음"}
                           </p>
                         </div>
-                        <div className="shrink-0 text-right">
-                          <p className="text-nd-body font-semibold"><Money value={t.total} unit={false} /></p>
+                        {/* 표에 적힌 합을 그 견적의 단가 기준과 함께 — 계약서 줄처럼 「적힌 금액 그대로」 다.
+                            총액(부가세 포함)을 「VAT 별도」 옆에 두면 별도 견적이 10% 비싸 보인다 */}
+                        <div
+                          className="shrink-0 text-right"
+                          title={`공급가액 ${t.supply.toLocaleString("ko-KR")} + 부가세 ${t.vat.toLocaleString("ko-KR")} = 합계 ${t.total.toLocaleString("ko-KR")}`}
+                        >
+                          <p className="text-nd-body font-semibold"><Money value={t.sum} unit={false} /></p>
                           <p className="text-nd-micro font-normal text-nd-fg-3">{QUOTE_VAT_LABEL[q.vatMode]} · {q.lines.length}품목</p>
                         </div>
                       </div>

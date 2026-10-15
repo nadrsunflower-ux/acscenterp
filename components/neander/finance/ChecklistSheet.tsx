@@ -39,6 +39,7 @@ import {
   type DataSheetGridRef,
 } from "react-datasheet-grid";
 import { parseAmountInput } from "@/lib/neander/finance/sheet";
+import { groupDigits } from "@/lib/neander/format";
 import { Minus, Plus, Redo2, RotateCcw, Undo2 } from "lucide-react";
 import { Badge, Button, ButtonGroup, Divider, IconButton, useConfirm } from "@/components/neander/ui";
 import {
@@ -206,7 +207,8 @@ const requiredNumber = createSheetTextColumn<number>({
   parse: parseDecimalInput,
   parsePasted: parseDecimalInput,
   formatBlurred: (n) => (Number.isFinite(n) ? fmtCell(n) : "⚠"),
-  formatEditing: (n) => (Number.isFinite(n) ? String(n) : ""),
+  formatEditing: (n) => (Number.isFinite(n) ? groupDigits(String(n)) : ""),
+  group: true,
   deletedValue: 0,
 });
 
@@ -229,7 +231,8 @@ const optionalWon = createSheetTextColumn<number | undefined>({
   parse: (v) => (v.trim() ? parseAmountInput(v) : undefined),
   parsePasted: (v) => (v.trim() ? parseAmountInput(v) : undefined),
   formatBlurred: (n) => (n === undefined ? "" : Number.isFinite(n) ? fmt(n) : "⚠"),
-  formatEditing: (n) => (n === undefined || !Number.isFinite(n) ? "" : String(n)),
+  formatEditing: (n) => (n === undefined || !Number.isFinite(n) ? "" : groupDigits(String(n))),
+  group: true,
   deletedValue: undefined,
 });
 
@@ -238,7 +241,8 @@ const optionalNumber = createSheetTextColumn<number | undefined>({
   parse: (v) => (v.trim() ? parseDecimalInput(v) : undefined),
   parsePasted: (v) => (v.trim() ? parseDecimalInput(v) : undefined),
   formatBlurred: (n) => (n === undefined ? "" : Number.isFinite(n) ? fmtCell(n) : "⚠"),
-  formatEditing: (n) => (n === undefined || !Number.isFinite(n) ? "" : String(n)),
+  formatEditing: (n) => (n === undefined || !Number.isFinite(n) ? "" : groupDigits(String(n))),
+  group: true,
   deletedValue: undefined,
 });
 

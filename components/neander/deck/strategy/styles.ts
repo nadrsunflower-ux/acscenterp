@@ -407,7 +407,7 @@ a.sd-rowlink:hover { color: var(--sd-accent); }
 .sd-pop-title { font-size: 17px; font-weight: 800; padding-right: 30px; }
 .sd-pop-src { margin-top: 4px; font-size: 15px; color: rgba(238,240,233,.62); line-height: 1.45; }
 .sd-pop-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
-.sd-pop input[type=number], .sd-pop select { flex: 1; height: 36px; border-radius: 8px; border: 1px solid rgba(148,163,184,.4); background: #0b0f18; color: #fff; padding: 0 10px; font-size: 16px; font-family: inherit; }
+.sd-pop input[type=number], .sd-pop input.sd-num, .sd-pop select { flex: 1; height: 36px; border-radius: 8px; border: 1px solid rgba(148,163,184,.4); background: #0b0f18; color: #fff; padding: 0 10px; font-size: 16px; font-family: inherit; }
 .sd-pop input[type=range] { width: 100%; margin-top: 8px; accent-color: #7dd3fc; }
 .sd-pop button { height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid rgba(148,163,184,.35); background: rgba(148,163,184,.1); color: #eef0e9; font-size: 15px; font-weight: 700; cursor: pointer; font-family: inherit; }
 .sd-pop button.sd-primary { background: #7dd3fc; color: #04121c; border-color: #7dd3fc; }
@@ -498,7 +498,7 @@ export const SD_OVERLAY_CSS = `
 .sd-field-kind.sd-k-snap { background: rgba(248,113,113,.14); color: #fca5a5; }
 .sd-field-kind.sd-k-changed { background: rgba(251,191,36,.16); color: #fcd34d; }
 .sd-field-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
-.sd-field-row input[type=number], .sd-field-row select {
+.sd-field-row input[type=number], .sd-field-row input.sd-num, .sd-field-row select {
   width: 130px; height: 30px; border-radius: 7px; border: 1px solid rgba(148,163,184,.35); background: #0b0f18; color: #fff;
   padding: 0 8px; font-size: 14px; font-family: inherit; font-variant-numeric: tabular-nums;
 }

@@ -77,7 +77,8 @@ export function exportQuoteXlsx(q: FinQuoteInput | FinQuoteDoc) {
   put(12, C("J"), "(₩");
   put(12, C("K"), t.total);
   put(12, C("N"), ")");
-  put(12, C("O"), vat);
+  // 합계금액은 공급가액+세액 — 단가 기준과 상관없이 부가세가 들어 있다
+  put(12, C("O"), "VAT 포함");
   put(15, C("B"), "품명");
   put(15, C("E"), "규격/사양");
   put(15, C("H"), "수량");

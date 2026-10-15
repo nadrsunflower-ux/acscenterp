@@ -22,6 +22,7 @@ import {
   Dialog,
   Field,
   Input,
+  NumberInput,
   Money,
   Select,
   Textarea,
@@ -268,19 +269,17 @@ export function TransactionEditor({
 
       <div className="mt-4 grid gap-3 border-t border-nd-line pt-4 sm:grid-cols-3">
         <Field label="원금액" required>
-          <Input
-            type="number"
-            className="nd-num"
-            value={String(form.gross ?? 0)}
-            onChange={(e) => set("gross", Number(e.target.value))}
+          <NumberInput
+            negative
+            value={form.gross ?? 0}
+            onValueChange={(v) => set("gross", Number(v) || 0)}
           />
         </Field>
         <Field label="조정금액" hint="환불·부분취소분">
-          <Input
-            type="number"
-            className="nd-num"
-            value={String(form.adjust ?? 0)}
-            onChange={(e) => set("adjust", Number(e.target.value))}
+          <NumberInput
+            negative
+            value={form.adjust ?? 0}
+            onValueChange={(v) => set("adjust", Number(v) || 0)}
           />
         </Field>
         <div className="flex flex-col gap-1.5">

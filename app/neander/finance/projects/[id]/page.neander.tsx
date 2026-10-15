@@ -71,6 +71,7 @@ import {
   IconButton,
   InlineNotice,
   Input,
+  NumberInput,
   KpiStrip,
   LoadingState,
   Menu,
@@ -991,13 +992,11 @@ export default function ProjectDetailPage() {
               <div>
                 <FormRow className="grid-cols-[minmax(0,1fr)_minmax(0,9.5rem)]">
                   <Field label="계약금액">
-                    <Input
-                      type="number"
-                      inputMode="numeric"
+                    <NumberInput
                       value={form.contractAmount || ""}
                       placeholder="0"
-                      onChange={(e) => setField("contractAmount", Number(e.target.value) || 0)}
-                      className="nd-num text-right font-semibold"
+                      onValueChange={(v) => setField("contractAmount", Number(v) || 0)}
+                      className="text-right font-semibold"
                     />
                   </Field>
                   <Field label="부가세">
@@ -1105,14 +1104,12 @@ export default function ProjectDetailPage() {
                             </Select>
                           </Td>
                           <Td>
-                            <Input
+                            <NumberInput
                               size="sm"
-                              type="number"
-                              inputMode="numeric"
                               value={i.amount || ""}
                               placeholder="0"
-                              onChange={(e) => updateInstallment(i.id, { amount: Number(e.target.value) || 0 })}
-                              className="nd-num text-right"
+                              onValueChange={(v) => updateInstallment(i.id, { amount: Number(v) || 0 })}
+                              className="text-right"
                               aria-label="금액"
                             />
                           </Td>
@@ -1212,14 +1209,13 @@ export default function ProjectDetailPage() {
                             <Input size="sm" value={r.label} onChange={(e) => updateRevenue(r.id, { label: e.target.value })} placeholder="항목" className="min-w-[8rem]" aria-label="항목" />
                           </Td>
                           <Td>
-                            <Input
+                            <NumberInput
                               size="sm"
-                              type="number"
-                              inputMode="numeric"
+                              negative
                               value={r.amount || ""}
                               placeholder="0"
-                              onChange={(e) => updateRevenue(r.id, { amount: Number(e.target.value) || 0 })}
-                              className="nd-num text-right"
+                              onValueChange={(v) => updateRevenue(r.id, { amount: Number(v) || 0 })}
+                              className="text-right"
                               aria-label="금액"
                             />
                           </Td>
@@ -1305,15 +1301,13 @@ export default function ProjectDetailPage() {
                               <Input size="sm" value={d.label} onChange={(e) => updateDeduction(d.id, { label: e.target.value })} placeholder="항목" className="min-w-[8rem]" aria-label="항목" />
                             </Td>
                             <Td>
-                              <Input
+                              <NumberInput
                                 size="sm"
-                                type="number"
-                                inputMode="numeric"
                                 value={d.amount || ""}
                                 placeholder="0"
-                                // 음수로 적어도 같은 뜻이다 — 돌려주는 돈은 늘 양수로 둔다
-                                onChange={(e) => updateDeduction(d.id, { amount: Math.abs(Number(e.target.value) || 0) })}
-                                className="nd-num text-right"
+                                // 돌려주는 돈은 늘 양수로 둔다 — 부호는 칸이 받지 않는다
+                                onValueChange={(v) => updateDeduction(d.id, { amount: Number(v) || 0 })}
+                                className="text-right"
                                 title="통장에서 실제로 나가는 금액"
                                 aria-label="돌려주는 돈"
                               />

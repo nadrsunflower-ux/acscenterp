@@ -26,6 +26,7 @@ import {
   FormRow,
   IconButton,
   Input,
+  NumberInput,
   Menu,
   type MenuItem,
   Money,
@@ -61,13 +62,12 @@ function AmountInput({
   size?: "sm" | "md";
 }) {
   return (
-    <Input
+    <NumberInput
       size={size}
-      inputMode="numeric"
-      value={value ? won(value) : ""}
+      value={value || ""}
       placeholder="0"
-      onChange={(e) => onChange(Number(e.target.value.replace(/[^\d]/g, "")) || 0)}
-      className="nd-num text-right"
+      onValueChange={(v) => onChange(Number(v) || 0)}
+      className="text-right"
       aria-label={ariaLabel}
     />
   );

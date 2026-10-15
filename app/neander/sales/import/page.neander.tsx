@@ -67,6 +67,7 @@ import {
   InfoPopover,
   InlineNotice,
   Input,
+  NumberInput,
   KpiItem,
   LoadingState,
   Money,
@@ -1081,24 +1082,10 @@ function MiscIncomeForm({ onSaved }: { onSaved: () => Promise<void> }) {
           </Select>
         </Field>
         <Field label="금액(원)" required>
-          <Input
-            size="sm"
-            inputMode="numeric"
-            className="nd-num"
-            placeholder="53000"
-            value={f.amount}
-            onChange={(e) => setF({ ...f, amount: e.target.value.replace(/[^\d]/g, "") })}
-          />
+          <NumberInput size="sm" placeholder="53,000" value={f.amount} onValueChange={(v) => setF({ ...f, amount: v })} />
         </Field>
         <Field label="원가(원)" hint="모르면 비워 둡니다" className="col-span-2 md:col-span-1">
-          <Input
-            size="sm"
-            inputMode="numeric"
-            className="nd-num"
-            placeholder="0"
-            value={f.material}
-            onChange={(e) => setF({ ...f, material: e.target.value.replace(/[^\d]/g, "") })}
-          />
+          <NumberInput size="sm" placeholder="0" value={f.material} onValueChange={(v) => setF({ ...f, material: v })} />
         </Field>
         <Field label="메모" className="col-span-2 xl:col-span-1">
           <Input size="sm" placeholder="예: 50ml + 사쉐 복합결제" value={f.memo} onChange={(e) => setF({ ...f, memo: e.target.value })} />

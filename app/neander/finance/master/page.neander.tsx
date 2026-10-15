@@ -31,6 +31,7 @@ import {
   FilterField,
   InlineNotice,
   Input,
+  NumberInput,
   LoadingState,
   PageHeader,
   PageShell,
@@ -1017,11 +1018,10 @@ function AddSubscriptionDialog({
           </Select>
         </Field>
         <Field label="월 예상액" hint="비우면 과거 중앙값 기준">
-          <Input
-            type="number"
+          <NumberInput
             value={form.expected}
-            className="nd-num text-right"
-            onChange={(e) => setForm({ ...form, expected: e.target.value })}
+            className="text-right"
+            onValueChange={(v) => setForm({ ...form, expected: v })}
           />
         </Field>
       </div>

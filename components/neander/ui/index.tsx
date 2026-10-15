@@ -39,5 +39,6 @@ export { Stepper, type Step } from "./stepper";
 export { MasterDetail } from "./master-detail";
 export { Pagination } from "./pagination";
 export { SearchInput } from "./search-input";
+export { NumberInput, type NumberInputProps } from "./number-input";
 export { DropZone } from "./drop-zone";
 export { ProductWordmark, Wordmark, BrandMark, WORDMARK_SRC, BRAND_LOGO } from "./brand";

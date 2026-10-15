@@ -42,6 +42,7 @@ import {
   FilterBar,
   Icon,
   Input,
+  NumberInput,
   KpiStrip,
   LoadingState,
   Meter,
@@ -203,14 +204,12 @@ export default function BudgetReport() {
           const changed = draft && (saved[node.path] ?? 0) !== (draft[node.path] ?? 0);
           return (
             <span className="inline-block w-24">
-              <Input
+              <NumberInput
                 size="sm"
-                type="number"
-                inputMode="numeric"
                 value={lines[node.path] ?? ""}
                 placeholder="0"
-                onChange={(e) => setLine(node.path, Number(e.target.value))}
-                className={cn("nd-num text-right", changed && EDITED_CELL)}
+                onValueChange={(v) => setLine(node.path, Number(v))}
+                className={cn("text-right", changed && EDITED_CELL)}
                 aria-label={`${node.label} 예산`}
               />
             </span>

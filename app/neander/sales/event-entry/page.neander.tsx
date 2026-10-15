@@ -58,6 +58,7 @@ import {
   InfoPopover,
   InlineNotice,
   Input,
+  NumberInput,
   KpiItem,
   KpiStrip,
   LoadingState,
@@ -126,7 +127,6 @@ import {
 import { monthLabel } from "@/lib/neander/format";
 
 const won = (n: number) => Math.round(n).toLocaleString("ko-KR");
-const digits = (v: string) => v.replace(/[^\d]/g, "");
 const STORE_ORDER: SalesStore[] = ["wow", "id", "online"];
 
 /** 편집기 탭 — 기본정보 · 준비물 · 방문자 · 실적 */
@@ -756,34 +756,17 @@ function Editor({
               <Input size="sm" type="date" value={draft.to} min={draft.from} onChange={(e) => setPeriod(draft.from, e.target.value)} />
             </Field>
             <Field label="일 운영시간" hint="시간">
-              <Input
-                size="sm"
-                inputMode="numeric"
-                className="nd-num"
-                value={String(draft.hoursPerDay)}
-                onChange={(e) => set({ hoursPerDay: Number(digits(e.target.value)) || 0 })}
-              />
+              <NumberInput size="sm" value={draft.hoursPerDay} onValueChange={(v) => set({ hoursPerDay: Number(v) || 0 })} />
             </Field>
             <Field label="스태프" hint="아이디 행사는 0 (상시 인건비가 고정비)">
-              <Input
-                size="sm"
-                inputMode="numeric"
-                className="nd-num"
-                value={String(draft.staff)}
-                onChange={(e) => set({ staff: Number(digits(e.target.value)) || 0 })}
-              />
+              <NumberInput size="sm" value={draft.staff} onValueChange={(v) => set({ staff: Number(v) || 0 })} />
             </Field>
             <Field label="시급" hint={`비우면 기본가정 ${won(defaultWage)}원`}>
-              <Input
+              <NumberInput
                 size="sm"
-                inputMode="numeric"
-                className="nd-num"
-                placeholder={String(defaultWage)}
-                value={draft.wage === undefined || draft.wage === null ? "" : String(draft.wage)}
-                onChange={(e) => {
-                  const v = digits(e.target.value);
-                  set({ wage: v ? Number(v) : undefined });
-                }}
+                placeholder={won(defaultWage)}
+                value={draft.wage}
+                onValueChange={(v) => set({ wage: v ? Number(v) : undefined })}
               />
             </Field>
             <Field label="메모" className="sm:col-span-2 lg:col-span-3">
@@ -814,13 +797,11 @@ function Editor({
             {!itemized && (
               <FormRow className="grid-cols-1 px-5 pb-4 sm:grid-cols-[13rem_minmax(0,1fr)]">
                 <Field label="준비물 합계(원)" hint="엑셀에서 옮긴 이벤트는 합계만 있습니다">
-                  <Input
+                  <NumberInput
                     size="sm"
-                    inputMode="numeric"
-                    className="nd-num"
-                    value={String(draft.supplies || "")}
+                    value={draft.supplies || ""}
                     placeholder="0"
-                    onChange={(e) => set({ supplies: Number(digits(e.target.value)) || 0 })}
+                    onValueChange={(v) => set({ supplies: Number(v) || 0 })}
                   />
                 </Field>
                 <FieldAction center>
@@ -855,23 +836,21 @@ function Editor({
                           />
                         </Td>
                         <Td num>
-                          <Input
+                          <NumberInput
                             size="sm"
-                            inputMode="numeric"
-                            className="nd-num w-16 text-right"
-                            value={String(it.qty)}
+                            className="w-16 text-right"
+                            value={it.qty}
                             aria-label={`준비물 ${i + 1} 수량`}
-                            onChange={(e) => setItem(i, { qty: Number(digits(e.target.value)) || 0 })}
+                            onValueChange={(v) => setItem(i, { qty: Number(v) || 0 })}
                           />
                         </Td>
                         <Td num>
-                          <Input
+                          <NumberInput
                             size="sm"
-                            inputMode="numeric"
-                            className="nd-num w-24 text-right"
-                            value={String(it.unitPrice)}
+                            className="w-24 text-right"
+                            value={it.unitPrice}
                             aria-label={`준비물 ${i + 1} 단가`}
-                            onChange={(e) => setItem(i, { unitPrice: Number(digits(e.target.value)) || 0 })}
+                            onValueChange={(v) => setItem(i, { unitPrice: Number(v) || 0 })}
                           />
                         </Td>
                         <Td num>
@@ -944,28 +923,10 @@ function Editor({
             {!daily ? (
               <FormRow className="grid-cols-2 px-5 pb-4 sm:grid-cols-[8rem_8rem_5rem_minmax(0,1fr)]">
                 <Field label="구매자수">
-                  <Input
-                    size="sm"
-                    inputMode="numeric"
-                    className="nd-num"
-                    value={draft.buyers === undefined || draft.buyers === null ? "" : String(draft.buyers)}
-                    onChange={(e) => {
-                      const v = digits(e.target.value);
-                      set({ buyers: v ? Number(v) : undefined });
-                    }}
-                  />
+                  <NumberInput size="sm" value={draft.buyers} onValueChange={(v) => set({ buyers: v ? Number(v) : undefined })} />
                 </Field>
                 <Field label="미구매자수">
-                  <Input
-                    size="sm"
-                    inputMode="numeric"
-                    className="nd-num"
-                    value={draft.nonBuyers === undefined || draft.nonBuyers === null ? "" : String(draft.nonBuyers)}
-                    onChange={(e) => {
-                      const v = digits(e.target.value);
-                      set({ nonBuyers: v ? Number(v) : undefined });
-                    }}
-                  />
+                  <NumberInput size="sm" value={draft.nonBuyers} onValueChange={(v) => set({ nonBuyers: v ? Number(v) : undefined })} />
                 </Field>
                 <FieldAction center className="col-span-2 sm:col-span-1">
                   <span className="text-nd-body">
@@ -995,23 +956,21 @@ function Editor({
                         <Tr key={v.date} hover={false}>
                           <Td className="nd-num whitespace-nowrap pl-5 text-nd-fg-2">{v.date}</Td>
                           <Td num>
-                            <Input
+                            <NumberInput
                               size="sm"
-                              inputMode="numeric"
-                              className="nd-num w-16 text-right"
-                              value={String(v.buyers)}
+                              className="w-16 text-right"
+                              value={v.buyers}
                               aria-label={`${v.date} 구매자수`}
-                              onChange={(e) => setVisit(i, { buyers: Number(digits(e.target.value)) || 0 })}
+                              onValueChange={(n) => setVisit(i, { buyers: Number(n) || 0 })}
                             />
                           </Td>
                           <Td num>
-                            <Input
+                            <NumberInput
                               size="sm"
-                              inputMode="numeric"
-                              className="nd-num w-16 text-right"
-                              value={String(v.nonBuyers)}
+                              className="w-16 text-right"
+                              value={v.nonBuyers}
                               aria-label={`${v.date} 미구매자수`}
-                              onChange={(e) => setVisit(i, { nonBuyers: Number(digits(e.target.value)) || 0 })}
+                              onValueChange={(n) => setVisit(i, { nonBuyers: Number(n) || 0 })}
                             />
                           </Td>
                           <Td num>

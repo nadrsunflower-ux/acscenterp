@@ -8,6 +8,7 @@
 // ============================================================
 
 import { useEffect, useState } from "react";
+import { NumberInput } from "@/components/neander/ui";
 import type { ValueMeta } from "@/lib/neander/decks/model";
 import type { AssumptionDef, AssumptionValue } from "@/lib/neander/decks/types";
 import { dateLabel, formatAssumption } from "@/lib/neander/decks/format";
@@ -86,15 +87,16 @@ export function ValueEditor({
   const hasRange = def.min !== undefined && def.max !== undefined;
   return (
     <>
-      <input
-        type="number"
+      {/* 치는 동안에도 천 단위 쉼표 — 범위(min·max)는 commit 이 맞춘다 */}
+      <NumberInput
+        unstyled
+        className="sd-num"
         value={draft}
-        step={def.step ?? "any"}
-        min={def.min}
-        max={def.max}
+        negative={def.min === undefined || def.min < 0}
+        decimal
         placeholder="입력 필요"
         autoFocus={autoFocus}
-        onChange={(e) => setDraft(e.target.value)}
+        onValueChange={setDraft}
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === "Enter") {

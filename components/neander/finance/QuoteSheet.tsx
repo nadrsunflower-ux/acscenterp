@@ -35,6 +35,7 @@ import {
 } from "@/lib/neander/finance/docs";
 import { NO_SEAL, SEALS, resolveSeal, sealOwnerFields } from "@/lib/neander/finance/supplier";
 import { useSealImage } from "@/lib/neander/finance/seal-image";
+import { caretAfterRegroup, caretPastComma, cleanNumberText, groupDigits } from "@/lib/neander/format";
 import { sheetPrintHtml } from "@/lib/neander/finance/quote-pdf";
 import "./quote-sheet.css";
 
@@ -89,14 +90,24 @@ function NumCell({
 }) {
   const [text, setText] = useState(() => (value ? won(value) : ""));
   const [editing, setEditing] = useState(false);
+  const ref = useRef<HTMLInputElement>(null);
+  const caret = useRef<number | null>(null);
 
   // 밖에서 값이 바뀌었을 때 (줄 복사 등) 따라간다 — 고치는 중에는 건드리지 않는다
   useEffect(() => {
     if (!editing) setText(value ? won(value) : "");
   }, [value, editing]);
 
+  // 치는 동안 쉼표가 늘고 줄어도 커서는 친 자리에
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el && caret.current !== null && document.activeElement === el) el.setSelectionRange(caret.current, caret.current);
+    caret.current = null;
+  }, [text]);
+
   return (
     <input
+      ref={ref}
       className="q-cell"
       inputMode="numeric"
       aria-label={label}
@@ -104,15 +115,24 @@ function NumCell({
       value={text}
       onFocus={() => {
         setEditing(true);
-        setText(value ? String(value) : "");
+        setText(value ? groupDigits(String(value)) : "");
       }}
       onBlur={() => {
         setEditing(false);
         setText(value ? won(value) : "");
       }}
+      onKeyDown={(e) => {
+        const el = e.currentTarget;
+        const to = caretPastComma(el.value, el.selectionStart ?? 0, el.selectionEnd ?? 0, e.key);
+        if (to !== null) el.setSelectionRange(to, to);
+      }}
       onChange={(e) => {
-        setText(e.target.value);
-        const n = Number(e.target.value.replace(/[^\d.-]/g, ""));
+        // 고치는 동안에도 천 단위 쉼표 — 「80000」 을 세지 않고 읽게
+        const typed = e.target.value;
+        const next = groupDigits(cleanNumberText(typed, { negative: true, decimal: true }));
+        caret.current = caretAfterRegroup(typed, e.target.selectionStart ?? typed.length, next);
+        setText(next);
+        const n = Number(next.replace(/,/g, ""));
         onChange(Number.isFinite(n) ? n : 0);
       }}
     />
@@ -387,7 +407,8 @@ export const QuoteSheet = forwardRef<HTMLDivElement, {
             </th>
             <td>
               일금 <b>{koreanNumber(t.total)}</b> 원정 <span className="won">(₩ {won(t.total)})</span>{" "}
-              <span className="vat">{vatLabel}</span>
+              {/* 이 칸은 공급가액+세액이다 — 단가 기준(별도·포함)과 상관없이 늘 부가세가 들어 있다 */}
+              <span className="vat">VAT 포함</span>
             </td>
           </tr>
         </tbody>
@@ -435,7 +456,7 @@ export const QuoteSheet = forwardRef<HTMLDivElement, {
               <td className="note">
                 <Cell
                   label="비고"
-                  placeholder="VAT포함"
+                  placeholder="비고"
                   value={l.note ?? ""}
                   onChange={(v) => setLine(l.id, { note: v })}
                 />

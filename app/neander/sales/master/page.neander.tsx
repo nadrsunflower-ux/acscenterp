@@ -48,6 +48,7 @@ import {
   InfoPopover,
   InlineNotice,
   Input,
+  NumberInput,
   LoadingState,
   MasterDetail,
   PageHeader,
@@ -364,48 +365,38 @@ function MasterScreen({ assumptions }: { assumptions: SalesAssumptions }) {
                 />
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   <Field label="매장 임차료" hint="와우 + 아이디 공동">
-                    <Input
+                    <NumberInput
                       size="sm"
-                      inputMode="numeric"
-                      className="nd-num"
-                      value={String(a.fixed.rent)}
-                      onChange={(e) => setA({ ...a, fixed: { ...a.fixed, rent: num(e.target.value) } })}
+                      value={a.fixed.rent}
+                      onValueChange={(v) => setA({ ...a, fixed: { ...a.fixed, rent: num(v) } })}
                     />
                   </Field>
                   <Field label="전기·수도·가스">
-                    <Input
+                    <NumberInput
                       size="sm"
-                      inputMode="numeric"
-                      className="nd-num"
-                      value={String(a.fixed.utility)}
-                      onChange={(e) => setA({ ...a, fixed: { ...a.fixed, utility: num(e.target.value) } })}
+                      value={a.fixed.utility}
+                      onValueChange={(v) => setA({ ...a, fixed: { ...a.fixed, utility: num(v) } })}
                     />
                   </Field>
                   <Field label="인터넷·통신비">
-                    <Input
+                    <NumberInput
                       size="sm"
-                      inputMode="numeric"
-                      className="nd-num"
-                      value={String(a.fixed.telecom)}
-                      onChange={(e) => setA({ ...a, fixed: { ...a.fixed, telecom: num(e.target.value) } })}
+                      value={a.fixed.telecom}
+                      onValueChange={(v) => setA({ ...a, fixed: { ...a.fixed, telecom: num(v) } })}
                     />
                   </Field>
                   <Field label="보험료">
-                    <Input
+                    <NumberInput
                       size="sm"
-                      inputMode="numeric"
-                      className="nd-num"
-                      value={String(a.fixed.insurance)}
-                      onChange={(e) => setA({ ...a, fixed: { ...a.fixed, insurance: num(e.target.value) } })}
+                      value={a.fixed.insurance}
+                      onValueChange={(v) => setA({ ...a, fixed: { ...a.fixed, insurance: num(v) } })}
                     />
                   </Field>
                   <Field label="기타">
-                    <Input
+                    <NumberInput
                       size="sm"
-                      inputMode="numeric"
-                      className="nd-num"
-                      value={String(a.fixed.etc)}
-                      onChange={(e) => setA({ ...a, fixed: { ...a.fixed, etc: num(e.target.value) } })}
+                      value={a.fixed.etc}
+                      onValueChange={(v) => setA({ ...a, fixed: { ...a.fixed, etc: num(v) } })}
                     />
                   </Field>
                 </div>
@@ -464,70 +455,56 @@ function MasterScreen({ assumptions }: { assumptions: SalesAssumptions }) {
                 />
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                   <Field label="이벤트 스태프 시급">
-                    <Input
+                    <NumberInput
                       size="sm"
-                      inputMode="numeric"
-                      className="nd-num"
-                      value={String(a.wage.eventStaff)}
-                      onChange={(e) => setA({ ...a, wage: { ...a.wage, eventStaff: num(e.target.value) } })}
+                      value={a.wage.eventStaff}
+                      onValueChange={(v) => setA({ ...a, wage: { ...a.wage, eventStaff: num(v) } })}
                     />
                   </Field>
                   <Field label="아이디 상시 시급">
-                    <Input
+                    <NumberInput
                       size="sm"
-                      inputMode="numeric"
-                      className="nd-num"
-                      value={String(a.wage.idRegular)}
-                      onChange={(e) => setA({ ...a, wage: { ...a.wage, idRegular: num(e.target.value) } })}
+                      value={a.wage.idRegular}
+                      onValueChange={(v) => setA({ ...a, wage: { ...a.wage, idRegular: num(v) } })}
                     />
                   </Field>
                   <Field label="제작 시급" hint="3D프린팅 등">
-                    <Input
+                    <NumberInput
                       size="sm"
-                      inputMode="numeric"
-                      className="nd-num"
-                      value={String(a.wage.puddi)}
-                      onChange={(e) => setA({ ...a, wage: { ...a.wage, puddi: num(e.target.value) } })}
+                      value={a.wage.puddi}
+                      onValueChange={(v) => setA({ ...a, wage: { ...a.wage, puddi: num(v) } })}
                     />
                   </Field>
                   <Field label="온라인 제작 시급">
-                    <Input
+                    <NumberInput
                       size="sm"
-                      inputMode="numeric"
-                      className="nd-num"
-                      value={String(a.wage.online)}
-                      onChange={(e) => setA({ ...a, wage: { ...a.wage, online: num(e.target.value) } })}
+                      value={a.wage.online}
+                      onValueChange={(v) => setA({ ...a, wage: { ...a.wage, online: num(v) } })}
                     />
                   </Field>
                   <Field label="아이디 일 운영시간" hint="13–20시 = 7">
-                    <Input
+                    <NumberInput
                       size="sm"
-                      inputMode="numeric"
-                      className="nd-num"
-                      value={String(a.idOps.hoursPerDay)}
-                      onChange={(e) =>
-                        setA({ ...a, idOps: { ...a.idOps, hoursPerDay: num(e.target.value) } })
+                      value={a.idOps.hoursPerDay}
+                      onValueChange={(v) =>
+                        setA({ ...a, idOps: { ...a.idOps, hoursPerDay: num(v) } })
                       }
                     />
                   </Field>
                   <Field label="아이디 월 운영일수">
-                    <Input
+                    <NumberInput
                       size="sm"
-                      inputMode="numeric"
-                      className="nd-num"
-                      value={String(a.idOps.daysPerMonth)}
-                      onChange={(e) =>
-                        setA({ ...a, idOps: { ...a.idOps, daysPerMonth: num(e.target.value) } })
+                      value={a.idOps.daysPerMonth}
+                      onValueChange={(v) =>
+                        setA({ ...a, idOps: { ...a.idOps, daysPerMonth: num(v) } })
                       }
                     />
                   </Field>
                   <Field label="와우 이벤트 일 운영시간">
-                    <Input
+                    <NumberInput
                       size="sm"
-                      inputMode="numeric"
-                      className="nd-num"
-                      value={String(a.wowOps.hoursPerDay)}
-                      onChange={(e) => setA({ ...a, wowOps: { hoursPerDay: num(e.target.value) } })}
+                      value={a.wowOps.hoursPerDay}
+                      onValueChange={(v) => setA({ ...a, wowOps: { hoursPerDay: num(v) } })}
                     />
                   </Field>
                 </div>
@@ -547,17 +524,15 @@ function MasterScreen({ assumptions }: { assumptions: SalesAssumptions }) {
                 </InlineNotice>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label="건당 배송비(원)" hint="0 이면 배송비 없음">
-                    <Input
+                    <NumberInput
                       size="sm"
-                      inputMode="numeric"
-                      className="nd-num"
-                      value={String(a.shipping?.fee ?? 0)}
-                      onChange={(e) =>
+                      value={a.shipping?.fee ?? 0}
+                      onValueChange={(v) =>
                         setA({
                           ...a,
                           shipping: {
                             ...(a.shipping ?? {}),
-                            fee: num(e.target.value),
+                            fee: num(v),
                             until: a.shipping?.until,
                           },
                         })

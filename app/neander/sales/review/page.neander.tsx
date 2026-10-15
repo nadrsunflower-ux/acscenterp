@@ -56,6 +56,7 @@ import {
   InfoPopover,
   InlineNotice,
   Input,
+  NumberInput,
   KpiItem,
   KpiStrip,
   LoadingState,
@@ -997,14 +998,7 @@ function BucketCard({
           </div>
         </Field>
         <Field label="수량" hint={picked ? `${picked.unit.toLocaleString("ko-KR")}원 × ${picked.qty}` : "상품을 먼저"}>
-          <Input
-            size="sm"
-            inputMode="numeric"
-            className="nd-num w-20"
-            value={qty}
-            placeholder={String(suggestedQty)}
-            onChange={(e) => setQty(e.target.value.replace(/[^\d]/g, ""))}
-          />
+          <NumberInput size="sm" className="w-20" value={qty} placeholder={String(suggestedQty)} onValueChange={setQty} />
         </Field>
         <FieldAction>
           <Button
@@ -1061,14 +1055,7 @@ function BucketCard({
         </FieldAction>
 
         <Field label="원가 직접입력" hint="상품으로 못 나눌 때">
-          <Input
-            size="sm"
-            inputMode="numeric"
-            className="nd-num w-24"
-            value={material}
-            placeholder="0"
-            onChange={(e) => setMaterial(e.target.value.replace(/[^\d]/g, ""))}
-          />
+          <NumberInput size="sm" className="w-24" value={material} placeholder="0" onValueChange={setMaterial} />
         </Field>
         <FieldAction>
           <Button
@@ -1131,13 +1118,12 @@ function BucketCard({
                   <span className="text-nd-caption text-nd-fg-3" aria-hidden>
                     ×
                   </span>
-                  <Input
+                  <NumberInput
                     size="sm"
-                    inputMode="numeric"
-                    className="nd-num w-16"
+                    className="w-16"
                     aria-label={`조합 상품 ${i + 1} 수량`}
                     value={row.qty}
-                    onChange={(e) => setComboRow(i, { qty: e.target.value.replace(/[^\d]/g, "") })}
+                    onValueChange={(v) => setComboRow(i, { qty: v })}
                   />
                   <span className="nd-num w-24 text-right text-nd-body text-nd-fg-2">
                     <Money value={part?.amount ?? 0} unit={false} />
@@ -1412,27 +1398,21 @@ function DiscountPanel({
           </Select>
         </Field>
         <Field label="수량" hint={list > 0 ? `정가 합계 ${list.toLocaleString("ko-KR")}` : " "}>
-          <Input
-            size="sm"
-            inputMode="numeric"
-            className="nd-num w-20"
-            value={qty}
-            onChange={(e) => setQty(e.target.value.replace(/[^\d]/g, ""))}
-          />
+          <NumberInput size="sm" className="w-20" value={qty} onValueChange={setQty} />
         </Field>
         <Field
           label="할인"
           hint={list > 0 && off > 0 ? (mode === "rate" ? `${off.toLocaleString("ko-KR")}원` : rateLabel(rate)) : " "}
         >
           <div className="flex items-center gap-1.5">
-            <Input
+            <NumberInput
               size="sm"
-              inputMode="decimal"
-              className="nd-num w-24"
+              decimal={mode === "rate"}
+              className="w-24"
               aria-label={mode === "rate" ? "할인율(%)" : "할인액(원)"}
               value={value}
               placeholder="0"
-              onChange={(e) => setValue(e.target.value.replace(mode === "rate" ? /[^\d.]/g : /[^\d]/g, ""))}
+              onValueChange={setValue}
             />
             <SegmentedControl<DiscountMode>
               size="sm"
@@ -1652,21 +1632,10 @@ function NewProductDialog({
           }
           error={qty === 0 ? " " : undefined}
         >
-          <Input
-            inputMode="numeric"
-            className="nd-num"
-            value={price}
-            onChange={(e) => setPrice(e.target.value.replace(/[^\d]/g, ""))}
-          />
+          <NumberInput value={price} onValueChange={setPrice} />
         </Field>
         <Field label="재료비(원)" hint="모르면 비워 둡니다 — 공헌이익이 과대평가됩니다">
-          <Input
-            inputMode="numeric"
-            className="nd-num"
-            value={material}
-            placeholder="0"
-            onChange={(e) => setMaterial(e.target.value.replace(/[^\d]/g, ""))}
-          />
+          <NumberInput value={material} placeholder="0" onValueChange={setMaterial} />
         </Field>
         <Field label="상품코드" required error={codeTaken ? "이미 있는 코드입니다" : undefined}>
           <Input className="nd-num" value={code} onChange={(e) => setCode(e.target.value)} />
