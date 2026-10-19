@@ -509,7 +509,9 @@ export default function SuspenseReport() {
                           <span className="ml-1.5 text-nd-fg-3">명의 {item.nominee}</span>
                         )}
                       </Td>
-                      <Td>
+                      {/* 옆 칸들이 모두 한 줄(nowrap)이라 폭을 안 주면 이 칸만 한 글자 폭까지 줄어
+                          세로쓰기가 된다 — 최소 폭을 주고, 줄을 바꾸더라도 낱말 단위로 */}
+                      <Td className="min-w-[10rem] break-keep">
                         {/* 줄 전체가 눌리지만, 키보드로는 이 단추로 연다 */}
                         <button
                           type="button"
@@ -546,7 +548,7 @@ export default function SuspenseReport() {
                           dash
                         )}
                       </Td>
-                      <Td className="max-w-[340px] pr-5 text-nd-fg-2">
+                      <Td className="min-w-[12rem] max-w-[340px] break-keep pr-5 text-nd-fg-2">
                         {item.note}
                         {v.issues.map((s) => (
                           <span key={s} className="block text-nd-danger-text">
