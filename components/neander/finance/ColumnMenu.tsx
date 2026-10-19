@@ -39,6 +39,7 @@ function virtualAnchor(rect: DOMRect): HTMLElement {
 export function ColumnMenu({
   columnKey,
   range: rangeProp,
+  rangeLabel = "금액",
   label,
   anchor,
   sortDir,
@@ -54,6 +55,8 @@ export function ColumnMenu({
   columnKey: string;
   /** 숫자 범위로 거르는 열인가. 안 주면 원장 규칙으로 판단한다 */
   range?: boolean;
+  /** 범위 칸이 무엇의 범위인지 — 이익률처럼 금액이 아닌 숫자 열에서 바꾼다 */
+  rangeLabel?: string;
   label: string;
   /** 머리글 버튼의 화면 좌표 */
   anchor: DOMRect;
@@ -199,13 +202,13 @@ export function ColumnMenu({
 
         {range ? (
           <div className="p-2.5">
-            <p className="mb-1.5 text-nd-micro text-nd-fg-2">금액 범위</p>
+            <p className="mb-1.5 text-nd-micro text-nd-fg-2">{rangeLabel} 범위</p>
             <div className="flex items-center gap-1.5">
               <NumberInput
                 size="sm"
                 negative
                 placeholder="최소"
-                aria-label="최소 금액"
+                aria-label={`최소 ${rangeLabel}`}
                 value={rangeValue?.min ?? ""}
                 onValueChange={(v) => setRange("min", v === "-" ? "" : v)}
               />
@@ -214,7 +217,7 @@ export function ColumnMenu({
                 size="sm"
                 negative
                 placeholder="최대"
-                aria-label="최대 금액"
+                aria-label={`최대 ${rangeLabel}`}
                 value={rangeValue?.max ?? ""}
                 onValueChange={(v) => setRange("max", v === "-" ? "" : v)}
               />

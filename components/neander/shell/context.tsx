@@ -151,10 +151,13 @@ export function ToolbarPortal({ children, order = 5 }: { children: ReactNode; or
 }
 
 /** 오른쪽 도킹 패널이 열려 있는 동안 셸이 그만큼 비켜선다 (언마운트·닫힘이면 0) */
-export function useDockReservation(px: number) {
+export function useDockReservation(px: number | null) {
   const shell = useShellOptional();
   const set = shell?.setDockWidth;
   useEffect(() => {
+    // null — 자리를 다투지 않는다 (편집창 안에 끼워 넣은 비서). 0 을 쓰면
+    // 레이아웃의 비서가 잡아 둔 자리를 덮어 본문이 그 밑으로 들어간다.
+    if (px === null) return;
     set?.(px);
     return () => set?.(0);
   }, [set, px]);

@@ -330,6 +330,49 @@ export function deductionSplit(d: Pick<FinProjectDeduction, "amount" | "taxMode"
   return splitVat(d.amount, mode);
 }
 
+// ---- 사업체 --------------------------------------------------
+//
+//  같은 사람들이 사업자 넷(법인 네안데르 · 개인사업자 일해라컴퍼니 · 와작홈즈 ·
+//  개인 계좌 안다르)으로 일을 받는다. 어느 사업체의 매출인지는 계약서·세금
+//  계산서를 낸 쪽이 정한다 — 같은 행사도 선금과 잔금을 다른 사업체로 끊은
+//  적이 있어(2025 JIMFF) 하나 이상을 고를 수 있게 한다.
+//
+//  이름은 원장의 사업장(site)과 같은 글자를 쓴다. 그래야 프로젝트에 고르지
+//  않았을 때 원장 입금의 사업장으로 대신 보여줄 수 있다.
+
+export const PROJECT_ENTITIES = ["네안데르", "일해라컴퍼니", "와작홈즈", "안다르"] as const;
+export type ProjectEntity = (typeof PROJECT_ENTITIES)[number];
+
+/** 좁은 칸에 쓰는 이름 — 사람들이 부르는 그대로 */
+export const ENTITY_SHORT: Record<ProjectEntity, string> = {
+  네안데르: "네안데르",
+  일해라컴퍼니: "일컴",
+  와작홈즈: "와작",
+  안다르: "안다르",
+};
+
+export const isProjectEntity = (v: unknown): v is ProjectEntity =>
+  (PROJECT_ENTITIES as readonly string[]).includes(String(v));
+
+/**
+ * 이 프로젝트의 사업체. 사람이 고른 값이 있으면 그것, 없으면 원장에서 이
+ * 코드로 들어온 **수입**의 사업장들 — 고른 값이 아니라 추정이라 source 로
+ * 구분해 화면이 흐리게 그린다.
+ */
+export function projectEntities(
+  p: Pick<FinProjectDoc, "entities" | "code">,
+  transactions: FinTransaction[] = [],
+): { entities: ProjectEntity[]; source: "set" | "ledger" | "none" } {
+  const set = (p.entities ?? []).filter(isProjectEntity);
+  if (set.length > 0) return { entities: set, source: "set" };
+  const seen = new Set<string>();
+  ledgerRowsOf(transactions, p.code).forEach((t) => {
+    if (t.txType === "수입" && t.site) seen.add(t.site);
+  });
+  const fromLedger = PROJECT_ENTITIES.filter((e) => seen.has(e));
+  return fromLedger.length > 0 ? { entities: fromLedger, source: "ledger" } : { entities: [], source: "none" };
+}
+
 export interface FinProjectDoc {
   id: string;
   /** 원장의 projectCode 와 맞춘다 — 대소문자 무시 */
@@ -343,6 +386,8 @@ export interface FinProjectDoc {
   endDate?: string;
   /** 사업소분류 (와우·SMOAT·조향 …) — 사업부 손익과 이어 볼 때 */
   bizMinor?: string;
+  /** 매출을 낸 사업체 (계약·세금계산서 주체). 원장 사업장과 같은 이름. 비우면 원장 입금으로 추정 */
+  entities?: ProjectEntity[];
   /** 계약 금액. 이 값이 공급가액인지 총액인지는 vatMode 가 정한다 */
   contractAmount: number;
   /** 계약금액의 부가세 기준. 비우면 「부가세 별도」 */
@@ -841,6 +886,13 @@ export function sanitizeProject(
       startDate,
       endDate,
       bizMinor: str(raw.bizMinor),
+      // 정해진 넷만, 늘 같은 순서로 — 고른 순서에 따라 「일컴 · 네안데르」와
+      // 「네안데르 · 일컴」이 따로 보이면 같은 조합이 두 가지로 읽힌다
+      entities: (() => {
+        const picked = new Set(Array.isArray(raw.entities) ? raw.entities.filter(isProjectEntity) : []);
+        const list = PROJECT_ENTITIES.filter((e) => picked.has(e));
+        return list.length > 0 ? list : undefined;
+      })(),
       contractAmount: Math.round(num(raw.contractAmount) ?? 0),
       vatMode: vatMode(raw.vatMode) ?? "excluded",
       installments: installments.length > 0 ? installments : undefined,

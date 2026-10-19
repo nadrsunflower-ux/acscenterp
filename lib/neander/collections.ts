@@ -64,6 +64,8 @@ export const NEANDER_COL = {
   finAllocations: "neander_fin_allocations",
   /** 월별 예산 (문서 1개 = 한 달, 계정 경로별 금액 맵) */
   finBudgets: "neander_fin_budgets",
+  /** 런웨이 가정 (문서 하나 `main` — 평균 기간·줄 켜고 끄기·가정 항목·직접 적은 잔액) */
+  finRunway: "neander_fin_runway",
   /** 엑셀 임포트 배치 이력 */
   finImports: "neander_fin_imports",
   /** 월 마감 (문서 1개 = 한 달, 마감 시점 숫자 스냅샷) */
@@ -74,8 +76,13 @@ export const NEANDER_COL = {
   finChats: "neander_fin_chats",
   /** 프로젝트 손익 (문서 1개 = 프로젝트 1개, 체크리스트 줄은 문서 안 배열) */
   finProjects: "neander_fin_projects",
-  /** 프로젝트 문서 — 견적서·계약서 (문서 1개 = 서류 1개, kind 로 구분, 파일은 Storage 경로) */
+  /** 프로젝트 문서 — 견적서·계약서 (문서 1개 = 서류 1개, kind 로 구분, 파일은 Storage 경로, 만든 계약서는 본문 body 를 문서 안에) */
   finDocs: "neander_fin_docs",
+  /**
+   * 계약서 비서와 나눈 대화 (문서 1개 = 대화 1개, 계약서 문서 id 로 묶인다).
+   * 보안 규칙에 없어 서버(api/neander/finance/ai/contract)만 접근한다
+   */
+  finContractChats: "neander_fin_contract_chats",
   /**
    * 견적서 인감 이미지 (문서 id = supplier.ts 의 SEALS id, data = PNG 바이트).
    * 보안 규칙에 없어 서버(api/neander/finance/seals)만 접근 — 깃·public/ 에 두지 않는다

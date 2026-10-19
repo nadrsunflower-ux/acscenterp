@@ -44,6 +44,7 @@ import {
   ArrowUpRight,
   CircleAlert,
   Download,
+  FileText,
   Link2,
   MoreHorizontal,
   Pencil,
@@ -118,6 +119,10 @@ import {
   parseChecklistXlsx,
 } from "@/lib/neander/finance/project-xlsx";
 import {
+  ENTITY_SHORT,
+  PROJECT_ENTITIES,
+  projectEntities,
+  type ProjectEntity,
   PROJECT_STATUSES,
   PROJECT_STATUS_LABEL,
   VAT_LABEL,
@@ -236,6 +241,7 @@ function toInput(p: FinProjectDoc): FinProjectInput {
     startDate: p.startDate,
     endDate: p.endDate,
     bizMinor: p.bizMinor,
+    entities: p.entities ? [...p.entities] : undefined,
     contractAmount: p.contractAmount ?? 0,
     vatMode: p.vatMode,
     installments: p.installments?.map((i) => ({ ...i })),
@@ -619,9 +625,19 @@ export default function ProjectDetailPage() {
       ? `${form.startDate ?? "?"}${form.endDate && form.endDate !== form.startDate ? ` ~ ${form.endDate}` : ""}`
       : null;
 
+  /** 사업체 — 고른 값이 없으면 원장 입금의 사업장으로 추정해 흐리게 보인다 */
+  const entityView = projectEntities(form, transactions);
+  const toggleEntity = (e: ProjectEntity) => {
+    const cur = new Set(form.entities ?? []);
+    if (cur.has(e)) cur.delete(e);
+    else cur.add(e);
+    const next = PROJECT_ENTITIES.filter((x) => cur.has(x));
+    setField("entities", next.length > 0 ? next : undefined);
+  };
+
   /**
    * 자주 안 쓰는 동작은 「⋯ 더보기」로 접는다 — 제목 줄에 버튼이 다섯이면
-   * 어느 것이 주요 동작인지 안 보인다. 남기는 것은 「저장」 하나다.
+   * 어느 것이 주요 동작인지 안 보인다. 남기는 것은 「보고서」와 「저장」이다.
    * 「변경 취소」는 되돌릴 변경이 있을 때만 나온다.
    */
   const moreItems: MenuItem[] = [
@@ -673,9 +689,8 @@ export default function ProjectDetailPage() {
   return (
     <PageShell width="wide">
       {/* ---- 머리 ----
-          제목은 화면 이름(「재무 프로젝트 상세」)이고 프로젝트명은 그 아래
-          편집 가능한 줄이다. 제목 자체가 입력칸이면 "지금 어느 화면인가"를
-          잃는다 — 목업도 같은 배치다. */}
+          제목은 프로젝트 이름이고 그 자리에서 바로 고친다. "지금 어느
+          화면인가"는 상단 경로(재무 / 프로젝트 / 이름)가 알려 준다. */}
       <PageHeader
         className="mb-4"
         eyebrow={
@@ -687,29 +702,44 @@ export default function ProjectDetailPage() {
             프로젝트 목록
           </Link>
         }
-        title="재무 프로젝트 상세"
+        title={
+          <span className="flex min-w-0 items-center gap-1">
+            {/* 입력칸은 글자 길이에 맞춰 줄지 않는다 — 보이지 않는 사본이 폭을
+                정하고 입력칸이 그 칸을 채운다. 그래야 상태 배지가 이름 바로
+                옆에 붙는다. 연필은 "누르면 고쳐진다"는 표시일 뿐이다. */}
+            <span className="-ml-1.5 inline-grid min-w-0 grid-cols-[minmax(0,max-content)]">
+              <span aria-hidden className="invisible col-start-1 row-start-1 truncate whitespace-pre border border-transparent px-1.5">
+                {form.name || "프로젝트 이름"}
+              </span>
+              {/* size={1} — 입력칸의 기본 폭(약 20자)이 칸을 넓히지 않게 */}
+              <input
+                value={form.name}
+                onChange={(e) => setField("name", e.target.value)}
+                size={1}
+                className="col-start-1 row-start-1 w-full min-w-0 text-ellipsis rounded-nd-md border border-transparent bg-transparent px-1.5 text-nd-fg outline-none transition-colors duration-nd-fast placeholder:text-nd-fg-4 hover:border-nd-border focus:border-nd-accent focus:bg-nd-content"
+                aria-label="프로젝트 이름"
+                placeholder="프로젝트 이름"
+              />
+            </span>
+            <Icon icon={Pencil} size={16} className="shrink-0 text-nd-fg-4" />
+          </span>
+        }
         titleSuffix={
           <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <Badge tone={PROJECT_STATUS_TONE[form.status]} dot>
               {PROJECT_STATUS_LABEL[form.status]}
             </Badge>
             <span className="font-mono text-nd-caption text-nd-fg-2">{form.code || "코드 없음"}</span>
+            {entityView.entities.length > 0 && (
+              <span
+                className={cn("text-nd-caption", entityView.source === "set" ? "font-medium text-nd-fg-2" : "text-nd-fg-3")}
+                title={entityView.source === "set" ? "매출을 낸 사업체" : "고르지 않아 원장 입금의 사업장으로 추정했습니다"}
+              >
+                · {entityView.entities.map((e) => ENTITY_SHORT[e]).join(" · ")}
+              </span>
+            )}
             {form.client && <span className="text-nd-caption text-nd-fg-3">· {form.client}</span>}
             {period && <span className="nd-num text-nd-caption text-nd-fg-3">· {period}</span>}
-          </span>
-        }
-        description={
-          <span className="flex items-center gap-1">
-            {/* 프로젝트명은 여기서 바로 고친다 — 이름 하나 바꾸려고 다른 화면으로
-                보내지 않는다. 연필은 "누르면 고쳐진다"는 표시일 뿐이다. */}
-            <input
-              value={form.name}
-              onChange={(e) => setField("name", e.target.value)}
-              className="w-full min-w-[10rem] flex-1 rounded-nd-md border border-transparent bg-transparent px-1.5 py-0.5 text-nd-title font-semibold text-nd-fg outline-none transition-colors duration-nd-fast hover:border-nd-border focus:border-nd-accent focus:bg-nd-content"
-              aria-label="프로젝트 이름"
-              placeholder="프로젝트 이름"
-            />
-            <Icon icon={Pencil} size={14} className="shrink-0 text-nd-fg-4" />
           </span>
         }
         meta={
@@ -735,6 +765,17 @@ export default function ProjectDetailPage() {
               aria-haspopup="menu"
               aria-expanded={moreOpen}
             />
+            {/* 저장된 값으로 그린다 — 고치는 중이면 먼저 저장하라고 알린다 */}
+            <Button
+              variant="secondary"
+              icon={FileText}
+              onClick={() => {
+                if (dirty) toast.info("저장하지 않은 변경은 보고서에 들어가지 않습니다.");
+                window.open(`/neander/finance/projects/${id}/report`, "_blank", "noopener");
+              }}
+            >
+              보고서
+            </Button>
             <Button icon={Save} disabled={!dirty} loading={saving} onClick={save}>
               변경 저장
             </Button>
@@ -855,6 +896,40 @@ export default function ProjectDetailPage() {
                 </datalist>
               </Field>
             </div>
+            {/* 사업체 — 계약서·세금계산서를 낸 쪽. 나눠 끊은 건은 둘 이상 고른다 */}
+            <Field
+              label="사업체"
+              className="mt-3"
+              hint={
+                entityView.source === "ledger"
+                  ? `고르지 않음 — 원장 입금 기준으로는 ${entityView.entities.join(" · ")}`
+                  : entityView.source === "none"
+                    ? "고르지 않음 — 원장에도 입금이 없어 알 수 없습니다"
+                    : "매출을 낸 사업체 (계약·세금계산서 주체)"
+              }
+            >
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="사업체">
+                {PROJECT_ENTITIES.map((e) => {
+                  const on = (form.entities ?? []).includes(e);
+                  return (
+                    <button
+                      key={e}
+                      type="button"
+                      onClick={() => toggleEntity(e)}
+                      aria-pressed={on}
+                      className={cn(
+                        "h-ctl-sm rounded-full border px-3 text-nd-caption font-medium transition-colors duration-nd-fast",
+                        on
+                          ? "border-nd-accent bg-nd-accent-soft text-nd-accent-strong"
+                          : "border-nd-line text-nd-fg-2 hover:bg-nd-fg/[.06]",
+                      )}
+                    >
+                      {e}
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
             <Field label="메모" className="mt-3">
               <Textarea
                 size="sm"

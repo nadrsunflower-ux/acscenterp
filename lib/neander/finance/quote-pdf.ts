@@ -108,19 +108,31 @@ export const QUOTE_CSS = `
 /**
  * 인쇄창을 연다. 팝업이 차단되면 false — 호출한 쪽이 알린다.
  * 창 제목이 「PDF로 저장」의 기본 파일명이 된다.
+ *
+ * 견적서와 계약서가 같이 쓴다. 종이의 생김새(css)와 인쇄할 때만 걸리는
+ * 규칙(printCss · page)은 부르는 쪽이 준다.
  */
-export function openQuotePdf(bodyHtml: string, title: string): boolean {
+export function openPrintWindow(args: {
+  bodyHtml: string;
+  title: string;
+  /** 화면과 인쇄에 모두 걸리는 판형 */
+  css: string;
+  /** @media print 안에 들어갈 규칙 */
+  printCss?: string;
+  /** @page 선언의 안쪽 — 「size: A4 portrait; margin: 16mm 14mm;」 */
+  page?: string;
+}): boolean {
   const win = window.open("", "_blank");
   if (!win) return false;
   win.document.write(`<!doctype html>
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<title>${esc(title)}</title>
+<title>${esc(args.title)}</title>
 <style>
   * { box-sizing: border-box; }
   body { margin: 0 auto; padding: 36px 40px; max-width: 820px; background: #fff; }
-  ${QUOTE_CSS}
+  ${args.css}
   .print-btn {
     position: fixed; top: 16px; right: 16px; border: 0; border-radius: 8px;
     background: #4f46e5; color: #fff; padding: 8px 14px; font-size: 13px; cursor: pointer;
@@ -128,18 +140,25 @@ export function openQuotePdf(bodyHtml: string, title: string): boolean {
   @media print {
     .print-btn { display: none; }
     body { padding: 0; max-width: none; }
-    .sheet .lines thead { display: table-header-group; }
-    .sheet tr { page-break-inside: avoid; }
+    ${args.printCss ?? ""}
   }
-  @page { size: A4 portrait; margin: 16mm 14mm; }
+  @page { ${args.page ?? "size: A4 portrait; margin: 16mm 14mm;"} }
 </style>
 </head>
 <body>
   <button type="button" class="print-btn" onclick="window.print()">인쇄 / PDF 저장</button>
-  ${bodyHtml}
+  ${args.bodyHtml}
   <script>window.addEventListener("load", () => setTimeout(() => window.print(), 300));</script>
 </body>
 </html>`);
   win.document.close();
   return true;
 }
+
+export const openQuotePdf = (bodyHtml: string, title: string): boolean =>
+  openPrintWindow({
+    bodyHtml,
+    title,
+    css: QUOTE_CSS,
+    printCss: ".sheet .lines thead { display: table-header-group; } .sheet tr { page-break-inside: avoid; }",
+  });

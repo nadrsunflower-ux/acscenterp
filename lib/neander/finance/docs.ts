@@ -11,10 +11,12 @@
 //  「일금 ○○원정」. 그 칸을 그대로 화면에 두고, 채우면 인쇄창(PDF)과
 //  엑셀로 뽑는다. 외부에서 받은 견적서 파일도 같은 문서에 붙여 둘 수 있다.
 //
-//  계약서는 **보관한다.** 계약서 본문을 여기서 쓰지는 않는다 — 대개
-//  주최측 양식으로 오고, 도장 찍힌 PDF 가 원본이다. 대신 그 PDF 를
-//  프로젝트에 붙이고, 금액·기간·상태 같은 요약을 옆에 적어 목록에서
-//  파일을 열지 않고도 읽을 수 있게 한다.
+//  계약서는 두 갈래다. 상대가 양식을 보내오면 **보관한다** — 도장 찍힌
+//  PDF 가 원본이고, 그걸 프로젝트에 붙인 뒤 금액·기간·상태 같은 요약을
+//  옆에 적어 목록에서 파일을 열지 않고도 읽을 수 있게 한다. 우리가 먼저
+//  초안을 낼 때는 **만든다** — 표준 양식에서 본문(body)을 지어 종이 위에서
+//  고치고 인쇄·PDF 로 뽑는다(contract-body.ts · contract.ts). body 가
+//  있으면 만든 계약서, 없으면 보관만 하는 계약서다.
 //
 //  문서 1개 = Firestore 문서 1개. 두 종류를 한 컬렉션(neander_fin_docs)에
 //  `kind` 로 구분해 둔다 — 프로젝트 화면이 "이 프로젝트의 문서" 를 한 번에
@@ -24,6 +26,7 @@
 // ============================================================
 
 import { VAT_MODES, VAT_RATE, type VatMode } from "./project";
+import { sanitizeContractBody, theirParty, type ContractBody } from "./contract-body";
 import { DEFAULT_SUPPLIER, DEFAULT_SEAL_ID, SEAL_IDS, canonicalSealId, type FinSupplier } from "./supplier";
 
 // 공급자·인감은 supplier.ts 가 갖는다. 견적서를 다루는 쪽이 두 곳을 뒤지지
@@ -155,6 +158,8 @@ export interface FinContractDoc extends FinDocBase {
   /** 체결(날인)일 */
   signedDate?: string;
   status: ContractStatus;
+  /** 표준 양식으로 만든 본문. 받은 계약서를 붙이기만 한 문서에는 없다 (contract-body.ts) */
+  body?: ContractBody;
 }
 
 export type FinDoc = FinQuoteDoc | FinContractDoc;
@@ -445,6 +450,7 @@ export function sanitizeFinDoc(raw: Partial<FinDocInput> & { kind?: unknown }): 
       return { ok: false, error: "종료일이 시작일보다 앞설 수 없습니다." };
     }
     if (!title) return { ok: false, error: "계약명이 필요합니다." };
+    const body = sanitizeContractBody(r.body);
     return {
       ok: true,
       value: compact({
@@ -452,13 +458,16 @@ export function sanitizeFinDoc(raw: Partial<FinDocInput> & { kind?: unknown }): 
         kind: "contract" as const,
         title,
         note,
-        counterparty: String(r.counterparty ?? "").trim(),
+        // 만든 계약서는 서명란의 상대 상호가 곧 상대방이다 — 두 칸이 따로 놀면
+        // 목록에는 옛 이름이, 종이에는 새 이름이 남는다
+        counterparty: body ? theirParty(body).name : String(r.counterparty ?? "").trim(),
         amount: Math.round(num(r.amount) ?? 0),
         vatMode: oneOf(VAT_MODES, r.vatMode, "included"),
         startDate,
         endDate,
         signedDate,
         status: oneOf(CONTRACT_STATUSES, r.status, "draft"),
+        body,
       }),
     };
   }

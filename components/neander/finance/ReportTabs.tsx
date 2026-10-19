@@ -20,6 +20,7 @@ const TABS = [
   { key: "units", href: "/neander/finance/reports/units", label: "사업부", hint: "B2C·B2B·공용" },
   { key: "subs", href: "/neander/finance/reports/subscriptions", label: "구독", hint: "SaaS 지출" },
   { key: "budget", href: "/neander/finance/reports/budget", label: "예산", hint: "예산 대비 결산" },
+  { key: "runway", href: "/neander/finance/reports/runway", label: "런웨이", hint: "남은 현금 · 몇 달" },
   { key: "suspense", href: "/neander/finance/reports/suspense", label: "가수금", hint: "임직원과 오간 돈" },
 ];
 

@@ -1,0 +1,172 @@
+/* ============================================================
+   계약서 시트 — 종이 위에서 바로 고치기
+   ------------------------------------------------------------
+   판형(contract-pdf.ts 의 CONTRACT_CSS)은 인쇄본과 같아야 하므로 건드리지
+   않는다. 칸의 생김새(q-cell · q-text · q-date · 인감)는 견적서 시트와
+   같은 것을 쓴다(quote-sheet.css). 여기에는 계약서에만 있는 것 — 조항을
+   옮기고 빼는 단추, 고르는 칸, 방금 바뀐 자리 표시 — 만 얹는다.
+
+   인쇄할 때는 sheet--edit 를 떼어 내고 data-noprint 를 걷어 내므로
+   여기 스타일이 종이에 따라가는 일은 없다.
+   ============================================================ */
+
+/* 제목은 가운데 정렬된 큰 글자 그대로 고친다 */
+.csheet.sheet--edit h1 .q-text {
+  text-align: center;
+}
+
+/* ---- 고르는 칸 (부가세 기준) ------------------------------------
+   인쇄 표기(「부가세 포함」)를 그대로 두고 그 위에 셀렉트를 투명하게 덮는다.
+   날짜 칸(q-date)과 같은 방식이다. */
+.csheet.sheet--edit .q-pick {
+  position: relative;
+  display: inline-block;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+}
+.csheet.sheet--edit .q-pick:hover {
+  background: rgb(0 0 0 / 0.04);
+}
+.csheet.sheet--edit .q-pick:focus-within {
+  box-shadow: inset 0 0 0 1px #4f46e5;
+  background: rgb(79 70 229 / 0.06);
+}
+.csheet.sheet--edit .q-pick select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  border: 0;
+  padding: 0;
+}
+
+/* 금액이 아직 없는 줄 · 값이 빈 개요 행 — 종이에서는 빠진다는 표시 */
+.csheet.sheet--edit tr.is-dropped th,
+.csheet.sheet--edit tr.is-dropped td {
+  background: repeating-linear-gradient(-45deg, transparent 0 6px, rgb(0 0 0 / 0.025) 6px 12px);
+}
+.csheet.sheet--edit .c-dropnote {
+  margin-left: 6px;
+  font-size: 12.5px;
+  color: #a1a1aa;
+}
+
+/* 줄 추가 · 안내 글 — 견적서보다 한 단계 크게. 계약서는 종이가 길어 화면을 넓게 쓰고,
+   그만큼 눈에서 멀다 */
+.csheet.sheet--edit .q-linebtn {
+  font-size: 12.5px;
+}
+.csheet.sheet--edit .q-linehint {
+  font-size: 12.5px;
+  color: #b45309;
+}
+
+/* ---- 개요 행 · 품목 줄 지우기 ----------------------------------- */
+.csheet.sheet--edit .terms td.has-x,
+.csheet.sheet--edit .items td.has-x {
+  position: relative;
+  padding-right: 30px;
+}
+.csheet.sheet--edit .c-x {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #a1a1aa;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.csheet.sheet--edit tr:hover .c-x,
+.csheet.sheet--edit tr:focus-within .c-x {
+  opacity: 1;
+}
+.csheet.sheet--edit .c-x:hover {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* 개요 표의 이름 칸(납품기한 · 장소 …)도 고칠 수 있다 */
+.csheet.sheet--edit .terms th .q-cell {
+  text-align: center;
+  font-weight: 600;
+}
+
+/* ---- 조항 ------------------------------------------------------
+   조항 머리 오른쪽에 옮기기·끼우기·빼기 단추. 평소에는 숨기고 손이
+   올라가거나 그 조항을 고치는 동안에만 보인다 — 열여섯 조항마다 단추
+   네 개가 늘 보이면 종이가 종이로 안 읽힌다. */
+.csheet.sheet--edit .clause {
+  position: relative;
+  margin-left: -10px;
+  margin-right: -10px;
+  padding: 2px 10px 4px;
+  border-radius: 8px;
+  transition: background-color 600ms ease;
+}
+.csheet.sheet--edit .clause h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+}
+.csheet.sheet--edit .c-tools {
+  margin-left: auto;
+  display: flex;
+  gap: 1px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.csheet.sheet--edit .clause:hover .c-tools,
+.csheet.sheet--edit .clause:focus-within .c-tools {
+  opacity: 1;
+}
+.csheet.sheet--edit .c-tool {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #71717a;
+  cursor: pointer;
+}
+.csheet.sheet--edit .c-tool:hover:not(:disabled) {
+  background: rgb(0 0 0 / 0.06);
+  color: #18181b;
+}
+.csheet.sheet--edit .c-tool--danger:hover:not(:disabled) {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.csheet.sheet--edit .c-tool:disabled {
+  color: #d4d4d8;
+  cursor: default;
+}
+
+/* ---- 방금 바뀐 자리 ---------------------------------------------
+   비서의 제안을 적용하면 그 자리가 잠깐 노랗게 뜬다. 종이가 길어서
+   「어디가 바뀌었지」 를 눈으로 찾게 두면 안 된다. */
+.csheet.sheet--edit .is-flash {
+  background-color: rgb(250 204 21 / 0.28);
+  transition: background-color 120ms ease;
+}
+.csheet.sheet--edit table.is-flash th,
+.csheet.sheet--edit table.is-flash td {
+  background-color: rgb(250 204 21 / 0.22);
+}
+
+/* 서명란 머리의 역할 이름(발주자 · 수행자)도 고칠 수 있다 */
+.csheet.sheet--edit .sign th.who .q-cell {
+  font-weight: 600;
+}

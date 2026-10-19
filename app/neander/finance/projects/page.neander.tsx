@@ -15,6 +15,10 @@
 //  제목 줄 → 상태 탭 → 검색 → 핵심 지표 → 표 → 쪽 넘김.
 //  「새 프로젝트」는 Dialog 다 — 인라인 카드로 열면 그 아래 지표와 표가
 //  통째로 밀려서, 폼을 쓰는 동안 방금 보던 숫자를 잃는다.
+//
+//  열 머리글을 누르면 원장과 같은 정렬·필터 메뉴(ColumnMenu)가 열린다.
+//  위의 핵심 지표는 지금 표에 남은 프로젝트(취소 제외)로 다시 센다 —
+//  사업체를 「와작홈즈」로 거르면 그 숫자가 곧 와작홈즈의 프로젝트 성과다.
 // ============================================================
 
 import {
@@ -24,7 +28,12 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
+  FilterX,
   FolderOpen,
+  Funnel,
   Plus,
   SearchX,
 } from "lucide-react";
@@ -38,6 +47,7 @@ import {
   FilterBar,
   FilterField,
   FormRow,
+  Icon,
   InlineNotice,
   Input,
   KpiStrip,
@@ -59,10 +69,13 @@ import {
   Th,
   type Tone,
   Tr,
+  cn,
 } from "@/components/neander/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
+import { ColumnMenu } from "@/components/neander/finance/ColumnMenu";
 import { saveFinProject } from "@/lib/neander/finance/client";
 import {
+  ENTITY_SHORT,
   PROJECT_STATUSES,
   PROJECT_STATUS_LABEL,
   VAT_HINT,
@@ -70,6 +83,7 @@ import {
   VAT_MODES,
   emptyProject,
   formatMargin,
+  projectEntities,
   projectSummary,
   sortProjects,
   splitVat,
@@ -77,6 +91,17 @@ import {
   type ProjectStatus,
   type VatMode,
 } from "@/lib/neander/finance/project";
+import {
+  activeProjectFilterCount,
+  applyProjectFilters,
+  isProjectRangeKey,
+  projectOptions,
+  sortProjectRows,
+  type ProjectListFilters,
+  type ProjectListKey,
+  type ProjectListRow,
+  type ProjectListSort,
+} from "@/lib/neander/finance/project-list";
 
 /** 상태 → 의미 색. 데이터가 가진 색이 아니라 상태의 뜻이라 tone 으로 */
 const PROJECT_STATUS_TONE: Record<ProjectStatus, Tone> = {
@@ -94,16 +119,31 @@ export default function ProjectsPage() {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [filters, setFilters] = useState<ProjectListFilters>({});
+  const [sort, setSort] = useState<ProjectListSort | null>(null);
+  const [menu, setMenu] = useState<{ key: ProjectListKey; label: string; anchor: DOMRect } | null>(null);
 
   // 검색은 이미 받아온 목록 안에서만 한다 — 프로젝트는 많아야 수백 건이라
   // 서버를 한 번 더 부를 이유가 없고, 글자를 칠 때마다 표가 즉시 좁혀진다.
-  const rows = useMemo(() => {
+  // 탭·검색을 먼저 걸고, 열 필터는 그 위에 건다 (드롭다운 후보도 이 안에서).
+  const baseRows = useMemo<ProjectListRow[]>(() => {
     const s = q.trim().toLowerCase();
     return sortProjects(projects)
       .filter((p) => statusFilter === "all" || p.status === statusFilter)
       .filter((p) => !s || [p.name, p.code, p.client ?? ""].join(" ").toLowerCase().includes(s))
-      .map((p) => ({ p, s: projectSummary(p, transactions) }));
-  }, [projects, transactions, statusFilter, q]);
+      .map((p) => ({
+        p,
+        s: projectSummary(p, transactions),
+        quotes: docs.filter((d) => d.projectId === p.id && d.kind === "quote").length,
+        contracts: docs.filter((d) => d.projectId === p.id && d.kind === "contract").length,
+        entities: projectEntities(p, transactions).entities,
+      }));
+  }, [projects, transactions, docs, statusFilter, q]);
+  const rows = useMemo(
+    () => sortProjectRows(applyProjectFilters(baseRows, filters), sort),
+    [baseRows, filters, sort],
+  );
+  const filterCount = activeProjectFilterCount(filters);
 
   // 쪽을 넘긴 채로 조건을 바꾸면 빈 쪽이 보인다 — 조건이 바뀌면 첫 쪽으로
   const resetPage = () => setPage(1);
@@ -112,9 +152,10 @@ export default function ProjectsPage() {
     [rows, page, pageSize],
   );
 
-  // 머리 숫자는 취소를 뺀 프로젝트만 — 취소된 계약금액이 합계에 섞이면 안 된다
+  // 머리 숫자는 지금 표에 남은 프로젝트 중 취소를 뺀 것 — 취소된 계약금액이
+  // 합계에 섞이면 안 된다. 탭·검색·열 필터를 따라가야 거른 묶음의 성과가 된다.
   const head = useMemo(() => {
-    const live = projects.filter((p) => p.status !== "cancelled").map((p) => projectSummary(p, transactions));
+    const live = rows.filter((r) => r.p.status !== "cancelled").map((r) => r.s);
     return live.reduce(
       (a, s) => ({
         revenue: a.revenue + s.revenue,
@@ -126,7 +167,51 @@ export default function ProjectsPage() {
       }),
       { revenue: 0, actual: 0, profit: 0, unpaid: 0, overdue: 0, count: 0 },
     );
-  }, [projects, transactions]);
+  }, [rows]);
+
+  const clearAll = () => {
+    setStatusFilter("all");
+    setQ("");
+    setFilters({});
+    setSort(null);
+    resetPage();
+  };
+
+  /** 열 머리글 — 누르면 정렬·필터 메뉴. 걸려 있으면 깔때기·화살표로 알린다 */
+  const columnHead = (key: ProjectListKey, label: string, opts: { align?: "right"; title?: string; sticky?: "left"; className?: string } = {}) => {
+    const filtered = !!filters[key];
+    const dir = sort?.key === key ? sort.dir : null;
+    return (
+      <Th
+        align={opts.align}
+        sticky={opts.sticky}
+        className={opts.className}
+        title={opts.title}
+        aria-sort={dir ? (dir === "asc" ? "ascending" : "descending") : undefined}
+      >
+        <button
+          type="button"
+          onClick={(e) => setMenu({ key, label, anchor: e.currentTarget.getBoundingClientRect() })}
+          aria-label={`${label} 정렬·필터${filtered ? " (걸러짐)" : ""}`}
+          aria-haspopup="dialog"
+          className={cn(
+            "group inline-flex items-center gap-1 rounded-[4px] outline-none transition-colors duration-nd-fast hover:text-nd-fg focus-visible:ring-2 focus-visible:ring-nd-accent/50",
+            // 숫자 열은 글자 끝을 숫자 끝에 맞추려고 표시를 왼쪽에 둔다
+            opts.align === "right" && "flex-row-reverse",
+            (filtered || dir) && "text-nd-accent-strong",
+          )}
+        >
+          <span>{label}</span>
+          {dir && <Icon icon={dir === "asc" ? ArrowUp : ArrowDown} size={12} />}
+          {filtered ? (
+            <Icon icon={Funnel} size={12} className="fill-current" />
+          ) : (
+            !dir && <Icon icon={ChevronDown} size={12} className="opacity-0 transition-opacity group-hover:opacity-60 group-focus-visible:opacity-60" />
+          )}
+        </button>
+      </Th>
+    );
+  };
 
   // 탭은 「전체 + 실제로 있는 상태」만 — 0건짜리 탭은 누를 곳만 늘린다
   const statusTabs = useMemo(() => {
@@ -209,10 +294,29 @@ export default function ProjectsPage() {
                 ariaLabel="프로젝트 검색"
               />
             </FilterField>
+            {(filterCount > 0 || sort) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={FilterX}
+                onClick={() => {
+                  setFilters({});
+                  setSort(null);
+                  resetPage();
+                }}
+              >
+                {[filterCount > 0 && `열 필터 ${filterCount}개`, sort && "정렬"].filter(Boolean).join(" · ")} 해제
+              </Button>
+            )}
           </FilterBar>
 
           <KpiStrip columns={4} className="mb-4">
-            <StatTile label="수입 합계" value={head.revenue} flow="income" hint={`취소 제외 ${head.count}건 · 공급가액(부가세 제외)`} />
+            <StatTile
+              label="수입 합계"
+              value={head.revenue}
+              flow="income"
+              hint={`${rows.length < projects.length ? "표에 남은 " : ""}취소 제외 ${head.count}건 · 공급가액(부가세 제외)`}
+            />
             <StatTile label="실제 원가 합계" value={head.actual} flow="expense" hint="실제금액 없는 줄은 견적으로" />
             <StatTile
               label="실질 이익 합계"
@@ -243,17 +347,9 @@ export default function ProjectsPage() {
                   compact
                   icon={SearchX}
                   title="조건에 맞는 프로젝트가 없습니다"
-                  description="상태 탭을 「전체」로 되돌리거나 검색어를 지워 보세요."
+                  description="상태 탭을 「전체」로 되돌리거나 검색어·열 필터를 지워 보세요."
                   action={
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        setStatusFilter("all");
-                        setQ("");
-                        resetPage();
-                      }}
-                    >
+                    <Button variant="secondary" size="sm" onClick={clearAll}>
                       조건 지우기
                     </Button>
                   }
@@ -264,33 +360,26 @@ export default function ProjectsPage() {
               // 고정해 두지 않으면 오른쪽 숫자를 볼 때 「어느 프로젝트의 값인지」를
               // 잃는다. 가로 스크롤은 TableScroll 안에서만 일어난다.
               <TableScroll>
-                <Table minWidth={1120}>
+                <Table minWidth={1220}>
                   <thead>
                     <tr>
-                      <Th sticky="left" className="pl-5">프로젝트</Th>
-                      <Th>상태</Th>
-                      <Th>기간</Th>
-                      <Th align="right" title="공급가액 기준 — 부가세를 뺀 값입니다">
-                        수입
-                      </Th>
-                      <Th align="right">견적 원가</Th>
-                      <Th align="right">실제 원가</Th>
-                      <Th align="right">실질 이익</Th>
-                      <Th align="right">이익률</Th>
-                      <Th align="right" title="청구 총액에서 아직 안 들어온 돈 (부가세 포함)">
-                        미수금
-                      </Th>
-                      <Th align="right" title="원장에 같은 프로젝트코드가 찍힌 지출 합계 (참고)">
-                        원장 지출
-                      </Th>
-                      <Th align="right">준비</Th>
-                      <Th align="right" className="pr-5" title="견적서 · 계약서 수">
-                        문서
-                      </Th>
+                      {columnHead("name", "프로젝트", { sticky: "left", className: "pl-5" })}
+                      {columnHead("status", "상태")}
+                      {columnHead("entity", "사업체", { title: "매출을 낸 사업체 — 흐린 글자는 고르지 않아 원장 입금 사업장으로 추정한 것" })}
+                      {columnHead("period", "기간")}
+                      {columnHead("revenue", "수입", { align: "right", title: "공급가액 기준 — 부가세를 뺀 값입니다" })}
+                      {columnHead("estimate", "견적 원가", { align: "right" })}
+                      {columnHead("actual", "실제 원가", { align: "right" })}
+                      {columnHead("profit", "실질 이익", { align: "right" })}
+                      {columnHead("margin", "이익률", { align: "right" })}
+                      {columnHead("unpaid", "미수금", { align: "right", title: "청구 총액에서 아직 안 들어온 돈 (부가세 포함)" })}
+                      {columnHead("ledger", "원장 지출", { align: "right", title: "원장에 같은 프로젝트코드가 찍힌 지출 합계 (참고)" })}
+                      {columnHead("ready", "준비", { align: "right" })}
+                      {columnHead("docs", "문서", { align: "right", className: "pr-5", title: "견적서 · 계약서 수" })}
                     </tr>
                   </thead>
                   <tbody>
-                    {pageRows.map(({ p, s }) => (
+                    {pageRows.map(({ p, s, quotes, contracts }) => (
                       // 행 전체가 상세로 간다 — 이름 글자만 링크면 숫자를 눌러본
                       // 사람이 아무 반응 없는 표를 보게 된다. 이름은 진짜 <a> 로
                       // 남겨 둬 낭독기가 링크로 읽고 새 탭 열기(⌘·Ctrl 클릭)도 된다.
@@ -326,6 +415,9 @@ export default function ProjectsPage() {
                             {PROJECT_STATUS_LABEL[p.status]}
                           </Badge>
                         </Td>
+                        <Td className="whitespace-nowrap">
+                          <EntityCell entities={projectEntities(p, transactions)} />
+                        </Td>
                         <Td className="whitespace-nowrap text-nd-caption text-nd-fg-2">
                           {p.startDate ?? "—"}
                           {p.endDate && p.endDate !== p.startDate ? ` ~ ${p.endDate}` : ""}
@@ -358,18 +450,41 @@ export default function ProjectsPage() {
                           {s.lineCount > 0 ? `${s.doneCount}/${s.lineCount}` : "—"}
                         </Td>
                         <Td num muted className="pr-5 text-nd-caption">
-                          {(() => {
-                            // 바깥 검색어 q 와 이름이 겹치지 않게 quote/contract 로 둔다
-                            const quote = docs.filter((d) => d.projectId === p.id && d.kind === "quote").length;
-                            const contract = docs.filter((d) => d.projectId === p.id && d.kind === "contract").length;
-                            return quote + contract === 0 ? "—" : `견 ${quote} · 계 ${contract}`;
-                          })()}
+                          {quotes + contracts === 0 ? "—" : `견 ${quotes} · 계 ${contracts}`}
                         </Td>
                       </Tr>
                     ))}
                   </tbody>
                 </Table>
               </TableScroll>
+            )}
+
+            {menu && (
+              <ColumnMenu
+                columnKey={`p-${menu.key}`}
+                range={isProjectRangeKey(menu.key)}
+                rangeLabel={menu.key === "margin" ? "이익률(%)" : "금액"}
+                label={menu.label}
+                anchor={menu.anchor}
+                sortDir={sort?.key === menu.key ? sort.dir : null}
+                onSort={(dir) => {
+                  setSort(dir === null ? null : { key: menu.key, dir });
+                  resetPage();
+                }}
+                filter={filters[menu.key]}
+                // 후보는 다른 열 필터를 통과한 줄에서 — 고를 값이 사라지지 않게
+                options={isProjectRangeKey(menu.key) ? [] : projectOptions(applyProjectFilters(baseRows, filters, menu.key), menu.key)}
+                onFilterChange={(next) => {
+                  setFilters((f) => {
+                    const copy = { ...f };
+                    if (next === null) delete copy[menu.key];
+                    else copy[menu.key] = next;
+                    return copy;
+                  });
+                  resetPage();
+                }}
+                onClose={() => setMenu(null)}
+              />
             )}
 
             <div className="border-t border-nd-line px-5 py-2.5">
@@ -392,6 +507,28 @@ export default function ProjectsPage() {
 }
 
 const won = (n: number) => n.toLocaleString("ko-KR");
+
+/**
+ * 사업체 칸. 고른 값은 배지로, 고르지 않아 원장 입금으로 추정한 값은 흐린
+ * 글자로 — 둘이 같아 보이면 확정된 값인지 알 수 없다.
+ */
+function EntityCell({ entities: e }: { entities: ReturnType<typeof projectEntities> }) {
+  if (e.source === "none") return <span className="text-nd-fg-4">—</span>;
+  if (e.source === "ledger") {
+    return (
+      <span className="text-nd-caption text-nd-fg-3" title="고르지 않아 원장 입금의 사업장으로 추정했습니다 — 상세 화면에서 고르면 확정됩니다">
+        {e.entities.map((x) => ENTITY_SHORT[x]).join(" · ")}
+      </span>
+    );
+  }
+  return (
+    <span className="flex gap-1">
+      {e.entities.map((x) => (
+        <Badge key={x} size="sm">{ENTITY_SHORT[x]}</Badge>
+      ))}
+    </span>
+  );
+}
 
 /** 계약금액 칸 아래 줄 — 적은 금액을 기준대로 풀어 「받을 돈」 까지 보여 준다 */
 function contractHint(amount: number, mode: VatMode): string {

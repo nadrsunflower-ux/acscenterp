@@ -50,6 +50,41 @@
   field-sizing: content;
 }
 
+/* ---- 여러 줄 글 (sheet-cells 의 AutoText) -----------------------
+   계약서 조항처럼 길게 쓰는 칸. 높이는 글에 맞춰 늘어난다. 줄바꿈을
+   그대로 지켜야 인쇄본(pre-wrap 글자)과 같은 자리에서 줄이 접힌다. */
+.sheet--edit .q-text {
+  display: block;
+  width: calc(100% + 8px);
+  min-width: 0;
+  margin: -2px -4px;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  letter-spacing: inherit;
+  word-break: inherit;
+  overflow-wrap: inherit;
+  white-space: pre-wrap;
+  resize: none;
+  outline: none;
+  overflow: hidden;
+}
+.sheet--edit .q-text::placeholder {
+  color: #a1a1aa;
+  font-weight: 400;
+}
+.sheet--edit .q-text:hover {
+  background: rgb(0 0 0 / 0.04);
+}
+.sheet--edit .q-text:focus {
+  border-color: #4f46e5;
+  background: rgb(79 70 229 / 0.06);
+}
+
 /* ---- 견적일 ----------------------------------------------------
    「2026년09월10일」 이라는 인쇄 표기를 그대로 두고, 그 위에 날짜
    입력칸을 투명하게 덮는다. 클릭하면 달력이 뜬다. 인쇄할 때는 덮개만

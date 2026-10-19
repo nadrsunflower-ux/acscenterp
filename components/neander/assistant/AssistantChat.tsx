@@ -18,6 +18,12 @@
 //
 //  재무 비서는 아직 자기 파일을 쓴다. 그쪽 작업이 잠잠해지면 어댑터 하나로
 //  여기에 얹으면 된다 — 그때 FinanceChat.tsx 는 100줄로 줄어든다.
+//
+//  배치는 둘이다. 보통은 모듈 레이아웃에 붙어 도구 막대에 버튼을 올리고
+//  오른쪽에 도킹하거나 팝업으로 뜬다. `embedded` 면 부르는 쪽이 준 자리를
+//  그대로 채운다 — 계약서 편집창처럼 **한 문서를 두고** 이야기하는 비서는
+//  그 문서 옆에 늘 붙어 있어야 한다(finance/ContractChat). 대화·첨부·모델·
+//  제안 카드는 어느 배치든 같은 코드다.
 // ============================================================
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -95,6 +101,10 @@ export interface AssistantAdapter<P> {
   focusExamples?: string[];
   inputPlaceholder: string;
   busyLabel: string;
+  /** 처음 쓸 때의 모델. 없으면 비서 공통 기본값 — 사람이 고른 뒤로는 그 값을 기억한다 */
+  defaultModel?: string;
+  /** 답 위의 접힌 줄 — 도구를 n번 불렀다. 없으면 「조회 n회 — 어떻게 찾았는지 보기」 */
+  traceLabel?: (n: number) => string;
 
   send: (
     messages: AgentMessage[],
@@ -106,9 +116,10 @@ export interface AssistantAdapter<P> {
     /** 화면에서 보고 있는 대상 — 「이거」 가 무엇인지 서버가 안다 (ai/focus.ts) */
     focus?: AssistantFocus,
   ) => Promise<AssistantResult<P>>;
-  listChats: () => Promise<AssistantChatSummary[]>;
-  loadChat: (id: string) => Promise<AssistantChatDoc<P>>;
-  deleteChat: (id: string) => Promise<void>;
+  /** 지난 대화 — 셋 다 없으면 「지난 대화」 단추가 없다 */
+  listChats?: () => Promise<AssistantChatSummary[]>;
+  loadChat?: (id: string) => Promise<AssistantChatDoc<P>>;
+  deleteChat?: (id: string) => Promise<void>;
 
   /** 제안을 실제로 저장한다 — 사람이 「적용」을 눌렀을 때만 불린다 */
   apply: (proposal: P) => Promise<void>;
@@ -180,10 +191,20 @@ export function proposalLook(applied: boolean, dismissed: boolean, base: "warnin
       };
 }
 
-export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) {
+export function AssistantChat<P>({
+  adapter,
+  embedded = false,
+  className,
+}: {
+  adapter: AssistantAdapter<P>;
+  /** 부르는 쪽이 준 자리를 채운다 — 도구 막대 버튼·도킹·팝업 없이 늘 열려 있다 */
+  embedded?: boolean;
+  className?: string;
+}) {
   const ask = useConfirm();
   const narrow = useMediaQuery(NARROW_QUERY);
-  const [open, setOpen] = useState(false);
+  const [openState, setOpen] = useState(false);
+  const open = embedded || openState;
   const [turns, setTurns] = useState<Turn<P>[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -191,7 +212,7 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
   const [applied, setApplied] = useState<Set<string>>(new Set());
   // 무시한 제안은 따로 든다 — 적용한 것과 같은 초록으로 보이면 저장된 줄 안다
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const [model, setModel] = useState(DEFAULT_FIN_AI_MODEL);
+  const [model, setModel] = useState(adapter.defaultModel ?? DEFAULT_FIN_AI_MODEL);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelToConfirm, setModelToConfirm] = useState<FinAiModelOption | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -202,7 +223,8 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
   const [loadingChat, setLoadingChat] = useState(false);
   const [panelMode, setPanelMode] = useState<"docked" | "floating">("docked");
   const [dockWidth, setDockWidth] = useState(448);
-  useDockReservation(open && panelMode === "docked" && !narrow ? dockWidth : 0);
+  // 끼워 넣은 비서는 자리를 예약하지 않는다 — 레이아웃의 비서가 잡아 둔 자리를 0 으로 덮으면 안 된다
+  useDockReservation(embedded ? null : open && panelMode === "docked" && !narrow ? dockWidth : 0);
   const [floatBox, setFloatBox] = useState({ x: 80, y: 72, w: 420, h: 620 });
   const layoutLoaded = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
@@ -216,8 +238,10 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
   const fullScreen = panelMode === "docked" && narrow;
 
   // 도구 막대가 가려진 화면(발표 화면 Deck)에서도 부를 수 있게 — 창 이벤트로 열고 닫고,
-  // 지금 이름·열림 상태를 알린다 (assistant/events.ts)
+  // 지금 이름·열림 상태를 알린다 (assistant/events.ts).
+  // 끼워 넣은 비서는 이 이야기에 끼지 않는다 — 화면의 비서는 레이아웃에 붙은 그 하나다.
   useEffect(() => {
+    if (embedded) return;
     const onCall = (e: Event) => {
       const action = (e as CustomEvent<{ action?: AssistantAction }>).detail?.action;
       if (action === "toggle") setOpen((v) => !v);
@@ -227,30 +251,38 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
     };
     window.addEventListener(ASSISTANT_EVENT, onCall);
     return () => window.removeEventListener(ASSISTANT_EVENT, onCall);
-  }, [adapter.name, open]);
+  }, [adapter.name, open, embedded]);
   useEffect(() => {
-    announceAssistant({ name: adapter.name, open });
-  }, [adapter.name, open]);
-  useEffect(() => () => announceAssistant({ name: null, open: false }), []);
+    if (!embedded) announceAssistant({ name: adapter.name, open });
+  }, [adapter.name, open, embedded]);
+  useEffect(
+    () => () => {
+      if (!embedded) announceAssistant({ name: null, open: false });
+    },
+    [embedded],
+  );
 
   // 보고 슬라이드 발표 중이면 그 달·장 — 질문과 함께 서버로 보낸다 (Deck 이 알려 온다)
   const [presentation, setPresentation] = useState<PresentationContext | null>(null);
   useEffect(() => {
+    if (embedded) return;
     const onCtx = (e: Event) => setPresentation((e as CustomEvent<PresentationContext | null>).detail);
     window.addEventListener(ASSISTANT_CONTEXT_EVENT, onCtx);
     return () => window.removeEventListener(ASSISTANT_CONTEXT_EVENT, onCtx);
-  }, []);
+  }, [embedded]);
 
   // 화면에서 보고 있는 대상 (검토 대기함의 커서 거래). 사람이 ✕ 로 떼면 그 대상은
   // 다시 붙지 않는다 — 커서를 다른 거래로 옮기면 새 대상이 붙는다.
   const [focus, setFocus] = useState<AssistantFocus | null>(null);
   const [droppedFocus, setDroppedFocus] = useState<string | null>(null);
   useEffect(() => {
+    // 끼워 넣은 비서가 보는 대상은 그 문서다 — 검토 대기함의 커서 거래가 아니다
+    if (embedded) return;
     setFocus(getAssistantFocus());
     const onFocus = (e: Event) => setFocus((e as CustomEvent<AssistantFocus | null>).detail);
     window.addEventListener(ASSISTANT_FOCUS_EVENT, onFocus);
     return () => window.removeEventListener(ASSISTANT_FOCUS_EVENT, onFocus);
-  }, []);
+  }, [embedded]);
   const activeFocus = focus && focus.id !== droppedFocus ? focus : null;
 
   const addFiles = (list: FileList | File[] | null) => {
@@ -394,8 +426,9 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
   }, [turns, open, busy]);
 
   useEffect(() => {
-    if (open) inputRef.current?.focus();
-  }, [open]);
+    // 끼워 넣은 비서는 열리자마자 커서를 가져가지 않는다 — 사람은 문서를 보러 들어왔다
+    if (open && !embedded) inputRef.current?.focus();
+  }, [open, embedded]);
 
   const startNew = useCallback(() => {
     setTurns([]);
@@ -409,7 +442,7 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
     setListOpen(true);
     setChats(null);
     try {
-      setChats(await adapter.listChats());
+      setChats((await adapter.listChats?.()) ?? []);
     } catch (e) {
       setChats([]);
       setError(e instanceof Error ? e.message : "대화 목록을 불러오지 못했습니다.");
@@ -421,6 +454,7 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
       setLoadingChat(true);
       setError(null);
       try {
+        if (!adapter.loadChat) return;
         const chat = await adapter.loadChat(id);
         setTurns(
           chat.messages.map((m) => ({
@@ -455,7 +489,7 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
       });
       if (!ok) return;
       try {
-        await adapter.deleteChat(id);
+        await adapter.deleteChat?.(id);
         setChats((prev) => (prev ?? []).filter((c) => c.id !== id));
         if (conversationId === id) startNew();
       } catch (e) {
@@ -537,41 +571,51 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
 
   return (
     <>
-      <ToolbarPortal order={10}>
-        <Button
-          variant="secondary"
-          pill
-          icon={MessageSquareText}
-          onClick={() => setOpen((v) => !v)}
-          aria-pressed={open}
-          aria-label={open ? `${adapter.name} 닫기` : `${adapter.name} 열기`}
-          title={adapter.name}
-          className={cn(
-            "max-sm:w-9 max-sm:px-0",
-            open ? "border-transparent bg-nd-accent-soft text-nd-accent-strong" : "nd-glass border-0",
-          )}
-        >
-          <span className="max-sm:hidden">{adapter.name}</span>
-        </Button>
-      </ToolbarPortal>
+      {!embedded && (
+        <ToolbarPortal order={10}>
+          <Button
+            variant="secondary"
+            pill
+            icon={MessageSquareText}
+            onClick={() => setOpen((v) => !v)}
+            aria-pressed={open}
+            aria-label={open ? `${adapter.name} 닫기` : `${adapter.name} 열기`}
+            title={adapter.name}
+            className={cn(
+              "max-sm:w-9 max-sm:px-0",
+              open ? "border-transparent bg-nd-accent-soft text-nd-accent-strong" : "nd-glass border-0",
+            )}
+          >
+            <span className="max-sm:hidden">{adapter.name}</span>
+          </Button>
+        </ToolbarPortal>
+      )}
 
       {open && (
         <section
           aria-label={adapter.name}
           className={cn(
-            "fixed z-nd-dock flex flex-col bg-nd-content",
-            panelMode === "docked"
-              ? fullScreen
-                ? "inset-0"
-                : "inset-y-0 right-0 border-l border-nd-line shadow-nd-pop"
-              : "overflow-hidden rounded-nd-xl border border-nd-line shadow-nd-dialog",
+            "flex flex-col bg-nd-content",
+            embedded
+              ? "relative h-full min-h-0 min-w-0"
+              : cn(
+                  "fixed z-nd-dock",
+                  panelMode === "docked"
+                    ? fullScreen
+                      ? "inset-0"
+                      : "inset-y-0 right-0 border-l border-nd-line shadow-nd-pop"
+                    : "overflow-hidden rounded-nd-xl border border-nd-line shadow-nd-dialog",
+                ),
+            className,
           )}
           style={
-            panelMode === "docked"
-              ? fullScreen
-                ? { width: "100vw" }
-                : { width: dockWidth, maxWidth: "100vw" }
-              : { left: floatBox.x, top: floatBox.y, width: floatBox.w, height: floatBox.h }
+            embedded
+              ? undefined
+              : panelMode === "docked"
+                ? fullScreen
+                  ? { width: "100vw" }
+                  : { width: dockWidth, maxWidth: "100vw" }
+                : { left: floatBox.x, top: floatBox.y, width: floatBox.w, height: floatBox.h }
           }
           onDragEnter={(e) => {
             if (!e.dataTransfer.types.includes("Files")) return;
@@ -596,7 +640,7 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
             addFiles(e.dataTransfer.files);
           }}
         >
-          {panelMode === "docked" && !fullScreen && (
+          {!embedded && panelMode === "docked" && !fullScreen && (
             <div
               onPointerDown={startDockResize}
               title="드래그해서 너비 조절"
@@ -613,10 +657,10 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
           )}
 
           <header
-            onPointerDown={panelMode === "floating" ? startFloatDrag : undefined}
+            onPointerDown={!embedded && panelMode === "floating" ? startFloatDrag : undefined}
             className={cn(
               "flex shrink-0 items-center justify-between gap-2 border-b border-nd-line px-4 py-3",
-              panelMode === "floating" && "cursor-move touch-none select-none",
+              !embedded && panelMode === "floating" && "cursor-move touch-none select-none",
             )}
           >
             <div className="min-w-0">
@@ -635,19 +679,21 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
               )}
             </div>
             <div className="flex shrink-0 items-center gap-0.5">
-              <IconButton
-                icon={History}
-                label="지난 대화"
-                size="sm"
-                active={listOpen}
-                onClick={() => (listOpen ? setListOpen(false) : void openList())}
-                disabled={busy}
-                className={cn(listOpen && "bg-nd-fg/[.08] text-nd-fg")}
-              />
+              {adapter.listChats && (
+                <IconButton
+                  icon={History}
+                  label="지난 대화"
+                  size="sm"
+                  active={listOpen}
+                  onClick={() => (listOpen ? setListOpen(false) : void openList())}
+                  disabled={busy}
+                  className={cn(listOpen && "bg-nd-fg/[.08] text-nd-fg")}
+                />
+              )}
               {turns.length > 0 && (
                 <IconButton icon={Plus} label="새 대화" size="sm" onClick={startNew} disabled={busy} />
               )}
-              {!narrow && (
+              {!embedded && !narrow && (
                 <IconButton
                   icon={panelMode === "docked" ? PictureInPicture2 : PanelRight}
                   label={panelMode === "docked" ? "팝업 창으로 띄우기" : "오른쪽에 고정"}
@@ -655,7 +701,7 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
                   onClick={() => setPanelMode((m) => (m === "docked" ? "floating" : "docked"))}
                 />
               )}
-              <IconButton icon={X} label="닫기" size="sm" onClick={() => setOpen(false)} />
+              {!embedded && <IconButton icon={X} label="닫기" size="sm" onClick={() => setOpen(false)} />}
             </div>
           </header>
 
@@ -708,13 +754,15 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
                           )}
                         </p>
                       </button>
-                      <IconButton
-                        icon={Trash2}
-                        label="이 대화 지우기"
-                        size="sm"
-                        onClick={() => void removeChat(c.id)}
-                        className="text-nd-fg-3 opacity-0 transition-opacity hover:text-nd-danger-text focus-visible:opacity-100 group-hover:opacity-100"
-                      />
+                      {adapter.deleteChat && (
+                        <IconButton
+                          icon={Trash2}
+                          label="이 대화 지우기"
+                          size="sm"
+                          onClick={() => void removeChat(c.id)}
+                          className="text-nd-fg-3 opacity-0 transition-opacity hover:text-nd-danger-text focus-visible:opacity-100 group-hover:opacity-100"
+                        />
+                      )}
                     </div>
                   ))
                 )}
@@ -780,7 +828,7 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
                   {t.toolCalls && t.toolCalls.length > 0 && (
                     <details className="rounded-nd-md border border-nd-line bg-nd-sunken px-3 py-1.5">
                       <summary className="cursor-pointer text-nd-caption text-nd-fg-2">
-                        조회 {t.toolCalls.length}회 — 어떻게 찾았는지 보기
+                        {adapter.traceLabel?.(t.toolCalls.length) ?? `조회 ${t.toolCalls.length}회 — 어떻게 찾았는지 보기`}
                       </summary>
                       <ul className="mt-1.5 space-y-0.5 text-nd-caption text-nd-fg-2">
                         {t.toolCalls.map((c, k) => (
@@ -871,6 +919,8 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
                 anchorRef={modelBtnRef}
                 placement="top-start"
                 ariaLabel="모델 선택"
+                // 편집창(Dialog) 안에 끼워 넣었을 때는 그 창 위로 떠야 한다
+                overDialog={embedded}
                 className="w-72"
                 items={FIN_AI_MODELS.map((m) => ({
                   key: m.id,
@@ -982,7 +1032,7 @@ export function AssistantChat<P>({ adapter }: { adapter: AssistantAdapter<P> }) 
             </div>
           </div>
 
-          {panelMode === "floating" && (
+          {!embedded && panelMode === "floating" && (
             <div
               onPointerDown={startFloatResize}
               title="드래그해서 크기 조절"

@@ -35,6 +35,9 @@ import type { FinSuspenseDoc, FinSuspenseInput } from "./suspense";
 
 import type { PresentationContext } from "@/lib/neander/ai/presentation";
 import type { AssistantFocus } from "@/lib/neander/ai/focus";
+import type { AgentResult } from "@/lib/neander/ai/agent";
+import type { AssistantChatDoc, AssistantChatSummary } from "@/lib/neander/ai/chat-log";
+import type { ContractProposal, FinContractDraft } from "./contract";
 
 const DATA_URL = "/api/neander/finance/data";
 const MUTATE_URL = "/api/neander/finance/mutate";
@@ -657,6 +660,73 @@ export async function finDocFileUrl(path: string): Promise<string> {
   return ((await res.json()) as { url: string }).url;
 }
 
+// ---- 계약서 비서 ---------------------------------------------
+
+const CONTRACT_CHAT_URL = "/api/neander/finance/ai/contract";
+
+export type ContractChatResult = AgentResult<ContractProposal> & { conversationId?: string };
+
+/**
+ * 계약서 비서와 대화한다. 화면의 초안을 매번 통째로 함께 보낸다 — 사람이 방금
+ * 고친 것, 아직 저장하지 않은 것까지가 「지금 계약서」 다 (server/ai-contract.ts).
+ * 응답의 proposals 는 **초안에도 아직 닿지 않은** 제안이다.
+ * docId 는 저장된 계약서의 문서 id — 대화를 그 계약서에 묶는 데 쓴다.
+ */
+export async function sendContractChat(
+  messages: ChatMessage[],
+  contract: FinContractDraft,
+  opts: { model?: string; files?: File[]; conversationId?: string; docId?: string } = {},
+): Promise<ContractChatResult> {
+  const { model, files, conversationId, docId } = opts;
+  if (!files || files.length === 0) {
+    return mutateJson<ContractChatResult>(CONTRACT_CHAT_URL, { messages, contract, model, conversationId, docId });
+  }
+  const user = getNeanderAuth().currentUser;
+  if (!user) throw new Error("로그인이 필요합니다.");
+  const form = new FormData();
+  form.append("messages", JSON.stringify(messages));
+  form.append("contract", JSON.stringify(contract));
+  if (model) form.append("model", model);
+  if (conversationId) form.append("conversationId", conversationId);
+  if (docId) form.append("docId", docId);
+  for (const f of files) form.append("files", f);
+  const res = await fetch(CONTRACT_CHAT_URL, {
+    method: "POST",
+    // Content-Type 은 브라우저가 boundary 와 함께 넣는다
+    headers: { Authorization: `Bearer ${await user.getIdToken()}` },
+    body: form,
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return (await res.json()) as ContractChatResult;
+}
+
+/** 이 계약서를 두고 나눈 대화 목록 (본문 없이 요약만) */
+export async function fetchContractChatList(docId: string): Promise<AssistantChatSummary[]> {
+  const res = await fetch(`${CONTRACT_CHAT_URL}?docId=${encodeURIComponent(docId)}`, {
+    headers: await authHeaders(),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return ((await res.json()) as { chats: AssistantChatSummary[] }).chats;
+}
+
+export async function fetchContractChat(id: string): Promise<AssistantChatDoc<ContractProposal>> {
+  const res = await fetch(`${CONTRACT_CHAT_URL}?id=${encodeURIComponent(id)}`, {
+    headers: await authHeaders(),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return ((await res.json()) as { chat: AssistantChatDoc<ContractProposal> }).chat;
+}
+
+export async function deleteContractChat(id: string): Promise<void> {
+  const res = await fetch(`${CONTRACT_CHAT_URL}?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await readError(res));
+}
+
 // ---- 배분 규칙 ----------------------------------------------
 
 export const upsertFinAllocation = (rule: Partial<FinAllocationDoc> & { name: string }) =>
@@ -706,3 +776,27 @@ export const addFinAnomalyIgnore = (ignore: {
 
 /** 형광펜 다시 켜기 */
 export const deleteFinAnomalyIgnore = (id: string) => mutate("anomalyIgnore.delete", { id });
+
+// ---- 런웨이 가정 -------------------------------------------
+
+const RUNWAY_URL = "/api/neander/finance/runway";
+
+/** 저장된 가정 — 아직 한 번도 저장하지 않았으면 null */
+export async function fetchRunwaySettings(): Promise<import("./runway").RunwaySettings | null> {
+  const res = await fetch(RUNWAY_URL, { headers: await authHeaders(), cache: "no-store" });
+  if (!res.ok) throw Object.assign(new Error(await readError(res)), { status: res.status });
+  return ((await res.json()) as { settings?: import("./runway").RunwaySettings | null }).settings ?? null;
+}
+
+/** 가정을 통째로 저장한다 — 서버가 다듬은 값(누가 · 언제 포함)을 돌려준다 */
+export async function saveRunwaySettings(
+  settings: import("./runway").RunwaySettings,
+): Promise<import("./runway").RunwaySettings> {
+  const res = await fetch(RUNWAY_URL, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ settings }),
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return ((await res.json()) as { settings: import("./runway").RunwaySettings }).settings;
+}

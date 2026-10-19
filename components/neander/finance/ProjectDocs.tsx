@@ -7,6 +7,11 @@
 //  각각 목록과 「새로」 버튼을 둔다. 줄을 누르면 편집창이 열리고, 파일
 //  칩을 누르면 파일이 새 창에 열린다.
 //
+//  계약서는 길이 둘이다. 「새 계약서」 를 누르면 먼저 고른다 — 표준 양식으로
+//  우리 초안을 짓거나(ContractComposer — 종이와 비서), 상대가 보내온 계약서의
+//  파일을 붙이고 요약만 적거나(ContractEditor). 본문(body)이 있으면 앞의 것,
+//  없으면 뒤의 것으로 열린다.
+//
 //  문서 저장은 프로젝트의 「저장」 과 **따로** 간다. 문서는 편집창 안에서
 //  바로 서버에 쓴다 — 프로젝트 초안(체크리스트)에 묶어 두면 견적서 하나
 //  고치려고 체크리스트까지 통째로 다시 저장하게 되고, 반대로 체크리스트를
@@ -38,6 +43,11 @@ import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { FileChip } from "@/components/neander/finance/DocFiles";
 import { QuoteEditor } from "@/components/neander/finance/QuoteEditor";
 import { ContractEditor } from "@/components/neander/finance/ContractEditor";
+import { ContractComposer, ContractTemplatePicker } from "@/components/neander/finance/ContractComposer";
+import { printableContractHtml } from "@/components/neander/finance/ContractSheet";
+import { openContractPdf } from "@/lib/neander/finance/contract-pdf";
+import { contractTemplate } from "@/lib/neander/finance/contract-body";
+import { contractFileStem, hasContractBody, newContract as buildContract, type FinContractDraft } from "@/lib/neander/finance/contract";
 import { openQuotePdf } from "@/lib/neander/finance/quote-pdf";
 import { printableQuoteHtml } from "@/components/neander/finance/QuoteSheet";
 import { preloadSeals } from "@/lib/neander/finance/seal-image";
@@ -84,6 +94,10 @@ const CONTRACT_STATUS_TONE: Record<ContractStatus, Tone> = {
 type Open =
   | { kind: "quote"; id?: string; initial: FinQuoteInput; files: FinQuoteDoc["files"] }
   | { kind: "contract"; id?: string; initial: FinContractInput; files: FinContractDoc["files"] }
+  /** 표준 양식을 고르는 중 */
+  | { kind: "pick" }
+  /** 만든 계약서 — 본문이 있다 */
+  | { kind: "compose"; id?: string; initial: FinContractDraft; files: FinContractDoc["files"] }
   | null;
 
 /** 저장된 문서에서 편집 가능한 부분만 뗀다 (id·시각·파일은 따로 다룬다) */
@@ -138,7 +152,8 @@ export function ProjectDocs({
       initial: emptyQuote(project.id, { title: `${project.name}의 건`, recipient: project.client ?? "", existing: docs }),
       files: [],
     });
-  const newContract = () =>
+  /** 받은 계약서 — 파일을 붙이고 요약만 적는다 */
+  const registerContract = () =>
     setOpen({
       kind: "contract",
       initial: emptyContract(project.id, {
@@ -154,6 +169,9 @@ export function ProjectDocs({
 
   const printQuote = (q: FinQuoteDoc) => {
     if (!openQuotePdf(printableQuoteHtml(q), quoteFileStem(q))) onNotice?.({ kind: "error", text: "팝업이 차단되어 인쇄창을 열지 못했습니다. 이 사이트의 팝업을 허용해 주세요." });
+  };
+  const printContract = (c: FinContractDraft) => {
+    if (!openContractPdf(printableContractHtml(c), contractFileStem(c))) onNotice?.({ kind: "error", text: "팝업이 차단되어 인쇄창을 열지 못했습니다. 이 사이트의 팝업을 허용해 주세요." });
   };
 
   const after = async () => {
@@ -253,21 +271,32 @@ export function ProjectDocs({
                 계약서 <span className="nd-num ml-1 font-normal text-nd-fg-3">{contracts.length}</span>
               </>
             }
-            hint="도장 찍힌 PDF 를 붙이고 금액·기간·상태를 요약해 둡니다"
+            hint="표준 양식으로 초안을 만들거나, 받은 계약서를 붙여 둡니다"
             action={
-              <Button variant="ghost" size="sm" icon={FilePlus2} onClick={newContract}>
-                계약서 등록
+              <Button variant="ghost" size="sm" icon={FilePlus2} onClick={() => setOpen({ kind: "pick" })}>
+                새 계약서
               </Button>
             }
           />
           {contracts.length === 0 ? (
-            <p className="py-4 text-center text-nd-caption text-nd-fg-3">아직 계약서가 없습니다. 「계약서 등록」 으로 파일을 붙이세요.</p>
+            <p className="py-4 text-center text-nd-caption text-nd-fg-3">
+              아직 계약서가 없습니다. 「새 계약서」 로 우리 초안을 만들거나, 받은 계약서를 붙이세요.
+            </p>
           ) : (
             <ul className="divide-y divide-nd-line">
               {contracts.map((c) => {
                 const split = splitVat(c.amount, c.vatMode);
-                const period = c.startDate || c.endDate ? `${c.startDate ?? "?"} ~ ${c.endDate ?? "?"}` : null;
-                const openContract = () => setOpen({ kind: "contract", id: c.id, initial: contractInput(c), files: c.files ?? [] });
+                // 만든 계약서는 시작을 비우면 체결일부터다 (contract.ts 의 periodLine)
+                const period = c.startDate || c.endDate ? `${c.startDate ?? (c.body ? "체결일" : "?")} ~ ${c.endDate ?? "?"}` : null;
+                const input = contractInput(c);
+                // 본문이 있으면 만든 계약서 — 종이와 비서가 있는 편집창으로 연다
+                const made = hasContractBody(input) ? input : null;
+                const openContract = () =>
+                  setOpen(
+                    made
+                      ? { kind: "compose", id: c.id, initial: made, files: c.files ?? [] }
+                      : { kind: "contract", id: c.id, initial: input, files: c.files ?? [] },
+                  );
                 return (
                   <li key={c.id}>
                     <div
@@ -301,10 +330,31 @@ export function ProjectDocs({
                         <Badge tone={CONTRACT_STATUS_TONE[c.status]} size="sm" dot>
                           {CONTRACT_STATUS_LABEL[c.status]}
                         </Badge>
+                        {made && (
+                          <Badge size="sm">
+                            {contractTemplate(made.body.template).label} · {made.body.clauses.length}개 조
+                          </Badge>
+                        )}
                         {(c.files ?? []).length === 0 ? (
-                          <span className="text-nd-micro font-normal text-nd-warning-text">파일 없음 — 계약서 원본을 붙여 두세요</span>
+                          // 만든 계약서는 글이 본체다 — 파일이 없다고 경고하지 않는다
+                          !made && <span className="text-nd-micro font-normal text-nd-warning-text">파일 없음 — 계약서 원본을 붙여 두세요</span>
                         ) : (
                           (c.files ?? []).map((f) => <FileChip key={f.path} file={f} />)
+                        )}
+                        {made && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            icon={Printer}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              printContract(made);
+                            }}
+                            className="ml-auto"
+                            title="인쇄창을 엽니다 — 대상에서 「PDF로 저장」"
+                          >
+                            인쇄 / PDF
+                          </Button>
                         )}
                       </div>
                     </div>
@@ -319,6 +369,25 @@ export function ProjectDocs({
       {open?.kind === "quote" && (
         <QuoteEditor
           key={open.id ?? "new-quote"}
+          id={open.id}
+          initial={open.initial}
+          initialFiles={open.files}
+          onClose={() => setOpen(null)}
+          onSaved={after}
+          onDeleted={after}
+          onApplyAmount={onApplyAmount}
+        />
+      )}
+      {open?.kind === "pick" && (
+        <ContractTemplatePicker
+          onClose={() => setOpen(null)}
+          onPick={(templateId) => setOpen({ kind: "compose", initial: buildContract(templateId, project, docs), files: [] })}
+          onRegister={registerContract}
+        />
+      )}
+      {open?.kind === "compose" && (
+        <ContractComposer
+          key={open.id ?? "new-compose"}
           id={open.id}
           initial={open.initial}
           initialFiles={open.files}

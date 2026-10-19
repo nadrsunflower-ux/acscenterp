@@ -62,6 +62,14 @@ export const DEFAULT_FIN_AI_MODEL = "google/gemini-3.7-flash";
 export const INSIGHT_AI_MODEL = "anthropic/claude-sonnet-5";
 
 /**
+ * 계약서 비서(finance/server/ai-contract.ts)의 기본 모델 — 인사이트와 같은 이유로 비서와 따로 둔다.
+ * 프로젝트마다 몇 번 쓰고, 밖으로 나가 도장이 찍히는 문장이라 문장 품질이 비용보다 중요하다.
+ * 계약서 한 장이 통째로 맥락에 실려 한 번 묻는 데 입력 8천 토큰 안팎이다.
+ * 사람이 패널에서 다른 모델을 고르면 그 값을 따른다. OPENROUTER_MODEL 의 영향을 받지 않는다.
+ */
+export const CONTRACT_AI_MODEL = "anthropic/claude-sonnet-5";
+
+/**
  * 회의 녹음 받아쓰기 · 회의록 초안 (2026-09-19 사용자 지정). 음성을 직접 받는 모델이어야 한다.
  * 실측: 77분 회의에 받아쓰기 $0.228 + 초안 $0.042 — 시간당 약 $0.21.
  * 받아쓰기는 reasoning effort low 로 부른다. high 는 1분에 생각 토큰 2.9만($0.11)을
