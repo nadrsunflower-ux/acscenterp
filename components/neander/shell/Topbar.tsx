@@ -17,7 +17,7 @@ import { describePath } from "./nav-config";
 
 export function Topbar() {
   const pathname = usePathname();
-  const { isMobile, setDrawerOpen, setToolbarEl } = useShell();
+  const { isMobile, setDrawerOpen, setToolbarEl, crumbTail } = useShell();
   const crumb = describePath(pathname);
 
   return (
@@ -42,9 +42,29 @@ export function Topbar() {
             </span>
           </>
         )}
-        <span className="max-w-[40vw] truncate px-1 font-semibold text-nd-fg sm:max-w-none" aria-current="page">
-          {crumb.page}
-        </span>
+        {crumbTail ? (
+          // 상세 화면 — 메뉴 칸은 목록으로 가는 링크, 끝은 지금 보는 것의 이름.
+          // 모바일은 폭이 모자라 이름만 남긴다.
+          <>
+            {crumb.pageHref ? (
+              <Link href={crumb.pageHref} className="hidden shrink-0 rounded-[6px] px-1 text-nd-fg-2 hover:text-nd-fg sm:inline">
+                {crumb.page}
+              </Link>
+            ) : (
+              <span className="hidden shrink-0 px-1 text-nd-fg-2 sm:inline">{crumb.page}</span>
+            )}
+            <span aria-hidden className="hidden text-nd-fg-4 sm:inline">
+              /
+            </span>
+            <span className="max-w-[40vw] truncate px-1 font-semibold text-nd-fg" aria-current="page" title={crumbTail}>
+              {crumbTail}
+            </span>
+          </>
+        ) : (
+          <span className="max-w-[40vw] truncate px-1 font-semibold text-nd-fg sm:max-w-none" aria-current="page">
+            {crumb.page}
+          </span>
+        )}
       </nav>
 
       {/* 회의 녹음 중이면 어느 화면에서든 — 누르면 그 회의로 */}

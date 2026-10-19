@@ -46,6 +46,9 @@ interface ShellValue {
    */
   focus: boolean;
   setFocus: (v: boolean) => void;
+  /** 브레드크럼 끝에 붙는 상세 이름 — 메뉴 표는 메뉴까지만 안다 (useCrumbTail) */
+  crumbTail: string | null;
+  setCrumbTail: (v: string | null) => void;
 }
 
 const ShellContext = createContext<ShellValue | null>(null);
@@ -93,6 +96,7 @@ export function ShellProvider({ children }: { children: ReactNode }) {
   const [toolbarEl, setToolbarEl] = useState<HTMLElement | null>(null);
   const [dockWidth, setDockWidth] = useState(0);
   const [focus, setFocus] = useState(false);
+  const [crumbTail, setCrumbTail] = useState<string | null>(null);
 
   const value = useMemo<ShellValue>(
     () => ({
@@ -110,8 +114,10 @@ export function ShellProvider({ children }: { children: ReactNode }) {
       setDockWidth,
       focus,
       setFocus,
+      crumbTail,
+      setCrumbTail,
     }),
-    [isMobile, collapsed, restored, toggleCollapsed, drawerOpen, badges, setBadge, toolbarEl, dockWidth, focus],
+    [isMobile, collapsed, restored, toggleCollapsed, drawerOpen, badges, setBadge, toolbarEl, dockWidth, focus, crumbTail],
   );
 
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
@@ -166,6 +172,20 @@ export function useShellFocus(enabled: boolean) {
     set?.(enabled);
     return () => set?.(false);
   }, [set, enabled]);
+}
+
+/**
+ * 상단 브레드크럼 끝에 지금 보는 것의 이름을 붙인다 — 「재무 / 프로젝트 /
+ * 2026 BL 향수」. 메뉴 표는 「프로젝트」까지만 알아서 상세 화면은 이름을
+ * 페이지가 알려 줘야 한다. 페이지를 떠나면 지워진다.
+ */
+export function useCrumbTail(label: string | null | undefined) {
+  const shell = useShellOptional();
+  const set = shell?.setCrumbTail;
+  useEffect(() => {
+    set?.(label || null);
+    return () => set?.(null);
+  }, [set, label]);
 }
 
 /** 모듈 레이아웃이 사이드바 배지를 갱신할 때 */

@@ -208,19 +208,24 @@ export function isActive(item: { href: string; exact?: boolean }, pathname: stri
   return item.exact ? pathname === item.href : pathname === item.href || pathname.startsWith(item.href + "/");
 }
 
-/** 현재 경로를 "모듈 / 화면" 으로 — 상단 브레드크럼 */
-export function describePath(pathname: string): { module?: { label: string; href: string }; page: string } {
+/** 현재 경로를 "모듈 / 화면" 으로 — 상단 브레드크럼 (상세 이름은 페이지가 useCrumbTail 로 붙인다) */
+export function describePath(pathname: string): {
+  module?: { label: string; href: string };
+  page: string;
+  /** 상세 화면이 이름을 덧붙이면 메뉴 칸이 링크가 된다 (재무 / 프로젝트 / 2026 BL 향수) */
+  pageHref?: string;
+} {
   const ws = workspaceOf(pathname);
   if (ws) {
     const items = ws.nav.flatMap((g) => g.items);
     const hit = items.filter((i) => isActive(i, pathname)).sort((a, b) => b.href.length - a.href.length)[0];
-    return { module: { label: ws.label, href: ws.href }, page: hit?.label ?? ws.label };
+    return { module: { label: ws.label, href: ws.href }, page: hit?.label ?? ws.label, pageHref: hit?.href ?? ws.href };
   }
   if (pathname.startsWith("/neander/dev")) {
     const hit = DEV_TABS.filter((t) => isActive(t, pathname)).sort((a, b) => b.href.length - a.href.length)[0];
-    return { module: { label: "개발", href: "/neander/dev" }, page: hit?.label ?? "개발" };
+    return { module: { label: "개발", href: "/neander/dev" }, page: hit?.label ?? "개발", pageHref: hit?.href ?? "/neander/dev" };
   }
   const items = GLOBAL_NAV.flatMap((g) => g.items);
   const hit = items.filter((i) => isActive(i, pathname)).sort((a, b) => b.href.length - a.href.length)[0];
-  return { page: hit?.label ?? "NEANDER ERP" };
+  return { page: hit?.label ?? "NEANDER ERP", pageHref: hit?.href };
 }

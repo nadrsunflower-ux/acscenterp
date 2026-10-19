@@ -104,6 +104,7 @@ import {
   useSheetLayout,
 } from "@/components/neander/finance/useSheetLayout";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
+import { useCrumbTail } from "@/components/neander/shell/context";
 import {
   deleteFinProject,
   saveFinProject,
@@ -276,6 +277,8 @@ export default function ProjectDetailPage() {
   const { projects, transactions, accounts, paymentMethods, loading, refresh } = useFinance();
 
   const saved = useMemo(() => projects.find((p) => p.id === id) ?? null, [projects, id]);
+  // 상단 경로 끝에 프로젝트 이름 — 저장된 이름을 쓴다(고치는 중인 글자는 아직 위치가 아니다)
+  useCrumbTail(saved?.name);
   /**
    * 초안과 그 되돌리기 스택.
    *
