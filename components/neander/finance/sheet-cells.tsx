@@ -13,7 +13,7 @@
 // ============================================================
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { cn } from "@/components/neander/ui";
+import { cn, fitTextarea } from "@/components/neander/ui";
 import { caretAfterRegroup, caretPastComma, cleanNumberText, groupDigits } from "@/lib/neander/format";
 import "./quote-sheet.css";
 
@@ -142,9 +142,9 @@ export function AutoText({
   const fit = () => {
     const el = ref.current;
     if (!el) return;
-    el.style.height = "0px";
-    // 테두리 몫을 더한다 — 상자 크기에 테두리가 들어가는(border-box) 칸이라, 빼먹으면 마지막 줄 아래가 그만큼 잘린다
-    el.style.height = `${el.scrollHeight + (el.offsetHeight - el.clientHeight)}px`;
+    // 테두리 몫을 더한다 — 상자 크기에 테두리가 들어가는(border-box) 칸이라, 빼먹으면 마지막 줄 아래가 그만큼 잘린다.
+    // 칸을 접어서 재지 않는다 — 접는 순간 감싼 시트의 스크롤이 끌려가 화면이 튄다 (fitTextarea)
+    fitTextarea(el, { border: true });
   };
   useLayoutEffect(fit, [value]);
   useEffect(() => {

@@ -31,7 +31,7 @@
 //  회의록 저장 로직(액션플랜 ↔ 일일업무 동기화)은 그대로.
 // ============================================================
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   Archive,
@@ -81,6 +81,7 @@ import {
   cn,
   useConfirm,
   useToast,
+  fitTextarea,
 } from "@/components/neander/ui";
 import {
   type Meeting,
@@ -1435,18 +1436,16 @@ function MeetingEditor({
   const titleRef = useRef<HTMLTextAreaElement>(null);
 
   // 제목·본문 칸은 글만큼 자란다 — 긴 제목이 잘리지 않고, 본문은 칸 안에서
-  // 따로 스크롤하지 않아 문서처럼 이어서 읽힌다
-  useEffect(() => {
+  // 따로 스크롤하지 않아 문서처럼 이어서 읽힌다.
+  // ⚠️ 높이를 재려고 칸을 접지 않는다(fitTextarea) — 접었다 펴는 순간 패널 스크롤이
+  //    끌려가 글자를 칠 때마다 화면이 튀었다. 그리기 전에(layout effect) 맞춘다.
+  useLayoutEffect(() => {
     const el = titleRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    if (el) fitTextarea(el);
   }, [title]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = contentRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.max(220, el.scrollHeight + 2)}px`;
+    if (el) fitTextarea(el, { min: 220, extra: 2 });
   }, [content]);
 
   // AI 초안을 폼에 채운다. 이미 쓴 내용은 지우지 않고 뒤에 붙인다 — 회의 중에

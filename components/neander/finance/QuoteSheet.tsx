@@ -21,7 +21,7 @@ import { createElement, forwardRef, useEffect, useLayoutEffect, useRef, useState
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { Plus, Trash2 } from "lucide-react";
-import { cn } from "@/components/neander/ui";
+import { cn, fitTextarea } from "@/components/neander/ui";
 import {
   QUOTE_VAT_LABEL,
   koreanDate,
@@ -46,8 +46,8 @@ function MemoCell({ value, onChange }: { value: string; onChange: (v: string) =>
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.style.height = "0px";
-    el.style.height = `${el.scrollHeight}px`;
+    // 접어서 재지 않는다 — 접는 순간 종이 스크롤이 끌려가 화면이 튄다 (fitTextarea)
+    fitTextarea(el);
   }, [value]);
   return (
     <textarea
