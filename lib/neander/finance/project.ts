@@ -138,6 +138,42 @@ export interface FinProjectLine {
   extra?: Record<string, string>;
 }
 
+// ---- 사내 인력 ---------------------------------------------------
+//
+//  외부 인력(일용직 · 3.3% 프리랜서)은 실제로 돈이 나가므로 지출 줄에 적는다.
+//  정직원과 대표가 준비 · 설치 · 운영 · 철수에 쓴 날은 어디에도 잡히지 않아,
+//  그대로 두면 이익이 크게 부풀어 보인다(평택 미리내컴 이익률 76%).
+//  그래서 「누가 · 며칠 × 하루 단가」 를 따로 적는다. 실제 지출이 아니라 추정이라
+//  「실제 원가」 에 더하지 않고, 이익을 두 줄로 본다 — 현장 이익(외부 원가만)과
+//  인력 반영 이익. (업계 도구 Deltek Maconomy 의 GM1 · GM2 와 같은 생각)
+//
+//  하루 단가는 **그때 값으로 이 프로젝트에 남긴다.** 급여가 바뀌어도 끝난
+//  프로젝트의 숫자가 따라 바뀌면 안 된다.
+
+export interface FinProjectLabor {
+  id: string;
+  /** 사람 이름 (원장 급여 거래처 이름과 같게 쓰면 단가 추천이 붙는다) */
+  name: string;
+  /** 쓴 날 — 반나절은 0.5 */
+  days: number;
+  /** 하루 단가 (원) — 급여 + 4대보험 회사 부담을 하루로 나눈 값 */
+  dayRate: number;
+  note?: string;
+}
+
+export const laborCost = (l: Pick<FinProjectLabor, "days" | "dayRate">) =>
+  Math.round((Number(l.days) || 0) * (Number(l.dayRate) || 0));
+
+export const laborTotal = (list: FinProjectLabor[] | undefined) =>
+  (list ?? []).reduce((s, l) => s + laborCost(l), 0);
+
+/** 남은 일 한 줄 */
+export interface FinProjectTodo {
+  id: string;
+  text: string;
+  done?: boolean;
+}
+
 /**
  * 사용자가 직접 만든 열.
  *
@@ -437,6 +473,12 @@ export interface FinProjectDoc {
   columns?: FinProjectColumn[];
   lines: FinProjectLine[];
   note?: string;
+  /** 사내 인력 — 정직원·대표가 쓴 날 × 하루 단가 (추정 원가, 실제 지출이 아니다) */
+  labor?: FinProjectLabor[];
+  /** 남은 일 — 남은 청구 · 세금계산서 · 신고 · 장비 반납 … */
+  todos?: FinProjectTodo[];
+  /** 다음엔 — 이 건에서 배운 것 (다음 견적·운영에 넘길 것) */
+  lessons?: string;
   createdAt: number;
   createdBy?: string;
   updatedAt?: number;
@@ -461,6 +503,10 @@ export function newRevenue(): FinProjectRevenue {
 export function newInstallment(kind: InstallmentKind = "선금"): FinProjectInstallment {
   return { id: shortId(), kind, amount: 0 };
 }
+
+export const newLabor = (name = "", dayRate = 0): FinProjectLabor => ({ id: shortId(), name, days: 1, dayRate });
+
+export const newTodo = (text: string): FinProjectTodo => ({ id: shortId(), text });
 
 export function newDeduction(): FinProjectDeduction {
   return { id: shortId(), label: "", amount: 0, taxMode: "invoice" };
@@ -813,6 +859,18 @@ export function sanitizeDeduction(raw: Partial<FinProjectDeduction>): FinProject
   }) as FinProjectDeduction;
 }
 
+export function sanitizeLabor(raw: Partial<FinProjectLabor>): FinProjectLabor {
+  const days = Number(raw.days);
+  return compact({
+    id: str(raw.id) ?? shortId(),
+    name: String(raw.name ?? "").trim().slice(0, 40),
+    // 반나절(0.5)까지 — 소수 둘째 자리에서 끊는다
+    days: Number.isFinite(days) && days > 0 ? Math.round(days * 100) / 100 : 0,
+    dayRate: Math.max(0, Math.round(num(raw.dayRate) ?? 0)),
+    note: str(raw.note),
+  }) as FinProjectLabor;
+}
+
 export function sanitizeInstallment(raw: Partial<FinProjectInstallment>): FinProjectInstallment {
   const kind = (INSTALLMENT_KINDS as readonly string[]).includes(String(raw.kind))
     ? (raw.kind as InstallmentKind)
@@ -941,6 +999,19 @@ export function sanitizeProject(
       columns: columns.length > 0 ? columns : undefined,
       lines,
       note: str(raw.note),
+      labor: (() => {
+        const list = (Array.isArray(raw.labor) ? raw.labor : [])
+          .map(sanitizeLabor)
+          .filter((l) => l.name || l.days !== 0 || l.dayRate !== 0);
+        return list.length > 0 ? list : undefined;
+      })(),
+      todos: (() => {
+        const list = (Array.isArray(raw.todos) ? raw.todos : [])
+          .map((t) => compact({ id: str(t?.id) ?? shortId(), text: String(t?.text ?? "").trim().slice(0, 300), done: t?.done ? true : undefined }))
+          .filter((t) => t.text) as FinProjectTodo[];
+        return list.length > 0 ? list : undefined;
+      })(),
+      lessons: str(raw.lessons),
     }) as FinProjectInput,
   };
 }

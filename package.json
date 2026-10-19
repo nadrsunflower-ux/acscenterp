@@ -44,6 +44,7 @@
     "finance:vendor-kinds": "tsx --conditions react-server scripts/neander/vendor-kinds.ts",
     "finance:verify-split": "tsx scripts/neander/verify-split.ts",
     "finance:verify-runway": "tsx scripts/neander/verify-runway.ts",
+    "finance:verify-project-report": "tsx scripts/neander/verify-project-report.ts",
     "finance:verify-focus": "tsx --conditions react-server scripts/neander/verify-assistant-focus.ts",
     "finance:verify-slots": "tsx scripts/neander/verify-import-slots.ts",
     "finance:backfill-slot-account": "tsx scripts/neander/backfill-slot-account.ts",

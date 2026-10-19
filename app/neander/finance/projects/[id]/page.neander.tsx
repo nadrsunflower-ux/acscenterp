@@ -64,9 +64,11 @@ import {
   Button,
   ButtonGroup,
   Card,
+  Checkbox,
   cn,
   EmptyState,
   Field,
+  FieldAction,
   FormRow,
   Icon,
   IconButton,
@@ -145,6 +147,12 @@ import {
   newLine,
   newRevenue,
   newDeduction,
+  newLabor,
+  newTodo,
+  laborCost,
+  laborTotal,
+  type FinProjectLabor,
+  type FinProjectTodo,
   DEDUCTION_TAX_MODES,
   DEDUCTION_TAX_LABEL,
   DEDUCTION_TAX_HINT,
@@ -158,6 +166,8 @@ import {
   type FinProjectRevenue,
   type ProjectStatus,
 } from "@/lib/neander/finance/project";
+import { suggestDayRates } from "@/lib/neander/finance/project-report";
+import { todayStrKST } from "@/lib/neander/format";
 import {
   netAmount,
   type FinTransaction,
@@ -251,6 +261,9 @@ function toInput(p: FinProjectDoc): FinProjectInput {
     columns: p.columns?.map((c) => ({ ...c })),
     lines: (p.lines ?? []).map((l) => ({ ...l })),
     note: p.note,
+    labor: p.labor?.map((l) => ({ ...l })),
+    todos: p.todos?.map((t) => ({ ...t })),
+    lessons: p.lessons,
   };
 }
 
@@ -372,6 +385,11 @@ export default function ProjectDetailPage() {
     () => (form ? ledgerRowsOf(transactions, form.code) : []),
     [transactions, form],
   );
+  // 사내 인력 하루 단가 추천 — 원장 최근 3개월 급여 (project-report.ts)
+  const rateHints = useMemo(
+    () => suggestDayRates(transactions, todayStrKST().slice(0, 7)),
+    [transactions],
+  );
 
   /** 사업소분류 후보 — 원장에 있는 값 */
   const bizMinors = useMemo(() => {
@@ -441,6 +459,19 @@ export default function ProjectDetailPage() {
 
   const setField = <K extends keyof FinProjectInput>(k: K, v: FinProjectInput[K]) =>
     edit((f) => ({ ...f, [k]: v }));
+
+  // ---- 사내 인력 · 남은 일 ----
+  const updateLabor = (lid: string, patch: Partial<FinProjectLabor>) =>
+    edit((f) => ({ ...f, labor: (f.labor ?? []).map((l) => (l.id === lid ? { ...l, ...patch } : l)) }));
+  /** 이름이 원장 급여 거래처와 같고 단가가 비어 있으면 추천 단가를 채운다 */
+  const renameLabor = (l: FinProjectLabor, name: string) => {
+    const hint = rateHints.find((h) => h.name === name.trim());
+    updateLabor(l.id, { name, ...(hint && !l.dayRate ? { dayRate: hint.dayRate } : {}) });
+  };
+  const removeLabor = (lid: string) => edit((f) => ({ ...f, labor: (f.labor ?? []).filter((l) => l.id !== lid) }));
+  const updateTodo = (tid: string, patch: Partial<FinProjectTodo>) =>
+    edit((f) => ({ ...f, todos: (f.todos ?? []).map((t) => (t.id === tid ? { ...t, ...patch } : t)) }));
+  const removeTodo = (tid: string) => edit((f) => ({ ...f, todos: (f.todos ?? []).filter((t) => t.id !== tid) }));
 
   /**
    * 시트는 줄 배열을 통째로 돌려준다 (행 추가·삭제·붙여넣기가 모두 여기로
@@ -941,6 +972,114 @@ export default function ProjectDetailPage() {
                 placeholder="계약 조건, 부가세 기준, 정산 일정 …"
               />
             </Field>
+          </Card>
+
+          {/* ---- 사내 인력 ---- */}
+          <Card padding="sm" className="mb-5">
+            <SectionHeader
+              title="사내 인력"
+              hint="정직원 · 대표가 이 건에 쓴 날 × 하루 단가 — 추정이라 실제 원가에 더하지 않고, 보고서에 「인력 반영 이익」 으로 따로 나옵니다"
+              action={
+                <Button variant="ghost" size="sm" icon={Plus} onClick={() => edit((f) => ({ ...f, labor: [...(f.labor ?? []), newLabor()] }))}>
+                  사람 추가
+                </Button>
+              }
+            />
+            {(form.labor ?? []).length === 0 ? (
+              <p className="text-nd-caption text-nd-fg-3">
+                아직 없습니다. 외부 일용직 · 3.3% 프리랜서처럼 실제로 돈이 나간 사람은 「지출 · 준비물」 줄에, 급여를 받는 정직원 · 대표는 여기에
+                적습니다 — 같은 사람을 두 곳에 적으면 두 번 빠집니다.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {(form.labor ?? []).map((l) => {
+                  const hint = rateHints.find((h) => h.name === l.name.trim());
+                  return (
+                    <FormRow key={l.id} className="grid-cols-2 sm:grid-cols-[minmax(8rem,1fr)_6rem_9rem_8rem_minmax(8rem,1.2fr)_auto]">
+                      <Field label="이름">
+                        <Input size="sm" list="labor-names" value={l.name} onChange={(e) => renameLabor(l, e.target.value)} placeholder="이동주" />
+                      </Field>
+                      <Field label="일수" hint="반나절 0.5">
+                        <NumberInput size="sm" decimal value={l.days || ""} onValueChange={(v) => updateLabor(l.id, { days: Number(v) || 0 })} className="text-right" />
+                      </Field>
+                      <Field
+                        label="하루 단가"
+                        hint={
+                          hint
+                            ? `원장 급여 기준 ${hint.dayRate.toLocaleString("ko-KR")}`
+                            : rateHints.length > 0
+                              ? "원장 급여에 없는 이름"
+                              : undefined
+                        }
+                      >
+                        <NumberInput size="sm" value={l.dayRate || ""} placeholder="0" onValueChange={(v) => updateLabor(l.id, { dayRate: Number(v) || 0 })} className="text-right" />
+                      </Field>
+                      <FieldAction center>
+                        <span className="nd-num text-nd-body font-medium text-nd-fg">{laborCost(l).toLocaleString("ko-KR")}원</span>
+                      </FieldAction>
+                      <Field label="메모">
+                        <Input size="sm" value={l.note ?? ""} onChange={(e) => updateLabor(l.id, { note: e.target.value || undefined })} placeholder="설치 · 운영 · 철수" />
+                      </Field>
+                      <FieldAction>
+                        <IconButton icon={X} label={`${l.name || "이 사람"} 빼기`} size="sm" onClick={() => removeLabor(l.id)} className="text-nd-fg-3 hover:text-nd-danger-text" />
+                      </FieldAction>
+                    </FormRow>
+                  );
+                })}
+                <p className="mt-1 border-t border-nd-line pt-2 text-nd-caption text-nd-fg-2">
+                  합계 {(form.labor ?? []).reduce((a, l) => a + (Number(l.days) || 0), 0).toLocaleString("ko-KR")}일 ·{" "}
+                  <b className="font-semibold text-nd-fg">{laborTotal(form.labor).toLocaleString("ko-KR")}원</b> · 인력 반영 이익{" "}
+                  <Money value={summary.profitActual - laborTotal(form.labor)} unit={false} flow="net" />원
+                  {summary.revenue > 0 && ` (${(((summary.profitActual - laborTotal(form.labor)) / summary.revenue) * 100).toFixed(1)}%)`}
+                </p>
+              </div>
+            )}
+            <datalist id="labor-names">
+              {rateHints.map((h) => (
+                <option key={h.name} value={h.name}>{`하루 ${h.dayRate.toLocaleString("ko-KR")}원 · 월 ${h.monthly.toLocaleString("ko-KR")}원`}</option>
+              ))}
+            </datalist>
+            {rateHints.length > 0 && (
+              <TableNote className="mt-2">
+                하루 단가 추천 = 원장 최근 3개월 급여 월평균 × 1.1(4대보험 회사 부담) ÷ 21일. 적어 둔 단가는 이 프로젝트에 그때 값으로 남습니다.
+              </TableNote>
+            )}
+          </Card>
+
+          {/* ---- 남은 일 · 다음엔 ---- */}
+          <Card padding="sm" className="mb-5">
+            <SectionHeader title="남은 일 · 다음엔" hint="보고서 첫 장에 나옵니다 — 중간 보고는 남은 일이, 결산은 다음엔이 앞에" />
+            <div className="grid gap-5 lg:grid-cols-2">
+              <div>
+                <h3 className="mb-1.5 text-nd-caption font-medium text-nd-fg-2">남은 일</h3>
+                <ul className="mb-2 flex flex-col gap-1.5">
+                  {(form.todos ?? []).map((t) => (
+                    <li key={t.id} className="flex items-center gap-2">
+                      <Checkbox checked={!!t.done} onChange={(e) => updateTodo(t.id, { done: e.target.checked || undefined })} aria-label={`${t.text} 끝냄`} />
+                      <Input
+                        size="sm"
+                        value={t.text}
+                        onChange={(e) => updateTodo(t.id, { text: e.target.value })}
+                        className={cn(t.done && "text-nd-fg-3 line-through")}
+                        aria-label="남은 일"
+                      />
+                      <IconButton icon={X} label="지우기" size="sm" onClick={() => removeTodo(t.id)} className="text-nd-fg-3 hover:text-nd-danger-text" />
+                    </li>
+                  ))}
+                </ul>
+                <TodoAdder onAdd={(text) => edit((f) => ({ ...f, todos: [...(f.todos ?? []), newTodo(text)] }))} />
+              </div>
+              <div>
+                <h3 className="mb-1.5 text-nd-caption font-medium text-nd-fg-2">다음엔</h3>
+                <Textarea
+                  size="sm"
+                  rows={4}
+                  value={form.lessons ?? ""}
+                  onChange={(e) => setField("lessons", e.target.value || undefined)}
+                  placeholder="견적에서 빠뜨린 것 · 다음 견적에 넣을 것 · 발주처와 미리 맞출 것 …"
+                />
+              </div>
+            </div>
           </Card>
 
           {/* ---- 분류별 소계 ---- */}
@@ -1640,5 +1779,30 @@ export default function ProjectDetailPage() {
         />
       )}
     </PageShell>
+  );
+}
+
+/** 남은 일 한 줄 더하기 — 입력 중인 글자는 초안이 아니라 여기 따로 쥔다 (엔터로 추가) */
+function TodoAdder({ onAdd }: { onAdd: (text: string) => void }) {
+  const [text, setText] = useState("");
+  const add = () => {
+    const t = text.trim();
+    if (!t) return;
+    onAdd(t);
+    setText("");
+  };
+  return (
+    <form
+      className="flex items-center gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        add();
+      }}
+    >
+      <Input size="sm" value={text} onChange={(e) => setText(e.target.value)} placeholder="예: 잔금 세금계산서 발행 · 장비 반납" aria-label="남은 일 더하기" />
+      <Button type="submit" variant="secondary" size="sm" icon={Plus} disabled={!text.trim()}>
+        추가
+      </Button>
+    </form>
   );
 }
