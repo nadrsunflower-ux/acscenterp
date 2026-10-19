@@ -97,6 +97,7 @@ import {
   useToast,
 } from "@/components/neander/ui";
 import { ChecklistSheet } from "@/components/neander/finance/ChecklistSheet";
+import { DueInput } from "@/components/neander/finance/DueInput";
 import { isTypingInto } from "@/components/neander/finance/sheetCells";
 import {
   CHECKLIST_LAYOUT_KEY,
@@ -1156,7 +1157,7 @@ export default function ProjectDetailPage() {
                       <Th sticky="top" className="w-28 pl-5">구분</Th>
                       <Th sticky="top" align="right" className="w-32">금액</Th>
                       <Th sticky="top" align="right" className="w-28">청구액</Th>
-                      <Th sticky="top" className="w-44">받기로 한 날</Th>
+                      <Th sticky="top" className="w-64">받기로 한 날</Th>
                       <Th sticky="top" className="w-44">입금일</Th>
                       <Th sticky="top" className="w-20">상태</Th>
                       <Th sticky="top">비고</Th>
@@ -1195,12 +1196,10 @@ export default function ProjectDetailPage() {
                             {billed.toLocaleString("ko-KR")}
                           </Td>
                           <Td>
-                            <Input
-                              size="sm"
-                              type="date"
-                              value={i.dueDate ?? ""}
-                              onChange={(e) => updateInstallment(i.id, { dueDate: e.target.value || undefined })}
-                              aria-label="받기로 한 날"
+                            {/* 정확한 날 또는 「10월 말」 같은 대략 — 옆 단추로 오간다 */}
+                            <DueInput
+                              value={{ dueDate: i.dueDate, dueApprox: i.dueApprox }}
+                              onChange={(v) => updateInstallment(i.id, { dueDate: v.dueDate, dueApprox: v.dueApprox })}
                             />
                           </Td>
                           <Td>

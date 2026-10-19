@@ -74,7 +74,9 @@ import { ReportTabs } from "@/components/neander/finance/ReportTabs";
 import { RunwayChart } from "@/components/neander/finance/RunwayChart";
 import { CutTable, ScenarioBar, ScenarioCompare, useCutScenarios } from "@/components/neander/finance/RunwaySimulator";
 import { availableMonths } from "@/lib/neander/finance/aggregate";
-import { fetchRunwaySettings, saveRunwaySettings } from "@/lib/neander/finance/client";
+import { fetchRunwaySettings, saveRunwaySettings, setFinProjectDue } from "@/lib/neander/finance/client";
+import { approxDueDate, DUE_PART_LABEL, DUE_PARTS, dueLabel, partOfDate, type DuePart } from "@/lib/neander/finance/project";
+import { dueMonthText } from "@/components/neander/finance/DueInput";
 import {
   BASE_MONTH_OPTIONS,
   buildRunway,
@@ -85,6 +87,7 @@ import {
   newOverride,
   runwayPayload,
   type InflowStatus,
+  type ProjectInflow,
   type RunwayLine,
   type RunwayOutcome,
   type RunwaySettings,
@@ -111,6 +114,90 @@ function runwayHint(o: RunwayOutcome, horizon: number): string {
   return `${monthLabel(o.zeroMonth ?? "")} 중 바닥`;
 }
 
+/**
+ * 받을 시기를 「10월 말」 처럼 바로 적는다 — 프로젝트의 그 회차에 저장된다(정본은 프로젝트).
+ * 회차가 없는 계약이면 서버가 계약금액 전부를 「잔금」 회차로 만든다.
+ */
+function DueQuickPick({
+  inflow,
+  months,
+  onSaved,
+}: {
+  inflow: ProjectInflow;
+  months: string[];
+  onSaved: () => Promise<void>;
+}) {
+  const toast = useToast();
+  const [open, setOpen] = useState(inflow.status === "undated");
+  const current = inflow.dueDate?.slice(0, 7);
+  const [month, setMonth] = useState(current ?? months[0]);
+  const [part, setPart] = useState<DuePart>(inflow.dueApprox ?? (inflow.dueDate ? partOfDate(inflow.dueDate) : "late"));
+  const [busy, setBusy] = useState(false);
+  const options = current && !months.includes(current) ? [current, ...months] : months;
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const res = await setFinProjectDue(inflow.projectId, {
+        installmentId: inflow.id.startsWith("project:") ? undefined : inflow.id,
+        dueDate: approxDueDate(month, part),
+        dueApprox: part,
+      });
+      toast.success(
+        `${inflow.projectName} — ${dueMonthText(month)} ${DUE_PART_LABEL[part]}에 받는 것으로 적었습니다${
+          res.created ? " (계약금액 전부를 잔금 회차로 만들었습니다)" : ""
+        }.`,
+      );
+      setOpen(false);
+      await onSaved();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "받을 시기를 적지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button type="button" className="ml-1.5 text-nd-caption text-nd-accent hover:underline" onClick={() => setOpen(true)}>
+        바꾸기
+      </button>
+    );
+  }
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-1">
+      <Select size="sm" className="w-auto" value={month} onChange={(e) => setMonth(e.target.value)} aria-label={`${inflow.projectName} 받을 달`}>
+        {options.map((m) => (
+          <option key={m} value={m}>
+            {dueMonthText(m)}
+          </option>
+        ))}
+      </Select>
+      <Select
+        size="sm"
+        className="w-auto"
+        value={part}
+        onChange={(e) => setPart(e.target.value as DuePart)}
+        aria-label={`${inflow.projectName} 초·중·말`}
+      >
+        {DUE_PARTS.map((p) => (
+          <option key={p} value={p}>
+            {DUE_PART_LABEL[p]}
+          </option>
+        ))}
+      </Select>
+      <Button size="sm" variant="secondary" loading={busy} onClick={save}>
+        적기
+      </Button>
+      {inflow.status !== "undated" && (
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => setOpen(false)}>
+          취소
+        </Button>
+      )}
+    </div>
+  );
+}
+
 /** 3개월 안이면 위험, 6개월 안이면 주의 — 색만이 아니라 숫자·글자가 함께 나온다 */
 function runwayTone(o: RunwayOutcome): Tone {
   if (o.months === null) return "success";
@@ -120,7 +207,7 @@ function runwayTone(o: RunwayOutcome): Tone {
 }
 
 export default function RunwayReport() {
-  const { transactions, paymentMethods, projects, loading } = useFinance();
+  const { transactions, paymentMethods, projects, loading, refresh } = useFinance();
   const toast = useToast();
 
   const [saved, setSaved] = useState<RunwaySettings | null>(null);
@@ -480,7 +567,7 @@ export default function RunwayReport() {
           {undated.length > 0 && (
             <InlineNotice tone="warning" icon={TriangleAlert}>
               받을 날이 안 적힌 B2B 받을 돈 <b className="font-medium">{undated.length}건 · {shortWon(undated.reduce((s, f) => s + f.amount, 0))}원</b>은
-              「잡힌 돈만」 에 들어가지 않았습니다. 프로젝트에 받을 날(입금 회차)을 적으면 그 달에 들어옵니다 — 아래 「받을 돈」.
+              「잡힌 돈만」 에 들어가지 않았습니다. 아래 「받을 돈」 에서 「10월 말」 처럼 대략으로만 적어도 그 달에 들어옵니다.
             </InlineNotice>
           )}
           {noBalance.length > 0 && (
@@ -747,7 +834,7 @@ export default function RunwayReport() {
         <Card>
           <SectionHeader
             title="받을 돈 (B2B 프로젝트)"
-            hint={`넣은 돈 ${shortWon(includedInflow)}원 · 받을 날은 프로젝트의 입금 회차에서 적습니다`}
+            hint={`넣은 돈 ${shortWon(includedInflow)}원 · 「10월 말」 처럼 대략으로 적어도 됩니다 — 프로젝트의 입금 회차에 저장됩니다`}
           />
           {r.inflows.length === 0 ? (
             <p className="text-nd-body text-nd-fg-3">아직 받을 돈이 남은 프로젝트가 없습니다.</p>
@@ -771,9 +858,11 @@ export default function RunwayReport() {
                       <Icon icon={ExternalLink} size={12} className="shrink-0 text-nd-fg-3" />
                     </Link>
                     <div className="text-nd-caption text-nd-fg-3">
-                      {f.code} · {f.kind} · {f.dueDate ? `받을 날 ${f.dueDate}` : "받을 날을 적어 주세요"}
+                      {f.code} · {f.kind} · {f.dueDate ? `받을 날 ${dueLabel(f)}` : "언제쯤 들어올까요?"}
                       {f.status === "overdue" && f.month && ` → ${shortMonth(f.month)}에 넣음`}
+                      {f.dueDate && <DueQuickPick inflow={f} months={r.months} onSaved={refresh} />}
                     </div>
+                    {!f.dueDate && <DueQuickPick inflow={f} months={r.months} onSaved={refresh} />}
                   </div>
                   <Badge tone={INFLOW_TONE[f.status]} size="sm">
                     {INFLOW_LABEL[f.status]}

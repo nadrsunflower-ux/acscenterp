@@ -13,6 +13,7 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 import type { FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
 import type { FinProjectDoc } from "@/lib/neander/finance/project";
+import { approxDueDate, dueLabel, partOfDate, sanitizeInstallment } from "@/lib/neander/finance/project";
 import type { FinTransaction } from "@/lib/neander/finance/types";
 import {
   buildRunway,
@@ -186,6 +187,23 @@ function unit() {
   const neg = buildRunway({ transactions: T, paymentMethods: pms, projects: [], settings: settings({ cash: { "1111": -10 } }), asOf: "2026-09", today: "2026-10-19" });
   eq(requiredSaving(neg, simulateRunway(neg, null), 3, "booked", "2026-10"), null, "목표 역산 — 시작부터 빚이면 줄이기로는 안 된다");
   eq(defaultCutFrom(r.months, "2026-10"), "2026-11", "줄이기 기본 시작 — 다음 달");
+
+  // ---- 대략 받을 날 (「10월 말」) ----
+  eq([approxDueDate("2026-10", "early"), approxDueDate("2026-10", "mid"), approxDueDate("2026-10", "late"), approxDueDate("2027-02", "late")],
+    ["2026-10-10", "2026-10-20", "2026-10-31", "2027-02-28"], "대략 → 구간 끝 날 (초 10 · 중 20 · 말 말일)");
+  eq(dueLabel({ dueDate: "2026-10-31", dueApprox: "late" }), "2026년 10월 말", "대략 글자");
+  eq(dueLabel({ dueDate: "2026-10-31" }), "2026-10-31", "정확한 날은 그대로");
+  eq([partOfDate("2026-10-03"), partOfDate("2026-10-15"), partOfDate("2026-10-21")], ["early", "mid", "late"], "날짜 → 초·중·말");
+  const si = sanitizeInstallment({ id: "x", kind: "잔금", amount: 1, dueDate: "2026-11-02", dueApprox: "mid" });
+  eq([si.dueDate, si.dueApprox], ["2026-11-20", "mid"], "저장할 때 대략이면 날짜를 구간 끝 날로 맞춘다");
+  eq(sanitizeInstallment({ id: "x", kind: "잔금", amount: 1, dueApprox: "late" }).dueApprox, undefined, "날짜 없는 대략은 버린다");
+  eq(sanitizeInstallment({ id: "x", kind: "잔금", amount: 1, dueDate: "2026-11-02", dueApprox: "soon" as never }).dueApprox, undefined, "모르는 구간은 버린다");
+  const rApprox = buildRunway({
+    transactions: T, paymentMethods: pms, asOf: "2026-09", today: "2026-10-19", settings: settings(),
+    projects: [{ ...projects[0], installments: [{ id: "a1", kind: "잔금", amount: 300, dueDate: "2026-11-30", dueApprox: "late" }] }] as FinProjectDoc[],
+  });
+  const fa = rApprox.inflows.find((f) => f.id === "a1");
+  eq([fa?.month, fa?.status, fa?.dueApprox], ["2026-11", "scheduled", "late"], "대략 받을 날도 그 달에 들어온다");
 
   // 저장 다듬기
   const s = sanitizeRunway({

@@ -9,7 +9,7 @@ import { matchMemos, patchFromMemo, type FinCardMemo } from "@/lib/neander/finan
 import type { FinTransaction } from "@/lib/neander/finance/types";
 import type { FinAccountDoc, FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
 import { normalizeClassRule, sameCondition, type FinClassRuleDoc } from "@/lib/neander/finance/class-rules";
-import { sanitizeProject } from "@/lib/neander/finance/project";
+import { sanitizeInstallment, sanitizeProject, type FinProjectDoc } from "@/lib/neander/finance/project";
 import { sanitizeFinDoc, sanitizeFiles } from "@/lib/neander/finance/docs";
 import { allocatedByTx, checkNewLinks, sanitizeSuspense, type FinSuspenseDoc } from "@/lib/neander/finance/suspense";
 import { deleteFiles } from "@/lib/neander/server/storage";
@@ -677,6 +677,60 @@ export async function POST(req: Request) {
       }
 
       // ---- 프로젝트 손익 ----------------------------------------
+      case "project.setDue": {
+        // 받을 시기 하나만 고친다 — 런웨이 「받을 돈」 에서 「10월 말」 처럼 적을 때.
+        // 프로젝트 문서를 통째로 보내면 그 사이 프로젝트 화면에서 고친 줄을 덮으므로,
+        // 서버가 지금 문서를 읽어 그 회차만 바꾼다. 회차가 하나도 없는 계약이면
+        // 계약금액 전부를 한 번에 받는 「잔금」 회차를 만든다.
+        const { id, installmentId, dueDate, dueApprox } = payload as {
+          id?: string;
+          installmentId?: string;
+          dueDate?: string;
+          dueApprox?: string;
+        };
+        if (!id) return NextResponse.json({ error: "id 가 필요합니다." }, { status: 400 });
+        const due = sanitizeInstallment({ dueDate, dueApprox: dueApprox as never });
+        if (!due.dueDate) return NextResponse.json({ error: "받을 날(YYYY-MM-DD)이 필요합니다." }, { status: 400 });
+        const ref = db.collection(NEANDER_COL.finProjects).doc(id);
+        const out = await db.runTransaction(async (tx) => {
+          const snap = await tx.get(ref);
+          if (!snap.exists) return { error: "프로젝트가 없습니다.", status: 404 };
+          const doc = snap.data() as FinProjectDoc;
+          const list = [...(doc.installments ?? [])];
+          let created = false;
+          if (installmentId) {
+            const k = list.findIndex((i) => i.id === installmentId);
+            if (k < 0) return { error: "그 입금 회차가 없습니다 — 프로젝트를 다시 열어 보세요.", status: 404 };
+            if (list[k].paidDate) return { error: "이미 입금된 회차입니다.", status: 409 };
+            list[k] = sanitizeInstallment({ ...list[k], dueDate: due.dueDate, dueApprox: due.dueApprox });
+          } else {
+            if (list.length > 0) {
+              return { error: "이 프로젝트는 이미 입금 회차가 있습니다 — 회차에서 고르세요.", status: 409 };
+            }
+            const contract = Math.round(Number(doc.contractAmount) || 0);
+            if (contract <= 0) return { error: "계약금액이 없어 회차를 만들 수 없습니다.", status: 400 };
+            list.push(
+              sanitizeInstallment({
+                kind: "잔금",
+                amount: contract,
+                dueDate: due.dueDate,
+                dueApprox: due.dueApprox,
+                note: "런웨이에서 받을 시기를 적으며 만든 회차",
+              }),
+            );
+            created = true;
+          }
+          tx.update(ref, {
+            installments: list.map((i) => clean(i as unknown as Record<string, unknown>)),
+            updatedAt: now,
+            updatedBy: user.email,
+          });
+          return { ok: true as const, created };
+        });
+        if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
+        return NextResponse.json(out);
+      }
+
       case "project.save": {
         // 문서를 통째로 갈아치운다 (예산과 같은 방식). 줄 배열을 merge 하면
         // 지운 줄이 되살아난다. id 가 없으면 새로 만든다.

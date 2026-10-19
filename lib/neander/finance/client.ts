@@ -605,6 +605,15 @@ export const saveFinProject = (project: FinProjectInput, id?: string) =>
 
 export const deleteFinProject = (id: string) => mutate("project.delete", { id });
 
+/**
+ * 받을 시기 하나만 고친다 (런웨이 「받을 돈」). installmentId 가 없으면 회차가 없는
+ * 계약이라 서버가 계약금액 전부를 「잔금」 회차로 만든다. dueApprox 를 주면 「10월 말」.
+ */
+export const setFinProjectDue = (
+  id: string,
+  due: { installmentId?: string; dueDate: string; dueApprox?: "early" | "mid" | "late" },
+) => mutate<{ ok: true; created: boolean }>("project.setDue", { id, ...due });
+
 // ---- 프로젝트 문서 (견적서·계약서) --------------------------------
 
 const DOC_FILES_URL = "/api/neander/finance/docs/files";

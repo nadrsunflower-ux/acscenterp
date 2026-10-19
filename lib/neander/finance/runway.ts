@@ -34,7 +34,7 @@
 // ============================================================
 
 import type { FinPaymentMethodDoc } from "./db-types";
-import { installmentStatus, splitVat, type FinProjectDoc } from "./project";
+import { installmentStatus, splitVat, type DuePart, type FinProjectDoc } from "./project";
 import { netAmount, type FinTransaction } from "./types";
 import { shiftMonth } from "../format";
 
@@ -202,6 +202,8 @@ export interface ProjectInflow {
   /** 통장에 들어올 금액 (부가세 포함 청구 총액) */
   amount: number;
   dueDate?: string;
+  /** 받을 날이 대략(「10월 말」)인가 */
+  dueApprox?: DuePart;
   /** 넣을 달 — undated 면 null */
   month: string | null;
   status: InflowStatus;
@@ -371,6 +373,7 @@ export function projectInflows(
           kind: i.kind,
           amount,
           dueDate: due,
+          dueApprox: i.dueApprox,
           month,
           status,
           included: month !== null && !skip.has(i.id),

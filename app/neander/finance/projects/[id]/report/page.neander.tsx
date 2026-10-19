@@ -35,6 +35,7 @@ import {
   PROJECT_STATUS_LABEL,
   VAT_LABEL,
   deductionSplit,
+  dueLabel,
   formatMargin,
   groupLines,
   installmentStatus,
@@ -242,7 +243,7 @@ export default function ProjectReportPage() {
                   i.kind,
                   won(i.amount),
                   won(splitVat(i.amount, base).total),
-                  i.dueDate ?? "—",
+                  dueLabel(i) || "—",
                   i.paidDate ?? "—",
                   <Badge key="st" tone={INSTALLMENT_TONE[st]} size="sm">
                     {INSTALLMENT_STATUS_LABEL[st]}

@@ -233,9 +233,45 @@ export interface FinProjectInstallment {
   amount: number;
   /** 받기로 한 날 `YYYY-MM-DD` */
   dueDate?: string;
+  /** 받을 날을 대략으로만 안다 — 「10월 말」. dueDate 는 그 구간의 끝 날이다 (아래 DUE_PARTS) */
+  dueApprox?: DuePart;
   /** 실제로 들어온 날. 적혀 있으면 입금 완료로 본다 */
   paidDate?: string;
   note?: string;
+}
+
+// ---- 대략 받을 날 ---------------------------------------------
+//
+//  발주처는 「이달 말쯤」 「다음 달 초」 라고만 말할 때가 많다. 그걸 아무 날짜로
+//  찍어 두면 나중에 누가 봐도 약속한 날처럼 읽힌다. 그래서 「10월 말」 을 그대로
+//  적고, dueDate 에는 그 구간의 **끝 날**(초 10일 · 중 20일 · 말 말일)을 같이 둔다.
+//  연체 판정 · 정렬 · 런웨이의 달 배치가 날짜 하나로 그대로 돈다. 끝 날로 두는 건
+//  「말이라 했는데 25일에 벌써 연체」 가 되지 않게.
+
+export const DUE_PARTS = ["early", "mid", "late"] as const;
+export type DuePart = (typeof DUE_PARTS)[number];
+export const DUE_PART_LABEL: Record<DuePart, string> = { early: "초", mid: "중", late: "말" };
+
+/** `YYYY-MM` 의 초·중·말 → 그 구간의 끝 날 */
+export function approxDueDate(month: string, part: DuePart): string {
+  if (part === "early") return `${month}-10`;
+  if (part === "mid") return `${month}-20`;
+  const [y, m] = month.split("-").map(Number);
+  return `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, "0")}`;
+}
+
+/** 날짜 → 그 날이 드는 구간 (정확한 날을 대략으로 바꿀 때) */
+export const partOfDate = (date: string): DuePart => {
+  const d = Number(date.slice(8, 10));
+  return d <= 10 ? "early" : d <= 20 ? "mid" : "late";
+};
+
+/** 받을 날 글자 — 대략이면 「2026년 10월 말」, 아니면 날짜 그대로 */
+export function dueLabel(i: Pick<FinProjectInstallment, "dueDate" | "dueApprox">): string {
+  if (!i.dueDate) return "";
+  if (!i.dueApprox) return i.dueDate;
+  const [y, m] = i.dueDate.split("-").map(Number);
+  return `${y}년 ${m}월 ${DUE_PART_LABEL[i.dueApprox]}`;
 }
 
 /** 회차 하나의 상태 */
@@ -781,11 +817,15 @@ export function sanitizeInstallment(raw: Partial<FinProjectInstallment>): FinPro
   const kind = (INSTALLMENT_KINDS as readonly string[]).includes(String(raw.kind))
     ? (raw.kind as InstallmentKind)
     : "선금";
+  const due = dateStr(raw.dueDate);
+  const approx = due && (DUE_PARTS as readonly string[]).includes(String(raw.dueApprox)) ? (raw.dueApprox as DuePart) : undefined;
   return compact({
     id: str(raw.id) ?? shortId(),
     kind,
     amount: Math.round(num(raw.amount) ?? 0),
-    dueDate: dateStr(raw.dueDate),
+    // 대략이면 날짜를 그 구간의 끝 날로 맞춘다 — 화면이 어떤 날을 보내도 같은 값이 남게
+    dueDate: due && approx ? approxDueDate(due.slice(0, 7), approx) : due,
+    dueApprox: approx,
     paidDate: dateStr(raw.paidDate),
     note: str(raw.note),
   }) as FinProjectInstallment;

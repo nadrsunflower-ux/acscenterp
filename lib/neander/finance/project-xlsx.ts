@@ -19,6 +19,7 @@ import {
   INSTALLMENT_STATUS_LABEL,
   installmentStatus,
   isReceived,
+  dueLabel,
   sanitizeLine,
   type FinProjectDoc,
   type FinProjectLine,
@@ -92,7 +93,7 @@ export function exportProjectXlsx(p: FinProjectDoc, transactions: FinTransaction
     ["입금 일정", "금액", "받기로 한 날", "입금일", "상태"],
     ...(p.installments ?? []).map(
       (i) =>
-        [i.kind, i.amount, i.dueDate ?? "", i.paidDate ?? "", INSTALLMENT_STATUS_LABEL[installmentStatus(i)]] as (
+        [i.kind, i.amount, dueLabel(i), i.paidDate ?? "", INSTALLMENT_STATUS_LABEL[installmentStatus(i)]] as (
           | string
           | number
         )[],
