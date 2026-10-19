@@ -50,6 +50,7 @@ import {
   cn,
   useConfirm,
   type Tone,
+  useStickyState,
 } from "@/components/neander/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import {
@@ -128,11 +129,11 @@ export default function MasterPage() {
   const { accounts, paymentMethods, vendorRules, classRules, subscriptions, allocations, masterEmpty, loading, refresh } =
     useFinance();
   const confirm = useConfirm();
-  const [tab, setTab] = useState<Tab>("accounts");
-  const [q, setQ] = useState("");
-  const [txType, setTxType] = useState(ALL_TX);
+  const [tab, setTab] = useStickyState<Tab>("finance.master.tab", "accounts");
+  const [q, setQ] = useStickyState("finance.master.q", "");
+  const [txType, setTxType] = useStickyState("finance.master.txType", ALL_TX);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useStickyState("finance.master.pageSize", 50);
   const [seeding, setSeeding] = useState<string | null>(null);
   const [seedError, setSeedError] = useState<FriendlyError | null>(null);
   // 결제수단 한 칸을 고치다 실패한 것과 마스터 적재가 통째로 실패한 것은

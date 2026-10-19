@@ -21,7 +21,6 @@
 import {
   useEffect,
   useMemo,
-  useState,
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
@@ -50,6 +49,8 @@ import {
   Select,
   StatTile,
   TableNote,
+  useStickyState,
+  useStickyGuard,
 } from "@/components/neander/ui";
 import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
@@ -88,10 +89,10 @@ export default function ExpenseDetailReport() {
   const { transactions, accounts, paymentMethods, loading } = useFinance();
 
   const months = useMemo(() => availableMonths(transactions), [transactions]);
-  const [month, setMonth] = useState<string>("");
-  const [basis, setBasis] = useState<Basis>("accrual");
-  const [site, setSite] = useState(ALL);
-  const [showEmpty, setShowEmpty] = useState(false);
+  const [month, setMonth] = useStickyState<string>("finance.reports.month", "");
+  const [basis, setBasis] = useStickyState<Basis>("finance.reports.basis", "accrual");
+  const [site, setSite, siteRestored] = useStickyState("finance.reports.site", ALL);
+  const [showEmpty, setShowEmpty] = useStickyState("finance.reports.detail.showEmpty", false);
   const router = useRouter();
 
   // 슬라이드에서 돌아오면 보던 달·기준·사업장을 그대로 잇는다 (?month=&basis=&site=)
@@ -119,6 +120,9 @@ export default function ExpenseDetailReport() {
     () => buildReport(transactions, { basis, isCard, scope, accounts }),
     [transactions, basis, isCard, scope, accounts],
   );
+
+  // 기억해 둔 필터가 지금은 없는 값이면(지운 · 다 처리한 것) 전체로 — 들어올 때 한 번 (useStickyGuard)
+  useStickyGuard(!loading && siteRestored && transactions.length > 0, site !== ALL && !sites.includes(site), () => setSite(ALL));
 
   if (loading) return <LoadingState label="리포트를 만드는 중…" />;
   if (transactions.length === 0) {

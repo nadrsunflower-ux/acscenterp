@@ -53,6 +53,8 @@ import {
   Tr,
   useConfirm,
   useToast,
+  useStickyState,
+  useStickyGuard,
 } from "@/components/neander/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { ReportTabs } from "@/components/neander/finance/ReportTabs";
@@ -109,8 +111,8 @@ export default function SuspenseReport() {
   const toast = useToast();
   const confirm = useConfirm();
 
-  const [status, setStatus] = useState<StatusFilter>("all");
-  const [owner, setOwner] = useState("");
+  const [status, setStatus] = useStickyState<StatusFilter>("finance.suspense.status", "all");
+  const [owner, setOwner, ownerRestored] = useStickyState("finance.suspense.owner", "");
   const [editor, setEditor] = useState<EditorTarget | null>(null);
   const [attaching, setAttaching] = useState<UnattachedTx | null>(null);
   const [saving, setSaving] = useState(false);
@@ -226,6 +228,9 @@ export default function SuspenseReport() {
       origins: [{ txId: u.tx.id, amount: u.rest }],
     });
   };
+
+  // 기억해 둔 필터가 지금은 없는 값이면(지운 · 다 처리한 것) 전체로 — 들어올 때 한 번 (useStickyGuard)
+  useStickyGuard(!loading && ownerRestored, owner !== "" && !book.people.some((x) => x.owner === owner), () => setOwner(""));
 
   if (loading) return <LoadingState label="기록장을 여는 중…" />;
 

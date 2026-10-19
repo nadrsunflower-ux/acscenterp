@@ -28,6 +28,7 @@ export { PageHeader, PageShell, type PageWidth } from "./page";
 export { MemberAvatar, CategoryPicker, AvatarPicker, ColorPalette, AVATAR_PALETTE, AVATAR_EMOJIS } from "./member";
 export { Portal } from "./portal";
 export { useEscape, useFocusTrap, useLockScroll, useOutsideClick, useAnchorPosition, useMounted, useMediaQuery, usePresence } from "./hooks";
+export { useStickyState, useStickyGuard, oneOf, clearStickyState } from "./sticky";
 export { BasisLine, InfoPopover, type InfoTerm } from "./help";
 export { ChartValues, type ChartValueColumn, type ChartValueRow } from "./chart-values";
 export { LinkTile } from "./link-tile";

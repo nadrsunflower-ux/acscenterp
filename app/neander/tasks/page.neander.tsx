@@ -31,6 +31,8 @@ import {
   useConfirm,
   useToast,
   cn,
+  useStickyState,
+  useStickyGuard,
 } from "@/components/neander/ui";
 import {
   TASK_STATUSES,
@@ -95,8 +97,8 @@ export default function TasksPage() {
   const [weekAnchor, setWeekAnchor] = useState(today); // 주간 스트립에 표시할 주(그 주의 한 날짜)
   const [viewMonth, setViewMonth] = useState(thisMonthStr());
   const [selectedDate, setSelectedDate] = useState(today);
-  const [memberFilter, setMemberFilter] = useState(currentMember?.id ?? "all");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [memberFilter, setMemberFilter, memberRestored] = useStickyState("tasks.member", currentMember?.id ?? "all");
+  const [statusFilter, setStatusFilter] = useStickyState<StatusFilter>("tasks.status", "all");
 
   // 담당자 필터 적용
   const scoped = useMemo(
@@ -139,6 +141,9 @@ export default function TasksPage() {
       setViewMode("week");
     }
   }
+
+  // 기억해 둔 필터가 지금은 없는 값이면(지운 사람 · 프로젝트) 전체로 — 들어올 때 한 번 (useStickyGuard)
+  useStickyGuard(memberRestored && members.length > 0, memberFilter !== "all" && !members.some((m) => m.id === memberFilter), () => setMemberFilter("all"));
 
   return (
     <div>

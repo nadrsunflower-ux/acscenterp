@@ -66,6 +66,7 @@ import {
   cn,
   useConfirm,
   useToast,
+  useStickyState,
 } from "@/components/neander/ui";
 import { useSales } from "@/components/neander/sales/SalesProvider";
 import { ProductHero, ProductThumb, Rate } from "@/components/neander/sales/ui";
@@ -104,9 +105,9 @@ export default function SalesCatalogPage() {
   const { lines, products, events, assumptions, loading, masterEmpty, error, refresh } = useSales();
   const toast = useToast();
   const confirm = useConfirm();
-  const [q, setQ] = useState("");
-  const [store, setStore] = useState<StoreFilter>("all");
-  const [dedicatedOnly, setDedicatedOnly] = useState(false);
+  const [q, setQ] = useStickyState("sales.catalog.q", "");
+  const [store, setStore] = useStickyState<StoreFilter>("sales.catalog.store", "all");
+  const [dedicatedOnly, setDedicatedOnly] = useStickyState("sales.catalog.dedicated", false);
   const [adding, setAdding] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** 아직 저장하지 않은 값 — 상품코드로 들고 있어 다른 상품을 봐도 남는다 */

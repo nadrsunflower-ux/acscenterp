@@ -83,6 +83,7 @@ import {
   Tr,
   useConfirm,
   useToast,
+  useStickyState,
 } from "@/components/neander/ui";
 import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useSales } from "@/components/neander/sales/SalesProvider";
@@ -166,7 +167,7 @@ export default function EventEntryPage() {
       ]),
     [lines, events, imports],
   );
-  const [month, setMonth] = useState("");
+  const [month, setMonth] = useStickyState("sales.eventEntry.month", "");
   const activeMonth = month || workingMonth(imports);
 
   const monthEvents = useMemo(
@@ -187,7 +188,7 @@ export default function EventEntryPage() {
   /** 목록 머리의 「새 이벤트」 — 누르면 어느 매장인지 고른다 */
   const newBtnRef = useRef<HTMLButtonElement>(null);
   const [newOpen, setNewOpen] = useState(false);
-  const [storeFilter, setStoreFilter] = useState<SalesStore | "all">("all");
+  const [storeFilter, setStoreFilter] = useStickyState<SalesStore | "all">("sales.eventEntry.store", "all");
   const listEvents = useMemo(
     () => monthEvents.filter((e) => storeFilter === "all" || e.store === storeFilter),
     [monthEvents, storeFilter],

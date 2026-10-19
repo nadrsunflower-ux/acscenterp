@@ -7,13 +7,13 @@
 //  고정(핀) 항목은 별도 그룹으로 항상 맨 위에 노출한다.
 // ============================================================
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Archive, CalendarDays, Megaphone, Moon, Pin, Search, Sun, type LucideIcon } from "lucide-react";
 import { useAppData } from "@/components/neander/app-data";
 import { useDevData } from "@/components/neander/dev/dev-data";
 import { ActivityComposer } from "@/components/neander/dev/ActivityComposer";
 import { ActivityItem } from "@/components/neander/dev/ActivityItem";
-import { Card, Icon, Input, LoadingState, SectionHeader, Select, EmptyState } from "@/components/neander/ui";
+import { Card, Icon, Input, LoadingState, SectionHeader, Select, EmptyState, useStickyState, useStickyGuard } from "@/components/neander/ui";
 import { todayStr, addDays, weekKey, formatDateKo } from "@/lib/neander/format";
 import type { DevActivity } from "@/lib/neander/dev/types";
 
@@ -30,9 +30,9 @@ export default function TimelinePage() {
   const { members } = useAppData();
   const { activity, features, featureById, loading } = useDevData();
 
-  const [featureFilter, setFeatureFilter] = useState("all");
-  const [authorFilter, setAuthorFilter] = useState("all");
-  const [search, setSearch] = useState("");
+  const [featureFilter, setFeatureFilter, featureRestored] = useStickyState("dev.timeline.feature", "all");
+  const [authorFilter, setAuthorFilter, authorRestored] = useStickyState("dev.timeline.author", "all");
+  const [search, setSearch] = useStickyState("dev.timeline.search", "");
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -83,6 +83,10 @@ export default function TimelinePage() {
   };
 
   const hasAny = activity.length > 0;
+
+  // 기억해 둔 필터가 지금은 없는 값이면(지운 사람 · 프로젝트) 전체로 — 들어올 때 한 번 (useStickyGuard)
+  useStickyGuard(!loading && featureRestored, featureFilter !== "all" && !features.some((f) => f.id === featureFilter), () => setFeatureFilter("all"));
+  useStickyGuard(authorRestored && members.length > 0, authorFilter !== "all" && !members.some((m) => m.id === authorFilter), () => setAuthorFilter("all"));
 
   return (
     <div className="flex flex-col gap-4">

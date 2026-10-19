@@ -26,7 +26,6 @@
 
 import {
   useMemo,
-  useState,
 } from "react";
 import Link from "next/link";
 import {
@@ -58,6 +57,7 @@ import {
   type Tone,
   TotalRow,
   Tr,
+  useStickyState,
 } from "@/components/neander/ui";
 import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
@@ -103,7 +103,7 @@ export default function SubscriptionReport() {
   const { transactions, vendorRules, subscriptions, paymentMethods, loading } = useFinance();
 
   const months = useMemo(() => availableMonths(transactions), [transactions]);
-  const [month, setMonth] = useState<string>("");
+  const [month, setMonth] = useStickyState<string>("finance.reports.month", "");
   const activeMonth = month || months[0] || "";
 
   const matchers = useMemo(

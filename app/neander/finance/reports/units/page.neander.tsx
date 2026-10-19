@@ -27,7 +27,6 @@
 
 import {
   useMemo,
-  useState,
   type ReactNode,
 } from "react";
 import Link from "next/link";
@@ -61,6 +60,8 @@ import {
   Th,
   TotalRow,
   Tr,
+  useStickyState,
+  useStickyGuard,
 } from "@/components/neander/ui";
 import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
@@ -111,11 +112,11 @@ export default function UnitReport() {
   const { transactions, accounts, paymentMethods, allocations, loading } = useFinance();
 
   const months = useMemo(() => availableMonths(transactions), [transactions]);
-  const [month, setMonth] = useState<string>("");
-  const [basis, setBasis] = useState<Basis>("accrual");
-  const [unitKey, setUnitKey] = useState<string>(ALL_UNITS);
-  const [showEmpty, setShowEmpty] = useState(false);
-  const [allocOn, setAllocOn] = useState(true);
+  const [month, setMonth] = useStickyState<string>("finance.reports.month", "");
+  const [basis, setBasis] = useStickyState<Basis>("finance.reports.basis", "accrual");
+  const [unitKey, setUnitKey, unitRestored] = useStickyState<string>("finance.reports.units.unit", ALL_UNITS);
+  const [showEmpty, setShowEmpty] = useStickyState("finance.reports.units.showEmpty", false);
+  const [allocOn, setAllocOn] = useStickyState("finance.reports.units.alloc", true);
 
   const activeMonth = month || months[0] || "";
   const isCard = useMemo(() => makeIsCard(paymentMethods), [paymentMethods]);
@@ -163,6 +164,13 @@ export default function UnitReport() {
   const report = useMemo(
     () => buildReport(transactions, { basis, isCard, scope, accounts }),
     [transactions, basis, isCard, scope, accounts],
+  );
+
+  // 기억해 둔 필터가 지금은 없는 값이면(지운 · 다 처리한 것) 전체로 — 들어올 때 한 번 (useStickyGuard)
+  useStickyGuard(
+    !loading && unitRestored && transactions.length > 0,
+    unitKey !== ALL_UNITS && !units.some((u) => u.key === unitKey),
+    () => setUnitKey(ALL_UNITS),
   );
 
   if (loading) return <LoadingState label="리포트를 만드는 중…" />;

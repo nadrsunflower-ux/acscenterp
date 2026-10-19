@@ -21,7 +21,6 @@
 
 import {
   useMemo,
-  useState,
   type ReactNode,
 } from "react";
 import Link from "next/link";
@@ -53,6 +52,7 @@ import {
   Td,
   Th,
   Tr,
+  useStickyState,
 } from "@/components/neander/ui";
 import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useSales } from "@/components/neander/sales/SalesProvider";
@@ -179,10 +179,10 @@ function economicsDetail(e: ProductEconomics, a: SalesAssumptions): PnlDetail {
 export default function SalesProductsPage() {
   const { lines, products, events, assumptions, loading, masterEmpty, error } = useSales();
   const months = useMemo(() => availableMonths(lines, events), [lines, events]);
-  const [month, setMonth] = useState<string>("");
+  const [month, setMonth] = useStickyState<string>("sales.products.month", "");
   const activeMonth = month || months[0] || "";
-  const [view, setView] = useState<View>("structure");
-  const [store, setStore] = useState<SalesStore | "all">("all");
+  const [view, setView] = useStickyState<View>("sales.products.view", "structure");
+  const [store, setStore] = useStickyState<SalesStore | "all">("sales.products.store", "all");
 
   const econ = useMemo(
     () =>

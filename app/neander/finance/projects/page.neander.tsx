@@ -70,6 +70,7 @@ import {
   type Tone,
   Tr,
   cn,
+  useStickyState,
 } from "@/components/neander/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { ColumnMenu } from "@/components/neander/finance/ColumnMenu";
@@ -115,12 +116,12 @@ export default function ProjectsPage() {
   const { projects, transactions, docs, loading, refresh } = useFinance();
   const router = useRouter();
   const [creating, setCreating] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<ProjectStatus | "all">("all");
-  const [q, setQ] = useState("");
+  const [statusFilter, setStatusFilter] = useStickyState<ProjectStatus | "all">("finance.projects.status", "all");
+  const [q, setQ] = useStickyState("finance.projects.q", "");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
-  const [filters, setFilters] = useState<ProjectListFilters>({});
-  const [sort, setSort] = useState<ProjectListSort | null>(null);
+  const [pageSize, setPageSize] = useStickyState("finance.projects.pageSize", 50);
+  const [filters, setFilters] = useStickyState<ProjectListFilters>("finance.projects.filters", {});
+  const [sort, setSort] = useStickyState<ProjectListSort | null>("finance.projects.sort", null);
   const [menu, setMenu] = useState<{ key: ProjectListKey; label: string; anchor: DOMRect } | null>(null);
 
   // 검색은 이미 받아온 목록 안에서만 한다 — 프로젝트는 많아야 수백 건이라

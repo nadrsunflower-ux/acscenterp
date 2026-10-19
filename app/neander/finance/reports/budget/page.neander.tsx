@@ -55,6 +55,7 @@ import {
   StatTile,
   TableNote,
   useToast,
+  useStickyState,
 } from "@/components/neander/ui";
 import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
@@ -106,8 +107,8 @@ export default function BudgetReport() {
   const toast = useToast();
 
   const months = useMemo(() => availableMonths(transactions), [transactions]);
-  const [month, setMonth] = useState<string>("");
-  const [showEmpty, setShowEmpty] = useState(false);
+  const [month, setMonth] = useStickyState<string>("finance.reports.month", "");
+  const [showEmpty, setShowEmpty] = useStickyState("finance.reports.budget.showEmpty", false);
   const [draft, setDraft] = useState<Record<string, number> | null>(null);
   const [saving, setSaving] = useState(false);
 

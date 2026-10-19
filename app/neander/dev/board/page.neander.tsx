@@ -16,7 +16,7 @@ import { TaskComposer } from "@/components/neander/dev/TaskComposer";
 import { TaskDetailModal } from "@/components/neander/dev/TaskDetailModal";
 import { addActivity } from "@/lib/neander/dev/activity";
 import { setDevTaskStatus } from "@/lib/neander/dev/tasks";
-import { Badge, Button, Input, LoadingState, Select } from "@/components/neander/ui";
+import { Badge, Button, Input, LoadingState, Select, useStickyState, useStickyGuard } from "@/components/neander/ui";
 import {
   DEV_KINDS,
   DEV_PRIORITIES,
@@ -38,12 +38,12 @@ export default function BoardPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
 
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [priorityFilter, setPriorityFilter] = useState("all");
-  const [featureFilter, setFeatureFilter] = useState("all");
-  const [assigneeFilter, setAssigneeFilter] = useState("all");
-  const [kindFilter, setKindFilter] = useState("all");
-  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useStickyState("dev.board.status", "all");
+  const [priorityFilter, setPriorityFilter] = useStickyState("dev.board.priority", "all");
+  const [featureFilter, setFeatureFilter, featureRestored] = useStickyState("dev.board.feature", "all");
+  const [assigneeFilter, setAssigneeFilter, assigneeRestored] = useStickyState("dev.board.assignee", "all");
+  const [kindFilter, setKindFilter] = useStickyState("dev.board.kind", "all");
+  const [search, setSearch] = useStickyState("dev.board.search", "");
 
   // 딥링크/필터 프리셋. ⚠️ next/navigation 의 useSearchParams 금지(정적 생성 시
   // Suspense 경계 없으면 build 깨짐) → 마운트 후 window.location 에서 직접 읽는다.
@@ -142,6 +142,10 @@ export default function BoardPage() {
     setKindFilter("all");
     setSearch("");
   }
+
+  // 기억해 둔 필터가 지금은 없는 값이면(지운 사람 · 프로젝트) 전체로 — 들어올 때 한 번 (useStickyGuard)
+  useStickyGuard(!loading && featureRestored, featureFilter !== "all" && !features.some((f) => f.id === featureFilter), () => setFeatureFilter("all"));
+  useStickyGuard(assigneeRestored && members.length > 0, assigneeFilter !== "all" && !members.some((m) => m.id === assigneeFilter), () => setAssigneeFilter("all"));
 
   return (
     <div>

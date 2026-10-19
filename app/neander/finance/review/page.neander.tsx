@@ -79,6 +79,8 @@ import {
   useConfirm,
   useToast,
   useUndoHistory,
+  useStickyState,
+  useStickyGuard,
 } from "@/components/neander/ui";
 import { LeavingItem, useLeaving } from "@/components/neander/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
@@ -385,27 +387,27 @@ export default function ReviewPage() {
   const txLabel = (t: FinTransaction) =>
     `${t.vendor || "(거래처 없음)"} ${netAmount(t).toLocaleString("ko-KR")}원 (${(t.date ?? "").slice(5)})`;
 
-  const [statusFilter, setStatusFilter] = useState<string>(ALL);
+  const [statusFilter, setStatusFilter] = useStickyState<string>("finance.review.status", ALL);
   /**
    * 계정으로 좁히기. 대기함이 수백 건이 되면 이게 없으면 일괄 지정이
    * 무의미하다 — 날짜순으로 섞인 목록에서 같은 계정 146건을 고르려면
    * 체크박스를 146번 눌러야 한다. 좁힌 뒤 「전체 선택」을 누르면 그
    * 묶음만 잡힌다.
    */
-  const [acctFilter, setAcctFilter] = useState<string>(ALL);
+  const [acctFilter, setAcctFilter, acctRestored] = useStickyState<string>("finance.review.acct", ALL);
   /**
    * 달로 좁히기. 기본은 전체다 — 대기함은 달을 가리지 않고 쌓이는 일감이라,
    * 달부터 고르게 하면 지난 달에 남은 건이 안 보인다. 월 마감·엑셀 임포트
    * 에서 넘어올 때는 그 달이 걸린 채로 열린다 (`?m=2026-09`).
    */
-  const [monthFilter, setMonthFilter] = useState<string>(ALL);
+  const [monthFilter, setMonthFilter, monthRestored] = useStickyState<string>("finance.review.month", ALL);
   // useSearchParams 대신 마운트 후에 읽는다 — 원장과 같은 이유(하이드레이션)
   useEffect(() => {
     const m = reviewMonthFromQuery(window.location.search);
     if (m) setMonthFilter(m);
   }, []);
   const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(PAGE_SIZE);
+  const [pageSize, setPageSize] = useStickyState("finance.review.pageSize", PAGE_SIZE);
   /** 커서는 **현재 페이지 안**의 위치다 (0 ~ pageSize-1) */
   const [cursor, setCursor] = useState(0);
   const [editing, setEditing] = useState<FinTransaction | null>(null);
@@ -1044,6 +1046,11 @@ export default function ReviewPage() {
       setBusy(false);
     }
   };
+
+  // 기억해 둔 필터가 지금은 없는 값이면(다 처리한 계정 · 달) 전체로 — 들어올 때 한 번 (useStickyGuard)
+  // 들어온 뒤 처리하며 「(0)」 이 되는 건 그대로 둔다 — 한 번만 본다
+  useStickyGuard(!loading && acctRestored, acctFilter !== ALL && !queue.some((t) => acctPathOf(t) === acctFilter), () => setAcctFilter(ALL));
+  useStickyGuard(!loading && monthRestored, monthFilter !== ALL && !queue.some((t) => monthOf(t) === monthFilter), () => setMonthFilter(ALL));
 
   if (loading) {
     return <LoadingState label="대기함을 불러오는 중…" />;

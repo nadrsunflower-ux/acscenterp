@@ -78,6 +78,7 @@ import {
   useConfirm,
   useToast,
   useUndoHistory,
+  useStickyState,
 } from "@/components/neander/ui";
 import { useSales } from "@/components/neander/sales/SalesProvider";
 import {
@@ -244,9 +245,9 @@ export default function SalesReviewPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const months = useMemo(() => availableMonths(lines, events), [lines, events]);
-  const [month, setMonth] = useState<string>("");
+  const [month, setMonth] = useStickyState<string>("sales.review.month", "");
   const activeMonth = month || months[0] || "";
-  const [storeFilter, setStoreFilter] = useState<SalesStore | "all">("all");
+  const [storeFilter, setStoreFilter] = useStickyState<SalesStore | "all">("sales.review.store", "all");
   const [busy, setBusy] = useState<string | null>(null);
   /**
    * 떠나는 묶음 — 처리가 끝난 묶음을 곧바로 지우지 않는다. 가운데에 결과를
@@ -310,7 +311,7 @@ export default function SalesReviewPage() {
    * 아래쪽 묶음은 아무도 못 본다 (재무 검토 대기함도 같은 이유로 쪽을 나눈다).
    */
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useStickyState("sales.review.pageSize", 10);
   const pageBuckets = useMemo(
     () => buckets.slice((page - 1) * pageSize, page * pageSize),
     [buckets, page, pageSize],

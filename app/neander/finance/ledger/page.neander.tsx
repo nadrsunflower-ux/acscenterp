@@ -75,6 +75,7 @@ import {
   Tabs,
   useConfirm,
   useToast,
+  useStickyState,
 } from "@/components/neander/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { useShellFocus } from "@/components/neander/shell/context";
@@ -272,10 +273,11 @@ export default function LedgerPage() {
   const confirm = useConfirm();
   const toast = useToast();
 
-  const [filters, setFilters] = useState<Filters>({});
+  // 필터 · 보기 · 검색 · 정렬은 기억한다 — 다른 화면에 갔다 와도 그대로 (useStickyState)
+  const [filters, setFilters] = useStickyState<Filters>("finance.ledger.filters", {});
   /** 결제수단 탭. 열 필터와 다른 축이라 필터가 아니라 보기로 둔다 */
-  const [scope, setScope] = useState<ScopeKey>("all");
-  const [search, setSearch] = useState("");
+  const [scope, setScope] = useStickyState<ScopeKey>("finance.ledger.scope", "all");
+  const [search, setSearch] = useStickyState("finance.ledger.search", "");
 
   /**
    * 리포트에서 넘어온 드릴다운 조건을 건다 (`?m=2026-07&amaj=운영비…`).
@@ -287,8 +289,11 @@ export default function LedgerPage() {
   useEffect(() => {
     const parsed = filtersFromQuery(window.location.search);
     if (!parsed) return;
+    // 주소로 실려 온 조건이 기억된 필터보다 먼저다 — 결제수단 보기도 전체로 돌린다
     setFilters(parsed.filters);
     setSearch(parsed.search);
+    setScope("all");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /**
@@ -331,7 +336,7 @@ export default function LedgerPage() {
 
   const [history, setHistory] = useState<History>(EMPTY_HISTORY);
   const edits = history.present;
-  const [sort, setSort] = useState<SortSpec | null>(null);
+  const [sort, setSort] = useStickyState<SortSpec | null>("finance.ledger.sort", null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   /** 상세(모달)로 열어둔 행 — 시트 초안에 적용만 하고 서버엔 쓰지 않는다 */
