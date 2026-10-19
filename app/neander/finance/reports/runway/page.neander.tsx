@@ -58,6 +58,7 @@ import {
   SectionHeader,
   SegmentedControl,
   Select,
+  SERIES,
   StatTile,
   Table,
   TableNote,
@@ -71,6 +72,7 @@ import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { ReportTabs } from "@/components/neander/finance/ReportTabs";
 import { RunwayChart } from "@/components/neander/finance/RunwayChart";
+import { CutTable, ScenarioBar, ScenarioCompare, useCutScenarios } from "@/components/neander/finance/RunwaySimulator";
 import { availableMonths } from "@/lib/neander/finance/aggregate";
 import { fetchRunwaySettings, saveRunwaySettings } from "@/lib/neander/finance/client";
 import {
@@ -153,6 +155,9 @@ export default function RunwayReport() {
     () => buildRunway({ transactions, paymentMethods, projects, settings, asOf, today }),
     [transactions, paymentMethods, projects, settings, asOf, today],
   );
+
+  // 비용 줄여 보기 — 고른 시나리오가 지표·그래프·월별 표에 얹힌다
+  const ed = useCutScenarios({ result, settings, update, thisMonth: today.slice(0, 7) });
 
   const sites = useMemo(() => {
     const set = new Set<string>();
@@ -439,25 +444,34 @@ export default function RunwayReport() {
           value={r.openingCash}
           hint={`${monthLabel(asOf)} 말 · 계좌 ${r.cash.filter((c) => c.used !== 0).length}개`}
         />
-        <StatTile
-          label="매달 순현금"
-          value={r.baseNet}
-          flow="net"
-          hint={`B2B 빼고 · 수입 ${shortWon(r.baseIncome)} − 지출 ${shortWon(r.baseExpense)}`}
-        />
+        {ed.active ? (
+          <StatTile
+            label={`매달 순현금 · ${ed.scenario?.name ?? "줄인 뒤"}`}
+            value={r.baseNet + ed.sim.savingFull}
+            flow="net"
+            hint={`줄이기 전 ${shortWon(r.baseNet)} · 매달 ${shortWon(ed.sim.savingFull)} 아낌 · B2B 빼고`}
+          />
+        ) : (
+          <StatTile
+            label="매달 순현금"
+            value={r.baseNet}
+            flow="net"
+            hint={`B2B 빼고 · 수입 ${shortWon(r.baseIncome)} − 지출 ${shortWon(r.baseExpense)}`}
+          />
+        )}
         <KpiItem
           label="런웨이 · 잡힌 돈만"
-          value={runwayValue(r.outcome, settings.horizon)}
+          value={ed.active ? `${runwayValue(r.outcome, settings.horizon)} → ${runwayValue(ed.sim.outcome, settings.horizon)}` : runwayValue(r.outcome, settings.horizon)}
           unit="개월"
-          tone={runwayTone(r.outcome)}
-          hint={runwayHint(r.outcome, settings.horizon)}
+          tone={runwayTone(ed.sim.outcome)}
+          hint={runwayHint(ed.sim.outcome, settings.horizon)}
         />
         <KpiItem
           label="런웨이 · 평소만큼 수주"
-          value={runwayValue(r.outcomeAlt, settings.horizon)}
+          value={ed.active ? `${runwayValue(r.outcomeAlt, settings.horizon)} → ${runwayValue(ed.sim.outcomeAlt, settings.horizon)}` : runwayValue(r.outcomeAlt, settings.horizon)}
           unit="개월"
-          tone={runwayTone(r.outcomeAlt)}
-          hint={`${runwayHint(r.outcomeAlt, settings.horizon)} · B2B 월 ${shortWon(r.b2bAvg)}`}
+          tone={runwayTone(ed.sim.outcomeAlt)}
+          hint={`${runwayHint(ed.sim.outcomeAlt, settings.horizon)} · B2B 월 ${shortWon(r.b2bAvg)}`}
         />
       </KpiStrip>
 
@@ -478,16 +492,41 @@ export default function RunwayReport() {
         </div>
       )}
 
+      <ScenarioBar ed={ed} className="mb-3" />
+
       <Card className="mb-3">
-        <SectionHeader title="달마다 남는 현금" hint="실선은 잡힌 돈만, 점선은 B2B 가 평소만큼 들어올 때" />
+        <SectionHeader
+          title="달마다 남는 현금"
+          hint={
+            ed.active
+              ? `파랑은 「${ed.scenario?.name}」 로 줄인 뒤, 회색은 줄이기 전 · 실선은 잡힌 돈만, 점선은 B2B 가 평소만큼 들어올 때`
+              : "실선은 잡힌 돈만, 점선은 B2B 가 평소만큼 들어올 때"
+          }
+        />
         <RunwayChart
-          asOf={asOf}
-          openingCash={r.openingCash}
-          rows={r.rows}
-          outcome={r.outcome}
-          outcomeAlt={r.outcomeAlt}
+          months={[asOf, ...r.months]}
+          series={[
+            // 색 = 줄이기 전(회색)·후(파랑), 선 모양 = B2B 기준(실선 잡힌 돈만 · 점선 평소 수주)
+            ...(ed.active
+              ? [
+                  { key: "pre-alt", label: "줄이기 전 · 평소 수주", values: [r.openingCash, ...r.rows.map((m) => m.closingAlt)], color: SERIES.neutral, dashed: true, quiet: true },
+                  { key: "pre", label: "줄이기 전", legend: "줄이기 전 (회색)", values: [r.openingCash, ...r.rows.map((m) => m.closing)], color: SERIES.neutral },
+                ]
+              : []),
+            { key: "alt", label: "평소 수주", legend: "평소만큼 수주 (점선)", values: [r.openingCash, ...ed.sim.rows.map((m) => m.closingAlt)], color: SERIES.income, dashed: true },
+            { key: "booked", label: "잡힌 돈만", values: [r.openingCash, ...ed.sim.rows.map((m) => m.closing)], color: SERIES.income },
+          ]}
+          zero={ed.sim.outcome}
+          extraRows={(i) => [
+            { key: "in", label: "들어올 돈", value: formatSigned(r.rows[i - 1].income) },
+            { key: "out", label: "나갈 돈", value: formatSigned(-(r.rows[i - 1].expense - ed.sim.rows[i - 1].saving)), negative: true },
+            ...(ed.active ? [{ key: "save", label: "그중 아낀 돈", value: formatSigned(ed.sim.rows[i - 1].saving) }] : []),
+          ]}
         />
       </Card>
+
+      <CutTable ed={ed} className="mb-3" />
+      <ScenarioCompare ed={ed} className="mb-3" />
 
       <Card padding="none" className="mb-3 overflow-hidden">
         <div className="px-5 pt-5">
@@ -511,7 +550,7 @@ export default function RunwayReport() {
               </tr>
             </thead>
             <tbody>
-              {totalRow("기초 현금", null, r.rows.map((m) => m.opening))}
+              {totalRow("기초 현금", null, ed.sim.rows.map((m, i) => (i === 0 ? r.openingCash : ed.sim.rows[i - 1].closing)))}
 
               {sectionRow("들어오는 돈")}
               {incomeLines.map(lineRow)}
@@ -531,14 +570,32 @@ export default function RunwayReport() {
               {sectionRow("나가는 돈")}
               {expenseLines.map(lineRow)}
               {itemsOut.map(itemRow)}
-              {totalRow("나가는 돈 합계", r.baseExpense, r.rows.map((m) => m.expense), "expense")}
+              {ed.active && (
+                <tr className="border-b border-nd-line">
+                  <Td sticky="left">
+                    <button
+                      type="button"
+                      className="text-left hover:underline"
+                      onClick={() => document.getElementById("runway-cuts")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                    >
+                      <div>줄이기 · {ed.scenario?.name}</div>
+                      <div className="text-nd-caption text-nd-fg-3">「어디를 줄일까」 에서 고칩니다</div>
+                    </button>
+                  </Td>
+                  <Td num muted>
+                    {man(-ed.sim.savingFull)}
+                  </Td>
+                  {ed.sim.rows.map((m) => cell(-m.saving, { month: m.month, flow: "income", tint: m.saving > 0 }))}
+                </tr>
+              )}
+              {totalRow("나가는 돈 합계", r.baseExpense - ed.sim.savingFull, r.rows.map((m, i) => m.expense - ed.sim.rows[i].saving), "expense")}
 
-              {totalRow("순현금", r.baseNet, r.rows.map((m) => m.net), "net")}
-              {totalRow("기말 현금 · 잡힌 돈만", null, r.rows.map((m) => m.closing), undefined, true)}
+              {totalRow("순현금", r.baseNet + ed.sim.savingFull, r.rows.map((m, i) => m.net + ed.sim.rows[i].saving), "net")}
+              {totalRow("기말 현금 · 잡힌 돈만", null, ed.sim.rows.map((m) => m.closing), undefined, true)}
               {totalRow(
                 <span className="font-normal text-nd-fg-2">기말 현금 · 평소 수주</span>,
                 null,
-                r.rows.map((m) => m.closingAlt),
+                ed.sim.rows.map((m) => m.closingAlt),
               )}
             </tbody>
           </Table>
@@ -800,7 +857,6 @@ export default function RunwayReport() {
           ))}
         </dl>
       </Disclosure>
-
     </PageShell>
   );
 }

@@ -18,7 +18,10 @@ import {
   buildRunway,
   defaultAsOf,
   DEFAULT_RUNWAY,
+  defaultCutFrom,
+  requiredSaving,
   sanitizeRunway,
+  simulateRunway,
   type RunwaySettings,
 } from "@/lib/neander/finance/runway";
 
@@ -148,6 +151,42 @@ function unit() {
   eq([r4.outcome.months, r4.outcome.zeroMonth], [0, "2026-10"], "시작 현금이 음수면 0개월");
   eq(r4.cash.find((c) => c.last4 === "1111")?.used, -10, "직접 적은 잔액이 장부보다 먼저");
 
+  // ---- 줄여 보기 ----
+  const tree = (path: string) => {
+    const find = (list: typeof r.expenseTree): (typeof r.expenseTree)[number] | undefined =>
+      list.map((x) => (x.path === path ? x : find(x.children))).find(Boolean);
+    return find(r.expenseTree);
+  };
+  eq(tree("인건비")?.avg, 400, "지출 트리 — 대분류 평균");
+  eq(tree("운영비|(미분류)|(미분류)")?.avg, 55, "지출 트리 — 소분류까지 (환급 차감 · 개인사용 제외)");
+  const none = simulateRunway(r, null);
+  eq(none.rows.map((x) => x.closing), r.rows.map((x) => x.closing), "줄이기 없으면 예측 그대로");
+  const s1 = simulateRunway(r, { cuts: [{ path: "인건비", pct: 50, from: "2026-11" }] });
+  eq(s1.rows.slice(0, 3).map((x) => x.saving), [0, 200, 200], "인건비 50% 를 11월부터 — 10월은 그대로");
+  eq(s1.rows[2].closing, r.rows[2].closing + 400, "아낀 돈이 쌓인다");
+  eq(s1.savingByPath.get("인건비"), 200, "계정별 아끼는 돈");
+  eq(s1.savingFull, 200, "다 시작된 뒤 월 아끼는 돈");
+  ok((s1.outcome.months ?? 99) > (r.outcome.months ?? 0), "줄이면 런웨이가 는다");
+  const s2 = simulateRunway(r, {
+    cuts: [
+      { path: "인건비", pct: 50, from: "2026-10" },
+      { path: "인건비|(미분류)", pct: 0, from: "2026-12" },
+    ],
+  });
+  eq(s2.rows.slice(0, 3).map((x) => x.saving), [200, 200, 0], "아래 단계 0% 가 시작되면 그 아래는 안 줄인다");
+  const r5 = buildRunway({
+    transactions: T, paymentMethods: pms, projects, asOf: "2026-09", today: "2026-10-19",
+    settings: settings({ excludeSites: ["와작홈즈"], overrides: [{ id: "o", lineKey: "out:운영비", from: "2026-12", amount: 0 }] }),
+  });
+  const s3 = simulateRunway(r5, { cuts: [{ path: "운영비", pct: 100, from: "2026-10" }] });
+  eq(s3.rows.slice(0, 3).map((x) => x.saving), [55, 55, 0], "가정으로 0원이 된 달은 아낄 것도 없다");
+  eq(requiredSaving(r, none, 6, "booked", "2026-10"), 0, "목표 역산 — 이미 버티면 0");
+  // 12개월(끝까지) 버티려면: 마지막 달 1265 − 155×9 = −130 → 12달에 나눠 10.8… → 만원 단위로 올림
+  eq(requiredSaving(r, none, 12, "booked", "2026-10"), 10_000, "목표 역산 — 끝까지 버티려면");
+  const neg = buildRunway({ transactions: T, paymentMethods: pms, projects: [], settings: settings({ cash: { "1111": -10 } }), asOf: "2026-09", today: "2026-10-19" });
+  eq(requiredSaving(neg, simulateRunway(neg, null), 3, "booked", "2026-10"), null, "목표 역산 — 시작부터 빚이면 줄이기로는 안 된다");
+  eq(defaultCutFrom(r.months, "2026-10"), "2026-11", "줄이기 기본 시작 — 다음 달");
+
   // 저장 다듬기
   const s = sanitizeRunway({
     baseMonths: 5, horizon: 18,
@@ -156,6 +195,7 @@ function unit() {
     cash: { "1111": "", "3333": "50000", "4444": null },
     lineToggles: { a: true, b: "yes" },
     hacker: 1,
+    scenarios: [{ name: "", cuts: [{ path: "인건비", pct: 130, from: "2026-11" }, { path: "인건비", pct: 10, from: "2026-11" }, { path: "운영비", pct: 10, from: "x" }] }],
   });
   eq([s.baseMonths, s.horizon], [3, 18], "다듬기 — 허용 안 된 평균 기간은 기본값");
   eq(s.overrides.map((o) => [o.from, o.amount]), [["2027-01", 300]], "다듬기 — 틀린 달은 버리고 금액은 양수");
@@ -163,6 +203,7 @@ function unit() {
   eq(s.cash, { "3333": 50000 }, "다듬기 — 빈 잔액은 버린다");
   eq(s.lineToggles, { a: true }, "다듬기 — 켜고 끄기는 참·거짓만");
   ok(!("hacker" in s), "다듬기 — 모르는 칸은 버린다");
+  eq(s.scenarios.map((x) => [x.name, x.cuts]), [["시나리오 1", [{ path: "인건비", pct: 100, from: "2026-11" }]]], "다듬기 — 시나리오 (100% 상한 · 같은 경로는 하나 · 틀린 달 버림)");
 }
 
 async function real() {
@@ -202,6 +243,22 @@ async function real() {
   r.rows.forEach((m) => console.log("  ", m.month, "기초", man(m.opening).padStart(8), "수입", man(m.income).padStart(7), "지출", man(m.expense).padStart(7), "기말", man(m.closing).padStart(8), "평소수주", man(m.closingAlt).padStart(8)));
   const f = (o: typeof r.outcome) => (o.months === null ? `${r.months.length}개월 넘게` : `${o.months.toFixed(1)}개월 (${o.zeroMonth} 중 바닥)`);
   console.log("\n런웨이 확정", f(r.outcome), "· 평소 수주", f(r.outcomeAlt));
+
+  const none = simulateRunway(r, null);
+  const from = defaultCutFrom(r.months, new Date().toISOString().slice(0, 7));
+  for (const target of [3, 6, 12]) {
+    const a = requiredSaving(r, none, target, "booked", from);
+    const b = requiredSaving(r, none, target, "usual", from);
+    console.log(`${target}개월 버티려면 ${from}부터 매달 더 줄일 돈 — 잡힌 돈만 ${a === null ? "불가" : man(a)} · 평소 수주 ${b === null ? "불가" : man(b)}`);
+  }
+  const demo = simulateRunway(r, {
+    cuts: [
+      { path: "인건비|급여|임원급여", pct: 50, from },
+      { path: "운영비|일반운영비|구독서비스비", pct: 50, from },
+      { path: "운영비|차량관리비", pct: 100, from },
+    ],
+  });
+  console.log("예시(임원급여 50 · 구독 50 · 차량 100):", "월", man(demo.savingFull), "· 확정", f(demo.outcome), "· 평소", f(demo.outcomeAlt));
 
   // 리포트 지출상세(발생주의)의 순수지출과 줄 합계가 맞는가 — 기준 달 하나로
   const isCard = makeIsCard(paymentMethods);

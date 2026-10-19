@@ -67,6 +67,26 @@ export interface RunwayItem {
   note?: string;
 }
 
+/**
+ * 줄여 보기 — 지출 계정 하나(대·중·소 어느 단계든)를 몇 % 줄이는가.
+ * 아래 단계에 따로 적힌 것이 있으면 그것이 이긴다 (0% 로 적으면 「이건 빼고」).
+ */
+export interface RunwayCut {
+  /** 계정 경로 `대` · `대|중` · `대|중|소` */
+  path: string;
+  /** 0~100 */
+  pct: number;
+  /** `YYYY-MM` 부터 — 해지 통보·계약 기간이 있어 대개 바로 안 줄어든다 */
+  from: string;
+}
+
+/** 줄이기 묶음 하나 — 「매장 축소안」 처럼 이름을 붙여 서로 견준다 */
+export interface RunwayScenario {
+  id: string;
+  name: string;
+  cuts: RunwayCut[];
+}
+
 export interface RunwaySettings {
   /** 평균을 낼 개월 수 */
   baseMonths: number;
@@ -82,6 +102,8 @@ export interface RunwaySettings {
   cash: Record<string, number>;
   /** 런웨이에 넣지 않을 받을 돈 (회차 id) — 떼일 것 같은 연체 등 */
   skipInflows: string[];
+  /** 줄여 보기 시나리오 — 위 가정 위에 얹어 계산한다 (예측 화면 숫자는 안 바뀐다) */
+  scenarios: RunwayScenario[];
   updatedAt?: number;
   updatedBy?: string;
 }
@@ -98,6 +120,7 @@ export const DEFAULT_RUNWAY: RunwaySettings = {
   items: [],
   cash: {},
   skipInflows: [],
+  scenarios: [],
 };
 
 // ---- 줄 ---------------------------------------------------------------
@@ -217,6 +240,17 @@ export interface RunwayOutcome {
   lowestMonth: string;
 }
 
+/** 지출 계정 트리 한 마디 — 줄여 보기 표 */
+export interface ExpenseNode {
+  /** `대` · `대|중` · `대|중|소` */
+  path: string;
+  label: string;
+  level: 0 | 1 | 2;
+  /** 최근 N개월 월평균 (순수지출) */
+  avg: number;
+  children: ExpenseNode[];
+}
+
 export interface RunwayResult {
   /** 기준 달 — 이 달 말일까지가 실적이다 */
   asOf: string;
@@ -239,6 +273,8 @@ export interface RunwayResult {
   baseExpense: number;
   outcome: RunwayOutcome;
   outcomeAlt: RunwayOutcome;
+  /** 지출 계정 트리 (대 ▸ 중 ▸ 소) — 평균이 큰 것부터 */
+  expenseTree: ExpenseNode[];
 }
 
 // ---- 기준 달 ------------------------------------------------------------
@@ -370,7 +406,7 @@ export function projectInflows(
 
 // ---- 굴리기 -------------------------------------------------------------
 
-function outcomeOf(rows: RunwayMonth[], opening: number, pick: (r: RunwayMonth) => number): RunwayOutcome {
+function outcomeOf<T extends { month: string }>(rows: T[], opening: number, pick: (r: T) => number): RunwayOutcome {
   let lowest = opening;
   let lowestMonth = rows[0]?.month ?? "";
   let prev = opening;
@@ -426,6 +462,8 @@ export function buildRunway({ transactions, paymentMethods, projects, settings, 
   // ---- 최근 N개월 실적을 줄로 모은다 ----
   const lineMap = new Map<string, Omit<RunwayLine, "avg" | "on" | "values" | "overridden">>();
   const b2bBase = baseMonths.map(() => 0);
+  /** 지출 소분류 경로 → N개월 합 (줄여 보기 트리) */
+  const leafSum = new Map<string, number>();
   const touch = (key: string, init: () => Omit<RunwayLine, "avg" | "on" | "values" | "overridden">) => {
     let l = lineMap.get(key);
     if (!l) {
@@ -453,7 +491,10 @@ export function buildRunway({ transactions, paymentMethods, projects, settings, 
       if (t.txType === "지출" && t.personalUse) continue;
       const def = expenseLineOf(t);
       const l = touch(def.key, () => ({ ...def, flow: "out", defaultOn: true, base: baseMonths.map(() => 0) }));
-      l.base[i] += t.txType === "환급" ? -amt : amt;
+      const signed = t.txType === "환급" ? -amt : amt;
+      l.base[i] += signed;
+      const leaf = [t.acctMajor || UNSET, t.acctMid || UNSET, t.acctMinor || UNSET].join("|");
+      leafSum.set(leaf, (leafSum.get(leaf) ?? 0) + signed);
     }
     // 카드대금결제 · 자금거래는 세지 않는다 (머리말)
   }
@@ -581,7 +622,172 @@ export function buildRunway({ transactions, paymentMethods, projects, settings, 
     baseExpense,
     outcome: outcomeOf(rows, openingCash, (r) => r.closing),
     outcomeAlt: outcomeOf(rows, openingCash, (r) => r.closingAlt),
+    expenseTree: buildExpenseTree(leafSum, n),
   };
+}
+
+function buildExpenseTree(leafSum: Map<string, number>, n: number): ExpenseNode[] {
+  const roots = new Map<string, ExpenseNode>();
+  const node = (path: string, level: 0 | 1 | 2, siblings: Map<string, ExpenseNode> | ExpenseNode[]) => {
+    const list = Array.isArray(siblings) ? siblings : null;
+    const found = list ? list.find((c) => c.path === path) : (siblings as Map<string, ExpenseNode>).get(path);
+    if (found) return found;
+    // 계정을 못 찾은 환급(「환급수입」)은 예측 표와 같은 이름으로
+    const label = level === 0 && path === "환급수입" ? "환급" : path.split("|")[level];
+    const made: ExpenseNode = { path, label, level, avg: 0, children: [] };
+    if (list) list.push(made);
+    else (siblings as Map<string, ExpenseNode>).set(path, made);
+    return made;
+  };
+  for (const [leaf, sum] of leafSum) {
+    const [a, b] = leaf.split("|");
+    const avg = sum / Math.max(1, n);
+    const major = node(a, 0, roots);
+    const mid = node(`${a}|${b}`, 1, major.children);
+    const minor = node(leaf, 2, mid.children);
+    major.avg += avg;
+    mid.avg += avg;
+    minor.avg += avg;
+  }
+  const tidy = (list: ExpenseNode[]): ExpenseNode[] =>
+    list
+      .map((c) => ({ ...c, avg: Math.round(c.avg), children: tidy(c.children) }))
+      .filter((c) => c.avg !== 0 || c.children.length > 0)
+      .sort((x, y) => y.avg - x.avg);
+  return tidy([...roots.values()]);
+}
+
+// ---- 줄여 보기 ----------------------------------------------------------
+//
+//  시나리오의 줄이기는 「예측」 위에 얹는다 — 가정(와우 철수 등)이 반영된 그 달의
+//  계정대분류 금액을 평균 대비 비율로 늘이거나 줄여 소분류에 나눈다. 예) 가정으로
+//  운영비가 평균의 80% 가 된 달은 「임차료 50% 줄이기」 도 임차료 평균의 80% 에서
+//  50% 를 줄인다. 대분류를 끈 달·0원이 된 달은 아낄 것도 없다.
+//
+//  한 소분류에 여러 줄이기가 걸리면 **가장 아래 단계의 이미 시작한 것**이 이긴다.
+//  위에서 「운영비 20%」, 아래에서 「임차료 0%」 면 임차료는 안 줄인다.
+
+export interface SimRow {
+  month: string;
+  /** 이 달 아낀 돈 */
+  saving: number;
+  closing: number;
+  closingAlt: number;
+}
+
+export interface SimResult {
+  rows: SimRow[];
+  outcome: RunwayOutcome;
+  outcomeAlt: RunwayOutcome;
+  /** 계정 경로 → 마지막 달(모든 줄이기가 시작된 뒤) 월 아끼는 돈 */
+  savingByPath: Map<string, number>;
+  /** 마지막 달 월 아끼는 돈 합계 */
+  savingFull: number;
+}
+
+/** 소분류 하나에 이 달 걸리는 줄이기 비율 (0~1) */
+function cutRateAt(cuts: Map<string, RunwayCut>, leafPath: string, month: string): number {
+  const parts = leafPath.split("|");
+  for (let d = parts.length; d >= 1; d--) {
+    const c = cuts.get(parts.slice(0, d).join("|"));
+    if (c && c.from <= month) return Math.min(100, Math.max(0, c.pct)) / 100;
+  }
+  return 0;
+}
+
+const leavesOf = (n: ExpenseNode): ExpenseNode[] => (n.children.length ? n.children.flatMap(leavesOf) : [n]);
+
+export function simulateRunway(r: RunwayResult, scenario: Pick<RunwayScenario, "cuts"> | null): SimResult {
+  const cuts = new Map((scenario?.cuts ?? []).map((c) => [c.path, c]));
+  const lineByKey = new Map(r.lines.map((l) => [l.key, l]));
+  const last = r.months.length - 1;
+  const savingByPath = new Map<string, number>();
+
+  /** 대분류 하나의 i 번째 달 아끼는 돈 — 그 달 그 줄 금액을 넘지 못한다 */
+  const majorSaving = (major: ExpenseNode, i: number, record: boolean) => {
+    const line = lineByKey.get(`out:${major.path}`);
+    if (!line || !line.on || line.avg <= 0) return 0;
+    const value = line.values[i];
+    const scale = value / line.avg;
+    let sum = 0;
+    const per = new Map<string, number>();
+    for (const leaf of leavesOf(major)) {
+      if (leaf.avg <= 0) continue;
+      const v = leaf.avg * cutRateAt(cuts, leaf.path, r.months[i]) * scale;
+      if (v <= 0) continue;
+      sum += v;
+      if (record) per.set(leaf.path, v);
+    }
+    const capped = Math.min(sum, Math.max(0, value));
+    if (record && sum > 0) {
+      const k = capped / sum;
+      for (const [path, v] of per) {
+        const parts = path.split("|");
+        for (let d = 1; d <= parts.length; d++) {
+          const p = parts.slice(0, d).join("|");
+          savingByPath.set(p, (savingByPath.get(p) ?? 0) + v * k);
+        }
+      }
+    }
+    return capped;
+  };
+
+  let acc = 0;
+  const rows: SimRow[] = r.rows.map((m, i) => {
+    const saving = cuts.size === 0 ? 0 : r.expenseTree.reduce((s, major) => s + majorSaving(major, i, i === last), 0);
+    acc += saving;
+    return { month: m.month, saving, closing: m.closing + acc, closingAlt: m.closingAlt + acc };
+  });
+  return {
+    rows,
+    outcome: outcomeOf(rows, r.openingCash, (x) => x.closing),
+    outcomeAlt: outcomeOf(rows, r.openingCash, (x) => x.closingAlt),
+    savingByPath,
+    savingFull: rows[last]?.saving ?? 0,
+  };
+}
+
+export type B2BBasis = "booked" | "usual";
+
+/**
+ * 목표 개월을 버티려면 `from` 달부터 매달 얼마를 **더** 줄여야 하나.
+ * 목표가 내다본 기간보다 길면 기간 끝까지 0 아래로 안 내려가는 것을 목표로 본다.
+ * 이미 버티면 0, 아무리 줄여도 안 되면(시작 현금이 이미 음수 등) null.
+ */
+export function requiredSaving(
+  r: RunwayResult,
+  sim: SimResult,
+  target: number,
+  basis: B2BBasis,
+  from: string,
+): number | null {
+  const goal = Math.min(target, r.months.length);
+  const closes = sim.rows.map((x) => (basis === "usual" ? x.closingAlt : x.closing));
+  const start = Math.max(0, r.months.indexOf(from));
+  const ok = (extra: number) => {
+    let acc = 0;
+    const rows = r.months.map((month, i) => {
+      if (i >= start) acc += extra;
+      return { month, close: closes[i] + acc };
+    });
+    const o = outcomeOf(rows, r.openingCash, (x) => x.close);
+    return o.months === null || o.months >= goal;
+  };
+  if (ok(0)) return 0;
+  let hi = Math.max(1_000_000, Math.abs(r.openingCash) + r.baseExpense + Math.abs(r.baseNet)) * 4;
+  if (!ok(hi)) return null;
+  let lo = 0;
+  for (let k = 0; k < 50 && hi - lo > 1_000; k++) {
+    const mid = (lo + hi) / 2;
+    if (ok(mid)) hi = mid;
+    else lo = mid;
+  }
+  return Math.ceil(hi / 10_000) * 10_000;
+}
+
+/** 줄이기의 기본 시작 달 — 이미 반쯤 지난 이번 달이 아니라 다음 달부터 */
+export function defaultCutFrom(months: string[], thisMonth: string): string {
+  return months.find((m) => m > thisMonth) ?? months[0] ?? thisMonth;
 }
 
 // ---- 저장 전 다듬기 (서버 · 화면 공용) ------------------------------------
@@ -647,6 +853,22 @@ export function sanitizeRunway(raw: unknown): RunwaySettings {
   const strList = (v: unknown, max: number) =>
     (Array.isArray(v) ? v : []).map((s) => text(s, 80)).filter(Boolean).slice(0, max);
 
+  const scenarios = (Array.isArray(r.scenarios) ? r.scenarios : [])
+    .map((sc: Partial<RunwayScenario>, i) => {
+      const seen = new Set<string>();
+      const cuts = (Array.isArray(sc.cuts) ? sc.cuts : [])
+        .map((c: Partial<RunwayCut>) => ({
+          path: text(c.path, 200),
+          pct: Math.min(100, Math.max(0, Math.round(Number(c.pct) || 0))),
+          from: text(c.from, 10),
+        }))
+        // 같은 경로가 두 번 오면 앞의 것 — 화면은 경로마다 하나만 만든다
+        .filter((c) => c.path && MONTH_RE.test(c.from) && !seen.has(c.path) && seen.add(c.path))
+        .slice(0, 300);
+      return { id: text(sc.id, 40) || shortId(), name: text(sc.name, 60) || `시나리오 ${i + 1}`, cuts };
+    })
+    .slice(0, 20);
+
   return {
     baseMonths: pickNum(r.baseMonths, BASE_MONTH_OPTIONS, DEFAULT_RUNWAY.baseMonths),
     horizon: pickNum(r.horizon, HORIZON_OPTIONS, DEFAULT_RUNWAY.horizon),
@@ -656,6 +878,7 @@ export function sanitizeRunway(raw: unknown): RunwaySettings {
     items,
     cash,
     skipInflows: strList(r.skipInflows, 500),
+    scenarios,
   };
 }
 
@@ -680,6 +903,8 @@ export const newOverride = (lineKey: string, from: string, amount = 0): RunwayOv
   from,
   amount,
 });
+
+export const newScenario = (name: string): RunwayScenario => ({ id: shortId(), name, cuts: [] });
 
 export const newItem = (from: string): RunwayItem => ({
   id: shortId(),
