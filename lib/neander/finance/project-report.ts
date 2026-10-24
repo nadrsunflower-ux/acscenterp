@@ -21,6 +21,7 @@ import {
   dueLabel,
   hasActual,
   installmentStatus,
+  isInstallmentReceived,
   laborTotal,
   lineActual,
   lineEstimate,
@@ -184,7 +185,7 @@ export interface NextPayment {
 
 /** 아직 안 받은 회차 중 가장 이른 것 — 날짜 없는 회차는 맨 뒤 */
 export function nextPayment(p: Pick<FinProjectDoc, "installments" | "vatMode">, today: string): NextPayment | null {
-  const open = (p.installments ?? []).filter((i) => !i.paidDate && (Number(i.amount) || 0) > 0);
+  const open = (p.installments ?? []).filter((i) => !isInstallmentReceived(i) && (Number(i.amount) || 0) > 0);
   if (open.length === 0) return null;
   const first = [...open].sort((a, b) => (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999"))[0];
   return {
@@ -222,7 +223,7 @@ export function checkItems(
   if (s.overdueCount > 0) {
     out.push({ tone: "danger", text: `받기로 한 날이 지난 회차 ${s.overdueCount}건 · ${won(s.overdue)}원 — 청구서를 냈는지부터 확인` });
   }
-  const undated = inst.filter((i) => !i.paidDate && !i.dueDate && (Number(i.amount) || 0) > 0);
+  const undated = inst.filter((i) => !isInstallmentReceived(i) && !i.dueDate && (Number(i.amount) || 0) > 0);
   if (undated.length > 0) {
     out.push({ tone: "warning", text: `받을 날이 없는 회차 ${undated.length}건 — 「10월 말」 처럼 대략이라도 적어 두면 런웨이에 들어갑니다` });
   }

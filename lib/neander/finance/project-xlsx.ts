@@ -16,10 +16,10 @@ import {
   PROJECT_STATUS_LABEL,
   VAT_LABEL,
   DEDUCTION_TAX_LABEL,
-  INSTALLMENT_STATUS_LABEL,
-  installmentStatus,
+  installmentStatusText,
   isReceived,
   dueLabel,
+  paidLabel,
   sanitizeLine,
   type FinProjectDoc,
   type FinProjectLine,
@@ -93,14 +93,14 @@ export function exportProjectXlsx(p: FinProjectDoc, transactions: FinTransaction
     ["입금 일정", "금액", "받기로 한 날", "입금일", "상태"],
     ...(p.installments ?? []).map(
       (i) =>
-        [i.kind, i.amount, dueLabel(i), i.paidDate ?? "", INSTALLMENT_STATUS_LABEL[installmentStatus(i)]] as (
+        [i.kind, i.amount, dueLabel(i), paidLabel(i), installmentStatusText(i)] as (
           | string
           | number
         )[],
     ),
     ...(p.revenues ?? []).map(
       (r) =>
-        [`추가 · ${r.label}`, r.amount, "", r.receivedDate ?? "", isReceived(r) ? "입금" : "예정"] as (
+        [`추가 · ${r.label}`, r.amount, "", r.receivedDate ?? "", isReceived(r) ? "받음" : "예정"] as (
           | string
           | number
         )[],

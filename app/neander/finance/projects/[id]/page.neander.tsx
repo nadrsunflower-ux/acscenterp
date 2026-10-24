@@ -19,8 +19,10 @@
 //  제목 줄 → 탭 다섯 → 탭 안 내용. 카드 여덟 장을 세로로 늘어놓으면 이
 //  화면에서 가장 오래 머무는 지출 시트가 늘 스크롤 한참 아래에 있었다.
 //  탭은 「지금 무슨 일을 하는 중인가」로 나눈다 — 숫자를 훑는(개요),
-//  준비물을 채우는(지출·준비물), 돈 들어온 것을 맞추는(수입·입금),
-//  문서를 붙이는(견적·계약), 원장과 대조하는(원장대조).
+//  문서를 붙이는(견적·계약), 돈 들어온 것을 맞추는(수입·입금),
+//  준비물과 사람 값을 채우는(지출·인건비), 원장과 대조하는(원장대조).
+//  지출·인건비 탭은 위에 지출 시트, 아래에 인건비 칸 — 외부 인력(분류
+//  「인건비」 줄)과 사내 인력을 한곳에서 적는다.
 //
 //  보던 탭은 주소 해시에 남긴다(재무 대시보드의 상세 펼침과 같은 방식).
 //  저장하고 새로고침했을 때 개요로 튕기면 방금 고치던 자리를 다시 찾아야
@@ -98,6 +100,7 @@ import {
   useConfirm,
   useToast,
 } from "@/components/neander/ui";
+import { AutoCodeBox } from "@/components/neander/finance/AutoCode";
 import { ChecklistSheet } from "@/components/neander/finance/ChecklistSheet";
 import { DueInput } from "@/components/neander/finance/DueInput";
 import { isTypingInto } from "@/components/neander/finance/sheetCells";
@@ -132,8 +135,9 @@ import {
   VAT_MODES,
   VAT_HINT,
   INSTALLMENT_KINDS,
-  INSTALLMENT_STATUS_LABEL,
   installmentStatus,
+  installmentStatusText,
+  isInstallmentReceived,
   isReceived,
   newInstallment,
   splitVat,
@@ -143,7 +147,12 @@ import {
   type VatMode,
   formatMargin,
   groupLines,
+  hasActual,
+  isLaborLine,
+  LABOR_CATEGORY,
   ledgerRowsOf,
+  lineActual,
+  lineEstimate,
   newLine,
   newRevenue,
   newDeduction,
@@ -202,6 +211,9 @@ const TAB_HASHES: Record<TabKey, string> = {
   ledger: "#ledger",
 };
 const TAB_KEYS = Object.keys(TAB_HASHES) as TabKey[];
+
+/** 인건비 줄 — 좁은 화면에서는 칸이 두 줄로 접혀 사람끼리 섞여 보이므로 줄 사이에 선을 긋는다 */
+const MOBILE_ROW_RULE = "border-t border-nd-line pt-3 first:border-t-0 first:pt-0 sm:border-t-0 sm:pt-0";
 
 /** 초안 되돌리기 스택. present 가 null 이면 "저장된 그대로" */
 interface DraftHistory {
@@ -478,6 +490,9 @@ function ProjectDetailEditor({ id }: { id: string }) {
     [form, transactions],
   );
   const groups = useMemo(() => (form ? groupLines(form.lines) : []), [form]);
+  // 지출 시트에는 인건비 줄을 뺀 나머지만 — 인건비 줄은 아래 「인건비」 칸에서 고친다
+  const sheetLines = useMemo(() => (form ? form.lines.filter((l) => !isLaborLine(l)) : []), [form]);
+  const laborLines = useMemo(() => (form ? form.lines.filter(isLaborLine) : []), [form]);
   const ledgerRows = useMemo(
     () => (form ? ledgerRowsOf(transactions, form.code) : []),
     [transactions, form],
@@ -575,11 +590,21 @@ function ProjectDetailEditor({ id }: { id: string }) {
    * 시트는 줄 배열을 통째로 돌려준다 (행 추가·삭제·붙여넣기가 모두 여기로
    * 온다). 넘어온 줄을 그대로 초안에 싣되, 빈 값이 된 선택 항목의 키는
    * 없애 저장 문서와의 비교가 어긋나지 않게 한다.
+   *
+   * 시트에는 인건비 줄이 없다 — 돌려받은 줄 뒤에 인건비 줄을 다시 붙인다.
+   * 시트에서 분류를 「인건비」 로 바꾼(붙여넣은) 줄은 인건비 칸으로 넘어간다.
    */
   const setLines = useCallback(
-    (next: FinProjectLine[]) => edit((f) => ({ ...f, lines: next.map(tidyLine) })),
-    [edit],
+    (next: FinProjectLine[]) => {
+      edit((f) => ({ ...f, lines: [...next, ...f.lines.filter(isLaborLine)].map(tidyLine) }));
+      const moved = next.filter(isLaborLine).length;
+      if (moved > 0) toast.success(`인건비 ${moved}줄을 아래 「인건비」 칸으로 옮겼습니다.`);
+    },
+    [edit, toast],
   );
+  const updateLine = (lid: string, patch: Partial<FinProjectLine>) =>
+    edit((f) => ({ ...f, lines: f.lines.map((l) => (l.id === lid ? tidyLine({ ...l, ...patch }) : l)) }));
+  const removeLine = (lid: string) => edit((f) => ({ ...f, lines: f.lines.filter((l) => l.id !== lid) }));
 
   const updateInstallment = (iid: string, patch: Partial<FinProjectInstallment>) =>
     edit((f) => ({
@@ -588,6 +613,16 @@ function ProjectDetailEditor({ id }: { id: string }) {
     }));
   const removeInstallment = (iid: string) =>
     edit((f) => ({ ...f, installments: (f.installments ?? []).filter((i) => i.id !== iid) }));
+  /**
+   * 원장의 입금 거래를 회차에 잇는다 — 그 거래 날짜가 회차의 입금일이 된다.
+   * 「받음 · 날짜 미확인」 이던 회차도, 대략(「7월 초」)으로 적어 둔 회차도 같다.
+   */
+  const linkPaid = (t: FinTransaction, iid: string) => {
+    const target = (form?.installments ?? []).find((i) => i.id === iid);
+    if (!target) return;
+    updateInstallment(iid, { paidDate: t.date, paidApprox: undefined });
+    toast.success(`${target.kind} 입금일을 ${t.date} 로 적었습니다.`);
+  };
   /**
    * 새 회차. 다음 단계를 짐작해 넣는다 — 선금이 있으면 중도금, 중도금까지
    * 있으면 잔금. 금액은 계약금액에서 이미 나눈 몫을 뺀 나머지를 채운다.
@@ -748,13 +783,19 @@ function ProjectDetailEditor({ id }: { id: string }) {
   }
 
   const unfilled = summary.lineCount - summary.actualFilled;
+  // 지출 시트와 인건비 칸 각자의 합계 — 둘을 더하면 개요의 견적 · 실제 원가다
+  const sheetEstimate = sheetLines.reduce((s, l) => s + lineEstimate(l), 0);
+  const sheetActual = sheetLines.reduce((s, l) => s + lineActual(l), 0);
+  const sheetUnfilled = sheetLines.filter((l) => !hasActual(l)).length;
+  const laborPaid = laborLines.reduce((s, l) => s + lineActual(l), 0);
+  const staffCost = laborTotal(form.labor);
   /**
    * 시트 높이 — 줄 수에 맞춰 늘리되 화면을 다 먹지 않게 640px 에서 멈춘다.
    * 줄이 적을 때 빈 격자가 길게 남으면 표가 비어 보인다.
    */
   const sheetHeight = Math.min(
     640,
-    Math.max(240, (form.lines.length + 1) * sheetLayout.layout.rowHeight + 44),
+    Math.max(240, (sheetLines.length + 1) * sheetLayout.layout.rowHeight + 44),
   );
   const ledgerNet = summary.ledger.expense - summary.ledger.refund;
   const gap = summary.actual - ledgerNet;
@@ -799,9 +840,11 @@ function ProjectDetailEditor({ id }: { id: string }) {
     { key: "delete", label: "삭제", icon: Trash2, danger: true, disabled: removing, onSelect: () => void remove() },
   ];
 
+  // 순서는 일이 흘러가는 순서 — 견적·계약을 맺고, 돈을 받고, 준비물을
+  // 사고, 마지막에 원장과 맞춘다
   const tabs = [
     { key: "overview", label: "개요" },
-    { key: "expense", label: "지출 · 준비물", hint: summary.lineCount > 0 ? `${summary.lineCount}줄` : undefined },
+    { key: "docs", label: "견적 · 계약" },
     {
       key: "revenue",
       label: "수입 · 입금",
@@ -809,7 +852,7 @@ function ProjectDetailEditor({ id }: { id: string }) {
       // 지표와 어느 쪽이 맞는지 견주게 된다
       hint: summary.installmentCount > 0 ? `${summary.installmentCount}회차` : undefined,
     },
-    { key: "docs", label: "견적 · 계약" },
+    { key: "expense", label: "지출 · 인건비", hint: summary.lineCount > 0 ? `${summary.lineCount}줄` : undefined },
     { key: "ledger", label: "원장대조", hint: ledgerRows.length > 0 ? `${ledgerRows.length}건` : undefined },
   ];
 
@@ -1004,8 +1047,9 @@ function ProjectDetailEditor({ id }: { id: string }) {
           <Card padding="sm" className="mb-5">
             <SectionHeader title="기본 정보" hint="원장·문서와 이어지는 값" />
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+              {/* 원장 거래가 이 글자로 이어져 있어 고치지 않는다 (finance/codes.ts) */}
               <Field label="코드" hint="원장 프로젝트코드">
-                <Input size="sm" value={form.code} onChange={(e) => setField("code", e.target.value.trim())} className="font-mono" />
+                <AutoCodeBox code={form.code} size="sm" tag="고정" />
               </Field>
               <Field label="발주처 · 주최">
                 <Input size="sm" value={form.client ?? ""} onChange={(e) => setField("client", e.target.value || undefined)} />
@@ -1080,78 +1124,6 @@ function ProjectDetailEditor({ id }: { id: string }) {
                 placeholder="계약 조건, 부가세 기준, 정산 일정 …"
               />
             </Field>
-          </Card>
-
-          {/* ---- 사내 인력 ---- */}
-          <Card padding="sm" className="mb-5">
-            <SectionHeader
-              title="사내 인력"
-              hint="정직원 · 대표가 이 건에 쓴 날 × 하루 단가 — 추정이라 실제 원가에 더하지 않고, 보고서에 「인력 반영 이익」 으로 따로 나옵니다"
-              action={
-                <Button variant="ghost" size="sm" icon={Plus} onClick={() => edit((f) => ({ ...f, labor: [...(f.labor ?? []), newLabor()] }))}>
-                  사람 추가
-                </Button>
-              }
-            />
-            {(form.labor ?? []).length === 0 ? (
-              <p className="text-nd-caption text-nd-fg-3">
-                아직 없습니다. 외부 일용직 · 3.3% 프리랜서처럼 실제로 돈이 나간 사람은 「지출 · 준비물」 줄에, 급여를 받는 정직원 · 대표는 여기에
-                적습니다 — 같은 사람을 두 곳에 적으면 두 번 빠집니다.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {(form.labor ?? []).map((l) => {
-                  const hint = rateHints.find((h) => h.name === l.name.trim());
-                  return (
-                    <FormRow key={l.id} className="grid-cols-2 sm:grid-cols-[minmax(8rem,1fr)_6rem_9rem_8rem_minmax(8rem,1.2fr)_auto]">
-                      <Field label="이름">
-                        <Input size="sm" list="labor-names" value={l.name} onChange={(e) => renameLabor(l, e.target.value)} placeholder="이동주" />
-                      </Field>
-                      <Field label="일수" hint="반나절 0.5">
-                        <NumberInput size="sm" decimal value={l.days || ""} onValueChange={(v) => updateLabor(l.id, { days: Number(v) || 0 })} className="text-right" />
-                      </Field>
-                      <Field
-                        label="하루 단가"
-                        hint={
-                          hint
-                            ? `원장 급여 기준 ${hint.dayRate.toLocaleString("ko-KR")}`
-                            : rateHints.length > 0
-                              ? "원장 급여에 없는 이름"
-                              : undefined
-                        }
-                      >
-                        <NumberInput size="sm" value={l.dayRate || ""} placeholder="0" onValueChange={(v) => updateLabor(l.id, { dayRate: Number(v) || 0 })} className="text-right" />
-                      </Field>
-                      <FieldAction center>
-                        <span className="nd-num text-nd-body font-medium text-nd-fg">{laborCost(l).toLocaleString("ko-KR")}원</span>
-                      </FieldAction>
-                      <Field label="메모">
-                        <Input size="sm" value={l.note ?? ""} onChange={(e) => updateLabor(l.id, { note: e.target.value || undefined })} placeholder="설치 · 운영 · 철수" />
-                      </Field>
-                      <FieldAction>
-                        <IconButton icon={X} label={`${l.name || "이 사람"} 빼기`} size="sm" onClick={() => removeLabor(l.id)} className="text-nd-fg-3 hover:text-nd-danger-text" />
-                      </FieldAction>
-                    </FormRow>
-                  );
-                })}
-                <p className="mt-1 border-t border-nd-line pt-2 text-nd-caption text-nd-fg-2">
-                  합계 {(form.labor ?? []).reduce((a, l) => a + (Number(l.days) || 0), 0).toLocaleString("ko-KR")}일 ·{" "}
-                  <b className="font-semibold text-nd-fg">{laborTotal(form.labor).toLocaleString("ko-KR")}원</b> · 인력 반영 이익{" "}
-                  <Money value={summary.profitActual - laborTotal(form.labor)} unit={false} flow="net" />원
-                  {summary.revenue > 0 && ` (${(((summary.profitActual - laborTotal(form.labor)) / summary.revenue) * 100).toFixed(1)}%)`}
-                </p>
-              </div>
-            )}
-            <datalist id="labor-names">
-              {rateHints.map((h) => (
-                <option key={h.name} value={h.name}>{`하루 ${h.dayRate.toLocaleString("ko-KR")}원 · 월 ${h.monthly.toLocaleString("ko-KR")}원`}</option>
-              ))}
-            </datalist>
-            {rateHints.length > 0 && (
-              <TableNote className="mt-2">
-                하루 단가 추천 = 원장 최근 3개월 급여 월평균 × 1.1(4대보험 회사 부담) ÷ 21일. 적어 둔 단가는 이 프로젝트에 그때 값으로 남습니다.
-              </TableNote>
-            )}
           </Card>
 
           {/* ---- 남은 일 · 다음엔 ---- */}
@@ -1237,75 +1209,230 @@ function ProjectDetailEditor({ id }: { id: string }) {
         </>
       )}
 
-      {/* ================= 지출 · 준비물 ================= */}
+      {/* ================= 지출 · 인건비 ================= */}
       {tab === "expense" && (
-        <Card padding="none" className="overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-nd-line px-5 py-3">
-            <h2 className="text-nd-section text-nd-fg">
-              지출 · 준비물
-              <span className="ml-2 text-nd-caption font-normal text-nd-fg-3">
-                {summary.lineCount}줄 · 준비 {summary.doneCount}/{summary.lineCount} · 물품·인쇄물·식대·인건비·운송 모두 여기에
-              </span>
-            </h2>
-            <div className="flex items-center gap-2">
-              <span className="hidden text-nd-micro text-nd-fg-3 sm:inline">
-                엑셀처럼 씁니다 — 붙여넣기 · 방향키 이동 · 오른쪽 클릭으로 줄 넣기/지우기
-              </span>
-              {/* 배율은 원장 시트와 같은 캡슐 — 두 시트의 조작이 같아 보여야 한다 */}
-              <ButtonGroup label="시트 배율">
-                <IconButton
-                  icon={ZoomOut}
-                  label="시트 축소"
-                  size="sm"
-                  pill
-                  onClick={() => sheetLayout.stepZoom(-1)}
-                  disabled={sheetLayout.layout.zoom <= ZOOM_STEPS[0]}
-                />
-                <button
-                  type="button"
-                  onClick={() => sheetLayout.setZoom(DEFAULT_ZOOM)}
-                  title="100% 로"
-                  aria-label={`시트 배율 ${Math.round(sheetLayout.layout.zoom * 100)}% — 누르면 100% 로`}
-                  className="nd-num h-ctl-sm min-w-[3rem] rounded-full px-1.5 text-nd-caption font-medium text-nd-fg-2 transition-colors duration-nd-fast hover:bg-nd-fg/[.06] hover:text-nd-fg"
-                >
-                  {Math.round(sheetLayout.layout.zoom * 100)}%
-                </button>
-                <IconButton
-                  icon={ZoomIn}
-                  label="시트 확대"
-                  size="sm"
-                  pill
-                  onClick={() => sheetLayout.stepZoom(1)}
-                  disabled={sheetLayout.layout.zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1]}
-                />
-              </ButtonGroup>
+        <div className="flex flex-col gap-5">
+          <Card padding="none" className="overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-nd-line px-5 py-3">
+              <h2 className="text-nd-section text-nd-fg">
+                지출 · 준비물
+                <span className="ml-2 text-nd-caption font-normal text-nd-fg-3">
+                  {sheetLines.length}줄 · 준비 {sheetLines.filter((l) => l.done).length}/{sheetLines.length} · 물품·인쇄물·식대·운송 — 인건비는 아래 「인건비」 칸에
+                </span>
+              </h2>
+              <div className="flex items-center gap-2">
+                <span className="hidden text-nd-micro text-nd-fg-3 sm:inline">
+                  엑셀처럼 씁니다 — 붙여넣기 · 방향키 이동 · 오른쪽 클릭으로 줄 넣기/지우기
+                </span>
+                {/* 배율은 원장 시트와 같은 캡슐 — 두 시트의 조작이 같아 보여야 한다 */}
+                <ButtonGroup label="시트 배율">
+                  <IconButton
+                    icon={ZoomOut}
+                    label="시트 축소"
+                    size="sm"
+                    pill
+                    onClick={() => sheetLayout.stepZoom(-1)}
+                    disabled={sheetLayout.layout.zoom <= ZOOM_STEPS[0]}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => sheetLayout.setZoom(DEFAULT_ZOOM)}
+                    title="100% 로"
+                    aria-label={`시트 배율 ${Math.round(sheetLayout.layout.zoom * 100)}% — 누르면 100% 로`}
+                    className="nd-num h-ctl-sm min-w-[3rem] rounded-full px-1.5 text-nd-caption font-medium text-nd-fg-2 transition-colors duration-nd-fast hover:bg-nd-fg/[.06] hover:text-nd-fg"
+                  >
+                    {Math.round(sheetLayout.layout.zoom * 100)}%
+                  </button>
+                  <IconButton
+                    icon={ZoomIn}
+                    label="시트 확대"
+                    size="sm"
+                    pill
+                    onClick={() => sheetLayout.stepZoom(1)}
+                    disabled={sheetLayout.layout.zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1]}
+                  />
+                </ButtonGroup>
+              </div>
             </div>
-          </div>
 
-          <ChecklistSheet
-            lines={form.lines}
-            onChange={setLines}
-            columns={form.columns ?? []}
-            onColumnsChange={(cols) => setField("columns", cols)}
-            createRow={() => newLine("")}
-            undo={undo}
-            redo={redo}
-            canUndo={canUndo}
-            canRedo={canRedo}
-            height={sheetHeight}
-            sheet={sheetLayout}
-          />
+            <ChecklistSheet
+              lines={sheetLines}
+              onChange={setLines}
+              columns={form.columns ?? []}
+              onColumnsChange={(cols) => setField("columns", cols)}
+              createRow={() => newLine("")}
+              undo={undo}
+              redo={redo}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              height={sheetHeight}
+              sheet={sheetLayout}
+            />
 
-          <div className="flex flex-wrap items-center justify-end gap-6 border-t border-nd-line px-5 py-2.5 text-nd-caption">
-            <span className="text-nd-fg-2">
-              견적 합계 <b className="ml-1 text-nd-body"><Money value={summary.estimate} unit={false} flow="expense" /></b>
-            </span>
-            <span className="text-nd-fg-2">
-              실제 합계 <b className="ml-1 text-nd-body"><Money value={summary.actual} unit={false} flow="expense" /></b>
-              {unfilled > 0 && <span className="ml-1 text-nd-fg-3">(미입력 {unfilled}줄은 견적으로)</span>}
-            </span>
-          </div>
-        </Card>
+            <div className="flex flex-wrap items-center justify-end gap-6 border-t border-nd-line px-5 py-2.5 text-nd-caption">
+              <span className="text-nd-fg-2">
+                견적 합계 <b className="ml-1 text-nd-body"><Money value={sheetEstimate} unit={false} flow="expense" /></b>
+              </span>
+              <span className="text-nd-fg-2">
+                실제 합계 <b className="ml-1 text-nd-body"><Money value={sheetActual} unit={false} flow="expense" /></b>
+                {sheetUnfilled > 0 && <span className="ml-1 text-nd-fg-3">(미입력 {sheetUnfilled}줄은 견적으로)</span>}
+              </span>
+            </div>
+          </Card>
+
+          {/* ---- 인건비 ----
+              외부 인력은 돈이 실제로 나가 원가에 들어간다 — 분류 「인건비」 줄이라
+              시트 줄과 같은 배열(lines)에 저장되고, 여기서는 그 줄만 따로 고친다.
+              사내 인력은 급여를 하루로 나눈 추정이라 원가 밖에서 「인력 반영
+              이익」 으로만 본다. */}
+          <Card padding="sm">
+            <SectionHeader title="인건비" hint="같은 사람을 외부 · 사내 두 곳에 적으면 두 번 빠집니다" />
+
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+              <h3 className="text-nd-body font-semibold text-nd-fg">
+                외부 인력
+                <span className="ml-2 text-nd-table font-normal text-nd-fg-3">일용직 · 3.3% 프리랜서 · 외주 — 실제로 나간 돈이라 원가에 들어갑니다</span>
+              </h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={Plus}
+                onClick={() => edit((f) => ({ ...f, lines: [...f.lines, { ...newLine(LABOR_CATEGORY), unit: "인일" }] }))}
+              >
+                사람 추가
+              </Button>
+            </div>
+            {laborLines.length === 0 ? (
+              <p className="text-nd-table text-nd-fg-3">아직 없습니다.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {laborLines.map((l) => (
+                  <FormRow key={l.id} className={cn(MOBILE_ROW_RULE, "grid-cols-2 sm:grid-cols-[minmax(8rem,1.2fr)_minmax(6rem,1fr)_5rem_8rem_9rem_minmax(8rem,1.2fr)_auto]")}>
+                    <Field label="이름 · 내용">
+                      <Input size="sm" value={l.item} onChange={(e) => updateLine(l.id, { item: e.target.value })} placeholder="진행요원 2명" />
+                    </Field>
+                    <Field label="지급처">
+                      <Input size="sm" value={l.vendor ?? ""} onChange={(e) => updateLine(l.id, { vendor: e.target.value || undefined })} placeholder="받는 사람 · 업체" />
+                    </Field>
+                    <Field label="수량" hint={l.unit}>
+                      <NumberInput size="sm" decimal value={l.qty || ""} onValueChange={(v) => updateLine(l.id, { qty: Number(v) || 0 })} className="text-right" />
+                    </Field>
+                    <Field label="단가">
+                      <NumberInput
+                        size="sm"
+                        value={l.unitPrice ?? ""}
+                        placeholder="0"
+                        onValueChange={(v) => updateLine(l.id, { unitPrice: v === "" ? undefined : Number(v) })}
+                        className="text-right"
+                      />
+                    </Field>
+                    <Field label="실제 지급" hint={hasActual(l) ? undefined : "비우면 견적으로"}>
+                      <NumberInput
+                        size="sm"
+                        value={l.actual ?? ""}
+                        placeholder={lineEstimate(l).toLocaleString("ko-KR")}
+                        onValueChange={(v) => updateLine(l.id, { actual: v === "" ? undefined : Number(v) })}
+                        className="text-right"
+                      />
+                    </Field>
+                    <Field label="메모">
+                      <Input size="sm" value={l.note ?? ""} onChange={(e) => updateLine(l.id, { note: e.target.value || undefined })} placeholder="설치 · 운영 · 철수" />
+                    </Field>
+                    <FieldAction>
+                      <IconButton icon={X} label={`${l.item || "이 줄"} 빼기`} size="sm" onClick={() => removeLine(l.id)} className="text-nd-fg-3 hover:text-nd-danger-text" />
+                    </FieldAction>
+                  </FormRow>
+                ))}
+              </div>
+            )}
+
+            <div className="mb-2 mt-5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-nd-line pt-4">
+              <h3 className="text-nd-body font-semibold text-nd-fg">
+                사내 인력
+                <span className="ml-2 text-nd-table font-normal text-nd-fg-3">
+                  정직원 · 대표가 쓴 날 × 하루 단가 — 추정이라 원가에 더하지 않고, 보고서에 「인력 반영 이익」 으로 따로 나옵니다
+                </span>
+              </h3>
+              <Button variant="ghost" size="sm" icon={Plus} onClick={() => edit((f) => ({ ...f, labor: [...(f.labor ?? []), newLabor()] }))}>
+                사람 추가
+              </Button>
+            </div>
+            {(form.labor ?? []).length === 0 ? (
+              <p className="text-nd-table text-nd-fg-3">아직 없습니다.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {(form.labor ?? []).map((l) => {
+                  const hint = rateHints.find((h) => h.name === l.name.trim());
+                  return (
+                    <FormRow key={l.id} className={cn(MOBILE_ROW_RULE, "grid-cols-2 sm:grid-cols-[minmax(8rem,1fr)_6rem_9rem_8rem_minmax(8rem,1.2fr)_auto]")}>
+                      <Field label="이름">
+                        <Input size="sm" list="labor-names" value={l.name} onChange={(e) => renameLabor(l, e.target.value)} placeholder="이동주" />
+                      </Field>
+                      <Field label="일수" hint="반나절 0.5">
+                        <NumberInput size="sm" decimal value={l.days || ""} onValueChange={(v) => updateLabor(l.id, { days: Number(v) || 0 })} className="text-right" />
+                      </Field>
+                      <Field
+                        label="하루 단가"
+                        hint={
+                          hint
+                            ? `원장 급여 기준 ${hint.dayRate.toLocaleString("ko-KR")}`
+                            : rateHints.length > 0
+                              ? "원장 급여에 없는 이름"
+                              : undefined
+                        }
+                      >
+                        <NumberInput size="sm" value={l.dayRate || ""} placeholder="0" onValueChange={(v) => updateLabor(l.id, { dayRate: Number(v) || 0 })} className="text-right" />
+                      </Field>
+                      <FieldAction center>
+                        <span className="nd-num text-nd-body font-medium text-nd-fg">{laborCost(l).toLocaleString("ko-KR")}원</span>
+                      </FieldAction>
+                      <Field label="메모">
+                        <Input size="sm" value={l.note ?? ""} onChange={(e) => updateLabor(l.id, { note: e.target.value || undefined })} placeholder="설치 · 운영 · 철수" />
+                      </Field>
+                      <FieldAction>
+                        <IconButton icon={X} label={`${l.name || "이 사람"} 빼기`} size="sm" onClick={() => removeLabor(l.id)} className="text-nd-fg-3 hover:text-nd-danger-text" />
+                      </FieldAction>
+                    </FormRow>
+                  );
+                })}
+              </div>
+            )}
+            <datalist id="labor-names">
+              {rateHints.map((h) => (
+                <option key={h.name} value={h.name}>{`하루 ${h.dayRate.toLocaleString("ko-KR")}원 · 월 ${h.monthly.toLocaleString("ko-KR")}원`}</option>
+              ))}
+            </datalist>
+            {rateHints.length > 0 && (
+              <TableNote className="mt-2">
+                하루 단가 추천 = 원장 최근 3개월 급여 월평균 × 1.1(4대보험 회사 부담) ÷ 21일. 적어 둔 단가는 이 프로젝트에 그때 값으로 남습니다.
+              </TableNote>
+            )}
+
+            {(laborLines.length > 0 || (form.labor ?? []).length > 0) && (
+              <div className="mt-4 flex flex-wrap items-center justify-end gap-6 border-t border-nd-line pt-3 text-nd-table">
+                {laborLines.length > 0 && (
+                  <span className="text-nd-fg-2">
+                    외부 인력 <b className="ml-1 text-nd-body"><Money value={laborPaid} unit={false} flow="expense" /></b>
+                  </span>
+                )}
+                {(form.labor ?? []).length > 0 && (
+                  <>
+                    <span className="text-nd-fg-2">
+                      사내 인력 {(form.labor ?? []).reduce((a, l) => a + (Number(l.days) || 0), 0).toLocaleString("ko-KR")}일{" "}
+                      <b className="ml-1 text-nd-body"><Money value={staffCost} unit={false} flow="expense" /></b>
+                    </span>
+                    <span className="text-nd-fg-2">
+                      인력 반영 이익 <b className="ml-1 text-nd-body"><Money value={summary.profitActual - staffCost} unit={false} flow="net" /></b>
+                      {summary.revenue > 0 && (
+                        <span className="ml-1 text-nd-fg-3">({(((summary.profitActual - staffCost) / summary.revenue) * 100).toFixed(1)}%)</span>
+                      )}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+          </Card>
+        </div>
       )}
 
       {/* ================= 수입 · 입금 ================= */}
@@ -1398,15 +1525,15 @@ function ProjectDetailEditor({ id }: { id: string }) {
             ) : (
               // 회차는 계속 늘어난다 — 아래로 스크롤해도 어느 열인지 잃지 않게 머리글을 붙인다
               <TableScroll maxHeight={360}>
-                <Table minWidth={860} dense>
+                <Table minWidth={1060} dense>
                   <thead>
                     <tr>
                       <Th sticky="top" className="w-28 pl-5">구분</Th>
                       <Th sticky="top" align="right" className="w-32">금액</Th>
                       <Th sticky="top" align="right" className="w-28">청구액</Th>
                       <Th sticky="top" className="w-64">받기로 한 날</Th>
-                      <Th sticky="top" className="w-44">입금일</Th>
-                      <Th sticky="top" className="w-20">상태</Th>
+                      <Th sticky="top" className="w-64">입금일</Th>
+                      <Th sticky="top" className="w-40" title="눌러서 예정 ↔ 받음">상태</Th>
                       <Th sticky="top">비고</Th>
                       <Th sticky="top" className="w-12 pr-5" aria-label="동작" />
                     </tr>
@@ -1449,21 +1576,40 @@ function ProjectDetailEditor({ id }: { id: string }) {
                               onChange={(v) => updateInstallment(i.id, { dueDate: v.dueDate, dueApprox: v.dueApprox })}
                             />
                           </Td>
-                          <Td>
-                            <Input
-                              size="sm"
-                              type="date"
-                              value={i.paidDate ?? ""}
-                              onChange={(e) => updateInstallment(i.id, { paidDate: e.target.value || undefined })}
-                              className={cn(i.paidDate && "border-nd-success/50 bg-nd-success-soft/40")}
-                              title="날짜를 넣으면 입금 완료로 셉니다"
-                              aria-label="입금일"
+                          <Td title="날짜를 넣으면 받은 것으로 셉니다 — 모르면 「7월 초」 처럼 대략으로">
+                            <DueInput
+                              label="입금일"
+                              value={{ dueDate: i.paidDate, dueApprox: i.paidApprox }}
+                              onChange={(v) => updateInstallment(i.id, { paidDate: v.dueDate, paidApprox: v.dueApprox })}
                             />
                           </Td>
                           <Td>
-                            <Badge tone={INSTALLMENT_STATUS_TONE[st]} size="sm" dot>
-                              {INSTALLMENT_STATUS_LABEL[st]}
-                            </Badge>
+                            {/* 누르면 예정 ↔ 받음. 받음으로 두는 데 입금일은 없어도 된다 —
+                                되돌리면 입금일도 지운다(날짜가 남아 있으면 계속 받음이라) */}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateInstallment(
+                                  i.id,
+                                  isInstallmentReceived(i)
+                                    ? { received: undefined, paidDate: undefined, paidApprox: undefined }
+                                    : { received: true },
+                                )
+                              }
+                              className="rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-nd-accent"
+                              title={
+                                st !== "paid"
+                                  ? "눌러서 「받음」 으로 — 입금일을 몰라도 됩니다"
+                                  : i.paidDate
+                                    ? "눌러서 「예정」 으로 되돌립니다 (입금일도 지웁니다)"
+                                    : "받았지만 입금일을 모릅니다 — 「원장대조」 탭에서 입금 거래를 이 회차에 이으면 날짜가 채워집니다. 다시 누르면 「예정」"
+                              }
+                              aria-label={`상태 ${installmentStatusText(i)} — 눌러서 바꾸기`}
+                            >
+                              <Badge tone={INSTALLMENT_STATUS_TONE[st]} size="sm" dot className="cursor-pointer">
+                                {installmentStatusText(i)}
+                              </Badge>
+                            </button>
                           </Td>
                           <Td>
                             <Input
@@ -1760,7 +1906,7 @@ function ProjectDetailEditor({ id }: { id: string }) {
           ) : (
             // 한 프로젝트에 수십 건까지 붙는다 — 머리글을 붙여 두고 표 안에서만 스크롤한다
             <TableScroll maxHeight={420}>
-              <Table minWidth={720} dense>
+              <Table minWidth={940} dense>
                 <thead>
                   <tr>
                     <Th sticky="top" className="pl-5">거래일</Th>
@@ -1768,6 +1914,7 @@ function ProjectDetailEditor({ id }: { id: string }) {
                     <Th sticky="top">거래처</Th>
                     <Th sticky="top">계정</Th>
                     <Th sticky="top" align="right">순금액</Th>
+                    <Th sticky="top" className="w-60" title="입금 거래를 회차에 이으면 그 날짜가 회차의 입금일이 됩니다">회차</Th>
                     <Th sticky="top" className="w-20 pr-5" aria-label="동작" />
                   </tr>
                 </thead>
@@ -1790,6 +1937,14 @@ function ProjectDetailEditor({ id }: { id: string }) {
                         </span>
                       </Td>
                       <Td num><Money value={netAmount(t)} unit={false} flow={txFlow(t.txType)} /></Td>
+                      <Td onClick={(e) => e.stopPropagation()} className="cursor-default">
+                        <InstallmentLink
+                          t={t}
+                          installments={form.installments ?? []}
+                          vatMode={form.vatMode ?? "excluded"}
+                          onLink={(iid) => linkPaid(t, iid)}
+                        />
+                      </Td>
                       <Td align="right" className="pr-5">
                         <Button
                           variant="ghost"
@@ -1817,7 +1972,7 @@ function ProjectDetailEditor({ id }: { id: string }) {
           <div className="border-t border-nd-line px-5 py-4">
             {codeUnsaved ? (
               <InlineNotice tone="warning">
-                코드를 <span className="font-mono">{form.code || "(빈 값)"}</span> 로 고쳤습니다. 먼저 저장해야 거래를 붙일 수 있습니다.
+                코드를 <span className="font-mono">{form.code || "(빈 값)"}</span> 로 고쳤습니다. 저장이 끝나면 거래를 붙일 수 있습니다.
               </InlineNotice>
             ) : (
               <>
@@ -1912,5 +2067,61 @@ function TodoAdder({ onAdd }: { onAdd: (text: string) => void }) {
         추가
       </Button>
     </form>
+  );
+}
+
+/**
+ * 원장대조 표의 「회차」 칸 — 입금 거래를 어느 회차의 돈인지 잇는다.
+ *
+ *   · 입금이 아닌 거래는 비운다.
+ *   · 이 날짜가 이미 어느 회차의 입금일이면 그 회차를 보인다.
+ *   · 아니면 입금일이 정확하지 않은 회차(비었거나 대략)를 고르게 한다 —
+ *     금액이 청구액과 같으면 옆에 적어 고르기 쉽게 한다.
+ */
+function InstallmentLink({
+  t,
+  installments,
+  vatMode,
+  onLink,
+}: {
+  t: FinTransaction;
+  installments: FinProjectInstallment[];
+  vatMode: VatMode;
+  onLink: (installmentId: string) => void;
+}) {
+  if (t.txType !== "수입" || netAmount(t) <= 0) return null;
+  const linked = installments.filter((i) => i.paidDate === t.date && !i.paidApprox);
+  if (linked.length > 0) {
+    return (
+      <span className="inline-flex items-center gap-1 text-nd-table text-nd-success-text">
+        <Icon icon={Check} size={14} />
+        {linked.map((i) => i.kind).join(" · ")} 입금
+      </span>
+    );
+  }
+  const open = installments.filter((i) => !i.paidDate || i.paidApprox);
+  if (open.length === 0) return null;
+  const net = Math.round(netAmount(t));
+  return (
+    <Select
+      size="sm"
+      value=""
+      onChange={(e) => e.target.value && onLink(e.target.value)}
+      aria-label={`${t.date} 입금을 회차에 잇기`}
+    >
+      <option value="">회차에 잇기…</option>
+      {open.map((i) => {
+        const billed = splitVat(i.amount, vatMode).total;
+        const notes = [
+          billed === net ? "금액 같음" : "",
+          isInstallmentReceived(i) ? (i.paidDate ? "입금일 대략" : "받음 · 날짜 미확인") : "",
+        ].filter(Boolean);
+        return (
+          <option key={i.id} value={i.id}>
+            {`${i.kind} ${billed.toLocaleString("ko-KR")}원${notes.length ? ` (${notes.join(" · ")})` : ""}`}
+          </option>
+        );
+      })}
+    </Select>
   );
 }

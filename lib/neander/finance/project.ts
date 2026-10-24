@@ -13,7 +13,9 @@
 //  식대·인건비·숙박·운송도 같은 줄 구조(수량 × 단가)로 넣는다. 인건비는
 //  단위를 「인일」로, 식대는 「인」으로 두면 된다. 분류를 따로 나누지 않고
 //  같은 표에 두는 이유는, 준비하는 사람이 한 장에서 보던 습관 그대로
-//  쓰게 하려는 것이다.
+//  쓰게 하려는 것이다. 다만 화면에서는 분류가 「인건비」 인 줄만 시트에서
+//  떼어 「인건비」 칸에 따로 보인다(isLaborLine) — 저장은 여전히 같은
+//  줄 배열이라 합계 · 분류별 소계 · 보고서 · 엑셀은 그대로 굴러간다.
 //
 //  원장(통합거래장)의 `projectCode` 와 코드로 이어진다. 원장에 같은
 //  코드가 찍힌 거래의 합계를 **참고값**으로 옆에 보여줄 뿐, 두 숫자를
@@ -64,6 +66,10 @@ export const LINE_CATEGORY_SUGGESTIONS = [
 ] as const;
 
 export const UNIT_SUGGESTIONS = ["개", "대", "장", "세트", "묶음", "롤", "식", "인", "인일", "박", "회", "L", "ml"] as const;
+
+/** 외부 인력(일용직 · 3.3% 프리랜서) 줄의 분류. 이 분류의 줄은 「인건비」 칸에 따로 보인다 */
+export const LABOR_CATEGORY = "인건비";
+export const isLaborLine = (l: Pick<FinProjectLine, "category">) => (l.category ?? "").trim() === LABOR_CATEGORY;
 
 // ---- 부가세 --------------------------------------------------
 //
@@ -271,10 +277,24 @@ export interface FinProjectInstallment {
   dueDate?: string;
   /** 받을 날을 대략으로만 안다 — 「10월 말」. dueDate 는 그 구간의 끝 날이다 (아래 DUE_PARTS) */
   dueApprox?: DuePart;
-  /** 실제로 들어온 날. 적혀 있으면 입금 완료로 본다 */
+  /** 실제로 들어온 날. 적혀 있으면 받은 것으로 본다 */
   paidDate?: string;
+  /** 들어온 날을 대략으로만 안다 — 「7월 초」. paidDate 는 그 구간의 끝 날이다 */
+  paidApprox?: DuePart;
+  /**
+   * 받았다 (들어온 날을 모를 때). 날짜가 있으면 이 값과 상관없이 받은 것이다 —
+   * 예전 회차는 날짜만 있고 이 칸이 없다. 판단은 늘 isInstallmentReceived 로.
+   */
+  received?: boolean;
   note?: string;
 }
+
+/**
+ * 이 회차를 받았는가 — 입금일이 있거나 「받음」 으로 표시했으면.
+ * 미수금 · 런웨이 받을 돈 · 다음 입금 · 연체 판정이 모두 이 함수 하나로 판단한다.
+ */
+export const isInstallmentReceived = (i: Pick<FinProjectInstallment, "received" | "paidDate">) =>
+  i.received === true || Boolean(i.paidDate);
 
 // ---- 대략 받을 날 ---------------------------------------------
 //
@@ -302,32 +322,47 @@ export const partOfDate = (date: string): DuePart => {
   return d <= 10 ? "early" : d <= 20 ? "mid" : "late";
 };
 
-/** 받을 날 글자 — 대략이면 「2026년 10월 말」, 아니면 날짜 그대로 */
-export function dueLabel(i: Pick<FinProjectInstallment, "dueDate" | "dueApprox">): string {
-  if (!i.dueDate) return "";
-  if (!i.dueApprox) return i.dueDate;
-  const [y, m] = i.dueDate.split("-").map(Number);
-  return `${y}년 ${m}월 ${DUE_PART_LABEL[i.dueApprox]}`;
+/** 날짜 글자 — 대략이면 「2026년 10월 말」, 아니면 날짜 그대로 */
+function approxLabel(date?: string, part?: DuePart): string {
+  if (!date) return "";
+  if (!part) return date;
+  const [y, m] = date.split("-").map(Number);
+  return `${y}년 ${m}월 ${DUE_PART_LABEL[part]}`;
 }
+
+/** 받을 날 글자 — 대략이면 「2026년 10월 말」, 아니면 날짜 그대로 */
+export const dueLabel = (i: Pick<FinProjectInstallment, "dueDate" | "dueApprox">) => approxLabel(i.dueDate, i.dueApprox);
+
+/** 들어온 날 글자 — 대략이면 「2026년 7월 초」, 날짜를 모르면 빈 글자 */
+export const paidLabel = (i: Pick<FinProjectInstallment, "paidDate" | "paidApprox">) => approxLabel(i.paidDate, i.paidApprox);
 
 /** 회차 하나의 상태 */
 export type InstallmentStatus = "paid" | "overdue" | "planned";
 
 export function installmentStatus(
-  i: Pick<FinProjectInstallment, "dueDate" | "paidDate">,
+  i: Pick<FinProjectInstallment, "dueDate" | "paidDate" | "received">,
   today = todayStrKST(),
 ): InstallmentStatus {
-  if (i.paidDate) return "paid";
+  if (isInstallmentReceived(i)) return "paid";
   // 예정일이 없으면 연체를 말할 수 없다 — 아직 날짜를 안 정한 회차다
   if (i.dueDate && i.dueDate < today) return "overdue";
   return "planned";
 }
 
 export const INSTALLMENT_STATUS_LABEL: Record<InstallmentStatus, string> = {
-  paid: "입금",
+  paid: "받음",
   overdue: "연체",
   planned: "예정",
 };
+
+/** 상태 글자 — 받았는데 들어온 날을 모르면 「받음 · 날짜 미확인」 */
+export function installmentStatusText(
+  i: Pick<FinProjectInstallment, "dueDate" | "paidDate" | "received">,
+  today = todayStrKST(),
+): string {
+  const st = installmentStatus(i, today);
+  return st === "paid" && !i.paidDate ? "받음 · 날짜 미확인" : INSTALLMENT_STATUS_LABEL[st];
+}
 
 export const INSTALLMENT_STATUS_COLOR: Record<InstallmentStatus, string> = {
   paid: "#16a34a",
@@ -875,8 +910,11 @@ export function sanitizeInstallment(raw: Partial<FinProjectInstallment>): FinPro
   const kind = (INSTALLMENT_KINDS as readonly string[]).includes(String(raw.kind))
     ? (raw.kind as InstallmentKind)
     : "선금";
+  const isPart = (v: unknown) => (DUE_PARTS as readonly string[]).includes(String(v));
   const due = dateStr(raw.dueDate);
-  const approx = due && (DUE_PARTS as readonly string[]).includes(String(raw.dueApprox)) ? (raw.dueApprox as DuePart) : undefined;
+  const approx = due && isPart(raw.dueApprox) ? (raw.dueApprox as DuePart) : undefined;
+  const paid = dateStr(raw.paidDate);
+  const paidApprox = paid && isPart(raw.paidApprox) ? (raw.paidApprox as DuePart) : undefined;
   return compact({
     id: str(raw.id) ?? shortId(),
     kind,
@@ -884,7 +922,9 @@ export function sanitizeInstallment(raw: Partial<FinProjectInstallment>): FinPro
     // 대략이면 날짜를 그 구간의 끝 날로 맞춘다 — 화면이 어떤 날을 보내도 같은 값이 남게
     dueDate: due && approx ? approxDueDate(due.slice(0, 7), approx) : due,
     dueApprox: approx,
-    paidDate: dateStr(raw.paidDate),
+    paidDate: paid && paidApprox ? approxDueDate(paid.slice(0, 7), paidApprox) : paid,
+    paidApprox,
+    received: raw.received ? true : undefined,
     note: str(raw.note),
   }) as FinProjectInstallment;
 }
@@ -949,7 +989,7 @@ export function sanitizeProject(
   // 금액도 날짜도 없는 회차는 「+ 회차 추가」를 눌러만 둔 줄이다
   const installments = (Array.isArray(raw.installments) ? raw.installments : [])
     .map(sanitizeInstallment)
-    .filter((i) => i.amount !== 0 || i.dueDate || i.paidDate || i.note);
+    .filter((i) => i.amount !== 0 || i.dueDate || i.paidDate || i.received || i.note);
 
   // 사용자 열 — id 중복을 없애고 이름이 빈 열은 기본 이름을 준다
   const seenCols = new Set<string>();

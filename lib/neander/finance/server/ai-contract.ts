@@ -23,7 +23,7 @@ import { argBits, runAgent, type AgentMessage, type AgentResult, type AgentToolO
 import { CONTRACT_AI_MODEL, isFinAiModelId } from "@/lib/neander/ai/models";
 import type { ExtractedAttachment } from "@/lib/neander/server/attachments";
 import { todayStrKST } from "@/lib/neander/format";
-import { VAT_LABEL, type FinProjectDoc } from "../project";
+import { isInstallmentReceived, VAT_LABEL, type FinProjectDoc } from "../project";
 import { quoteTotals, QUOTE_VAT_LABEL, type FinQuoteDoc } from "../docs";
 import { CONTRACT_LIMITS, type ContractItem, type ContractParty, type ContractTerm } from "../contract-body";
 import {
@@ -428,7 +428,7 @@ function projectNote(project: FinProjectDoc | undefined, quotes: FinQuoteDoc[]):
   ];
   const ins = project.installments ?? [];
   if (ins.length > 0) {
-    out.push(`입금 일정: ${ins.map((i) => `${i.kind} ${won(i.amount)}원${i.dueDate ? ` (${i.dueDate})` : ""}${i.paidDate ? " 입금됨" : ""}`).join(" · ")}`);
+    out.push(`입금 일정: ${ins.map((i) => `${i.kind} ${won(i.amount)}원${i.dueDate ? ` (${i.dueDate})` : ""}${isInstallmentReceived(i) ? " 받음" : ""}`).join(" · ")}`);
   }
   if (project.note?.trim()) out.push(`메모: ${project.note.trim().slice(0, 400)}`);
   quotes.slice(0, 2).forEach((q) => {

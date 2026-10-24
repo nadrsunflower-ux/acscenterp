@@ -74,7 +74,10 @@ import {
 } from "@/components/neander/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { ColumnMenu } from "@/components/neander/finance/ColumnMenu";
+import { AutoCodeBox } from "@/components/neander/finance/AutoCode";
 import { saveFinProject } from "@/lib/neander/finance/client";
+import { nextCode, saveWithAutoCode, takenCodes } from "@/lib/neander/finance/codes";
+import { useGrants } from "@/lib/neander/finance/grant-client";
 import {
   ENTITY_SHORT,
   PROJECT_STATUSES,
@@ -549,13 +552,17 @@ function NewProjectDialog({
   onCreated: (id: string) => Promise<void>;
 }) {
   const { transactions, projects } = useFinance();
+  const { grants } = useGrants();
   const [form, setForm] = useState<FinProjectInput>(emptyProject());
+  /** 원장에만 있는 코드에 이을 때 고른 코드 — 비어 있으면 새 코드를 저절로 붙인다 */
+  const [linkCode, setLinkCode] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // 원장에 이미 찍혀 있는데 프로젝트로 안 만들어진 코드 — 고르면 바로 이어진다
   const orphanCodes = useMemo(() => {
-    const have = new Set(projects.map((p) => p.code.toLowerCase()));
+    // 지원사업 코드도 원장 프로젝트코드 칸을 같이 쓴다 — 그건 고아가 아니다
+    const have = takenCodes(projects.map((p) => p.code), grants.map((g) => g.code));
     const counts = new Map<string, number>();
     transactions.forEach((t) => {
       const c = (t.projectCode ?? "").trim();
@@ -563,7 +570,14 @@ function NewProjectDialog({
       counts.set(c, (counts.get(c) ?? 0) + 1);
     });
     return [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  }, [transactions, projects]);
+  }, [transactions, projects, grants]);
+
+  // 새 코드 — 시작일의 연월 + 순번 (codes.ts). 원장 · 지원사업에 있는 코드는 피한다
+  const taken = useMemo(
+    () => takenCodes(projects.map((p) => p.code), grants.map((g) => g.code), transactions.map((t) => t.projectCode)),
+    [projects, grants, transactions],
+  );
+  const autoCode = nextCode("project", taken, form.startDate);
 
   const set = <K extends keyof FinProjectInput>(k: K, v: FinProjectInput[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -572,7 +586,9 @@ function NewProjectDialog({
     setSaving(true);
     setError(null);
     try {
-      const r = await saveFinProject(form);
+      const r = linkCode
+        ? await saveFinProject({ ...form, code: linkCode })
+        : (await saveWithAutoCode("project", taken, form.startDate, (code) => saveFinProject({ ...form, code }))).result;
       await onCreated(r.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "저장에 실패했습니다.");
@@ -588,11 +604,11 @@ function NewProjectDialog({
       closeOnOverlay={false}
       size="lg"
       title="새 프로젝트"
-      description="이름·코드·계약금액만 넣으면 됩니다. 지출은 다음 화면에서."
+      description="이름과 계약금액만 넣으면 됩니다. 코드는 저절로 붙고, 지출은 다음 화면에서."
       footer={
         <>
           <Button variant="ghost" onClick={onCancel} disabled={saving}>취소</Button>
-          <Button onClick={submit} loading={saving} disabled={!form.name.trim() || !form.code.trim()}>
+          <Button onClick={submit} loading={saving} disabled={!form.name.trim()}>
             만들고 지출 입력으로
           </Button>
         </>
@@ -602,20 +618,25 @@ function NewProjectDialog({
         <Field label="이름" required>
           <Input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="2026 JIMFF 행사" autoFocus />
         </Field>
-        <Field label="코드" required hint="원장 프로젝트코드와 같은 값">
-          <Input
-            value={form.code}
-            onChange={(e) => set("code", e.target.value.trim())}
-            placeholder="JIMFF"
-            list="orphan-project-codes"
-            className="font-mono"
-          />
-          <datalist id="orphan-project-codes">
-            {orphanCodes.map(([c, n]) => (
-              <option key={c} value={c}>{`원장 ${n}건`}</option>
-            ))}
-          </datalist>
-        </Field>
+        {/* 코드는 저절로 붙는다. 원장에 이미 찍혀 있는데 프로젝트가 없는 코드가 있으면
+            그 코드에 이을 수만 있다 — 고르면 그 거래들이 바로 이 프로젝트로 이어진다 */}
+        {orphanCodes.length > 0 ? (
+          <Field
+            label="코드"
+            hint={linkCode ? "원장에 이미 찍힌 거래가 이 프로젝트로 이어집니다" : "자동 — 시작일의 연월 + 순번. 원장 프로젝트코드로 씁니다"}
+          >
+            <Select value={linkCode} onChange={(e) => setLinkCode(e.target.value)} className="font-mono">
+              <option value="">{`${autoCode} (새 코드 · 자동)`}</option>
+              {orphanCodes.map(([c, n]) => (
+                <option key={c} value={c}>{`${c} — 원장 ${n}건에 잇기`}</option>
+              ))}
+            </Select>
+          </Field>
+        ) : (
+          <Field label="코드" hint="자동 — 시작일의 연월 + 순번. 원장 프로젝트코드로 씁니다">
+            <AutoCodeBox code={autoCode} />
+          </Field>
+        )}
         <Field label="발주처 · 주최">
           <Input value={form.client ?? ""} onChange={(e) => set("client", e.target.value || undefined)} />
         </Field>

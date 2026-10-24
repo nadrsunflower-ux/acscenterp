@@ -108,6 +108,10 @@ export const NEANDER_COL = {
    * 보안 규칙에 없어 서버(api/neander/finance/tx-log · mutate)만 접근한다
    */
   finTxLog: "neander_fin_tx_log",
+  /** 지원사업 — 받을 회차 · 비목별 예산 · 집행 배정 (finance/grant.ts). 서버(api/neander/finance/grants)만 접근한다 */
+  finGrants: "neander_fin_grants",
+  /** 돌려줄 돈 — 프로젝트에 묶이지 않은 환급 · 페이백 (finance/payback.ts). 서버(api/neander/finance/paybacks)만 접근한다 */
+  finPaybacks: "neander_fin_paybacks",
   // ---- 매출 단위경제 (/neander/sales) ----
   //  재무와 같은 이유로 서버(Admin SDK)를 거친다 — 보안 규칙을 게시할
   //  권한이 없어서 새 컬렉션은 클라이언트에서 직접 붙을 수 없다.

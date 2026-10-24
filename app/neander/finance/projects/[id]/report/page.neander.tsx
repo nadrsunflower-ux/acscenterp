@@ -50,14 +50,15 @@ import {
 import {
   DEDUCTION_TAX_LABEL,
   ENTITY_SHORT,
-  INSTALLMENT_STATUS_LABEL,
   PROJECT_STATUS_LABEL,
   VAT_LABEL,
   deductionSplit,
   dueLabel,
+  paidLabel,
   formatMargin,
   groupLines,
   installmentStatus,
+  installmentStatusText,
   isReceived,
   laborCost,
   laborTotal,
@@ -538,9 +539,9 @@ export default function ProjectReportPage() {
               won(i.amount),
               won(splitVat(i.amount, base).total),
               dueLabel(i) || "—",
-              i.paidDate ?? "—",
+              paidLabel(i) || "—",
               <Badge key="st" tone={INSTALLMENT_TONE[st]} size="sm">
-                {INSTALLMENT_STATUS_LABEL[st]}
+                {installmentStatusText(i)}
               </Badge>,
               i.note ?? "",
             ];
