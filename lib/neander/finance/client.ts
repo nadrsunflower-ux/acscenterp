@@ -32,6 +32,7 @@ import type {
 } from "./db-types";
 import type { FinClassRule, FinClassRuleDoc, RuleProposal } from "./class-rules";
 import type { FinSuspenseDoc, FinSuspenseInput } from "./suspense";
+import type { FinTrustDoc, FinTrustSettings, TrustMeasure } from "./trust";
 
 import type { PresentationContext } from "@/lib/neander/ai/presentation";
 import type { AssistantFocus } from "@/lib/neander/ai/focus";
@@ -70,6 +71,8 @@ export interface FinanceSnapshot {
   docs: FinDoc[];
   /** 가수금 기록장 — 임직원과 오간 돈 (suspense.ts) */
   suspense?: FinSuspenseDoc[];
+  /** 믿을 범위 — 자동 확정을 근거마다 실측으로 넓히고 좁힌다 (trust.ts). 저장한 적 없으면 null */
+  trust?: FinTrustDoc | null;
 }
 
 /** 서버가 신원을 검증할 수 있게 로그인 ID 토큰을 붙인다 */
@@ -190,12 +193,12 @@ export const addFinTransaction = (input: FinTransactionInput) =>
  *    그 분기에 닿지 못했다 — 거래처나 프로젝트코드를 지우고 저장해도 옛 값이
  *    그대로 남았다. 명시적 null 로 보내야 비우기가 실제로 전달된다.
  */
-export const updateFinTransaction = (id: string, patch: Partial<FinTransactionInput>) => {
+export const updateFinTransaction = (id: string, patch: Partial<FinTransactionInput>, via?: string) => {
   const wire: Record<string, unknown> = {};
   (Object.keys(patch) as (keyof FinTransactionInput)[]).forEach((k) => {
     wire[k] = patch[k] === undefined ? null : patch[k];
   });
-  return mutate<{ ok: true; transactions: FinTransaction[] }>("transaction.update", { id, patch: wire });
+  return mutate<{ ok: true; transactions: FinTransaction[] }>("transaction.update", { id, patch: wire, via });
 };
 
 export const deleteFinTransaction = (id: string) => mutate("transaction.delete", { id });
@@ -204,20 +207,23 @@ export const deleteFinTransaction = (id: string) => mutate("transaction.delete",
 export const restoreFinTransactions = (rows: FinTransaction[]) =>
   mutate<{ ok: true; restored: number; transactions: FinTransaction[] }>("transaction.restore", { rows });
 
-export const bulkUpdateFinStatus = (ids: string[], status: string) =>
-  mutate<{ ok: true; updated: number; transactions: FinTransaction[] }>("transaction.bulkStatus", { ids, status });
+export const bulkUpdateFinStatus = (ids: string[], status: string, via?: string) =>
+  mutate<{ ok: true; updated: number; transactions: FinTransaction[] }>("transaction.bulkStatus", { ids, status, via });
 
 /** 여러 거래에 같은 값을 한 번에 적용 (계정 일괄 교정 등) */
 export const bulkPatchFinTransactions = (
   ids: string[],
   patch: Partial<FinTransactionInput>,
-) => mutate<{ updated: number; transactions: FinTransaction[] }>("transaction.bulkPatch", { ids, patch });
+  via?: string,
+) => mutate<{ updated: number; transactions: FinTransaction[] }>("transaction.bulkPatch", { ids, patch, via });
 
 /** 원장 시트 일괄 저장 — 행별 패치·신규·삭제를 한 요청에 */
 export const applyFinEdits = (edits: {
   updates: { id: string; patch: Partial<FinTransactionInput> }[];
   inserts: FinTransactionInput[];
   deletes: string[];
+  /** 무엇으로 바꿨나 — 변경 이력에 남는다 (finance/tx-log.ts 의 VIA_LABEL) */
+  via?: string;
 }) =>
   mutate<{
     updated: number;
@@ -767,6 +773,56 @@ export const setFinClassRuleActive = (id: string, active: boolean) =>
   mutate("classRule.setActive", { id, active });
 
 export const deleteFinClassRule = (id: string) => mutate("classRule.delete", { id });
+
+// ---- 받을 돈 짝짓기 (finance/receivables.ts) ------------------
+
+/** 입금 하나를 회차에 짝짓는다 — 받을 돈을 다 채우면 회차가 「받음」 이 된다 */
+export const markFinReceipt = (projectId: string, installmentIds: string[], txId: string) =>
+  mutate<{ ok: true; covered: string[]; transactions: FinTransaction[] }>("project.markReceived", { projectId, installmentIds, txId });
+
+/** 짝짓기를 푼다 — 그 입금으로 「받음」 이 된 회차는 다시 받을 돈이 된다 */
+export const unmatchFinReceipt = (txId: string) =>
+  mutate<{ ok: true; reopened: string[]; transactions: FinTransaction[] }>("project.unmatchReceipt", { txId });
+
+// ---- 결제 알림 메일 → 카드 메모 (finance/pay-mail.ts) ----------
+
+export interface PayMailRun {
+  reads: number;
+  attached: number;
+  matches: { txId: string; memo: string; pg: string; amount: number; currency: "KRW" | "USD"; date: string }[];
+}
+
+/** 회사 메일함의 결제 알림을 카드 거래에 메모로 붙인다 (dryRun 이면 무엇이 붙을지만) */
+export async function runPayMail(dryRun = false): Promise<PayMailRun> {
+  const res = await fetch("/api/neander/finance/pay-mail", {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ dryRun }),
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return (await res.json()) as PayMailRun;
+}
+
+// ---- 거래 변경 이력 -----------------------------------------
+
+/** 거래 한 건의 변경 이력 — 최근 것이 위 (finance/tx-log.ts) */
+export async function fetchTxLog(id: string): Promise<import("./tx-log").TxLogEntry[]> {
+  const res = await fetch(`/api/neander/finance/tx-log?id=${encodeURIComponent(id)}`, {
+    headers: await authHeaders(),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return ((await res.json()) as { entries?: import("./tx-log").TxLogEntry[] }).entries ?? [];
+}
+
+// ---- 믿을 범위 (자동 처리) ---------------------------------
+
+/** 설정 저장 — 켜는데 잰 적이 없으면 서버가 먼저 잰다. 저장된 문서를 돌려준다 */
+export const saveFinTrust = (settings: FinTrustSettings) =>
+  mutate<{ ok: true; trust: FinTrustDoc }>("trust.save", { settings });
+
+/** 지금 장부로 다시 잰다 */
+export const measureFinTrust = () => mutate<{ ok: true; measure: TrustMeasure }>("trust.measure", {});
 
 /** 원장에 덧붙인 열 — 만들기·이름 바꾸기 */
 export const upsertFinLedgerColumn = (col: { id?: string; label: string; before?: string }) =>

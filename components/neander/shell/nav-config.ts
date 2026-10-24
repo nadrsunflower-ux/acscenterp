@@ -10,6 +10,7 @@
 // ============================================================
 import type { LucideIcon } from "lucide-react";
 import {
+  Bot,
   Boxes,
   CalendarCheck,
   CalendarPlus,
@@ -122,6 +123,7 @@ export const FINANCE_NAV: NavGroup[] = [
     items: [
       { href: "/neander/finance/import", label: "엑셀 임포트", icon: Download },
       { href: "/neander/finance/review", label: "검토 대기함", icon: Inbox, badge: "finance-review" },
+      { href: "/neander/finance/auto", label: "자동 처리", icon: Bot },
       { href: "/neander/finance/close", label: "월 마감", icon: CalendarCheck },
       { href: "/neander/finance/master", label: "마스터", icon: Database },
     ],

@@ -5,6 +5,10 @@
     {
       "path": "/api/neander/sync/signal",
       "schedule": "0 18 * * *"
+    },
+    {
+      "path": "/api/neander/finance/cron",
+      "schedule": "0 21 * * *"
     }
   ]
 }

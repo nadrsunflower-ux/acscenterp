@@ -3,6 +3,7 @@ import { adminDb } from "@/lib/neander/server/admin";
 import { requireErpUser, accessErrorResponse } from "@/lib/neander/server/auth";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import { trimTransaction } from "@/lib/neander/finance/payload";
+import { TRUST_DOC_ID } from "@/lib/neander/finance/trust";
 
 // 재무 데이터 조회.
 //
@@ -46,6 +47,15 @@ async function readTransactionPart(since: number | null) {
   return { transactions: [...byId.values()], transactionIds: ids.docs.map((d) => d.id) };
 }
 
+/**
+ * 믿을 범위 설정 (finance/trust.ts). 설정 컬렉션은 통째로 읽지 않는다 — 캘린더 연결
+ * (`gcal`)처럼 이 화면들이 쓰지 않는 문서가 함께 있다.
+ */
+async function readTrustDoc() {
+  const snap = await adminDb().collection(NEANDER_COL.finSettings).doc(TRUST_DOC_ID).get();
+  return snap.exists ? { id: snap.id, ...snap.data() } : null;
+}
+
 function failure(e: unknown) {
   const denied = accessErrorResponse(e);
   if (denied) return denied;
@@ -64,7 +74,7 @@ export async function GET(req: Request) {
     const raw = Number(new URL(req.url).searchParams.get("since"));
     const since = Number.isFinite(raw) && raw > 0 ? raw : null;
 
-    const [tx, accounts, paymentMethods, vendorRules, subscriptions, allocations, budgets, imports, closes, projects, docs, ledgerColumns, anomalyIgnores, classRules, suspense] =
+    const [tx, accounts, paymentMethods, vendorRules, subscriptions, allocations, budgets, imports, closes, projects, docs, ledgerColumns, anomalyIgnores, classRules, suspense, trust] =
       await Promise.all([
         readTransactionPart(since),
         readAll(NEANDER_COL.finAccounts),
@@ -81,6 +91,7 @@ export async function GET(req: Request) {
         readAll(NEANDER_COL.finAnomalyIgnores),
         readAll(NEANDER_COL.finClassRules),
         readAll(NEANDER_COL.finSuspense),
+        readTrustDoc(),
       ]);
 
     // 정렬은 서버에서 끝내둔다 — 클라이언트가 매번 다시 정렬할 이유가 없다
@@ -110,6 +121,7 @@ export async function GET(req: Request) {
       anomalyIgnores,
       classRules,
       suspense,
+      trust,
     });
   } catch (e) {
     return failure(e);

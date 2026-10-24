@@ -104,6 +104,16 @@ export interface FinTransaction {
    */
   engineSig?: string;
   /**
+   * 자동분류가 마지막으로 쓴 근거의 칸 (trust.ts 의 trustCellOf — `family:r100:n5`).
+   * 사람이 사유를 덮어써도 남는다 — 「이 근거가 운영에서 얼마나 맞았나」 를 이것으로 센다.
+   */
+  engineCell?: string;
+  /**
+   * 이 입금이 채운 프로젝트 입금 회차 — `프로젝트id:회차id` (receivables.ts).
+   * 한 번에 두 회차를 같이 보낸 입금이면 둘 다 들어 있다. 회차 쪽에는 입금일만 남는다.
+   */
+  receiptOf?: string[];
+  /**
    * 단톡방 카드 기록에서 붙은 한 줄 — `[꼬리표] 구매처 / 품목` (card-chat.ts).
    * 명세서의 거래처가 결제대행사일 때 자동분류가 이것을 근거로 삼는다.
    */

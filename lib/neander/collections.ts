@@ -103,6 +103,11 @@ export const NEANDER_COL = {
   insights: "neander_insights",
   /** 지운 거래의 원본 — 되돌리기가 숨긴 필드(dedupHash 등)를 되살리는 근거 (server/trash.ts) */
   finTrash: "neander_fin_trash",
+  /**
+   * 거래 변경 이력 — 쓰기 한 번에 바뀐 칸만 한 줄 (finance/tx-log.ts). 남긴 사람은 서버가 찍는다.
+   * 보안 규칙에 없어 서버(api/neander/finance/tx-log · mutate)만 접근한다
+   */
+  finTxLog: "neander_fin_tx_log",
   // ---- 매출 단위경제 (/neander/sales) ----
   //  재무와 같은 이유로 서버(Admin SDK)를 거친다 — 보안 규칙을 게시할
   //  권한이 없어서 새 컬렉션은 클라이언트에서 직접 붙을 수 없다.

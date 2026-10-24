@@ -152,6 +152,61 @@ const CARD_BIZ_MIN_RATIO = 0.9;
 export const normVendor = (s?: string) =>
   (s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 
+/**
+ * 이 분류가 어느 근거에서 나왔나 — 믿을 범위(trust.ts)가 근거마다 실측 정확도를 잰다.
+ *
+ * 사유(classReason)는 사람이 읽는 문장이라 사람이 고치면 사라진다 (「검토 대기함에서
+ * 12건 일괄 지정」). 이것은 기계가 읽는 꼬리표다 — 적재할 때 거래에 같이 남는다
+ * (FinTransaction.engineCell).
+ */
+export type EvidenceKind =
+  /** 원본 장부에 분류가 있었다 */
+  | "original"
+  /** 자금거래 · 카드대금결제 — 분류가 필요 없다 */
+  | "nonpl"
+  /** 어댑터가 적요로 판정한 자금거래 · 카드대금결제 */
+  | "nonpl-hint"
+  /** 사람이 정한 분류 규칙 */
+  | "rule"
+  /** ① 같은 거래처 · 같은 계좌 — 한결같다 (확정은 여기서만 나온다) */
+  | "history"
+  /** ① 같은 거래처 · 같은 계좌 — 한결같지는 않다 */
+  | "history-weak"
+  /** 카드 메모 */
+  | "memo"
+  /** 같은 금액 — 같은 계좌의 이력 */
+  | "same-amount"
+  /** 같은 금액 — 다른 계좌·카드까지 합친 이력 */
+  | "same-amount-elsewhere"
+  /** ② 같은 거래처 · 다른 계좌 */
+  | "elsewhere"
+  /** ③ 이름 뼈대 · 같은 계좌 */
+  | "family"
+  /** ④ 이름 뼈대 · 다른 계좌 */
+  | "family-elsewhere"
+  /** 아는 거래처인데 분류가 갈린다 (사람에게) */
+  | "split"
+  | "subscription"
+  /** 은행 · 카드 엑셀이 알려준 것 */
+  | "hint"
+  /** 업종 */
+  | "kind"
+  /** 계좌 기본값 */
+  | "prior"
+  /** 근거 없음 */
+  | "none";
+
+export interface EvidenceBasis {
+  kind: EvidenceKind;
+  /** 본 건수 · 일치 비율 (이력 근거일 때) */
+  n?: number;
+  ratio?: number;
+  /** 거래유형을 고쳐 제안했다 (은행은 방향만 안다) */
+  typeFixed?: boolean;
+  /** 계정은 한결같은데 사업구분이 갈린다 */
+  bizSplit?: boolean;
+}
+
 /** 분류 결과 — 거래에 덮어쓸 필드들 */
 export interface ClassifySuggestion {
   status: ClassificationStatus;
@@ -169,6 +224,8 @@ export interface ClassifySuggestion {
   bizMinor?: string;
   site?: string;
   classReason: string;
+  /** 어느 근거에서 나왔나 (믿을 범위가 잰다) */
+  basis?: EvidenceBasis;
 }
 
 /**
@@ -440,6 +497,28 @@ export interface ClassifyContext {
   accounts?: FinAccountDoc[];
   /** 사람이 정한 분류 규칙 (class-rules.ts). 없으면 이력부터 본다 */
   classRules?: FinClassRuleDoc[];
+  /**
+   * 믿을 범위 (trust.ts) — 근거마다 잰 실측 정확도로 자동 확정을 넓히거나 좁힌다.
+   * 없으면 이 파일의 문턱 그대로다.
+   */
+  trust?: TrustGate;
+}
+
+/**
+ * 믿을 범위가 엔진에 건네는 것 — 칸(근거 꼬리표, trust.ts 의 trustCellOf)마다 할 일.
+ * 여기서는 칸 이름만 견준다. 칸을 어떻게 재고 고르는지는 trust.ts 가 안다.
+ */
+export interface TrustGate {
+  /** 제안이지만 실측이 충분히 맞아 확정으로 올리는 칸 */
+  promote: Set<string>;
+  /** 확정이지만 실측이 기준에 못 미쳐 제안으로 내리는 칸 */
+  demote: Set<string>;
+  /** 이 계좌·카드(뒷 4자리)에서는 엔진이 확정하지 않는다 — 사람이 다 본다 */
+  suggestOnly: Set<string>;
+  /** 칸의 실측을 사람 말로 — 사유 끝에 붙인다 (「실측 98.9% · 199건」) */
+  note: Map<string, string>;
+  /** 거래의 근거 꼬리표 → 칸 이름 (trust.ts 의 trustCellOf) */
+  cellOf: (basis: EvidenceBasis) => string;
 }
 
 /** 계정 3단으로 마스터를 찾아 그 계정의 거래유형을 돌려준다 */
@@ -525,6 +604,47 @@ export interface ClassifyInput {
 }
 
 export function classifyOne(input: ClassifyInput, ctx: ClassifyContext): ClassifySuggestion {
+  const sug = classifyWithBiz(input, ctx);
+  return ctx.trust ? applyTrust(sug, input, ctx.trust) : sug;
+}
+
+/**
+ * 믿을 범위를 건다 — 엔진의 문턱이 정한 상태를 칸의 실측으로 한 번 더 고른다.
+ *
+ *   · 원본 장부 · 분류가 필요 없는 비손익은 손대지 않는다 (사람이 이미 적었거나 볼 것이 없다)
+ *   · 「제안만」 계좌·카드면 확정을 제안으로 내린다 — 규칙이 확정하라고 해도
+ *   · 실측이 기준 아래인 칸의 확정은 제안으로 내린다
+ *   · 실측이 기준 위인 칸의 제안은 확정으로 올린다 — 계정이 다 있고, 손익 거래면
+ *     사업구분까지 있을 때만 (비어 있으면 월 마감이 다시 잡는다)
+ */
+function applyTrust(sug: ClassifySuggestion, input: ClassifyInput, gate: TrustGate): ClassifySuggestion {
+  const basis = sug.basis;
+  if (!basis || basis.kind === "original" || basis.kind === "nonpl") return sug;
+  const cell = gate.cellOf(basis);
+  const note = gate.note.get(cell);
+  if (sug.status === "confirmed") {
+    if (input.last4 && gate.suggestOnly.has(input.last4)) {
+      return { ...sug, status: "suggested", classReason: `${sug.classReason} — 이 계좌·카드는 「제안만」 (자동 처리 설정)` };
+    }
+    if (gate.demote.has(cell)) {
+      return {
+        ...sug,
+        status: "suggested",
+        classReason: `${sug.classReason} — 이 근거는 실측이 기준에 못 미쳐 확인 필요${note ? ` (${note})` : ""}`,
+      };
+    }
+    return sug;
+  }
+  if (sug.status !== "suggested" || !gate.promote.has(cell)) return sug;
+  if (input.last4 && gate.suggestOnly.has(input.last4)) return sug;
+  if (!sug.acctMajor || !sug.acctMid || !sug.acctMinor) return sug;
+  const txType = sug.txType ?? input.txType;
+  const pl = txType === "수입" || txType === "지출" || txType === "환급";
+  if (pl && (!sug.bizMajor || !sug.bizMinor)) return sug;
+  return { ...sug, status: "confirmed", classReason: `${sug.classReason} — 자동 확정${note ? ` (이 근거의 ${note})` : ""}` };
+}
+
+function classifyWithBiz(input: ClassifyInput, ctx: ClassifyContext): ClassifySuggestion {
   const sug = classifyByEvidence(input, ctx);
 
   // 사업구분은 거래처보다 **무엇을 샀는가**가 말해 준다 — 같은 쿠팡이라도 향료 원료는
@@ -591,6 +711,7 @@ function classifyByEvidence(input: ClassifyInput, ctx: ClassifyContext): Classif
       bizMinor: input.bizMinor,
       site,
       classReason: "원본 장부에 분류가 있어 그대로 확정",
+      basis: { kind: "original" },
     };
   }
 
@@ -609,6 +730,7 @@ function classifyByEvidence(input: ClassifyInput, ctx: ClassifyContext): Classif
       classReason: input.hint
         ? `${input.hint.reason} — 확인 필요`
         : `${input.txType}는 손익 대상이 아니라 분류 불필요`,
+      basis: { kind: input.hint ? "nonpl-hint" : "nonpl" },
     };
   }
 
@@ -662,6 +784,12 @@ function classifyByEvidence(input: ClassifyInput, ctx: ClassifyContext): Classif
   };
   const typeNote = (s: KeyStat) =>
     s.top.txType !== input.txType ? ` → 거래유형을 ${input.txType} 에서 ${s.top.txType} 로 고쳐 제안` : "";
+  /** 근거 꼬리표 — 이력이 준 분류 */
+  const basisOf = (
+    kind: EvidenceKind,
+    s: { n: number; ratio: number; top: Seen },
+    extra: Partial<EvidenceBasis> = {},
+  ): EvidenceBasis => ({ kind, n: s.n, ratio: s.ratio, typeFixed: s.top.txType !== input.txType, ...extra });
 
   // 0-나) 사람이 정한 분류 규칙 — 이력보다 먼저.
   //       이력은 「지금까지 그랬다」 이고 규칙은 「앞으로 이렇게 하라」 다. 다만
@@ -693,6 +821,7 @@ function classifyByEvidence(input: ClassifyInput, ctx: ClassifyContext): Classif
           `분류 규칙 「${ruled.keyword}」 → ${describeRuleResult(ruled)}` +
           (ruled.mode === "confirm" && !confirm ? " — 사업구분이 규칙에 없어 확인 필요" : "") +
           (ruled.txType !== input.txType ? ` (거래유형을 ${input.txType} 에서 ${ruled.txType} 로)` : ""),
+        basis: { kind: "rule", typeFixed: ruled.txType !== input.txType },
       };
     }
   }
@@ -724,6 +853,7 @@ function classifyByEvidence(input: ClassifyInput, ctx: ClassifyContext): Classif
           bizMajor: input.bizMajor,
           bizMinor: input.bizMinor,
           classReason: `${evidence(own)} 이지만 ${why} — 직접 골라주세요`,
+          basis: { kind: "split", n: own.n, ratio: own.ratio },
         };
       }
       const bizSteady = !!input.bizMajor || own.biz.ratio >= MIN_BIZ_RATIO;
@@ -735,6 +865,7 @@ function classifyByEvidence(input: ClassifyInput, ctx: ClassifyContext): Classif
           evidence(own) +
           typeNote(own) +
           (bizSteady ? "" : ` — 사업구분은 갈립니다 (${own.biz.minor || "미정"} ${Math.round(own.biz.ratio * 100)}%)`),
+        basis: basisOf("history", own, { bizSplit: !bizSteady }),
       };
     }
   }
@@ -761,6 +892,7 @@ function classifyByEvidence(input: ClassifyInput, ctx: ClassifyContext): Classif
       classReason:
         `카드 메모 ${memoLabel(memoHit)} — 최근 ${memoHit.n}건 중 ${Math.round(memoHit.ratio * 100)}% 가 같은 분류` +
         (t.txType !== input.txType ? ` → 거래유형을 ${input.txType} 에서 ${t.txType} 로 고쳐 제안` : ""),
+      basis: basisOf("memo", memoHit),
     };
   }
 
@@ -778,6 +910,7 @@ function classifyByEvidence(input: ClassifyInput, ctx: ClassifyContext): Classif
           classReason:
             `거래처 「${input.vendor}」 — 같은 금액(${amount.toLocaleString("ko-KR")}원) 과거 ${st.n}건이 모두 같은 분류` +
             typeNote(st),
+          basis: basisOf(kind === "va" ? "same-amount" : "same-amount-elsewhere", st),
         };
       }
     }
@@ -795,6 +928,7 @@ function classifyByEvidence(input: ClassifyInput, ctx: ClassifyContext): Classif
       status: "suggested",
       ...fromStat(best),
       classReason: evidence(best) + typeNote(best),
+      basis: basisOf(EVIDENCE_OF_KEY[best.kind], best),
     };
   }
 
@@ -820,6 +954,7 @@ function classifyByEvidence(input: ClassifyInput, ctx: ClassifyContext): Classif
       classReason: mismatch
         ? `${evidence(split)} 이지만 ${mismatch} — 직접 골라주세요`
         : `거래처 「${input.vendor}」 는 분류가 갈립니다 (${split.kind === "va" ? `${where} ` : ""}최근 ${split.n}건: ${cands}) — 직접 골라주세요`,
+      basis: { kind: "split", n: split.n, ratio: split.ratio },
     };
   }
 
@@ -838,6 +973,7 @@ function classifyByEvidence(input: ClassifyInput, ctx: ClassifyContext): Classif
       bizMinor: input.bizMinor,
       site,
       classReason: `구독 규칙 「${rule.keyword}」 → ${rule.service}`,
+      basis: { kind: "subscription" },
     };
   }
 
@@ -852,6 +988,7 @@ function classifyByEvidence(input: ClassifyInput, ctx: ClassifyContext): Classif
       bizMinor: input.bizMinor || input.hint.bizMinor,
       site,
       classReason: input.hint.reason,
+      basis: { kind: "hint" },
     };
   }
 
@@ -894,6 +1031,7 @@ function classifyByEvidence(input: ClassifyInput, ctx: ClassifyContext): Classif
             ? ` · 사업구분은 ${where} 로 쓴 같은 계정 ${mine.length}건 중 ${Math.round((topBiz[1] / mine.length) * 100)}% 가 ${cardBiz[1]}`
             : "") +
           (t.txType !== input.txType ? ` → 거래유형을 ${input.txType} 에서 ${t.txType} 로 고쳐 제안` : ""),
+        basis: { kind: "kind", n: kindVendors.length, ratio, typeFixed: t.txType !== input.txType, bizSplit: !cardBiz },
       };
     }
   }
@@ -909,6 +1047,7 @@ function classifyByEvidence(input: ClassifyInput, ctx: ClassifyContext): Classif
           `${v ? `거래처 「${input.vendor}」 는 처음` : "거래처 없음"} — ${where} 의 ${flow === "in" ? "입금" : "출금"}은 ` +
           `최근 ${prior.n}건 중 ${pct(prior)}% 가 이 분류` +
           typeNote(prior),
+        basis: basisOf("prior", prior, { bizSplit: prior.biz.ratio < MIN_BIZ_RATIO }),
       };
     }
   }
@@ -925,8 +1064,18 @@ function classifyByEvidence(input: ClassifyInput, ctx: ClassifyContext): Classif
     classReason: v
       ? `거래처 「${input.vendor}」 과거 이력·규칙 없음`
       : "거래처가 비어 있어 판단 불가",
+    basis: { kind: "none" },
   };
 }
+
+/** 이력 열쇠 → 근거 꼬리표 (1-다 의 「일치율이 가장 높은 근거」) */
+const EVIDENCE_OF_KEY: Record<KeyKind, EvidenceKind> = {
+  va: "history-weak",
+  v: "elsewhere",
+  fa: "family",
+  f: "family-elsewhere",
+  a: "prior",
+};
 
 // ---- 후보 — 갈리는 거래처에서 사람이 고를 것들 --------------------
 

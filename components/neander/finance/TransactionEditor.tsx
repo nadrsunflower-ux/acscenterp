@@ -29,6 +29,7 @@ import {
   useConfirm,
 } from "@/components/neander/ui";
 import { AccountPicker } from "./AccountPicker";
+import { TxLogSection } from "./TxLogSection";
 import { useFinance } from "./FinanceProvider";
 import type {
   FinAccountDoc,
@@ -328,6 +329,9 @@ export function TransactionEditor({
           onChange={(e) => set("note", e.target.value || undefined)}
         />
       </Field>
+
+      {/* 누가 · 무엇으로 · 언제 바꿨나 — 서버가 쓰기마다 남긴다 (finance/tx-log.ts) */}
+      {!isNew && tx.id && <TxLogSection txId={tx.id} className="mt-4" />}
     </Dialog>
   );
 }

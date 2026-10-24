@@ -9,10 +9,16 @@ import { matchMemos, patchFromMemo, type FinCardMemo } from "@/lib/neander/finan
 import type { FinTransaction } from "@/lib/neander/finance/types";
 import type { FinAccountDoc, FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
 import { normalizeClassRule, sameCondition, type FinClassRuleDoc } from "@/lib/neander/finance/class-rules";
-import { sanitizeInstallment, sanitizeProject, type FinProjectDoc } from "@/lib/neander/finance/project";
+import { isInstallmentReceived, sanitizeInstallment, sanitizeProject, type FinProjectDoc } from "@/lib/neander/finance/project";
 import { sanitizeFinDoc, sanitizeFiles } from "@/lib/neander/finance/docs";
 import { allocatedByTx, checkNewLinks, sanitizeSuspense, type FinSuspenseDoc } from "@/lib/neander/finance/suspense";
 import { deleteFiles } from "@/lib/neander/server/storage";
+import { sanitizeTrust, type FinTrustSettings } from "@/lib/neander/finance/trust";
+import { readTrust, remeasureTrust, trustRef } from "@/lib/neander/finance/server/trust";
+import { readForLog, writeLog } from "@/lib/neander/finance/server/tx-log";
+import { splitVat } from "@/lib/neander/finance/project";
+import { isCovered, receiptKey } from "@/lib/neander/finance/receivables";
+import { netAmount } from "@/lib/neander/finance/types";
 
 // 재무 쓰기 전체. 액션 하나로 모아둔 이유는 인증 게이트를 한 곳에서만
 // 통과시키기 위해서다 — 라우트가 흩어지면 한 군데 빠뜨리기 쉽다.
@@ -87,7 +93,9 @@ export async function POST(req: Request) {
         Object.keys(patch ?? {}).forEach((k) => {
           data[k] = patch[k] === undefined || patch[k] === null ? null : patch[k];
         });
+        const before = await readForLog(db, [id]);
         await db.collection(NEANDER_COL.finTransactions).doc(id).set(data, { merge: true });
+        await writeLog(db, user.email, payload.via, [{ txId: id, kind: "edit", before: before.get(id), after: data }]);
         return NextResponse.json({ ok: true, transactions: await readTransactions(db, [id]) });
       }
 
@@ -166,6 +174,7 @@ export async function POST(req: Request) {
         if (!id) return NextResponse.json({ error: "id 가 필요합니다." }, { status: 400 });
         // 원본을 휴지통에 남긴다 — 되돌리기가 숨긴 필드(dedupHash 등)를 되살린다
         await moveToTrash(db, NEANDER_COL.finTransactions, NEANDER_COL.finTrash, [id], user.email, now);
+        await writeLog(db, user.email, payload.via, [{ txId: id, kind: "delete" }]);
         return NextResponse.json({ ok: true });
       }
 
@@ -194,6 +203,7 @@ export async function POST(req: Request) {
         if (!Array.isArray(ids) || !status) {
           return NextResponse.json({ error: "ids 와 status 가 필요합니다." }, { status: 400 });
         }
+        const statusBefore = await readForLog(db, ids);
         for (let i = 0; i < ids.length; i += BATCH_LIMIT) {
           const batch = db.batch();
           ids.slice(i, i + BATCH_LIMIT).forEach((id) => {
@@ -205,6 +215,7 @@ export async function POST(req: Request) {
           });
           await batch.commit();
         }
+        await writeLog(db, user.email, payload.via, ids.map((id) => ({ txId: id, kind: "edit" as const, before: statusBefore.get(id), after: { status } })));
         return NextResponse.json({
           ok: true,
           updated: ids.length,
@@ -224,6 +235,7 @@ export async function POST(req: Request) {
           updatedAt: now,
           updatedBy: user.email,
         };
+        const patchBefore = await readForLog(db, ids);
         for (let i = 0; i < ids.length; i += BATCH_LIMIT) {
           const batch = db.batch();
           ids.slice(i, i + BATCH_LIMIT).forEach((id) => {
@@ -231,6 +243,7 @@ export async function POST(req: Request) {
           });
           await batch.commit();
         }
+        await writeLog(db, user.email, payload.via, ids.map((id) => ({ txId: id, kind: "edit" as const, before: patchBefore.get(id), after: data })));
         return NextResponse.json({
           ok: true,
           updated: ids.length,
@@ -250,6 +263,8 @@ export async function POST(req: Request) {
         const col = db.collection(NEANDER_COL.finTransactions);
         type Op = (b: FirebaseFirestore.WriteBatch) => void;
         const ops: Op[] = [];
+        const editBefore = await readForLog(db, (updates ?? []).map((u) => u.id));
+        const logItems: Parameters<typeof writeLog>[3] = [];
         (updates ?? []).forEach(({ id, patch }) => {
           if (!id) return;
           const data: Record<string, unknown> = { updatedAt: now, updatedBy: user.email };
@@ -257,6 +272,7 @@ export async function POST(req: Request) {
             data[k] = patch[k] === undefined || patch[k] === null ? null : patch[k];
           });
           ops.push((b) => b.set(col.doc(id), data, { merge: true }));
+          logItems.push({ txId: id, kind: "edit", before: editBefore.get(id), after: data });
         });
         const insertedIds: string[] = [];
         (inserts ?? []).forEach((r) => {
@@ -283,6 +299,9 @@ export async function POST(req: Request) {
           ops.slice(i, i + BATCH_LIMIT).forEach((op) => op(batch));
           await batch.commit();
         }
+        insertedIds.forEach((id) => logItems.push({ txId: id, kind: "add" }));
+        delIds.forEach((id) => logItems.push({ txId: id, kind: "delete" }));
+        await writeLog(db, user.email, payload.via, logItems);
         return NextResponse.json({
           ok: true,
           updated: (updates ?? []).length,
@@ -316,6 +335,7 @@ export async function POST(req: Request) {
           NEANDER_COL.finTrash,
           rows.map((r) => String((r as { id?: string }).id ?? "")),
         );
+        const restoreBefore = await readForLog(db, rows.map((r) => String((r as { id?: string }).id ?? "")));
         // 한 줄에 쓰기 둘(되쓰기 + 휴지통 비우기) — 배치 상한 500 을 넘지 않게 200 씩
         for (let i = 0; i < rows.length; i += 200) {
           const batch = db.batch();
@@ -328,6 +348,18 @@ export async function POST(req: Request) {
           });
           await batch.commit();
         }
+        await writeLog(
+          db,
+          user.email,
+          payload.via ?? "undo",
+          rows.map((r) => {
+            const { id, ...data } = r as { id?: string } & Record<string, unknown>;
+            const txId = String(id ?? "");
+            // 지운 거래가 되살아났다 — 바뀐 칸이 아니라 「되살림」 한 줄
+            if (!restoreBefore.has(txId)) return { txId, kind: "add" as const };
+            return { txId, kind: "restore" as const, before: restoreBefore.get(txId), after: data };
+          }),
+        );
         return NextResponse.json({
           ok: true,
           restored: rows.length,
@@ -434,6 +466,22 @@ export async function POST(req: Request) {
           source: source === "assistant" ? "assistant" : "manual",
         });
         return NextResponse.json({ ok: true, id: ref.id, replaced: false });
+      }
+
+      case "trust.save": {
+        // 믿을 범위 설정 (finance/trust.ts). 켜는데 잰 적이 없으면 먼저 잰다 —
+        // 실측 없이 켜면 관문이 비어 아무 일도 안 한다.
+        const { settings } = payload as { settings?: Record<string, unknown> };
+        const next = sanitizeTrust(settings as Partial<FinTrustSettings>);
+        const cur = await readTrust(db);
+        if (next.enabled && !cur?.measure) await remeasureTrust(db);
+        await trustRef(db).set({ ...next, updatedAt: now, updatedBy: user.email }, { merge: true });
+        return NextResponse.json({ ok: true, trust: await readTrust(db) });
+      }
+
+      case "trust.measure": {
+        const measure = await remeasureTrust(db);
+        return NextResponse.json({ ok: true, measure });
       }
 
       case "classRule.setActive": {
@@ -677,6 +725,131 @@ export async function POST(req: Request) {
       }
 
       // ---- 프로젝트 손익 ----------------------------------------
+      case "project.markReceived": {
+        // 입금 하나를 프로젝트 입금 회차에 짝짓는다 (finance/receivables.ts).
+        //   · 입금 거래에 회차 열쇠(receiptOf)와 프로젝트 코드를 남긴다
+        //   · 짝지은 입금이 받을 돈(부가세 포함)을 다 채우면 회차를 「받음」 으로 — 입금일은
+        //     짝지은 입금 중 마지막 날. 부분 입금이면 회차는 그대로 두고 남은 돈만 줄어든다
+        // 프로젝트 문서를 통째로 보내지 않고 서버가 지금 문서를 읽어 그 회차만 바꾼다 (setDue 와 같다).
+        const { projectId, installmentIds, txId } = payload as {
+          projectId?: string;
+          installmentIds?: string[];
+          txId?: string;
+        };
+        const ids = (Array.isArray(installmentIds) ? installmentIds : []).filter((x) => typeof x === "string" && x);
+        if (!projectId || !txId || ids.length === 0) {
+          return NextResponse.json({ error: "projectId · installmentIds · txId 가 필요합니다." }, { status: 400 });
+        }
+        const pref = db.collection(NEANDER_COL.finProjects).doc(projectId);
+        const tref = db.collection(NEANDER_COL.finTransactions).doc(txId);
+        const keys = ids.map((id) => receiptKey(projectId, id));
+        const logBefore = await readForLog(db, [txId]);
+        const out = await db.runTransaction(async (trx) => {
+          const [ps, ts, others] = await Promise.all([
+            trx.get(pref),
+            trx.get(tref),
+            trx.get(db.collection(NEANDER_COL.finTransactions).where("receiptOf", "array-contains-any", keys)),
+          ]);
+          if (!ps.exists) return { error: "프로젝트가 없습니다.", status: 404 };
+          if (!ts.exists) return { error: "입금 거래가 없습니다.", status: 404 };
+          const p = ps.data() as FinProjectDoc;
+          const t = ts.data() as FinTransaction;
+          if (t.txType !== "수입") return { error: "들어온 돈(수입)만 짝지을 수 있습니다.", status: 400 };
+          if ((t.receiptOf ?? []).length > 0) return { error: "이미 다른 회차에 짝지은 입금입니다.", status: 409 };
+          const list = [...(p.installments ?? [])];
+          const base = p.vatMode ?? "excluded";
+          const covered: string[] = [];
+          for (const id of ids) {
+            const k = list.findIndex((i) => i.id === id);
+            if (k < 0) return { error: "그 입금 회차가 없습니다 — 프로젝트를 다시 열어 보세요.", status: 404 };
+            if (isInstallmentReceived(list[k])) return { error: `${list[k].kind} 회차는 이미 받았습니다.`, status: 409 };
+            const key = receiptKey(projectId, id);
+            // 이 회차에 앞서 짝지은 입금 (합산 입금이면 회차 수로 나눠 본다)
+            const prior = others.docs
+              .map((d) => d.data() as FinTransaction)
+              .filter((x) => (x.receiptOf ?? []).includes(key));
+            const share = (x: FinTransaction) => netAmount(x) / Math.max(1, (x.receiptOf ?? []).length);
+            const received = prior.reduce((n, x) => n + share(x), 0) + netAmount(t) / ids.length;
+            const due = splitVat(Math.round(Number(list[k].amount) || 0), base).total;
+            if (ids.length > 1 || isCovered(due, received)) {
+              const last = [t.date, ...prior.map((x) => x.date)].sort().pop();
+              list[k] = sanitizeInstallment({ ...list[k], received: true, paidDate: last, paidApprox: undefined } as never);
+              covered.push(id);
+            }
+          }
+          trx.update(tref, {
+            receiptOf: keys,
+            ...(t.projectCode ? {} : { projectCode: p.code }),
+            updatedAt: now,
+            updatedBy: user.email,
+          });
+          if (covered.length > 0) {
+            trx.update(pref, {
+              installments: list.map((i) => clean(i as unknown as Record<string, unknown>)),
+              updatedAt: now,
+              updatedBy: user.email,
+            });
+          }
+          return { ok: true as const, covered, code: p.code };
+        });
+        if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
+        await writeLog(db, user.email, "receipt", [
+          { txId, kind: "edit", before: logBefore.get(txId), after: { projectCode: logBefore.get(txId)?.projectCode || out.code } },
+        ]);
+        return NextResponse.json({ ...out, transactions: await readTransactions(db, [txId]) });
+      }
+
+      case "project.unmatchReceipt": {
+        // 짝짓기를 푼다. 그 입금 날짜로 「받음」 이 된 회차는 남은 돈이 다시 생기면 되돌린다 —
+        // 사람이 따로 적은 입금일(다른 날짜)은 건드리지 않는다.
+        const { txId } = payload as { txId?: string };
+        if (!txId) return NextResponse.json({ error: "txId 가 필요합니다." }, { status: 400 });
+        const tref = db.collection(NEANDER_COL.finTransactions).doc(txId);
+        const out = await db.runTransaction(async (trx) => {
+          const ts = await trx.get(tref);
+          if (!ts.exists) return { error: "입금 거래가 없습니다.", status: 404 };
+          const t = ts.data() as FinTransaction;
+          const keys = t.receiptOf ?? [];
+          if (keys.length === 0) return { ok: true as const, reopened: [] as string[] };
+          const projectIds = [...new Set(keys.map((k) => k.split(":")[0]))];
+          const [projects, others] = await Promise.all([
+            Promise.all(projectIds.map((id) => trx.get(db.collection(NEANDER_COL.finProjects).doc(id)))),
+            trx.get(db.collection(NEANDER_COL.finTransactions).where("receiptOf", "array-contains-any", keys.slice(0, 30))),
+          ]);
+          const reopened: string[] = [];
+          projects.forEach((ps) => {
+            if (!ps.exists) return;
+            const p = ps.data() as FinProjectDoc;
+            const base = p.vatMode ?? "excluded";
+            let changed = false;
+            const list = (p.installments ?? []).map((i) => {
+              const key = receiptKey(ps.id, i.id);
+              if (!keys.includes(key) || !isInstallmentReceived(i) || i.paidDate !== t.date) return i;
+              const rest = others.docs
+                .filter((d) => d.id !== txId)
+                .map((d) => d.data() as FinTransaction)
+                .filter((x) => (x.receiptOf ?? []).includes(key))
+                .reduce((n, x) => n + netAmount(x) / Math.max(1, (x.receiptOf ?? []).length), 0);
+              if (isCovered(splitVat(Math.round(Number(i.amount) || 0), base).total, rest)) return i;
+              changed = true;
+              reopened.push(i.id);
+              return sanitizeInstallment({ ...i, received: false, paidDate: undefined, paidApprox: undefined } as never);
+            });
+            if (changed) {
+              trx.update(ps.ref, {
+                installments: list.map((i) => clean(i as unknown as Record<string, unknown>)),
+                updatedAt: now,
+                updatedBy: user.email,
+              });
+            }
+          });
+          trx.update(tref, { receiptOf: null, updatedAt: now, updatedBy: user.email });
+          return { ok: true as const, reopened };
+        });
+        if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
+        return NextResponse.json({ ...out, transactions: await readTransactions(db, [txId]) });
+      }
+
       case "project.setDue": {
         // 받을 시기 하나만 고친다 — 런웨이 「받을 돈」 에서 「10월 말」 처럼 적을 때.
         // 프로젝트 문서를 통째로 보내면 그 사이 프로젝트 화면에서 고친 줄을 덮으므로,
@@ -701,7 +874,8 @@ export async function POST(req: Request) {
           if (installmentId) {
             const k = list.findIndex((i) => i.id === installmentId);
             if (k < 0) return { error: "그 입금 회차가 없습니다 — 프로젝트를 다시 열어 보세요.", status: 404 };
-            if (list[k].paidDate) return { error: "이미 입금된 회차입니다.", status: 409 };
+            if (isInstallmentReceived(list[k])) return { error: "이미 받은 회차입니다.", status: 409 };
+            // 받을 날만 바꾼다 — 받음 표시 · 대략 입금일 등 나머지 칸은 그대로 실린다
             list[k] = sanitizeInstallment({ ...list[k], dueDate: due.dueDate, dueApprox: due.dueApprox });
           } else {
             if (list.length > 0) {

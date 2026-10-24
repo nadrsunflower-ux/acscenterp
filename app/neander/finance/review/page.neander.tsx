@@ -46,6 +46,7 @@ import {
 } from "react";
 import {
   Banknote,
+  Bot,
   CircleCheck,
   CreditCard,
   Keyboard,
@@ -73,6 +74,7 @@ import {
   PageHeader,
   PageShell,
   Pagination,
+  SegmentedControl,
   Select,
   type Tone,
   UndoHistory,
@@ -83,11 +85,16 @@ import {
   useStickyGuard,
 } from "@/components/neander/ui";
 import { LeavingItem, useLeaving } from "@/components/neander/ui";
+import Link from "next/link";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import type { FinProjectDoc } from "@/lib/neander/finance/project";
 import { TransactionEditor } from "@/components/neander/finance/TransactionEditor";
 import { DayEventsLine, useDayEvents } from "@/components/neander/finance/DayEvents";
 import { SplitDialog } from "@/components/neander/finance/SplitDialog";
+import { RuleSuggestCard } from "@/components/neander/finance/RuleSuggestCard";
+import { ReviewGroups } from "@/components/neander/finance/ReviewGroups";
+import { suggestRuleFor } from "@/lib/neander/finance/rule-suggest";
+import { groupPending, type ReviewGroup } from "@/lib/neander/finance/review-groups";
 import { mergeFinSplit, splitFinTransaction } from "@/lib/neander/finance/split-client";
 import { splitBlocker, type SplitPart } from "@/lib/neander/finance/split";
 import { setAssistantFocus } from "@/components/neander/assistant/events";
@@ -103,6 +110,7 @@ import {
   bulkPatchFinTransactions,
   applyFinEdits,
   requestAiSuggestions,
+  upsertFinClassRule,
   type AiSuggestResult,
 } from "@/lib/neander/finance/client";
 import { BIZ_MAJORS } from "@/lib/neander/finance/sheet";
@@ -119,6 +127,7 @@ import {
   relearnPending,
 } from "@/lib/neander/finance/relearn";
 import { classCandidates, type ClassCandidate, type ClassifyContext } from "@/lib/neander/finance/classify";
+import { trustCellOf } from "@/lib/neander/finance/trust";
 import type { FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
 import { monthLabel } from "@/lib/neander/format";
 import {
@@ -344,7 +353,7 @@ function Kbd({ children }: { children: string }) {
 
 export default function ReviewPage() {
   const finance = useFinance();
-  const { transactions, accounts, paymentMethods, vendorIndex, vendorRules, projects, loading, applyTransactions } = finance;
+  const { transactions, accounts, paymentMethods, vendorIndex, vendorRules, projects, loading, applyTransactions, trustGate } = finance;
   const confirm = useConfirm();
   const toast = useToast();
   /**
@@ -408,6 +417,12 @@ export default function ReviewPage() {
   }, []);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useStickyState("finance.review.pageSize", PAGE_SIZE);
+  /**
+   * 보기 — 한 건씩(목록) · 같은 답으로 풀리는 묶음(finance/review-groups.ts).
+   * 묶음에서 「목록에서 보기」 를 누르면 그 묶음의 거래만 남긴다 (onlyIds).
+   */
+  const [view, setView] = useStickyState<"list" | "groups">("finance.review.view", "list", (v) => v === "list" || v === "groups");
+  const [onlyIds, setOnlyIds] = useState<{ label: string; ids: Set<string> } | null>(null);
   /** 커서는 **현재 페이지 안**의 위치다 (0 ~ pageSize-1) */
   const [cursor, setCursor] = useState(0);
   const [editing, setEditing] = useState<FinTransaction | null>(null);
@@ -436,6 +451,7 @@ export default function ReviewPage() {
 
   const pending = useMemo(() => {
     const rows = queue
+      .filter((t) => !onlyIds || onlyIds.ids.has(t.id))
       .filter((t) => statusFilter === ALL || t.status === statusFilter)
       .filter((t) => monthFilter === ALL || monthOf(t) === monthFilter)
       .filter((t) => acctFilter === ALL || acctPathOf(t) === acctFilter);
@@ -451,7 +467,7 @@ export default function ReviewPage() {
         (seat.get(a.splitGroup ?? a.id) ?? 0) - (seat.get(b.splitGroup ?? b.id) ?? 0) ||
         (a.splitNo ?? 0) - (b.splitNo ?? 0),
     );
-  }, [queue, statusFilter, monthFilter, acctFilter]);
+  }, [queue, statusFilter, monthFilter, acctFilter, onlyIds]);
 
   const pmIndex = useMemo(() => paymentIndex(paymentMethods), [paymentMethods]);
 
@@ -717,9 +733,18 @@ export default function ReviewPage() {
   const sentRef = useRef<Map<string, string>>(new Map());
   useEffect(() => {
     if (loading || busy || relearning.current) return;
-    const ctx = { vendorIndex, vendorRules, paymentMethods, accounts, ...(classRules ? { classRules } : {}) } as ClassifyContext;
+    const ctx = {
+      vendorIndex,
+      vendorRules,
+      paymentMethods,
+      accounts,
+      ...(classRules ? { classRules } : {}),
+      // 믿을 범위 — 실측이 충분한 근거는 확정까지, 모자란 근거는 제안까지 (trust.ts)
+      ...(trustGate ? { trust: trustGate } : {}),
+    } as ClassifyContext;
     const plan = relearnPending(transactions, ctx, {
       owned: (t) => isEngineOwned(t) && !heldRef.current.has(t.id),
+      cellOf: trustCellOf,
     }).filter((c) => sentRef.current.get(c.id) !== `${c.patch.engineSig}|${c.patch.classReason}`);
     if (plan.length === 0) return;
     relearning.current = true;
@@ -730,6 +755,7 @@ export default function ReviewPage() {
           updates: plan.map((c) => ({ id: c.id, patch: c.patch as unknown as Partial<FinTransaction> })),
           inserts: [],
           deletes: [],
+          via: "relearn",
         });
         const confirmed = plan.filter((c) => c.status === "confirmed");
         const parts = [
@@ -758,20 +784,140 @@ export default function ReviewPage() {
     })();
     // undoLog.record · leaving.run 은 매 렌더 새 함수가 아니다 (훅이 고정해 준다)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transactions, vendorIndex, vendorRules, classRules, paymentMethods, accounts, loading, busy]);
+  }, [transactions, vendorIndex, vendorRules, classRules, trustGate, paymentMethods, accounts, loading, busy]);
+
+  /**
+   * 확정 → 규칙 제안 (finance/rule-suggest.ts). 방금 확정한 거래를 들고 있다가, 같은 답이
+   * 세 번째면 규칙 초안을 띄운다. 「이번엔 아니오」 는 그 조건을 이 브라우저에서 다시 묻지 않는다.
+   */
+  const [ruleFor, setRuleFor] = useState<string | null>(null);
+  const [ruleBusy, setRuleBusy] = useState(false);
+  const [ruleDismissed, setRuleDismissed] = useStickyState<string[]>("finance.review.ruleDismissed", [], Array.isArray);
 
   const approve = useCallback(
     async (t: FinTransaction) => {
       if (!t) return;
-      const res = await updateFinTransaction(t.id, { status: "confirmed" });
+      const res = await updateFinTransaction(t.id, { status: "confirmed" }, "review");
       undoLog.record("확정했습니다.", `${txLabel(t)} 확정`, [t]);
       // 다 접힌 뒤 바뀐 거래만 바꿔 끼운다 — 전체(7MB)를 다시 받지 않는다
       await leaving.run([t.id], { message: "확정했습니다" }, () =>
         applyTransactions({ upsert: res.transactions }),
       );
+      setRuleFor(t.id);
     },
     [applyTransactions, undoLog.record, leaving.run],
   );
+
+  const ruleSuggestion = useMemo(() => {
+    if (!ruleFor) return null;
+    const t = transactions.find((x) => x.id === ruleFor);
+    if (!t) return null;
+    return suggestRuleFor(
+      t,
+      transactions,
+      { vendorIndex, vendorRules, paymentMethods, accounts, classRules: finance.classRules ?? [] },
+      new Set(ruleDismissed),
+    );
+  }, [ruleFor, transactions, vendorIndex, vendorRules, paymentMethods, accounts, finance.classRules, ruleDismissed]);
+
+  const saveRuleSuggestion = async () => {
+    if (!ruleSuggestion) return;
+    setRuleBusy(true);
+    try {
+      await upsertFinClassRule(ruleSuggestion.rule, { source: "manual" });
+      // 규칙을 받아 와야 계속 배우기가 대기함에 바로 적용한다
+      await finance.refresh();
+      toast.success(`규칙을 저장했습니다 — 「${ruleSuggestion.rule.keyword}」 → ${ruleSuggestion.rule.acctMinor}`);
+      setRuleFor(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "규칙을 저장하지 못했습니다.");
+    } finally {
+      setRuleBusy(false);
+    }
+  };
+
+  // ---- 묶음으로 보기 ----
+  const groups = useMemo(
+    () =>
+      view === "groups"
+        ? groupPending(pending, {
+            vendorIndex,
+            vendorRules,
+            paymentMethods,
+            accounts,
+            ...(finance.classRules ? { classRules: finance.classRules } : {}),
+          } as ClassifyContext)
+        : [],
+    [view, pending, vendorIndex, vendorRules, paymentMethods, accounts, finance.classRules],
+  );
+
+  /**
+   * 묶음 전체를 한 분류로 확정한다. 사업구분은 행에 이미 있으면 두고, 없으면 후보가 말해 주는 것
+   * → 계정이 말해 주는 것. 손익 거래인데 그래도 사업구분이 없으면 확정하지 않고 계정만 채운다 —
+   * 월 마감이 「사업구분이 비어 있음」 으로 다시 잡기 때문이다.
+   */
+  const applyGroup = async (g: ReviewGroup, c: ClassCandidate) => {
+    // 이력이 여러 분류로 갈리는 묶음을 한 분류로 — 몇 건이 그렇게 되는지와 갈린 내역을 보이고 한 번 묻는다
+    const split = g.candidates.length + (g.proposal ? 1 : 0) > 1;
+    if (split && c !== g.proposal) {
+      const ok = await confirm({
+        title: `「${g.vendor}」 ${g.rows.length}건을 모두 ${c.acctMinor}(으)로 확정할까요?`,
+        message:
+          `이 거래처는 과거 분류가 갈립니다 — ${g.candidates.map((x) => `${x.acctMinor} ${x.count}건`).join(" · ")}. ` +
+          "다른 것이 섞여 있을 것 같으면 「목록에서 보기」 로 가서 골라 확정하세요. 확정한 뒤에도 「방금 처리한 것」 에서 되돌릴 수 있습니다.",
+        confirmLabel: `${g.rows.length}건 확정`,
+      });
+      if (!ok) return;
+    }
+    setBusy(true);
+    try {
+      const path = { acctMajor: c.acctMajor, acctMid: c.acctMid, acctMinor: c.acctMinor };
+      const updates = g.rows.map((t) => {
+        const biz = t.bizMajor
+          ? {}
+          : c.bizMajor && c.bizMinor
+            ? { bizMajor: c.bizMajor, bizMinor: c.bizMinor }
+            : (bizOfAccount({ txType: c.txType, ...path }) ?? {});
+        const pl = c.txType === "수입" || c.txType === "지출" || c.txType === "환급";
+        const complete = !pl || !!(t.bizMinor || ("bizMinor" in biz && biz.bizMinor));
+        return {
+          id: t.id,
+          patch: {
+            ...path,
+            ...(c.txType !== t.txType ? { txType: c.txType } : {}),
+            ...biz,
+            ...(complete
+              ? { status: "confirmed" as const, classReason: `검토 대기함에서 묶음으로 확정 (${g.rows.length}건 · ${g.vendor})` }
+              : {}),
+          },
+        };
+      });
+      const res = await applyFinEdits({ updates, inserts: [], deletes: [], via: "group" });
+      const done = updates.filter((u) => "status" in u.patch).length;
+      undoLog.record(
+        done === g.rows.length
+          ? `묶음 ${g.rows.length}건을 확정했습니다.`
+          : `묶음 ${g.rows.length}건에 계정을 채웠습니다 — 사업구분이 없는 ${g.rows.length - done}건은 대기함에 남겼습니다.`,
+        `묶음 「${g.vendor}」 ${g.rows.length}건 → ${c.acctMinor}`,
+        g.rows,
+      );
+      applyTransactions({ upsert: res.transactions });
+      setRuleFor(g.rows[0]?.id ?? null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "묶음을 처리하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** 묶음의 거래만 남긴 목록으로 */
+  const focusGroup = (g: ReviewGroup) => {
+    setOnlyIds({ label: `${g.vendor} · ${g.rows.length}건`, ids: new Set(g.rows.map((t) => t.id)) });
+    setSelected(new Set(g.rows.map((t) => t.id)));
+    setView("list");
+    setPage(0);
+    setCursor(0);
+  };
 
   /** 나눌 거래 — 창이 열려 있는 동안 든다 (finance/split.ts) */
   const [splitting, setSplitting] = useState<FinTransaction | null>(null);
@@ -848,7 +994,8 @@ export default function ReviewPage() {
   // 키보드 조작
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (editing || splitting) return;
+      // 묶음 보기에는 커서가 없다 — 보이지 않는 행을 Enter 로 확정하면 안 된다
+      if (editing || splitting || view === "groups") return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
       // 창 · 판 안에서 누른 글쇠는 그 안의 것이다 (캘린더 연결 창에서 Enter 가 확정이 되면 안 된다)
@@ -897,7 +1044,7 @@ export default function ReviewPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pageRows, cursor, editing, splitting, approve, page, pageCount, pageSize, goPage, candidates, pickCandidate]);
+  }, [pageRows, cursor, editing, splitting, view, approve, page, pageCount, pageSize, goPage, candidates, pickCandidate]);
 
   // 비서에게 지금 보고 있는 거래를 알린다 — 「이거 뭐로 분류해?」 가 통하게 (ai/focus.ts).
   // 체크박스로 고른 거래도 함께 넘긴다. 화면을 떠나면 거둔다.
@@ -1010,6 +1157,7 @@ export default function ReviewPage() {
       setSelected(new Set());
       setBulkAcct({});
       await leaving.run(leaves, {}, () => applyTransactions({ upsert: res.transactions }));
+      setRuleFor(leaves[0] ?? null);
     } finally {
       setBusy(false);
     }
@@ -1034,7 +1182,7 @@ export default function ReviewPage() {
     if (!ok) return;
     setBusy(true);
     try {
-      const res = await bulkUpdateFinStatus(ids, "confirmed");
+      const res = await bulkUpdateFinStatus(ids, "confirmed", "review");
       undoLog.record(
         `제안됨 ${ids.length.toLocaleString("ko-KR")}건을 확정했습니다.`,
         `제안됨 ${ids.length.toLocaleString("ko-KR")}건 일괄 확정`,
@@ -1059,8 +1207,9 @@ export default function ReviewPage() {
   // 일괄 확정은 **지금 걸러 보는 범위**만 확정한다 — 단추의 건수도 그 범위로 센다.
   // 전체 건수를 적어 두면 9월만 보면서 「72건 확정」을 누르는 꼴이 된다.
   const suggestedCount = pending.filter((t) => t.status === "suggested").length;
-  const filtered = statusFilter !== ALL || monthFilter !== ALL || acctFilter !== ALL;
+  const filtered = statusFilter !== ALL || monthFilter !== ALL || acctFilter !== ALL || !!onlyIds;
   const resetFilters = () => {
+    setOnlyIds(null);
     setStatusFilter(ALL);
     setMonthFilter(ALL);
     setAcctFilter(ALL);
@@ -1102,6 +1251,9 @@ export default function ReviewPage() {
         }
         actions={
           <>
+            <Link href="/neander/finance/auto">
+              <Button variant="ghost" icon={Bot}>자동 처리</Button>
+            </Link>
             {aiTargets.length > 0 && (
               <Button variant="secondary" icon={Sparkles} onClick={askAi} loading={aiBusy} disabled={busy}>
                 {aiBusy ? "AI 가 보고 있습니다…" : `AI 추천 (${aiTargets.length}건)`}
@@ -1122,6 +1274,19 @@ export default function ReviewPage() {
         undoingId={undoLog.undoingId}
         onUndo={(e) => void undoLog.undo(e)}
       />
+
+      {ruleSuggestion && (
+        <RuleSuggestCard
+          className="mb-4"
+          suggestion={ruleSuggestion}
+          busy={ruleBusy}
+          onSave={() => void saveRuleSuggestion()}
+          onDismiss={() => {
+            setRuleDismissed((d) => [...d.slice(-199), ruleSuggestion.key]);
+            setRuleFor(null);
+          }}
+        />
+      )}
 
       {aiError && (
         <ErrorState className="mb-4" title="AI 추천을 받지 못했습니다" description={aiError} />
@@ -1181,7 +1346,7 @@ export default function ReviewPage() {
       <FilterBar
         className="mb-3"
         actions={
-          pending.length > 0 ? (
+          view === "list" && pending.length > 0 ? (
             <Button
               variant="secondary"
               size="sm"
@@ -1198,6 +1363,29 @@ export default function ReviewPage() {
           ) : undefined
         }
       >
+        <FilterField label="보기" htmlFor="rv-view">
+          <SegmentedControl
+            size="sm"
+            ariaLabel="보기"
+            value={view}
+            onChange={(v) => {
+              setView(v);
+              setPage(0);
+              setCursor(0);
+            }}
+            options={[
+              { value: "list", label: "한 건씩" },
+              { value: "groups", label: "묶음으로" },
+            ]}
+          />
+        </FilterField>
+        {onlyIds && (
+          <FilterField label="묶음" htmlFor="rv-only">
+            <Button id="rv-only" variant="secondary" size="sm" onClick={() => setOnlyIds(null)} title="묶음 거르기를 풉니다">
+              {onlyIds.label} ✕
+            </Button>
+          </FilterField>
+        )}
         <FilterField label="월" htmlFor="rv-month">
           <Select
             id="rv-month"
@@ -1343,6 +1531,8 @@ export default function ReviewPage() {
             description="모든 거래가 확정 상태입니다."
           />
         )
+      ) : view === "groups" ? (
+        <ReviewGroups groups={groups} pmIndex={pmIndex} busy={busy} onApply={(g, c) => void applyGroup(g, c)} onFocus={focusGroup} />
       ) : (
         <>
           {selected.size > 0 && (

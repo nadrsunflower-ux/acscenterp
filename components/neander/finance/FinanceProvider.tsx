@@ -54,7 +54,8 @@ import type { FinSuspenseDoc } from "@/lib/neander/finance/suspense";
 import type { MonthCloseDoc } from "@/lib/neander/finance/close";
 import type { FinProjectDoc } from "@/lib/neander/finance/project";
 import type { FinDoc } from "@/lib/neander/finance/docs";
-import { buildVendorIndex, type VendorIndex } from "@/lib/neander/finance/classify";
+import { buildVendorIndex, type TrustGate, type VendorIndex } from "@/lib/neander/finance/classify";
+import { trustGateOf, type FinTrustDoc } from "@/lib/neander/finance/trust";
 import { useAuth } from "@/components/neander/auth";
 
 interface FinanceValue {
@@ -80,6 +81,15 @@ interface FinanceValue {
   docs: FinDoc[];
   /** 가수금 기록장 — 임직원과 오간 돈 한 건씩 (suspense.ts) */
   suspense: FinSuspenseDoc[];
+  /** 믿을 범위 설정 · 마지막 실측 (trust.ts). 저장한 적 없으면 null */
+  trust: FinTrustDoc | null;
+  /**
+   * 자동분류에 건넬 관문 — 설정이 꺼져 있고 「제안만」 계좌도 없으면 undefined.
+   * 적재 · 계속 배우기가 같은 관문을 쓰도록 여기 한 곳에서 만든다.
+   */
+  trustGate: TrustGate | undefined;
+  /** 저장한 설정을 바로 바꿔 끼운다 (다시 받지 않고) */
+  applyTrust: (doc: FinTrustDoc) => void;
   /** 확정 거래로 만든 거래처 색인 (자동분류·검토함에서 사용) */
   vendorIndex: VendorIndex;
   loading: boolean;
@@ -117,6 +127,7 @@ const EMPTY = {
   projects: [] as FinProjectDoc[],
   docs: [] as FinDoc[],
   suspense: [] as FinSuspenseDoc[],
+  trust: null as FinTrustDoc | null,
 };
 type FinanceData = typeof EMPTY;
 
@@ -174,6 +185,7 @@ const pick = (snap: FinanceSnapshot, transactions: FinTransaction[]): FinanceDat
   projects: snap.projects ?? [],
   docs: snap.docs ?? [],
   suspense: snap.suspense ?? [],
+  trust: snap.trust ?? null,
 });
 
 export function FinanceProvider({ children }: { children: ReactNode }) {
@@ -274,6 +286,14 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     [commit, scheduleSave],
   );
 
+  const applyTrust = useCallback(
+    (doc: FinTrustDoc) => {
+      commit({ ...dataRef.current, trust: doc });
+      scheduleSave();
+    },
+    [commit, scheduleSave],
+  );
+
   const activate = useCallback(() => setActive(true), []);
 
   // 계정이 바뀌면 앞 사람의 데이터를 들고 있으면 안 된다
@@ -322,11 +342,14 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     () => buildVendorIndex(data.transactions),
     [data.transactions],
   );
+  const trustGate = useMemo(() => trustGateOf(data.trust), [data.trust]);
 
   const value = useMemo<FinanceValue>(
     () => ({
       ...data,
       vendorIndex,
+      trustGate,
+      applyTrust,
       loading: authLoading || !loaded,
       syncing,
       // 오류일 때는 "마스터가 비었다"고 하면 안 된다 — 원인이 다르다
@@ -335,7 +358,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       refresh,
       applyTransactions,
     }),
-    [data, vendorIndex, authLoading, loaded, syncing, error, refresh, applyTransactions],
+    [data, vendorIndex, trustGate, applyTrust, authLoading, loaded, syncing, error, refresh, applyTransactions],
   );
 
   return (

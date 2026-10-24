@@ -23,7 +23,7 @@
 //  엑셀의 적요를 근거로 한 것인데 그 적요 판정은 저장돼 있지 않다.
 // ============================================================
 
-import { classifyOne, type ClassifyContext } from "./classify";
+import { classifyOne, type ClassifyContext, type EvidenceBasis } from "./classify";
 import type { ClassificationStatus, FinTransaction, TxType } from "./types";
 
 /** 엔진이 스스로 붙인 사유 */
@@ -84,9 +84,15 @@ export interface RelearnChange {
   /** 고치기 전의 거래 (되돌리기용) */
   before: FinTransaction;
   /** 서버에 보낼 패치 — 비울 필드는 null */
-  patch: Record<ClassField | "classReason" | "engineSig", string | null>;
+  patch: Record<ClassField | "classReason" | "engineSig" | "engineCell", string | null>;
   status: ClassificationStatus;
 }
+
+/**
+ * 근거 꼬리표 → 칸 이름. trust.ts 의 trustCellOf 를 여기서 부르면 파일이 서로를 부른다 —
+ * 그래서 부르는 쪽이 넘긴다. 안 넘기면 칸을 남기지 않는다.
+ */
+export type CellOf = (basis: EvidenceBasis) => string;
 
 /**
  * 대기함의 엔진 소유 행을 지금 색인으로 다시 분류하고, **달라진 것만** 돌려준다.
@@ -98,9 +104,9 @@ export interface RelearnChange {
 export function relearnPending(
   transactions: FinTransaction[],
   ctx: ClassifyContext,
-  opts: { confirm?: boolean; owned?: (t: FinTransaction) => boolean } = {},
+  opts: { confirm?: boolean; owned?: (t: FinTransaction) => boolean; cellOf?: CellOf } = {},
 ): RelearnChange[] {
-  const { confirm = true, owned = isEngineOwned } = opts;
+  const { confirm = true, owned = isEngineOwned, cellOf } = opts;
   const out: RelearnChange[] = [];
   transactions.forEach((t) => {
     if (t.status === "confirmed" || !owned(t)) return;
@@ -148,6 +154,7 @@ export function relearnPending(
         bizMinor: after.bizMinor ?? null,
         classReason: sug.classReason,
         engineSig: sig,
+        engineCell: cellOf && sug.basis ? cellOf(sug.basis) : (t.engineCell ?? null),
       },
     });
   });

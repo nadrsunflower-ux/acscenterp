@@ -14,6 +14,7 @@
 // ============================================================
 
 import Link from "next/link";
+import { AutomationStrip } from "@/components/neander/finance/AutomationStrip";
 import {
   useEffect,
   useMemo,
@@ -429,6 +430,9 @@ export default function FinanceDashboard() {
           }
         />
       </KpiStrip>
+
+      {/* 자동 점검 — 프로그램이 사람 대신 본 것 (자동 처리 · 받을 돈 · 정기 지출 · 마감) */}
+      {activeMonth && <AutomationStrip month={activeMonth} className="mb-5" />}
 
       {/* 월별 추이 + 이번 달 확인할 항목 */}
       <div className="mb-5 grid gap-4 lg:grid-cols-3">

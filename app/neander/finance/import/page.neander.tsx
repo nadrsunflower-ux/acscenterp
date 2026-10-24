@@ -130,6 +130,7 @@ import {
   type CardChatPatch,
 } from "@/lib/neander/finance/card-chat";
 import { engineSigOf, isEngineOwned, relearnPending } from "@/lib/neander/finance/relearn";
+import { trustCellOf } from "@/lib/neander/finance/trust";
 import {
   cardLast4Of,
   vendorKindKey,
@@ -229,6 +230,7 @@ export default function ImportPage() {
     paymentMethods,
     vendorRules,
     classRules,
+    trustGate,
     vendorIndex,
     projects,
     imports,
@@ -515,6 +517,8 @@ export default function ImportPage() {
           accounts,
           // 사람이 정해 둔 분류 규칙 — 이력보다 먼저 본다 (class-rules.ts)
           classRules,
+          // 믿을 범위 — 근거마다 잰 실측으로 확정을 넓히고 좁힌다 (trust.ts)
+          trust: trustGate,
         }),
       }));
       const fresh = prepared.filter((p) => !p.duplicate);
@@ -581,6 +585,9 @@ export default function ImportPage() {
         vendorKind: vendorKindOf(row),
         status: suggestion.status,
         classReason: suggestion.classReason,
+        // 엔진이 붙인 분류의 지문 · 근거 칸 — 사람이 나중에 바꿨는지를 이것으로 안다 (trust.ts)
+        engineSig: engineSigOf({ ...suggestion, txType: suggestion.txType ?? row.txType }),
+        ...(suggestion.basis ? { engineCell: trustCellOf(suggestion.basis) } : {}),
         refundMatchId: row.refundMatchId,
         dedupHash: row.dedupHash,
         importBatchId: batchId,

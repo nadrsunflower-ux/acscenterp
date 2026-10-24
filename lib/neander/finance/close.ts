@@ -20,7 +20,8 @@
 //  빨간 숫자만 보여주면 사람은 그냥 무시한다 — 검토 대기함에서 배운 것.
 // ============================================================
 
-import { isAllowedTxAccountMismatch } from "./classify";
+import { isAllowedTxAccountMismatch, normVendor, vendorFamily } from "./classify";
+import { detectRecurring } from "./recurring";
 import { ledgerHref, reviewHref } from "./ledgerLink";
 import { netAmount, PL_TX_TYPES, type FinTransaction } from "./types";
 import type { FinAccountDoc, FinPaymentMethodDoc } from "./db-types";
@@ -358,6 +359,85 @@ export function runMonthChecks(ctx: CheckContext): CheckResult[] {
             severity: "warn",
           },
           hit,
+          g,
+        ),
+      );
+    }
+  }
+
+  // ── ⑥-나 카드와 통장에 같은 결제 ──────────────────────────────
+  //   같은 지출이 카드 명세서와 통장 내역에 **둘 다** 지출로 들어온 것. 체크카드 ·
+  //   통장 자동이체를 카드 명세서로도 올렸을 때 생긴다. 신용카드 값은 통장에서
+  //   「카드대금결제」 로 나가므로 지출끼리만 견준다.
+  //   같은 금액 · 사흘 안 · 거래처 이름이 겹칠 때만 (한쪽 이름이 다른 쪽을 품거나 뼈대가 같다).
+  {
+    const kind = new Map(ctx.paymentMethods.map((p) => [p.last4, p.kind]));
+    const spend = rows.filter((t) => t.txType === "지출" && t.vendor && netAmount(t) > 0);
+    const cards = spend.filter((t) => kind.get(t.last4 ?? "") === "card");
+    const banks = spend.filter((t) => kind.get(t.last4 ?? "") === "account");
+    const nameOf = (t: FinTransaction) => normVendor(t.vendor).replace(/[^\p{L}\p{N}]/gu, "");
+    const near = (a: FinTransaction, b: FinTransaction) =>
+      Math.abs(Date.parse(a.date) - Date.parse(b.date)) <= 3 * 86_400_000;
+    const alike = (a: FinTransaction, b: FinTransaction) => {
+      const x = nameOf(a);
+      const y = nameOf(b);
+      if (x.length < 2 || y.length < 2) return false;
+      return x.includes(y) || y.includes(x) || vendorFamily(normVendor(a.vendor)) === vendorFamily(normVendor(b.vendor));
+    };
+    const used = new Set<string>();
+    const pairs: [FinTransaction, FinTransaction][] = [];
+    cards.forEach((c) => {
+      const b = banks.find((x) => !used.has(x.id) && netAmount(x) === netAmount(c) && near(c, x) && alike(c, x));
+      if (!b) return;
+      used.add(b.id);
+      pairs.push([c, b]);
+    });
+    if (pairs.length) {
+      const g = grouper();
+      pairs.forEach(([c, b]) => {
+        g.add(`${c.date} ${c.vendor} (카드) ↔ ${b.date} ${b.vendor} (통장)`, c, ledgerHref({ month, vendor: c.vendor }));
+      });
+      out.push(
+        result(
+          {
+            id: "card-bank-dup",
+            title: "카드와 통장에 같은 결제",
+            why: "같은 지출이 카드 명세서와 통장 내역에 둘 다 지출로 잡혀 있으면 비용이 두 번 셉니다. 한쪽은 지우거나 자금거래로 바꾸세요.",
+            severity: "warn",
+          },
+          pairs.map(([c]) => c),
+          g,
+        ),
+      );
+    }
+  }
+
+  // ── ⑥-다 이 달에 빠진 정기 지출 ─────────────────────────────
+  //   매달 나가던 돈(월세 · 급여 · 보험 · 구독)이 이 달에 없다 (recurring.ts).
+  //   그 계좌의 내역이 이 달 뒤까지 올라와 있을 때만 — 아직 안 올린 달은 묻지 않는다.
+  {
+    const end = `${month}-31`;
+    const series = detectRecurring(
+      ctx.transactions.filter((t) => (t.date ?? "") <= end),
+      ctx.paymentMethods,
+      // 이 달이 끝난 뒤 닷새째 — 하루 이틀 밀린 자동이체까지 기다린다
+      new Date(Date.parse(`${month}-01T00:00:00Z`) + 36 * 86_400_000).toISOString().slice(0, 10),
+    ).filter((s) => s.cadence === "monthly" && s.status === "missing" && s.nextDate.startsWith(month));
+    if (series.length) {
+      const g = grouper();
+      const fake = series.map(
+        (s) => ({ id: s.key, date: s.nextDate, vendor: s.vendor, gross: s.amount, adjust: 0 }) as FinTransaction,
+      );
+      fake.forEach((t, i) => g.add(`${series[i].vendor} · ${series[i].alias ?? series[i].last4 ?? ""} · 매달 ${series[i].day}일`, t));
+      out.push(
+        result(
+          {
+            id: "recurring-missing",
+            title: "이 달에 빠진 정기 지출",
+            why: "매달 나가던 돈이 이 달에는 없습니다. 연체인지, 다른 계좌 · 카드로 옮겼는지, 장부에 안 올라온 것인지 확인하세요.",
+            severity: "info",
+          },
+          fake,
           g,
         ),
       );
