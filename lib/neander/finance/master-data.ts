@@ -77,6 +77,11 @@ export interface FinPaymentMethodMaster {
    * 낱장은 파일이 따로 없으므로 칸이 아니다 (카드는 카드사 단위로 한 칸).
    */
   monthly?: boolean;
+  /**
+   * 계좌를 연 날 `YYYY-MM-DD`. 이 달부터 퍼즐의 칸이 된다 — 없으면 처음부터 있던 계좌로 본다.
+   * 새 계좌를 등록하면 그 전 달들의 퍼즐이 전부 「한 칸 빔」 이 되는 것을 막는다.
+   */
+  opened?: string;
 }
 
 /** 은행·카드사 식별자 — 어댑터 id 와 1:1 (finance/import-slots.ts 의 FIN_BANKS) */
@@ -561,6 +566,8 @@ export const FIN_PAYMENT_METHODS: FinPaymentMethodMaster[] = [
   { last4: "0429", alias: "토스모임", site: "안다르", personal: false, kind: "account", bank: "toss" },
   { last4: "9999", alias: "사무실지폐", site: "안다르", personal: false, kind: "cash" },
   { last4: "1769", alias: "신한일컴", site: "일해라컴퍼니", personal: false, kind: "account", bank: "shinhan" },
+  // 2026-08-06 에 연 창업진흥원 스타트업 통장. 장부 「계좌카드목록」 에는 아직 없다.
+  { last4: "9678", alias: "신한스타트업", site: "네안데르", personal: false, kind: "account", bank: "shinhan", opened: "2026-08-06" },
   { last4: "5346", alias: "카카오일컴", site: "일해라컴퍼니", personal: false, kind: "account", bank: "kakao" },
   { last4: "7773", alias: "카카오와작", site: "와작홈즈", personal: false, kind: "account", bank: "kakao" },
   { last4: "2171", alias: "(신법)이동주", site: "네안데르", personal: false, kind: "card", bank: "shinhan-card" },

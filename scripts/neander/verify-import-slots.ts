@@ -189,5 +189,40 @@ console.log("\n③ 「이 달 거래 없음」 표시");
   check("표시만으로도 퍼즐이 완성된다", all.complete);
 }
 
+console.log("\n④ 새로 연 계좌는 연 달부터 칸이 된다");
+{
+  const opened = { ...pm("9678", "신한스타트업"), bank: "shinhan", opened: "2026-08-06" } as FinPaymentMethodDoc;
+  const withNew = buildFinSlots([...methods, opened]);
+  const keysOf = (m: string) => finPuzzleOf(withNew, m, history, []).pieces.map((p) => p.slot.key);
+  check("연 달 전에는 칸이 없다", !keysOf("2026-07").includes("account:9678") && keysOf("2026-07").length === 3);
+  check("연 달부터 칸이 있다", keysOf("2026-08").includes("account:9678") && keysOf("2026-10").length === 4);
+  const done = finPuzzleOf(withNew, "2026-07", history, [
+    { id: "a", fileName: "거래 없음", inserted: 0, skipped: 0, createdAt: 1, month: "2026-07", slotKey: "account:4223", last4s: ["4223"], noActivity: true },
+    { id: "b", fileName: "거래 없음", inserted: 0, skipped: 0, createdAt: 1, month: "2026-07", slotKey: "account:4248", last4s: ["4248"], noActivity: true },
+    { id: "c", fileName: "거래 없음", inserted: 0, skipped: 0, createdAt: 1, month: "2026-07", slotKey: "account:9279", last4s: ["9279"], noActivity: true },
+  ]);
+  check("지난달 퍼즐은 새 계좌 때문에 깨지지 않는다", done.complete && done.total === 3, `${done.filled}/${done.total}`);
+}
+
+console.log("\n⑤ 신한 grid 의 「메모」 열 (두 개) 을 비고에 남긴다");
+{
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([
+    ["No", "전체선택", "거래일시", "적요", "입금액", "출금액", "내용", "잔액", "거래점명", "입금인코드", "메모", "메모"],
+    ["1", "1", "2026.08.06 14:37:00", "신규", "0", "0", "", "0", "공덕"],
+    ["2", "1", "2026.09.15 11:23:22", "FB이체", "2,150,000", "0", "3415007", "2,150,000", "세종중", "", "다혜"],
+    ["3", "1", "2026.09.15 11:23:23", "FB이체", "4,500,000", "0", "3415008", "6,650,000", "세종중", "", "", "홍대월세"],
+  ]);
+  XLSX.utils.book_append_sheet(wb, ws, "sheet");
+  const r = parseWithAdapter(wb, { fileName: FILE, last4: "9678", knownLast4: [...knownLast4, "9678"], ownEntities: [] });
+  check("신한 양식으로 읽는다", r?.adapterId === "shinhan-bank", r?.adapterId ?? "못 읽음");
+  if (r) {
+    check("금액 없는 「신규」 줄은 거래가 아니다", r.rows.length === 2, `${r.rows.length}줄`);
+    check("첫 메모 열", /다혜/.test(r.rows[0].note ?? ""), r.rows[0].note);
+    check("둘째 메모 열", /홍대월세/.test(r.rows[1].note ?? ""), r.rows[1].note);
+    check("메모는 중복 키에 들어가지 않는다", !r.rows[0].dedupHash.includes("다혜"));
+  }
+}
+
 console.log(failed === 0 ? "\n모두 통과" : `\n실패 ${failed}건`);
 process.exit(failed === 0 ? 0 : 1);

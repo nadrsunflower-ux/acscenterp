@@ -47,6 +47,7 @@ import {
   parseAmount,
   parseDateTime,
   pickSheet,
+  normalizeLabel,
   sheetRange,
   str,
 } from "./util";
@@ -268,6 +269,13 @@ export const shinhanBankAdapter: SourceAdapter = {
       balance: col(head.cols, "잔액"),
       branch: col(head.cols, "거래점명", "거래점"),
     };
+    // grid 에는 「메모」 열이 두 개다 — 기업뱅킹에서 사람이 적은 말(가수금 반환 · 권리금 · 다혜 …).
+    // 이름이 같아 head.cols 에는 마지막 것만 남으므로 헤더 줄을 직접 훑는다.
+    const range = sheetRange(ws);
+    const memoCols: number[] = [];
+    for (let k = range.s.c; k <= range.e.c; k++) {
+      if (normalizeLabel(str(cellAt(ws, head.row, k))) === "메모") memoCols.push(k);
+    }
 
     // grid 에는 계좌번호가 없어 파일명이 유일한 단서다. 개인 양식은 헤더 위
     // 요약 줄에 있다 — **헤더 위만** 본다 (거래 줄의 `내용` 을 번호로 읽지 않게).
@@ -277,7 +285,6 @@ export const shinhanBankAdapter: SourceAdapter = {
 
     const rows: ImportRow[] = [];
     const errors: ImportError[] = [];
-    const range = sheetRange(ws);
     for (let r = head.row + 1; r <= range.e.r; r++) {
       const rowNo = r + 1;
       const dt = parseDateTime(cellAt(ws, r, c.date), c.time >= 0 ? cellAt(ws, r, c.time) : undefined);
@@ -299,6 +306,7 @@ export const shinhanBankAdapter: SourceAdapter = {
           memos: [
             c.brief >= 0 ? str(cellAt(ws, r, c.brief)) : undefined,
             c.branch >= 0 ? str(cellAt(ws, r, c.branch)) : undefined,
+            ...memoCols.map((k) => str(cellAt(ws, r, k))),
           ],
           inAmount: inn,
           outAmount: out,

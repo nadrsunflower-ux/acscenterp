@@ -106,6 +106,8 @@ export interface FinImportSlot {
   sub: string;
   /** 이 칸이 품는 뒷자리들 — 카드는 그 카드사의 카드 전부 */
   last4s: string[];
+  /** 이 달(`YYYY-MM`)부터 칸이 된다 — 계좌를 연 달. 없으면 늘 있던 칸 */
+  from?: string;
 }
 
 const BANK_ORDER: FinBankId[] = ["shinhan", "kb", "woori", "toss", "kakao", "shinhan-card", "kb-card"];
@@ -131,6 +133,7 @@ export function buildFinSlots(paymentMethods: FinPaymentMethodDoc[]): FinImportS
       label: pm.alias,
       sub: pm.site,
       last4s: [pm.last4],
+      ...(pm.opened ? { from: pm.opened.slice(0, 7) } : {}),
     });
   });
 
@@ -220,7 +223,9 @@ export function finPuzzleOf(
     byLast4.set(t.last4, [...(byLast4.get(t.last4) ?? []), t]);
   });
 
-  const pieces: FinSlotStatus[] = slots.map((slot) => {
+  // 아직 열지 않은 계좌는 그 달의 칸이 아니다
+  const live = slots.filter((s) => !s.from || s.from <= month);
+  const pieces: FinSlotStatus[] = live.map((slot) => {
     const batch = imports.find((b) => b.month === month && b.slotKey === slot.key);
     const rows = slot.last4s.flatMap((l4) => byLast4.get(l4) ?? []);
     let confirmed = 0;
@@ -244,7 +249,7 @@ export function finPuzzleOf(
     };
   });
   const filled = pieces.filter((p) => p.filled).length;
-  return { pieces, filled, total: slots.length, complete: slots.length > 0 && filled === slots.length };
+  return { pieces, filled, total: live.length, complete: live.length > 0 && filled === live.length };
 }
 
 // ============================================================
