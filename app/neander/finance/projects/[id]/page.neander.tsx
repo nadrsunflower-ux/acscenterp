@@ -6,10 +6,10 @@
 //  엑셀 체크리스트를 화면으로 옮긴 것이다. 분류별로 묶인 표에 수량·단가를
 //  넣으면 견적금액이 굴러가고, 위에 계약금액과 이익이 바로 보인다.
 //
-//  편집은 예산 화면과 같은 초안 방식이다 — 셀을 고칠 때마다 서버에 쓰지
-//  않고 「저장」 한 번에 프로젝트를 통째로 반영한다. 행사 준비 중에는
-//  수십 줄을 연달아 고치므로 셀마다 요청을 보내면 느리고, 중간에 끊기면
-//  반쯤 바뀐 표가 남는다.
+//  편집은 초안에 쌓고, 손을 멈추면 **저절로** 프로젝트를 통째로 저장한다
+//  (저장 버튼이 없다). 셀마다 요청을 보내지 않는 것은 그대로다 — 행사
+//  준비 중에는 수십 줄을 연달아 고치므로 셀마다 보내면 느리고, 중간에
+//  끊기면 반쯤 바뀐 표가 남는다. 화면을 떠날 때 남은 변경도 저장한다.
 //
 //  「실제금액」 열은 나중에 채운다. 견적(수량×단가)은 준비할 때, 실제는
 //  결제가 끝난 뒤. 안 채운 줄은 견적으로 계산하되 몇 줄이 비었는지 위에
@@ -42,6 +42,7 @@ import {
 import {
   ArrowLeft,
   ArrowUpRight,
+  Check,
   CircleAlert,
   Download,
   FileText,
@@ -49,10 +50,9 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
-  Save,
+  RotateCw,
   SearchX,
   Trash2,
-  Undo2,
   Unlink,
   Upload,
   X,
@@ -165,9 +165,10 @@ import {
   type FinProjectLine,
   type FinProjectRevenue,
   type ProjectStatus,
+  sanitizeProject,
 } from "@/lib/neander/finance/project";
 import { suggestDayRates } from "@/lib/neander/finance/project-report";
-import { todayStrKST } from "@/lib/neander/format";
+import { formatChatTime, todayStrKST } from "@/lib/neander/format";
 import {
   netAmount,
   type FinTransaction,
@@ -288,9 +289,22 @@ function tidyLine(l: FinProjectLine): FinProjectLine {
   return next;
 }
 
+/** 손을 멈추고 이만큼 지나면 저장한다 — 글자를 치는 동안 요청이 쏟아지지 않게 */
+const AUTOSAVE_MS = 800;
+/** 저장이 실패하면 한 번은 조용히 다시 해 본다 (잠깐 끊긴 연결) */
+const AUTOSAVE_RETRY_MS = 3000;
+
+/**
+ * 프로젝트가 바뀌면 편집기를 새로 띄운다 — 초안·되돌리기·저장 대기가
+ * 앞 프로젝트 것과 섞이지 않는다. 떠나는 편집기는 남은 변경을 저장하고 내려간다.
+ */
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id ?? "";
+  return <ProjectDetailEditor key={id} id={id} />;
+}
+
+function ProjectDetailEditor({ id }: { id: string }) {
   const router = useRouter();
   const confirm = useConfirm();
   const toast = useToast();
@@ -308,11 +322,8 @@ export default function ProjectDetailPage() {
    */
   const [hist, setHist] = useState<DraftHistory>(EMPTY_DRAFT_HISTORY);
   const draft = hist.present;
-  const setDraft = useCallback(
-    (next: FinProjectInput | null) => setHist({ past: [], present: next, future: [] }),
-    [],
-  );
-  const [saving, setSaving] = useState(false);
+  /** 삭제하는 중 — 메뉴를 잠근다 */
+  const [removing, setRemoving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   /** 제목 줄 오른쪽 「⋯ 더보기」 — 자주 안 쓰는 동작을 여기 접어 둔다 */
   const moreRef = useRef<HTMLButtonElement>(null);
@@ -354,27 +365,113 @@ export default function ProjectDetailPage() {
     [toast],
   );
 
-  // 다른 프로젝트로 옮기면 초안을 버린다
-  useEffect(() => {
-    setDraft(null);
-  }, [id]);
-
   const form: FinProjectInput | null = draft ?? (saved ? toInput(saved) : null);
   const dirty = useMemo(
     () => !!draft && !!saved && !sameDraft(draft, toInput(saved)),
     [draft, saved],
   );
 
-  // 떠나기 전 경고 — 저장 안 한 체크리스트가 날아가면 다시 적어야 한다
+  // ---- 자동 저장 ------------------------------------------------
+  //
+  //  손을 멈추면 초안을 통째로 보낸다. 보내는 동안에도 계속 고칠 수 있고,
+  //  그사이 고친 것은 다음 저장이 가져간다. 되돌리기 스택은 저장해도 남는다.
+  //
+  //  서버는 값을 다듬는다 — 빈 줄을 버리고 글자 앞뒤 공백을 지운다. 그래서
+  //  저장한 뒤 초안을 저장본으로 바꿔 끼우는 것은 **다듬을 것이 없었을 때만**
+  //  한다. 아니면 방금 「줄 추가」 한 빈 줄이 사라지고, 「홍길동 」 다음에 칠
+  //  글자가 띄어쓰기 없이 붙는다. 바꿔 끼우지 않은 초안은 저장본과 조금
+  //  달라도 「방금 저장한 그 초안」 이라 다시 보내지 않는다(lastSaved).
+
+  const [autoSaving, setAutoSaving] = useState(false);
+  /** 마지막으로 저장에 성공한 초안 — 같은 것을 다시 보내지 않는다 */
+  const [lastSaved, setLastSaved] = useState<FinProjectInput | null>(null);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  /** 보낼 수 없는 값 — 이름·코드가 비었다 등. 고치면 저절로 저장된다 */
+  const [invalid, setInvalid] = useState<string | null>(null);
+  /** 실패한 초안과 연달아 실패한 횟수 — 두 번째부터 알린다 */
+  const [failed, setFailed] = useState<{ draft: FinProjectInput; count: number; message: string } | null>(null);
+  /** 보내는 중인 저장 — 보고서를 열 때 끝나기를 기다린다 */
+  const inflight = useRef<{ snap: FinProjectInput; done: Promise<void> } | null>(null);
+  /** 지운 프로젝트는 저장하지 않는다 */
+  const removedRef = useRef(false);
+
+  const needsSave = dirty && draft !== lastSaved;
+
+  const saveDraft = useCallback(
+    (snap: FinProjectInput): Promise<void> => {
+      const checked = sanitizeProject(snap);
+      if (!checked.ok) {
+        setInvalid(checked.error);
+        return Promise.resolve();
+      }
+      setInvalid(null);
+      setAutoSaving(true);
+      const done = (async () => {
+        try {
+          await saveFinProject(snap, id);
+          await refresh();
+          setLastSaved(snap);
+          setSavedAt(Date.now());
+          setFailed(null);
+          if (sameDraft(checked.value, snap)) {
+            // 보낸 뒤 더 고치지 않았으면 저장본을 따라간다 — 다른 사람이 고친 것도 보인다
+            setHist((h) => (h.present === snap ? { ...h, present: null } : h));
+          }
+        } catch (e) {
+          const message = e instanceof Error ? e.message : "저장에 실패했습니다.";
+          setFailed((f) => ({ draft: snap, count: (f?.count ?? 0) + 1, message }));
+        } finally {
+          inflight.current = null;
+          setAutoSaving(false);
+        }
+      })();
+      inflight.current = { snap, done };
+      return done;
+    },
+    [id, refresh],
+  );
+
   useEffect(() => {
-    if (!dirty) return;
+    if (!draft || !needsSave || autoSaving || removedRef.current) return;
+    // 처음 실패는 조용히 한 번 더 해 본다. 또 실패하면 「다시 시도」 를 기다린다
+    const retry = failed?.draft === draft;
+    if (retry && failed.count >= 2) return;
+    const t = window.setTimeout(() => void saveDraft(draft), retry ? AUTOSAVE_RETRY_MS : AUTOSAVE_MS);
+    return () => window.clearTimeout(t);
+  }, [draft, needsSave, autoSaving, failed, saveDraft]);
+
+  // 떠날 때 남은 변경을 보낸다 — 화면 안에서 다른 메뉴로 옮겨 가는 경우.
+  // 창을 닫는 것은 기다려 줄 수 없으니 아래 경고로 막는다.
+  const leaveRef = useRef({ draft: null as FinProjectInput | null, refresh, toast });
+  useEffect(() => {
+    leaveRef.current = { draft: needsSave ? draft : null, refresh, toast };
+  });
+  useEffect(
+    () => () => {
+      const { draft: left, refresh: reload, toast: say } = leaveRef.current;
+      if (!left || removedRef.current) return;
+      const checked = sanitizeProject(left);
+      if (!checked.ok) {
+        say.error(`프로젝트 변경을 저장하지 못했습니다 — ${checked.error}`);
+        return;
+      }
+      saveFinProject(left, id)
+        .then(() => reload())
+        .catch((e) => say.error(e instanceof Error ? e.message : "프로젝트 변경을 저장하지 못했습니다."));
+    },
+    [id],
+  );
+
+  // 창을 닫기 전 경고 — 아직 안 간 변경이 있을 때만
+  useEffect(() => {
+    if (!needsSave && !autoSaving) return;
     const h = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = "";
     };
     window.addEventListener("beforeunload", h);
     return () => window.removeEventListener("beforeunload", h);
-  }, [dirty]);
+  }, [needsSave, autoSaving]);
 
   const summary = useMemo(
     () => (form ? projectSummary(form, transactions) : null),
@@ -413,31 +510,32 @@ export default function ProjectDetailPage() {
     [saved],
   );
 
+  // 저장하면 초안이 저장본으로 돌아가(present = null) 스택만 남는다 — 그때는 저장본이 지금 모습이다
   const undo = useCallback(
     () =>
-      setHist((h) =>
-        h.past.length === 0
-          ? h
-          : {
-              past: h.past.slice(0, -1),
-              present: h.past[h.past.length - 1],
-              future: h.present ? [h.present, ...h.future].slice(0, DRAFT_HISTORY_LIMIT) : h.future,
-            },
-      ),
-    [],
+      setHist((h) => {
+        if (h.past.length === 0) return h;
+        const cur = h.present ?? (saved ? toInput(saved) : null);
+        return {
+          past: h.past.slice(0, -1),
+          present: h.past[h.past.length - 1],
+          future: cur ? [cur, ...h.future].slice(0, DRAFT_HISTORY_LIMIT) : h.future,
+        };
+      }),
+    [saved],
   );
   const redo = useCallback(
     () =>
-      setHist((h) =>
-        h.future.length === 0
-          ? h
-          : {
-              past: h.present ? [...h.past, h.present].slice(-DRAFT_HISTORY_LIMIT) : h.past,
-              present: h.future[0],
-              future: h.future.slice(1),
-            },
-      ),
-    [],
+      setHist((h) => {
+        if (h.future.length === 0) return h;
+        const cur = h.present ?? (saved ? toInput(saved) : null);
+        return {
+          past: cur ? [...h.past, cur].slice(-DRAFT_HISTORY_LIMIT) : h.past,
+          present: h.future[0],
+          future: h.future.slice(1),
+        };
+      }),
+    [saved],
   );
   const canUndo = hist.past.length > 0;
   const canRedo = hist.future.length > 0;
@@ -530,7 +628,7 @@ export default function ProjectDetailPage() {
       }
       edit((f) => ({ ...f, lines: [...f.lines, ...parsed.lines] }));
       toast.success(
-        `${file.name} 에서 ${parsed.lines.length}줄을 불러왔습니다${parsed.skipped ? ` (품목 없는 ${parsed.skipped}줄 건너뜀)` : ""}. 확인 후 저장하세요.`,
+        `${file.name} 에서 ${parsed.lines.length}줄을 불러왔습니다${parsed.skipped ? ` (품목 없는 ${parsed.skipped}줄 건너뜀)` : ""}.`,
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "파일을 읽지 못했습니다.");
@@ -585,18 +683,25 @@ export default function ProjectDetailPage() {
 
   // ---- 저장 · 삭제 --------------------------------------------
 
-  const save = async () => {
-    if (!draft || !dirty) return;
-    setSaving(true);
-    try {
-      await saveFinProject(draft, id);
-      await refresh();
-      setDraft(null);
-      toast.success("저장했습니다.");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "저장에 실패했습니다.");
-    } finally {
-      setSaving(false);
+  /**
+   * 보고서는 저장된 값으로 그린다 — 아직 안 간 변경이 있으면 먼저 보낸다.
+   * 창은 미리 열어 둔다. 저장을 기다린 뒤에 열면 팝업 차단에 걸린다.
+   */
+  const openReport = async () => {
+    const url = `/neander/finance/projects/${id}/report`;
+    if (!needsSave && !autoSaving) {
+      window.open(url, "_blank", "noopener");
+      return;
+    }
+    const win = window.open("about:blank", "_blank");
+    const running = inflight.current;
+    if (running) await running.done;
+    if (needsSave && draft && draft !== running?.snap) await saveDraft(draft);
+    if (win) {
+      win.opener = null;
+      win.location.href = url;
+    } else {
+      window.open(url, "_blank", "noopener");
     }
   };
 
@@ -609,14 +714,16 @@ export default function ProjectDetailPage() {
       tone: "danger",
     });
     if (!ok) return;
-    setSaving(true);
+    setRemoving(true);
+    removedRef.current = true;
     try {
       await deleteFinProject(id);
       await refresh();
       router.push("/neander/finance/projects");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "삭제에 실패했습니다.");
-      setSaving(false);
+      removedRef.current = false;
+      setRemoving(false);
     }
   };
 
@@ -669,8 +776,8 @@ export default function ProjectDetailPage() {
 
   /**
    * 자주 안 쓰는 동작은 「⋯ 더보기」로 접는다 — 제목 줄에 버튼이 다섯이면
-   * 어느 것이 주요 동작인지 안 보인다. 남기는 것은 「보고서」와 「저장」이다.
-   * 「변경 취소」는 되돌릴 변경이 있을 때만 나온다.
+   * 어느 것이 주요 동작인지 안 보인다. 남기는 것은 「보고서」다.
+   * 저장은 저절로 되고, 되돌리기는 ⌘Z 다.
    */
   const moreItems: MenuItem[] = [
     {
@@ -678,30 +785,18 @@ export default function ProjectDetailPage() {
       label: "엑셀에서 줄 가져오기",
       icon: Upload,
       hint: "분류·제품명·수량·단가",
-      disabled: saving,
+      disabled: removing,
       onSelect: () => fileRef.current?.click(),
     },
     {
       key: "export",
       label: "엑셀 내려받기",
       icon: Download,
-      disabled: saving,
+      disabled: removing,
       onSelect: () => exportProjectXlsx({ ...saved, ...form }, transactions),
     },
-    ...(dirty
-      ? ([
-          { type: "separator", key: "sep-revert" },
-          {
-            key: "revert",
-            label: "변경 취소",
-            icon: Undo2,
-            disabled: saving,
-            onSelect: () => setDraft(null),
-          },
-        ] satisfies MenuItem[])
-      : []),
     { type: "separator", key: "sep-danger" },
-    { key: "delete", label: "삭제", icon: Trash2, danger: true, disabled: saving, onSelect: () => void remove() },
+    { key: "delete", label: "삭제", icon: Trash2, danger: true, disabled: removing, onSelect: () => void remove() },
   ];
 
   const tabs = [
@@ -775,16 +870,39 @@ export default function ProjectDetailPage() {
           </span>
         }
         meta={
-          dirty ? (
-            // 색만으로 알리지 않는다 — 아이콘과 글자를 함께 둔다.
-            // role="status" 라 낭독기도 저장 안 된 상태를 읽는다.
-            <span role="status">
-              <Badge tone="warning">
-                <Icon icon={CircleAlert} size={14} />
-                저장되지 않은 변경사항이 있습니다
-              </Badge>
-            </span>
-          ) : undefined
+          // 자동 저장의 상태. 색만으로 알리지 않는다 — 아이콘과 글자를 함께 둔다.
+          // role="status" 라 낭독기도 읽는다.
+          <span role="status" className="flex items-center gap-2">
+            {failed && failed.count >= 2 && failed.draft === draft ? (
+              <>
+                <Badge tone="danger">
+                  <Icon icon={CircleAlert} size={14} />
+                  저장하지 못했습니다
+                </Badge>
+                <span className="max-w-[260px] truncate text-nd-table text-nd-fg-3" title={failed.message}>
+                  {failed.message}
+                </span>
+                <Button size="sm" variant="secondary" icon={RotateCw} onClick={() => void saveDraft(failed.draft)}>
+                  다시 시도
+                </Button>
+              </>
+            ) : invalid && needsSave ? (
+              <>
+                <Badge tone="warning">
+                  <Icon icon={CircleAlert} size={14} />
+                  저장 안 됨
+                </Badge>
+                <span className="text-nd-table text-nd-fg-2">{invalid}</span>
+              </>
+            ) : autoSaving || needsSave ? (
+              <span className="text-nd-table text-nd-fg-3">저장 중…</span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-nd-table text-nd-fg-3">
+                <Icon icon={Check} size={14} />
+                {savedAt ? `저장됨 · ${formatChatTime(savedAt)}` : "자동 저장"}
+              </span>
+            )}
+          </span>
         }
         actions={
           <>
@@ -797,19 +915,9 @@ export default function ProjectDetailPage() {
               aria-haspopup="menu"
               aria-expanded={moreOpen}
             />
-            {/* 저장된 값으로 그린다 — 고치는 중이면 먼저 저장하라고 알린다 */}
-            <Button
-              variant="secondary"
-              icon={FileText}
-              onClick={() => {
-                if (dirty) toast.info("저장하지 않은 변경은 보고서에 들어가지 않습니다.");
-                window.open(`/neander/finance/projects/${id}/report`, "_blank", "noopener");
-              }}
-            >
+            {/* 저장된 값으로 그린다 — 아직 안 간 변경은 먼저 보낸다 */}
+            <Button variant="secondary" icon={FileText} onClick={() => void openReport()}>
               보고서
-            </Button>
-            <Button icon={Save} disabled={!dirty} loading={saving} onClick={save}>
-              변경 저장
             </Button>
           </>
         }

@@ -33,7 +33,7 @@ export const PROJECT_STATUSES = ["planning", "active", "done", "cancelled"] as c
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
 export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
-  planning: "준비 중",
+  planning: "심사 중",
   active: "진행 중",
   done: "완료",
   cancelled: "취소",
@@ -1016,7 +1016,7 @@ export function sanitizeProject(
   };
 }
 
-/** 목록 정렬 — 진행 중 → 준비 중 → 완료 → 취소, 같은 상태면 최근 수정순 */
+/** 목록 정렬 — 진행 중 → 심사 중 → 완료 → 취소, 같은 상태면 최근 수정순 */
 const STATUS_ORDER: Record<ProjectStatus, number> = { active: 0, planning: 1, done: 2, cancelled: 3 };
 export function sortProjects(list: FinProjectDoc[]): FinProjectDoc[] {
   return [...list].sort((a, b) => {
