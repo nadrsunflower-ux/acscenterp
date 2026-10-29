@@ -10,6 +10,8 @@
 /.next/
 /.next-neander/
 /.next-*-check/
+# 포트별 dev 빌드 폴더 (NEXT_DIST_DIR=.next-neander-3100 등)
+/.next-neander-*/
 /out/
 
 # production

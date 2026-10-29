@@ -488,9 +488,15 @@ export interface FinProjectDoc {
   /** 발주처 · 주최 */
   client?: string;
   status: ProjectStatus;
-  /** `YYYY-MM-DD` */
+  /** 진행 기간 `YYYY-MM-DD` — 일을 시작해 정산까지 걸리는 동안 */
   startDate?: string;
   endDate?: string;
+  /**
+   * 납기 `YYYY-MM-DD` — 결과물을 넘기는 날 (납품일 · 행사 당일).
+   * 진행 기간과 따로 둔다. 선금을 받고 넉 달을 굴리는 건도 넘기는 날은
+   * 하루라, 기간만 보면 언제까지 끝내야 하는지가 안 읽힌다.
+   */
+  deliveryDate?: string;
   /** 사업소분류 (와우·SMOAT·조향 …) — 사업부 손익과 이어 볼 때 */
   bizMinor?: string;
   /** 매출을 낸 사업체 (계약·세금계산서 주체). 원장 사업장과 같은 이름. 비우면 원장 입금으로 추정 */
@@ -953,7 +959,8 @@ export function sanitizeProject(
   };
   const startDate = date(raw.startDate);
   const endDate = date(raw.endDate);
-  if (startDate === null || endDate === null) {
+  const deliveryDate = date(raw.deliveryDate);
+  if (startDate === null || endDate === null || deliveryDate === null) {
     return { ok: false, error: "날짜는 YYYY-MM-DD 형식이어야 합니다." };
   }
   if (startDate && endDate && startDate > endDate) {
@@ -1023,6 +1030,7 @@ export function sanitizeProject(
       status,
       startDate,
       endDate,
+      deliveryDate,
       bizMinor: str(raw.bizMinor),
       // 정해진 넷만, 늘 같은 순서로 — 고른 순서에 따라 「일컴 · 네안데르」와
       // 「네안데르 · 일컴」이 따로 보이면 같은 조합이 두 가지로 읽힌다
@@ -1081,6 +1089,7 @@ export interface ProjectDigest {
   status: ProjectStatus;
   startDate?: string;
   endDate?: string;
+  deliveryDate?: string;
   /** 수입 (공급가액) */
   revenue: number;
   profitActual: number;
@@ -1095,6 +1104,21 @@ export interface ProjectDigest {
 /** 아직 끝나지 않은 상태 — 대시보드에 올라오는 프로젝트 */
 export const OPEN_PROJECT_STATUSES: ProjectStatus[] = ["active", "planning"];
 
+/**
+ * 납기까지 남은 날 — 「D-9」 · 「오늘」 · 「3일 지남」.
+ * 아직 끝나지 않은 건(심사 중 · 진행 중)만 센다. 끝난 건의 지난 납기는 늦은 게 아니다.
+ */
+export function deliveryCountdown(
+  p: Pick<FinProjectDoc, "deliveryDate" | "status">,
+  today = todayStrKST(),
+): { days: number; text: string; late: boolean } | null {
+  if (!p.deliveryDate || !OPEN_PROJECT_STATUSES.includes(p.status)) return null;
+  const days = Math.round((Date.parse(`${p.deliveryDate}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
+  if (days > 0) return { days, text: `D-${days}`, late: false };
+  if (days === 0) return { days, text: "오늘", late: false };
+  return { days, text: `${-days}일 지남`, late: true };
+}
+
 export function projectDigest(p: FinProjectDoc): ProjectDigest {
   const s = projectSummary(p);
   return {
@@ -1105,6 +1129,7 @@ export function projectDigest(p: FinProjectDoc): ProjectDigest {
     status: p.status,
     startDate: p.startDate,
     endDate: p.endDate,
+    deliveryDate: p.deliveryDate,
     revenue: s.revenue,
     profitActual: s.profitActual,
     marginActual: s.marginActual,

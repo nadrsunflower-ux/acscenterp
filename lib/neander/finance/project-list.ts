@@ -6,7 +6,7 @@
 //  원본에 되돌려 놓는 일(reconcile)이 없다.
 //
 //  두 종류뿐이다:
-//   - 값 목록 : 프로젝트 · 상태 · 사업체 · 기간(시작 월) · 준비 · 문서
+//   - 값 목록 : 프로젝트 · 상태 · 사업체 · 진행 기간(시작 월) · 납기(월) · 준비 · 문서
 //               (사업체만 한 줄에 값이 여럿일 수 있다 — 하나라도 맞으면 통과)
 //   - 범위    : 금액 열과 이익률 (고유값이 건마다 달라 목록이 무의미하다)
 // ============================================================
@@ -36,6 +36,7 @@ export const PROJECT_LIST_KEYS = [
   "status",
   "entity",
   "period",
+  "delivery",
   "revenue",
   "estimate",
   "actual",
@@ -100,6 +101,8 @@ export function projectValueOf(r: ProjectListRow, key: ProjectListKey): string {
     case "period":
       // 날짜 하나하나는 고를 수 없다 — 시작 월로 묶는다 (원장 거래일과 같은 방식)
       return (r.p.startDate ?? "").slice(0, 7);
+    case "delivery":
+      return (r.p.deliveryDate ?? "").slice(0, 7);
     case "ready":
       if (r.s.lineCount === 0) return "";
       return r.s.doneCount === r.s.lineCount ? "all" : "partial";
@@ -121,6 +124,7 @@ export function projectLabelOf(key: ProjectListKey, value: string): string {
     if (key === "ready") return "(지출 줄 없음)";
     if (key === "docs") return "(문서 없음)";
     if (key === "period") return "(시작일 없음)";
+    if (key === "delivery") return "(납기 없음)";
     if (key === "entity") return "(모름)";
     return "(비어 있음)";
   }
@@ -180,7 +184,7 @@ export function projectOptions(rows: ProjectListRow[], key: ProjectListKey): Fil
       if (key === "status") return statusOrder(a.value) - statusOrder(b.value);
       if (key === "entity") return entityOrder(a.value) - entityOrder(b.value);
       // 기간은 최근 달부터 — 지난 행사를 찾을 때 보통 가까운 달부터 본다
-      if (key === "period") return b.value.localeCompare(a.value);
+      if (key === "period" || key === "delivery") return b.value.localeCompare(a.value);
       return a.label.localeCompare(b.label, "ko");
     });
 }
@@ -194,6 +198,7 @@ export function sortProjectRows(rows: ProjectListRow[], sort: ProjectListSort | 
   const sign = sort.dir === "asc" ? 1 : -1;
   const text = (r: ProjectListRow): string => {
     if (sort.key === "period") return r.p.startDate ?? "";
+    if (sort.key === "delivery") return r.p.deliveryDate ?? "";
     if (sort.key === "status") return String(PROJECT_STATUSES.indexOf(r.p.status));
     if (sort.key === "entity") return r.entities.map((e) => PROJECT_ENTITIES.indexOf(e)).join(",");
     if (sort.key === "ready") return r.s.lineCount ? String(r.s.doneCount / r.s.lineCount) : "";

@@ -9,6 +9,7 @@ import { useAuth } from "@/components/neander/auth";
 import { fetchSalesSummary, type SalesMonthSummary } from "@/lib/neander/sales/client";
 import { storeLabel } from "@/lib/neander/sales/types";
 import { fetchOpenProjects } from "@/lib/neander/finance/client";
+import { DeliveryDate } from "@/components/neander/finance/DeliveryDate";
 import {
   PROJECT_STATUS_LABEL,
   formatMargin,
@@ -404,12 +405,13 @@ function OpenProjects() {
       ) : (
         <>
           <TableScroll>
-            <Table minWidth={760}>
+            <Table minWidth={860}>
               <thead>
                 <tr>
                   <Th className="pl-5">프로젝트</Th>
                   <Th>상태</Th>
-                  <Th>기간</Th>
+                  <Th>진행 기간</Th>
+                  <Th title="결과물을 넘기는 날 (납품일 · 행사 당일)">납기</Th>
                   <Th align="right" title="준비 완료 줄 / 전체 줄">
                     준비물
                   </Th>
@@ -460,6 +462,9 @@ function OpenProjects() {
                     <Td className="whitespace-nowrap text-nd-caption text-nd-fg-2">
                       {p.startDate ?? "—"}
                       {p.endDate && p.endDate !== p.startDate ? ` ~ ${p.endDate}` : ""}
+                    </Td>
+                    <Td className="text-nd-caption text-nd-fg-2">
+                      <DeliveryDate project={p} />
                     </Td>
                     <Td num muted className="text-nd-caption">
                       {p.lineCount > 0 ? `${p.doneCount}/${p.lineCount}` : "—"}

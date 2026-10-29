@@ -75,6 +75,7 @@ import {
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { ColumnMenu } from "@/components/neander/finance/ColumnMenu";
 import { AutoCodeBox } from "@/components/neander/finance/AutoCode";
+import { DeliveryDate } from "@/components/neander/finance/DeliveryDate";
 import { saveFinProject } from "@/lib/neander/finance/client";
 import { nextCode, saveWithAutoCode, takenCodes } from "@/lib/neander/finance/codes";
 import { useGrants } from "@/lib/neander/finance/grant-client";
@@ -360,17 +361,18 @@ export default function ProjectsPage() {
                 />
               </div>
             ) : (
-              // 12열이라 좁은 화면에서는 반드시 가로로 밀린다. 프로젝트명 열을
+              // 14열이라 좁은 화면에서는 반드시 가로로 밀린다. 프로젝트명 열을
               // 고정해 두지 않으면 오른쪽 숫자를 볼 때 「어느 프로젝트의 값인지」를
               // 잃는다. 가로 스크롤은 TableScroll 안에서만 일어난다.
               <TableScroll>
-                <Table minWidth={1220}>
+                <Table minWidth={1340}>
                   <thead>
                     <tr>
                       {columnHead("name", "프로젝트", { sticky: "left", className: "pl-5" })}
                       {columnHead("status", "상태")}
                       {columnHead("entity", "사업체", { title: "매출을 낸 사업체 — 흐린 글자는 고르지 않아 원장 입금 사업장으로 추정한 것" })}
-                      {columnHead("period", "기간")}
+                      {columnHead("period", "진행 기간")}
+                      {columnHead("delivery", "납기", { title: "결과물을 넘기는 날 (납품일 · 행사 당일). 끝나지 않은 건은 남은 날이 붙습니다" })}
                       {columnHead("revenue", "수입", { align: "right", title: "공급가액 기준 — 부가세를 뺀 값입니다" })}
                       {columnHead("estimate", "견적 원가", { align: "right" })}
                       {columnHead("actual", "실제 원가", { align: "right" })}
@@ -425,6 +427,9 @@ export default function ProjectsPage() {
                         <Td className="whitespace-nowrap text-nd-caption text-nd-fg-2">
                           {p.startDate ?? "—"}
                           {p.endDate && p.endDate !== p.startDate ? ` ~ ${p.endDate}` : ""}
+                        </Td>
+                        <Td className="text-nd-caption text-nd-fg-2">
+                          <DeliveryDate project={p} />
                         </Td>
                         <Td num><Money value={s.revenue} unit={false} flow="income" /></Td>
                         <Td num><Money value={s.estimate} unit={false} muted /></Td>
@@ -585,10 +590,12 @@ function NewProjectDialog({
   const submit = async () => {
     setSaving(true);
     setError(null);
+    // 납기를 비워 두면 진행 기간의 마지막 날로 잡는다 (2026-10-29 사용자 결정)
+    const input = { ...form, deliveryDate: form.deliveryDate ?? form.endDate ?? form.startDate };
     try {
       const r = linkCode
-        ? await saveFinProject({ ...form, code: linkCode })
-        : (await saveWithAutoCode("project", taken, form.startDate, (code) => saveFinProject({ ...form, code }))).result;
+        ? await saveFinProject({ ...input, code: linkCode })
+        : (await saveWithAutoCode("project", taken, input.startDate, (code) => saveFinProject({ ...input, code }))).result;
       await onCreated(r.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "저장에 실패했습니다.");
@@ -666,10 +673,13 @@ function NewProjectDialog({
             ))}
           </Select>
         </Field>
-        <Field label="시작일">
+        <Field label="납기" hint="결과물을 넘기는 날 — 비우면 진행 종료일">
+          <Input type="date" value={form.deliveryDate ?? ""} onChange={(e) => set("deliveryDate", e.target.value || undefined)} />
+        </Field>
+        <Field label="진행 시작일">
           <Input type="date" value={form.startDate ?? ""} onChange={(e) => set("startDate", e.target.value || undefined)} />
         </Field>
-        <Field label="종료일">
+        <Field label="진행 종료일">
           <Input type="date" value={form.endDate ?? ""} onChange={(e) => set("endDate", e.target.value || undefined)} />
         </Field>
       </div>

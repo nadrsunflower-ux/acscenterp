@@ -102,6 +102,7 @@ import {
 } from "@/components/neander/ui";
 import { AutoCodeBox } from "@/components/neander/finance/AutoCode";
 import { ChecklistSheet } from "@/components/neander/finance/ChecklistSheet";
+import { DeliveryDate } from "@/components/neander/finance/DeliveryDate";
 import { DueInput } from "@/components/neander/finance/DueInput";
 import { isTypingInto } from "@/components/neander/finance/sheetCells";
 import {
@@ -264,6 +265,7 @@ function toInput(p: FinProjectDoc): FinProjectInput {
     status: p.status,
     startDate: p.startDate,
     endDate: p.endDate,
+    deliveryDate: p.deliveryDate,
     bizMinor: p.bizMinor,
     entities: p.entities ? [...p.entities] : undefined,
     contractAmount: p.contractAmount ?? 0,
@@ -909,7 +911,12 @@ function ProjectDetailEditor({ id }: { id: string }) {
               </span>
             )}
             {form.client && <span className="text-nd-caption text-nd-fg-3">· {form.client}</span>}
-            {period && <span className="nd-num text-nd-caption text-nd-fg-3">· {period}</span>}
+            {period && <span className="nd-num text-nd-caption text-nd-fg-3">· 진행 {period}</span>}
+            {form.deliveryDate && (
+              <span className="nd-num text-nd-caption text-nd-fg-3">
+                · 납기 <DeliveryDate project={form} />
+              </span>
+            )}
           </span>
         }
         meta={
@@ -1046,7 +1053,7 @@ function ProjectDetailEditor({ id }: { id: string }) {
           {/* ---- 기본 정보 ---- */}
           <Card padding="sm" className="mb-5">
             <SectionHeader title="기본 정보" hint="원장·문서와 이어지는 값" />
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
               {/* 원장 거래가 이 글자로 이어져 있어 고치지 않는다 (finance/codes.ts) */}
               <Field label="코드" hint="원장 프로젝트코드">
                 <AutoCodeBox code={form.code} size="sm" tag="고정" />
@@ -1061,11 +1068,15 @@ function ProjectDetailEditor({ id }: { id: string }) {
                   ))}
                 </Select>
               </Field>
-              <Field label="시작일">
+              <Field label="진행 시작일">
                 <Input size="sm" type="date" value={form.startDate ?? ""} onChange={(e) => setField("startDate", e.target.value || undefined)} />
               </Field>
-              <Field label="종료일">
+              <Field label="진행 종료일">
                 <Input size="sm" type="date" value={form.endDate ?? ""} onChange={(e) => setField("endDate", e.target.value || undefined)} />
+              </Field>
+              {/* 진행 기간과 따로 — 넉 달짜리 건도 결과물을 넘기는 날은 하루다 */}
+              <Field label="납기">
+                <Input size="sm" type="date" value={form.deliveryDate ?? ""} onChange={(e) => setField("deliveryDate", e.target.value || undefined)} />
               </Field>
               <Field label="사업소분류">
                 <Input
