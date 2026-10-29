@@ -17,7 +17,7 @@
 //  행을 누르면 그 자리에서 고치는 창이 열린다.
 // ============================================================
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { HandCoins, Plus, SearchX, Trash2 } from "lucide-react";
 import {
@@ -26,6 +26,7 @@ import {
   Card,
   Checkbox,
   Dialog,
+  Disclosure,
   EmptyState,
   Field,
   FilterBar,
@@ -67,8 +68,14 @@ import {
   PROJECT_ENTITIES,
   VAT_LABEL,
   VAT_MODES,
+  dueLabel,
+  isInstallmentReceived,
+  isReceived,
+  paidLabel,
+  projectSummary,
   sanitizeProject,
   shortId,
+  splitVat,
   type FinProjectDeduction,
   type FinProjectDoc,
   type ProjectEntity,
@@ -101,12 +108,95 @@ const STATUS_TONE: Record<PaybackStatus, Tone> = {
 const won = (n: number) => Math.round(n).toLocaleString("ko-KR");
 
 /** 「11,000,000 − 부가세 1,000,000 − 우리 몫 3,000,000 = 돌려줄 돈 7,000,000원」 */
-function CalcLine({ total, vat, keep, amount }: { total: number; vat: number; keep: number; amount: number }) {
+function CalcLine({ total, vat, keep, amount, totalLabel = "받은 돈" }: { total: number; vat: number; keep: number; amount: number; totalLabel?: string }) {
   return (
     <p className="nd-num rounded-nd-md bg-nd-sunken px-3 py-2 text-nd-table text-nd-fg-2">
-      받은 돈 {won(total)} − 부가세 {won(vat)} − 우리 몫 {won(keep)} ={" "}
+      {totalLabel} {won(total)} − 부가세 {won(vat)} − 우리 몫 {won(keep)} ={" "}
       <b className={cn("font-semibold", amount < 0 ? "text-nd-danger-text" : "text-nd-fg")}>돌려줄 돈 {won(amount)}원</b>
     </p>
+  );
+}
+
+/** 돈이 오간 순서대로 읽는 세 구역. 입력과 기록을 같은 구역 안에 둔다. */
+function PaybackSection({ step, title, description, children }: { step: number; title: string; description: string; children: ReactNode }) {
+  const id = useId();
+  return (
+    <section aria-labelledby={id} className="min-w-0 overflow-hidden rounded-nd-lg border border-nd-line">
+      <div className="flex items-start gap-3 border-b border-nd-line bg-nd-sunken/60 px-4 py-3">
+        <span aria-hidden="true" className="nd-num flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-nd-content text-nd-table font-semibold text-nd-fg-2">{step}</span>
+        <div className="min-w-0">
+          <h3 id={id} className="text-nd-body font-semibold text-nd-fg">{title}</h3>
+          <p className="mt-0.5 text-nd-caption text-nd-fg-3">{description}</p>
+        </div>
+      </div>
+      <div className="flex min-w-0 flex-col gap-4 p-4">{children}</div>
+    </section>
+  );
+}
+
+function ProjectReceiptRecords({ project }: { project: FinProjectDoc }) {
+  const summary = projectSummary(project);
+  const entity = project.entities?.join(" · ") || "—";
+  const records = [
+    ...(project.installments ?? []).map((i) => {
+      const received = isInstallmentReceived(i);
+      return {
+        key: `installment:${i.id}`, label: i.kind, entity: i.entity || entity, received,
+        date: received ? paidLabel(i) || "날짜 미확인" : dueLabel(i) || "날짜 미정",
+        amount: splitVat(i.amount, project.vatMode).total,
+      };
+    }),
+    ...(project.revenues ?? []).map((r) => ({
+      key: `revenue:${r.id}`, label: r.label || "추가 수입", entity, received: isReceived(r),
+      date: r.receivedDate || (isReceived(r) ? "날짜 미확인" : "날짜 미정"),
+      amount: splitVat(r.amount, r.vatMode ?? project.vatMode).total,
+    })),
+  ];
+  return (
+    <>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <FieldBox label="받은 금액">
+          <span className="nd-num text-nd-body font-semibold text-nd-fg">{won(summary.received)}원</span>
+        </FieldBox>
+        <FieldBox label="계약·청구 금액" hint="부가세 포함">
+          <span className="nd-num text-nd-body text-nd-fg-2">{won(summary.grossTotal)}원</span>
+        </FieldBox>
+        <FieldBox label="부가세">
+          <span className="nd-num text-nd-body text-nd-fg-2">{won(projectGross(project).vat)}원</span>
+        </FieldBox>
+      </div>
+      {records.length > 0 ? (
+        <div className="overflow-hidden rounded-nd-md border border-nd-line">
+          <TableScroll>
+            <Table minWidth={450} dense>
+              <thead>
+                <tr>
+                  <Th>입금 내역</Th>
+                  <Th>받는 사업체</Th>
+                  <Th>받은 날·예정일</Th>
+                  <Th align="right">금액</Th>
+                  <Th>상태</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {records.map((r) => (
+                  <Tr key={r.key}>
+                    <Td>{r.label}</Td>
+                    <Td>{r.entity}</Td>
+                    <Td className="whitespace-nowrap">{r.date}</Td>
+                    <Td num>{won(r.amount)}원</Td>
+                    <Td><Badge tone={r.received ? "success" : "warning"}>{r.received ? "받음" : "입금 예정"}</Badge></Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
+          </TableScroll>
+        </div>
+      ) : (
+        <TableNote>입금 기록이 아직 없습니다. 프로젝트에서 받은 날짜와 금액을 기록할 수 있습니다.</TableNote>
+      )}
+      <Link href={`/neander/finance/projects/${project.id}#revenue`} className="self-start text-nd-table text-nd-accent-strong hover:underline">프로젝트에서 입금 기록 보기</Link>
+    </>
   );
 }
 
@@ -512,14 +602,14 @@ function ProjectDeductionDialog({
       open
       onClose={onCancel}
       closeOnOverlay={false}
-      size="lg"
+      size="xl"
       title={deduction ? `${project.client ?? project.name} — 돌려줄 돈` : "돌려줄 돈"}
       description={
         <>
           <Link href={`/neander/finance/projects/${project.id}#revenue`} className="text-nd-accent-strong hover:underline">
             {project.name}
           </Link>
-          의 「매출 차감」 으로 저장됩니다 — 이익 계산에 그대로 반영됩니다.
+          의 받은 돈과 반환 내역을 확인합니다.
         </>
       }
       footer={
@@ -531,78 +621,88 @@ function ProjectDeductionDialog({
         </>
       }
     >
-      <div className="flex flex-col gap-3">
-        {picker}
-        <div className="grid gap-3 sm:grid-cols-3">
-          <FieldBox label="받은 돈 (청구 총액)">
-            <span className="nd-num flex h-ctl-md items-center text-nd-body text-nd-fg">{won(g.total)}원</span>
-          </FieldBox>
-          <FieldBox label="부가세">
-            <span className="nd-num flex h-ctl-md items-center text-nd-body text-nd-fg-2">{won(g.vat)}원</span>
-          </FieldBox>
-          <FieldBox label="공급가액">
-            <span className="nd-num flex h-ctl-md items-center text-nd-body text-nd-fg-2">{won(g.supply)}원</span>
-          </FieldBox>
-        </div>
-        <Field label="무엇">
-          <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="매출 환급 · 개발비 페이백" />
-        </Field>
-        <FormRow className="grid-cols-1 sm:grid-cols-2">
-          <Field label="우리 몫" hint="공급가액 중 회사에 남길 돈">
-            <NumberInput value={keep || ""} onValueChange={(v) => setKeep(Number(v) || 0)} className="text-right" placeholder="0" />
-          </Field>
-          <Field
-            label="돌려줄 돈"
-            hint={amount !== null && amount !== computed ? `직접 적은 금액 — 계산값은 ${won(computed)}` : "우리 몫을 적으면 계산됩니다"}
-          >
-            <NumberInput
-              value={finalAmount || ""}
-              onValueChange={(v) => setAmount(v === "" ? null : Number(v) || 0)}
-              className="text-right"
-              placeholder="0"
-            />
-          </Field>
-        </FormRow>
-        {taxMode === "none" ? (
-          <CalcLine total={g.total} vat={g.vat} keep={keep} amount={amount ?? computed} />
-        ) : (
-          <InlineNotice tone="info">
-            이 줄은 「{DEDUCTION_TAX_LABEL[taxMode]}」 — 돌려준 돈 안에 부가세가 들어 있어, 우리 몫을 맞추려면 공급가액 몫에 부가세를 더해 돌려줍니다.
-          </InlineNotice>
-        )}
-        {others.length > 0 && (
-          <TableNote>
-            이 프로젝트에 다른 차감 {others.length}건({won(others.reduce((s, d) => s + d.amount, 0))}원)이 더 있습니다 — 우리 몫은 그것까지 뺀 값입니다.
-          </TableNote>
-        )}
-        {finalAmount <= 0 && <InlineNotice tone="danger">우리 몫이 공급가액보다 크거나 같습니다 — 돌려줄 돈이 없습니다.</InlineNotice>}
-        <FormRow className="grid-cols-1 sm:grid-cols-2">
-          <FieldBox label="돌려줄 날" hint="모르면 「10월 말」 처럼 대략으로">
-            <DueInput label="돌려줄 날" value={due} onChange={setDue} />
-          </FieldBox>
-          <Field label="돌려준 날" hint="적으면 「돌려줌」 — 아직이면 비워 두세요">
-            <Input type="date" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} />
-          </Field>
-        </FormRow>
-        {!paidDate && (
-          <Checkbox checked={returned} onChange={(e) => setReturned(e.target.checked)} label="돌려줬다 — 날짜는 모름" />
-        )}
-        <FormRow className="grid-cols-1 sm:grid-cols-3">
-          <Field label="돌려주는 사업체" hint="돈이 나가는 쪽 — 받은 쪽과 다를 수 있다">
-            <Select value={entity ?? ""} onChange={(e) => setEntity((e.target.value || undefined) as ProjectEntity | undefined)}>
-              <option value="">—</option>
-              {PROJECT_ENTITIES.map((e) => (
-                <option key={e} value={e}>{e}</option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="방법">
-            <Input value={method} onChange={(e) => setMethod(e.target.value)} placeholder="현금 · 4223 계좌이체" />
+      <div className="flex flex-col gap-4">
+        <PaybackSection step={1} title="기본정보" description="누구와 어떤 내용으로 정산하는지 적습니다.">
+          {picker}
+          <FormRow className="grid-cols-1 sm:grid-cols-2">
+            <FieldBox label="거래처">
+              <span className="text-nd-body text-nd-fg">{project.client || project.name}</span>
+            </FieldBox>
+            <FieldBox label="프로젝트 코드">
+              <AutoCodeBox code={project.code} tag="프로젝트" />
+            </FieldBox>
+          </FormRow>
+          <Field label="내용">
+            <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="매출 환급 · 개발비 정산" />
           </Field>
           <Field label="메모">
-            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="누구에게 · 왜" />
+            <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="정산할 때 함께 확인할 내용" className="!min-h-0" />
           </Field>
-        </FormRow>
+        </PaybackSection>
+
+        <PaybackSection step={2} title="받은 돈의 기록" description="실제 받은 금액과 앞으로 받을 회차를 구분해서 봅니다.">
+          <ProjectReceiptRecords project={project} />
+        </PaybackSection>
+
+        <PaybackSection step={3} title="나간·나갈 돈의 기록" description="반환할 금액과 예정일, 실제 지급 내역을 적습니다.">
+          <FormRow className="grid-cols-1 sm:grid-cols-2">
+            <Field label="우리 몫" hint="공급가액 중 회사에 남길 돈">
+              <NumberInput value={keep || ""} onValueChange={(v) => setKeep(Number(v) || 0)} className="text-right" placeholder="0" />
+            </Field>
+            <Field
+              label="돌려줄 돈"
+              hint={amount !== null && amount !== computed ? `직접 적은 금액 — 계산값은 ${won(computed)}` : "우리 몫을 적으면 계산됩니다"}
+            >
+              <NumberInput
+                value={finalAmount || ""}
+                onValueChange={(v) => setAmount(v === "" ? null : Number(v) || 0)}
+                className="text-right"
+                placeholder="0"
+              />
+            </Field>
+          </FormRow>
+          {taxMode === "none" ? (
+            <CalcLine total={g.total} vat={g.vat} keep={keep} amount={amount ?? computed} totalLabel="청구 금액" />
+          ) : (
+            <InlineNotice tone="info">
+              이 줄은 「{DEDUCTION_TAX_LABEL[taxMode]}」 — 돌려준 돈 안에 부가세가 들어 있어, 우리 몫을 맞추려면 공급가액 몫에 부가세를 더해 돌려줍니다.
+            </InlineNotice>
+          )}
+          {others.length > 0 && (
+            <TableNote>
+              이 프로젝트에 다른 차감 {others.length}건({won(others.reduce((s, d) => s + d.amount, 0))}원)이 더 있습니다 — 우리 몫은 그것까지 뺀 값입니다.
+            </TableNote>
+          )}
+          {finalAmount <= 0 && <InlineNotice tone="danger">우리 몫이 공급가액보다 크거나 같습니다 — 돌려줄 돈이 없습니다.</InlineNotice>}
+          <FormRow className="grid-cols-1 sm:grid-cols-2">
+            <FieldBox label="나갈 예정일" hint="모르면 「10월 말」처럼 대략으로">
+              <DueInput label="나갈 예정일" value={due} onChange={setDue} />
+            </FieldBox>
+            <Field label="실제로 나간 날" hint="지급했으면 날짜를 적습니다">
+              <Input type="date" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} />
+            </Field>
+          </FormRow>
+          {!paidDate && (
+            <Checkbox checked={returned} onChange={(e) => setReturned(e.target.checked)} label="이미 지급했지만 날짜는 모름" />
+          )}
+          <FormRow className="grid-cols-1 sm:grid-cols-2">
+            <Field label="돈이 나가는 사업체">
+              <Select value={entity ?? ""} onChange={(e) => setEntity((e.target.value || undefined) as ProjectEntity | undefined)}>
+                <option value="">—</option>
+                {PROJECT_ENTITIES.map((e) => (
+                  <option key={e} value={e}>{e}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="출금 통장·방법">
+              <Input value={method} onChange={(e) => setMethod(e.target.value)} placeholder="통장 뒷자리 · 계좌이체 · 현금" />
+            </Field>
+          </FormRow>
+          <div className="flex items-center justify-between gap-3 rounded-nd-md bg-nd-sunken px-3 py-2.5">
+            <span className="text-nd-table text-nd-fg-2">현재 상태</span>
+            <Badge tone={paidDate || returned ? "success" : "warning"}>{paidDate || returned ? "반환 완료" : "반환 예정"}</Badge>
+          </div>
+        </PaybackSection>
       </div>
       {error && (
         <InlineNotice tone="danger" className="mt-3">
@@ -704,9 +804,9 @@ function StandaloneDialog({
       open
       onClose={onCancel}
       closeOnOverlay={false}
-      size="lg"
+      size="xl"
       title={doc ? `${doc.vendor} — 돌려줄 돈` : "돌려줄 돈"}
-      description="받은 돈과 우리 몫을 적으면 돌려줄 돈이 계산됩니다."
+      description="기본정보, 받은 돈, 나간·나갈 돈을 순서대로 기록합니다."
       footer={
         <>
           {doc && (
@@ -721,125 +821,149 @@ function StandaloneDialog({
         </>
       }
     >
-      <div className="flex flex-col gap-3">
-        {picker}
-        <FormRow className="grid-cols-1 sm:grid-cols-2">
-          <Field label="거래처" required>
-            <Input value={form.vendor} onChange={(e) => set("vendor", e.target.value)} placeholder="돌려받을 거래처" autoFocus={!picker} />
-          </Field>
-          <Field label="무엇">
-            <Input value={form.label ?? ""} onChange={(e) => set("label", e.target.value || undefined)} placeholder="무엇을 돌려주나" />
-          </Field>
-        </FormRow>
-        <FormRow className="grid-cols-1 sm:grid-cols-[minmax(0,1fr)_9rem_minmax(0,1fr)_minmax(0,1fr)]">
-          <Field label="받은 돈">
-            <NumberInput value={form.received || ""} onValueChange={(v) => set("received", Number(v) || 0)} className="text-right" placeholder="0" />
-          </Field>
-          <Field label="부가세 기준">
-            <Select value={form.vatMode} onChange={(e) => set("vatMode", e.target.value as VatMode)}>
-              {VAT_MODES.map((m) => (
-                <option key={m} value={m}>{VAT_LABEL[m]}</option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="우리 몫" hint="공급가액 중 회사에 남길 돈">
-            <NumberInput value={form.keep || ""} onValueChange={(v) => set("keep", Number(v) || 0)} className="text-right" placeholder="0" />
-          </Field>
-          <Field label="돌려줄 돈" hint={manual ? `직접 적은 금액 — 계산값은 ${won(calc.amount)}` : "계산값"}>
-            <NumberInput
-              value={amount || ""}
-              onValueChange={(v) => {
-                if (v === "") {
-                  setManual(false);
-                  return;
-                }
-                setManual(true);
-                set("amount", Number(v) || 0);
-              }}
-              className="text-right"
-              placeholder="0"
-            />
-          </Field>
-        </FormRow>
-        <CalcLine total={calc.total} vat={calc.vat} keep={form.keep} amount={amount} />
-        {amount < 0 && <InlineNotice tone="danger">우리 몫이 공급가액보다 큽니다 — 금액을 확인하세요.</InlineNotice>}
+      <div className="flex flex-col gap-4">
+        <PaybackSection step={1} title="기본정보" description="누구와 어떤 내용으로 정산하는지 적습니다.">
+          {picker}
+          <FormRow className="grid-cols-1 sm:grid-cols-2">
+            <Field label="거래처" required>
+              <Input value={form.vendor} onChange={(e) => set("vendor", e.target.value)} placeholder="돌려받을 거래처" autoFocus={!picker} />
+            </Field>
+            <Field label="내용">
+              <Input value={form.label ?? ""} onChange={(e) => set("label", e.target.value || undefined)} placeholder="무엇을 돌려주나" />
+            </Field>
+          </FormRow>
+          <FormRow className="grid-cols-1 sm:grid-cols-[12rem_minmax(0,1fr)]">
+            <FieldBox label="관리 코드" hint={form.projectCode ? "이 기록을 찾는 번호입니다" : "저장할 때 자동으로 정해집니다"}>
+              {form.projectCode ? <AutoCodeBox code={form.projectCode} tag="고정" /> : <AutoCodeBox code={nextCode("payback", taken)} />}
+            </FieldBox>
+            <Field label="메모">
+              <Textarea rows={2} value={form.note ?? ""} onChange={(e) => set("note", e.target.value || undefined)} className="!min-h-0" placeholder="정산할 때 함께 확인할 내용" />
+            </Field>
+          </FormRow>
+        </PaybackSection>
 
-        <FormRow className="grid-cols-1 sm:grid-cols-2">
-          <FieldBox label="돌려줄 날" hint="모르면 「10월 말」 처럼 대략으로">
-            <DueInput
-              label="돌려줄 날"
-              value={{ dueDate: form.dueDate, dueApprox: form.dueApprox }}
-              onChange={(v) => setForm((f) => ({ ...f, dueDate: v.dueDate, dueApprox: v.dueApprox }))}
-            />
-          </FieldBox>
-          <Field label="돌려준 날" hint="적으면 「돌려줌」">
-            <Input type="date" value={form.paidDate ?? ""} onChange={(e) => set("paidDate", e.target.value || undefined)} />
-          </Field>
-        </FormRow>
-        <FormRow className="grid-cols-1 sm:grid-cols-3">
-          <Field label="실제로 돌려준 돈" hint="돌려줄 돈과 다를 때만">
-            <NumberInput
-              value={form.paidAmount ?? ""}
-              onValueChange={(v) => set("paidAmount", v === "" ? undefined : Number(v) || 0)}
-              className="text-right"
-              placeholder={won(amount)}
-            />
-          </Field>
-          <Field label="방법">
-            <Input value={form.method ?? ""} onChange={(e) => set("method", e.target.value || undefined)} placeholder="4223 계좌이체 · 현금" />
-          </Field>
-          <Field label="돈을 받은 사업체">
-            <Select value={form.entity ?? ""} onChange={(e) => set("entity", (e.target.value || undefined) as ProjectEntity | undefined)}>
-              <option value="">—</option>
-              {PROJECT_ENTITIES.map((e) => (
-                <option key={e} value={e}>{e}</option>
-              ))}
-            </Select>
-          </Field>
-        </FormRow>
-        <FormRow className="grid-cols-1 sm:grid-cols-[12rem_minmax(0,1fr)]">
-          <Field label="코드" hint={form.projectCode ? "원장 프로젝트코드 — 바꾸지 않습니다" : "자동 — 만드는 달 + 순번"}>
-            {form.projectCode ? <AutoCodeBox code={form.projectCode} tag="고정" /> : <AutoCodeBox code={nextCode("payback", taken)} />}
-          </Field>
-          <Field label="메모">
-            <Textarea rows={2} value={form.note ?? ""} onChange={(e) => set("note", e.target.value || undefined)} className="!min-h-0" />
-          </Field>
-        </FormRow>
+        <PaybackSection step={2} title="받은 돈의 기록" description="받은 금액과 돈을 받은 사업체를 기록합니다.">
+          <FormRow className="grid-cols-1 sm:grid-cols-3">
+            <Field label="받은 금액">
+              <NumberInput value={form.received || ""} onValueChange={(v) => set("received", Number(v) || 0)} className="text-right" placeholder="0" />
+            </Field>
+            <Field label="부가세 기준">
+              <Select value={form.vatMode} onChange={(e) => set("vatMode", e.target.value as VatMode)}>
+                {VAT_MODES.map((m) => (
+                  <option key={m} value={m}>{VAT_LABEL[m]}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="돈을 받은 사업체">
+              <Select value={form.entity ?? ""} onChange={(e) => set("entity", (e.target.value || undefined) as ProjectEntity | undefined)}>
+                <option value="">—</option>
+                {PROJECT_ENTITIES.map((e) => (
+                  <option key={e} value={e}>{e}</option>
+                ))}
+              </Select>
+            </Field>
+          </FormRow>
+          <div className="flex flex-wrap gap-x-6 gap-y-1 text-nd-table text-nd-fg-2">
+            <span>부가세 <b className="nd-num font-medium text-nd-fg">{won(calc.vat)}원</b></span>
+            <span>공급가액 <b className="nd-num font-medium text-nd-fg">{won(calc.supply)}원</b></span>
+          </div>
+        </PaybackSection>
 
-        {/* 장부에서 돌려준 거래 — 붙이면 돌려준 날 · 돈이 그 거래 것으로 채워진다 */}
-        <div>
-          <h3 className="mb-1.5 text-nd-table font-semibold text-nd-fg">장부의 돌려준 거래</h3>
-          {candidates.length === 0 ? (
-            <p className="text-nd-table text-nd-fg-3">
-              금액이 같거나 거래처 이름이 겹치는 나간 돈이 없습니다. 거래처 · 돌려줄 돈을 적으면 후보가 나옵니다.
-            </p>
-          ) : (
-            <ul className="flex max-h-56 flex-col gap-1 overflow-y-auto rounded-nd-md border border-nd-line p-2">
-              {candidates.map(({ tx, sameAmount, sameVendor }) => {
-                const on = (form.txIds ?? []).includes(tx.id);
-                const n = Math.abs(netAmount(tx));
-                return (
-                  <li key={tx.id}>
-                    <label className="flex cursor-pointer items-center gap-2 rounded-[6px] px-1.5 py-1 text-nd-table hover:bg-nd-fg/[.04]">
-                      <Checkbox checked={on} onChange={(e) => toggleTx(tx.id, tx.date, n, e.target.checked)} />
-                      <span className="nd-num w-[5.5rem] shrink-0 text-nd-fg-2">{tx.date}</span>
-                      <span className="min-w-0 flex-1 truncate" title={[tx.vendor, tx.note].filter(Boolean).join(" · ")}>
-                        {tx.vendor || "—"}
-                        <span className="ml-1.5 text-nd-caption text-nd-fg-3">
-                          {[tx.last4, tx.acctMinor].filter(Boolean).join(" · ")}
+        <PaybackSection step={3} title="나간·나갈 돈의 기록" description="반환할 금액과 예정일, 실제 지급 내역을 적습니다.">
+          <FormRow className="grid-cols-1 sm:grid-cols-2">
+            <Field label="우리 몫" hint="공급가액 중 회사에 남길 돈">
+              <NumberInput value={form.keep || ""} onValueChange={(v) => set("keep", Number(v) || 0)} className="text-right" placeholder="0" />
+            </Field>
+            <Field label="돌려줄 돈" hint={manual ? `직접 적은 금액 — 계산값은 ${won(calc.amount)}` : "계산값"}>
+              <NumberInput
+                value={amount || ""}
+                onValueChange={(v) => {
+                  if (v === "") {
+                    setManual(false);
+                    return;
+                  }
+                  setManual(true);
+                  set("amount", Number(v) || 0);
+                }}
+                className="text-right"
+                placeholder="0"
+              />
+            </Field>
+          </FormRow>
+          <CalcLine total={calc.total} vat={calc.vat} keep={form.keep} amount={amount} />
+          {amount < 0 && <InlineNotice tone="danger">우리 몫이 공급가액보다 큽니다 — 금액을 확인하세요.</InlineNotice>}
+
+          <FormRow className="grid-cols-1 sm:grid-cols-2">
+            <FieldBox label="나갈 예정일" hint="모르면 「10월 말」처럼 대략으로">
+              <DueInput
+                label="나갈 예정일"
+                value={{ dueDate: form.dueDate, dueApprox: form.dueApprox }}
+                onChange={(v) => setForm((f) => ({ ...f, dueDate: v.dueDate, dueApprox: v.dueApprox }))}
+              />
+            </FieldBox>
+            <Field label="실제로 나간 날" hint="지급했으면 날짜를 적습니다">
+              <Input type="date" value={form.paidDate ?? ""} onChange={(e) => set("paidDate", e.target.value || undefined)} />
+            </Field>
+          </FormRow>
+          <FormRow className="grid-cols-1 sm:grid-cols-2">
+            <Field label="실제로 나간 금액" hint="예정 금액과 다를 때만 적습니다">
+              <NumberInput
+                value={form.paidAmount ?? ""}
+                onValueChange={(v) => set("paidAmount", v === "" ? undefined : Number(v) || 0)}
+                className="text-right"
+                placeholder={won(amount)}
+              />
+            </Field>
+            <Field label="출금 통장·방법">
+              <Input value={form.method ?? ""} onChange={(e) => set("method", e.target.value || undefined)} placeholder="통장 뒷자리 · 계좌이체 · 현금" />
+            </Field>
+          </FormRow>
+          <div className="flex items-center justify-between gap-3 rounded-nd-md bg-nd-sunken px-3 py-2.5">
+            <span className="text-nd-table text-nd-fg-2">현재 상태</span>
+            <Badge tone={form.paidDate ? "success" : "warning"}>{form.paidDate ? "반환 완료" : "반환 예정"}</Badge>
+          </div>
+
+          {/* 장부에서 돌려준 거래 — 붙이면 돌려준 날 · 돈이 그 거래 것으로 채워진다 */}
+          <Disclosure
+            title="원장에서 나간 거래 연결"
+            description="거래를 고르면 지급 날짜와 금액을 채웁니다"
+            meta={(form.txIds?.length ?? 0) > 0 ? `${form.txIds!.length}건 연결` : "선택사항"}
+            defaultOpen={(doc?.txIds?.length ?? 0) > 0}
+            className="border border-nd-line"
+            bodyClassName="!p-3"
+          >
+            {candidates.length === 0 ? (
+              <p className="text-nd-table text-nd-fg-3">
+                금액이 같거나 거래처 이름이 겹치는 나간 돈이 없습니다. 거래처 · 돌려줄 돈을 적으면 후보가 나옵니다.
+              </p>
+            ) : (
+              <ul className="flex max-h-56 flex-col gap-1 overflow-y-auto rounded-nd-md border border-nd-line p-2">
+                {candidates.map(({ tx, sameAmount, sameVendor }) => {
+                  const on = (form.txIds ?? []).includes(tx.id);
+                  const n = Math.abs(netAmount(tx));
+                  return (
+                    <li key={tx.id}>
+                      <label className="flex cursor-pointer items-center gap-2 rounded-[6px] px-1.5 py-1 text-nd-table hover:bg-nd-fg/[.04]">
+                        <Checkbox checked={on} onChange={(e) => toggleTx(tx.id, tx.date, n, e.target.checked)} />
+                        <span className="nd-num w-[5.5rem] shrink-0 text-nd-fg-2">{tx.date}</span>
+                        <span className="min-w-0 flex-1 truncate" title={[tx.vendor, tx.note].filter(Boolean).join(" · ")}>
+                          {tx.vendor || "—"}
+                          <span className="ml-1.5 text-nd-caption text-nd-fg-3">
+                            {[tx.last4, tx.acctMinor].filter(Boolean).join(" · ")}
+                          </span>
                         </span>
-                      </span>
-                      <span className="nd-num shrink-0 font-medium">{won(n)}</span>
-                      <span className="hidden w-[6.5rem] shrink-0 text-right text-nd-caption text-nd-fg-3 sm:inline">
-                        {[sameAmount && "금액 같음", sameVendor && "거래처"].filter(Boolean).join(" · ")}
-                      </span>
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
+                        <span className="nd-num shrink-0 font-medium">{won(n)}</span>
+                        <span className="hidden w-[6.5rem] shrink-0 text-right text-nd-caption text-nd-fg-3 sm:inline">
+                          {[sameAmount && "금액 같음", sameVendor && "거래처"].filter(Boolean).join(" · ")}
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Disclosure>
+        </PaybackSection>
       </div>
       {error && (
         <InlineNotice tone="danger" className="mt-3">

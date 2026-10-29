@@ -47,6 +47,7 @@ const ROUTES = [
   "/neander/finance/reports/subscriptions",
   "/neander/finance/reports/budget",
   "/neander/finance/reports/suspense",
+  "/neander/finance/suspense",
   "/neander/finance/projects",
   "/neander/finance/close",
   "/neander/finance/import",
