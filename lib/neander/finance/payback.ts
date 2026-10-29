@@ -20,8 +20,9 @@
 //    · 따로 적은 건 — 계약 없이 생긴 것. neander_fin_paybacks 에 둔다.
 //  화면은 둘을 한 표(PaybackRow)로 합친다.
 //
-//  프로젝트 차감에는 예정일 칸이 없다(FinProjectDeduction 에 dueDate 가 없다).
-//  그래서 프로젝트 행은 「남음」 · 「돌려줌」 만 있고 「늦음」 은 따로 적은 건에만 생긴다.
+//  프로젝트 차감도 돌려줄 날 · 돌려주는 사업체 · 방법을 갖는다(2026-10-29 추가 —
+//  다름다움처럼 와작 · 네안데르로 나눠 받아 네안데르 현금으로 돌려주는 건). 날이 지나도
+//  안 돌려줬으면 따로 적은 건과 똑같이 「늦음」 이다.
 //
 //  openPaybacks 는 아직 돌려주지 않은 돈을 날짜와 함께 내놓는다 — 현금 예측
 //  (runway.ts)이 나갈 돈으로 이을 자리다. 지금은 아무 데서도 부르지 않는다.
@@ -32,6 +33,7 @@ import {
   approxDueDate,
   dueLabel,
   deductionSplit,
+  isDeductionReturned,
   isProjectEntity,
   projectSummary,
   splitVat,
@@ -173,8 +175,9 @@ export const PAYBACK_STATUS_LABEL: Record<PaybackStatus, string> = {
   paid: "돌려줌",
 };
 
-export function paybackStatus(p: { paidDate?: string; dueDate?: string }, today = todayStrKST()): PaybackStatus {
-  if (p.paidDate) return "paid";
+export function paybackStatus(p: { paidDate?: string; dueDate?: string; returned?: boolean }, today = todayStrKST()): PaybackStatus {
+  // returned — 프로젝트 차감의 「돌려줌, 날짜 모름」 (project.ts 의 isDeductionReturned)
+  if (p.paidDate || p.returned) return "paid";
   if (p.dueDate && p.dueDate < today) return "late";
   return "open";
 }
@@ -201,7 +204,10 @@ export interface PaybackRow {
   dueText: string;
   paidDate?: string;
   status: PaybackStatus;
+  /** 따로 적은 건은 돈을 받은 사업체, 프로젝트 차감은 돌려주는 사업체(없으면 받은 사업체들) */
   entity?: string;
+  /** 「현금」 · 「4223 계좌이체」 */
+  method?: string;
   note?: string;
   /** 프로젝트 행 */
   projectId?: string;
@@ -249,11 +255,14 @@ function projectRows(p: FinProjectDoc, today: string): PaybackRow[] {
     supply: g.supply,
     keep: g.keep,
     amount: d.amount,
-    paid: d.paidDate ? d.amount : 0,
-    dueText: "",
+    paid: isDeductionReturned(d) ? d.amount : 0,
+    dueDate: d.dueDate,
+    dueText: dueLabel(d),
     paidDate: d.paidDate,
-    status: paybackStatus({ paidDate: d.paidDate }, today),
-    entity: p.entities?.join(" · "),
+    status: paybackStatus(d, today),
+    // 돌려주는 사업체를 적었으면 그것 — 없으면 받은 사업체들
+    entity: d.entity ?? p.entities?.join(" · "),
+    method: d.method,
     note: d.note,
     projectId: p.id,
     projectName: p.name,
@@ -282,6 +291,7 @@ function standaloneRow(d: FinPaybackDoc, today: string): PaybackRow {
     paidDate: d.paidDate,
     status: paybackStatus(d, today),
     entity: d.entity,
+    method: d.method,
     note: d.note,
     projectCode: d.projectCode,
     doc: d,

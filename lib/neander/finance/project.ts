@@ -286,6 +286,12 @@ export interface FinProjectInstallment {
    * 예전 회차는 날짜만 있고 이 칸이 없다. 판단은 늘 isInstallmentReceived 로.
    */
   received?: boolean;
+  /**
+   * 받는 사업체 — 이 회차의 세금계산서를 끊고 돈이 들어오는 쪽.
+   * 한 계약을 사업체 둘로 나눠 받는 건이 있다(2026 다름다움: 와작 330 · 네안데르 220).
+   * 비우면 프로젝트의 사업체를 따른다.
+   */
+  entity?: ProjectEntity;
   note?: string;
 }
 
@@ -423,10 +429,29 @@ export interface FinProjectDeduction {
   /** 돌려주는 돈 — 통장에서 실제로 나가는 금액. 늘 양수로 둔다 */
   amount: number;
   taxMode: DeductionTaxMode;
+  /**
+   * 돌려주는 사업체 — 돈이 나가는 쪽. 받은 사업체와 다를 수 있다
+   * (다름다움은 와작 · 네안데르로 받아 네안데르 현금으로 돌려줬다)
+   */
+  entity?: ProjectEntity;
+  /** 어떻게 — 「현금」 · 「4223 계좌이체」 */
+  method?: string;
+  /** 돌려주기로 한 날. 대략이면 그 구간의 끝 날 (DUE_PARTS) — 지나도 안 돌려줬으면 「늦음」 */
+  dueDate?: string;
+  dueApprox?: DuePart;
   /** 돌려줬거나 청구액에서 뺀 날. 비어 있으면 아직 돌려줄 돈이다 */
   paidDate?: string;
+  /**
+   * 돌려줬다 (날을 모를 때) — 입금 회차의 received 와 같은 뜻. 날짜가 있으면 이 값과
+   * 상관없이 돌려준 것이다. 판단은 늘 isDeductionReturned 로.
+   */
+  returned?: boolean;
   note?: string;
 }
+
+/** 이 차감을 돌려줬는가 — 돌려준 날이 있거나 「돌려줌」 으로 표시했으면 */
+export const isDeductionReturned = (d: Pick<FinProjectDeduction, "returned" | "paidDate">) =>
+  d.returned === true || Boolean(d.paidDate);
 
 /**
  * 차감 한 줄이 공급가액·부가세에서 얼마씩 빼는가.
@@ -722,7 +747,7 @@ export function projectSummary(
     const split = deductionSplit(d, base);
     deductionSupply += split.supply;
     deductionVat += split.vat;
-    if (d.paidDate) returned += split.total;
+    if (isDeductionReturned(d)) returned += split.total;
     else deductionPending += split.total;
   });
   const deduction = deductionSupply + deductionVat;
@@ -889,13 +914,21 @@ export function sanitizeDeduction(raw: Partial<FinProjectDeduction>): FinProject
   const taxMode = (DEDUCTION_TAX_MODES as readonly string[]).includes(String(raw.taxMode))
     ? (raw.taxMode as DeductionTaxMode)
     : "invoice";
+  const due = dateStr(raw.dueDate);
+  const approx = due && (DUE_PARTS as readonly string[]).includes(String(raw.dueApprox)) ? (raw.dueApprox as DuePart) : undefined;
   return compact({
     id: str(raw.id) ?? shortId(),
     label: String(raw.label ?? "").trim(),
     // 돌려주는 돈은 늘 양수로 둔다 — 「-1,100,000」 으로 적어도 같은 뜻이다
     amount: Math.abs(Math.round(num(raw.amount) ?? 0)),
     taxMode,
+    entity: isProjectEntity(raw.entity) ? raw.entity : undefined,
+    method: str(raw.method)?.slice(0, 80),
+    // 대략이면 그 구간의 끝 날로 — 회차와 같은 규칙
+    dueDate: due && approx ? approxDueDate(due.slice(0, 7), approx) : due,
+    dueApprox: approx,
     paidDate: dateStr(raw.paidDate),
+    returned: raw.returned ? true : undefined,
     note: str(raw.note),
   }) as FinProjectDeduction;
 }
@@ -931,6 +964,7 @@ export function sanitizeInstallment(raw: Partial<FinProjectInstallment>): FinPro
     paidDate: paid && paidApprox ? approxDueDate(paid.slice(0, 7), paidApprox) : paid,
     paidApprox,
     received: raw.received ? true : undefined,
+    entity: isProjectEntity(raw.entity) ? raw.entity : undefined,
     note: str(raw.note),
   }) as FinProjectInstallment;
 }
@@ -1034,8 +1068,10 @@ export function sanitizeProject(
       bizMinor: str(raw.bizMinor),
       // 정해진 넷만, 늘 같은 순서로 — 고른 순서에 따라 「일컴 · 네안데르」와
       // 「네안데르 · 일컴」이 따로 보이면 같은 조합이 두 가지로 읽힌다
+      // 회차에 받는 사업체를 고른 것도 넣는다 — 그 회차의 세금계산서를 그 사업체가 끊었다
       entities: (() => {
         const picked = new Set(Array.isArray(raw.entities) ? raw.entities.filter(isProjectEntity) : []);
+        installments.forEach((i) => i.entity && picked.add(i.entity));
         const list = PROJECT_ENTITIES.filter((e) => picked.has(e));
         return list.length > 0 ? list : undefined;
       })(),

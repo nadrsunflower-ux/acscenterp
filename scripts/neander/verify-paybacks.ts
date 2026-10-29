@@ -16,7 +16,7 @@ import {
   txCandidates,
   type FinPaybackDoc,
 } from "@/lib/neander/finance/payback";
-import type { FinProjectDoc } from "@/lib/neander/finance/project";
+import { projectSummary, sanitizeDeduction, sanitizeProject, type FinProjectDoc } from "@/lib/neander/finance/project";
 import type { FinTransaction } from "@/lib/neander/finance/types";
 
 let failed = 0;
@@ -97,6 +97,42 @@ eq("다음 달 예정", t.nextMonth, 1_000_000);
 eq("날짜 미정 (프로젝트 차감)", t.undated, 12_900_000);
 eq("올해 돌려준 돈", [t.paidThisYear, t.paidThisYearCount], [8_800_000, 1]);
 eq("열린 돈 목록", openPaybacks(rows).map((o) => o.amount), [4_802_000, 1_000_000, 12_900_000]);
+
+// ---- 나눠 받고 한쪽이 돌려주는 건 (2026 다름다움) ----
+// 와작 330 · 네안데르 220 (모두 부가세 포함) → 네안데르 현금 445 반환 → 우리 몫 55
+const split = sanitizeProject({
+  code: "X",
+  name: "다름다움",
+  status: "done",
+  contractAmount: 5_500_000,
+  vatMode: "included",
+  installments: [
+    { id: "i1", kind: "선금", amount: 3_300_000, entity: "와작홈즈", received: true },
+    { id: "i2", kind: "잔금", amount: 2_200_000, entity: "네안데르", paidDate: "2026-10-20" },
+  ],
+  deductions: [
+    { id: "d1", label: "현금 반환", amount: 4_450_000, taxMode: "none", entity: "네안데르", method: " 현금 ", dueDate: "2026-10-05", dueApprox: "mid" },
+  ],
+  lines: [],
+  revenues: [],
+});
+const sp = split.ok ? ({ ...split.value, id: "p9", createdAt: 0 } as FinProjectDoc) : project({});
+eq("회차의 받는 사업체가 프로젝트 사업체로", sp.entities, ["네안데르", "와작홈즈"]);
+eq("회차 사업체는 남는다", sp.installments?.map((i) => i.entity), ["와작홈즈", "네안데르"]);
+eq("차감 — 사업체 · 방법 · 대략 날짜는 구간의 끝 날", [sp.deductions?.[0].entity, sp.deductions?.[0].method, sp.deductions?.[0].dueDate], ["네안데르", "현금", "2026-10-20"]);
+eq("틀린 사업체 글자는 버린다", sanitizeDeduction({ label: "x", amount: 1, taxMode: "none", entity: "없는회사" as never }).entity, undefined);
+eq("우리 몫 55만 = 550 − 50 − 445", projectSummary(sp).revenue, 550_000);
+eq("우리 몫 55만 → 돌려줄 돈 445만", deductionAmountForKeep(sp, 550_000, "d1"), 4_450_000);
+const spRow = paybackRows([], [sp], TODAY)[0];
+eq("프로젝트 차감도 예정일이 지나면 늦음", spRow.status, "late");
+eq("프로젝트 차감 행 — 날짜 글자 · 돌려주는 사업체 · 방법", [spRow.dueDate, spRow.dueText !== "", spRow.entity, spRow.method], ["2026-10-20", true, "네안데르", "현금"]);
+const spPaid = paybackRows([], [{ ...sp, deductions: [{ ...sp.deductions![0], paidDate: "2026-10-21" }] }], TODAY)[0];
+eq("돌려준 날이 있으면 돌려줌", spPaid.status, "paid");
+const spReturned = { ...sp, deductions: [{ ...sp.deductions![0], returned: true }] };
+eq("날짜 없이 「돌려줌」 — 상태 · 돌려준 돈", [paybackRows([], [spReturned], TODAY)[0].status, paybackRows([], [spReturned], TODAY)[0].paid], ["paid", 4_450_000]);
+eq("날짜 없이 「돌려줌」 — 돌려줄 돈 0", [projectSummary(spReturned).deductionPending, projectSummary(spReturned).returned], [0, 4_450_000]);
+eq("「돌려줌」 표시는 저장에 남는다", sanitizeDeduction({ label: "x", amount: 1, taxMode: "none", returned: true }).returned, true);
+eq("돌려주는 사업체가 없으면 받은 사업체들", paybackRows([], [{ ...sp, deductions: [{ ...sp.deductions![0], entity: undefined }] }], TODAY)[0].entity, "네안데르 · 와작홈즈");
 
 // ---- 장부 후보 ----
 const tx = (id: string, over: Partial<FinTransaction>): FinTransaction =>

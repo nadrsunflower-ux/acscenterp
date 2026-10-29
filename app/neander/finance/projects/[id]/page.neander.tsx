@@ -167,6 +167,7 @@ import {
   DEDUCTION_TAX_LABEL,
   DEDUCTION_TAX_HINT,
   deductionSplit,
+  isDeductionReturned,
   type DeductionTaxMode,
   type FinProjectDeduction,
   projectSummary,
@@ -613,6 +614,18 @@ function ProjectDetailEditor({ id }: { id: string }) {
       ...f,
       installments: (f.installments ?? []).map((i) => (i.id === iid ? { ...i, ...patch } : i)),
     }));
+  /** 받는 사업체를 고르면 프로젝트 사업체에도 넣는다 — 서버(sanitizeProject)가 저장할 때와 같은 모양 */
+  const setInstallmentEntity = (iid: string, entity: ProjectEntity | undefined) =>
+    edit((f) => {
+      const picked = new Set(f.entities ?? []);
+      if (entity) picked.add(entity);
+      const entities = PROJECT_ENTITIES.filter((e) => picked.has(e));
+      return {
+        ...f,
+        entities: entities.length > 0 ? entities : undefined,
+        installments: (f.installments ?? []).map((i) => (i.id === iid ? { ...i, entity } : i)),
+      };
+    });
   const removeInstallment = (iid: string) =>
     edit((f) => ({ ...f, installments: (f.installments ?? []).filter((i) => i.id !== iid) }));
   /**
@@ -1536,10 +1549,11 @@ function ProjectDetailEditor({ id }: { id: string }) {
             ) : (
               // 회차는 계속 늘어난다 — 아래로 스크롤해도 어느 열인지 잃지 않게 머리글을 붙인다
               <TableScroll maxHeight={360}>
-                <Table minWidth={1060} dense>
+                <Table minWidth={1170} dense>
                   <thead>
                     <tr>
                       <Th sticky="top" className="w-28 pl-5">구분</Th>
+                      <Th sticky="top" className="w-28" title="이 회차의 세금계산서를 끊고 돈이 들어오는 사업체 — 비우면 프로젝트 사업체">받는 곳</Th>
                       <Th sticky="top" align="right" className="w-32">금액</Th>
                       <Th sticky="top" align="right" className="w-28">청구액</Th>
                       <Th sticky="top" className="w-64">받기로 한 날</Th>
@@ -1564,6 +1578,19 @@ function ProjectDetailEditor({ id }: { id: string }) {
                             >
                               {INSTALLMENT_KINDS.map((k) => (
                                 <option key={k} value={k}>{k}</option>
+                              ))}
+                            </Select>
+                          </Td>
+                          <Td>
+                            <Select
+                              size="sm"
+                              value={i.entity ?? ""}
+                              onChange={(e) => setInstallmentEntity(i.id, (e.target.value || undefined) as ProjectEntity | undefined)}
+                              aria-label="받는 곳"
+                            >
+                              <option value="">—</option>
+                              {PROJECT_ENTITIES.map((e) => (
+                                <option key={e} value={e}>{ENTITY_SHORT[e]}</option>
                               ))}
                             </Select>
                           </Td>
@@ -1760,7 +1787,7 @@ function ProjectDetailEditor({ id }: { id: string }) {
             ) : (
               <>
                 <TableScroll maxHeight={360}>
-                  <Table minWidth={980} dense>
+                  <Table minWidth={1580} dense>
                     <thead>
                       <tr>
                         <Th sticky="top" className="pl-5">항목</Th>
@@ -1768,7 +1795,10 @@ function ProjectDetailEditor({ id }: { id: string }) {
                         <Th sticky="top" className="w-48">세금계산서</Th>
                         <Th sticky="top" align="right" className="w-28">공급가액</Th>
                         <Th sticky="top" align="right" className="w-24">부가세</Th>
-                        <Th sticky="top" className="w-44">돌려준 날</Th>
+                        <Th sticky="top" className="w-28" title="돈이 나가는 사업체 — 받은 사업체와 다를 수 있습니다">돌려주는 곳</Th>
+                        <Th sticky="top" className="w-36">방법</Th>
+                        <Th sticky="top" className="w-64">돌려줄 날</Th>
+                        <Th sticky="top" className="w-64" title="날을 모르면 옆 단추로 「돌려줌」 만 표시">돌려준 날</Th>
                         <Th sticky="top">비고</Th>
                         <Th sticky="top" className="w-12 pr-5" aria-label="동작" />
                       </tr>
@@ -1813,15 +1843,64 @@ function ProjectDetailEditor({ id }: { id: string }) {
                               <Money value={-split.vat} unit={false} flow="expense" />
                             </Td>
                             <Td>
+                              <Select
+                                size="sm"
+                                value={d.entity ?? ""}
+                                onChange={(e) => updateDeduction(d.id, { entity: (e.target.value || undefined) as ProjectEntity | undefined })}
+                                aria-label="돌려주는 곳"
+                              >
+                                <option value="">—</option>
+                                {PROJECT_ENTITIES.map((e) => (
+                                  <option key={e} value={e}>{ENTITY_SHORT[e]}</option>
+                                ))}
+                              </Select>
+                            </Td>
+                            <Td>
                               <Input
                                 size="sm"
-                                type="date"
-                                value={d.paidDate ?? ""}
-                                onChange={(e) => updateDeduction(d.id, { paidDate: e.target.value || undefined })}
-                                className={cn(d.paidDate && "border-nd-success/50 bg-nd-success-soft/40")}
-                                title="돌려줬거나 청구액에서 뺀 날. 비워 두면 아직 돌려줄 돈으로 셉니다"
-                                aria-label="돌려준 날"
+                                value={d.method ?? ""}
+                                onChange={(e) => updateDeduction(d.id, { method: e.target.value || undefined })}
+                                placeholder="현금 · 계좌이체"
+                                list="deduction-methods"
+                                aria-label="방법"
                               />
+                            </Td>
+                            <Td title="지나도 돌려준 날이 비어 있으면 「돌려줄 돈」 화면에서 「늦음」">
+                              <DueInput
+                                label="돌려줄 날"
+                                value={{ dueDate: d.dueDate, dueApprox: d.dueApprox }}
+                                onChange={(v) => updateDeduction(d.id, { dueDate: v.dueDate, dueApprox: v.dueApprox })}
+                              />
+                            </Td>
+                            <Td>
+                              <div className="flex items-center gap-1.5">
+                                <Input
+                                  size="sm"
+                                  type="date"
+                                  value={d.paidDate ?? ""}
+                                  onChange={(e) => updateDeduction(d.id, { paidDate: e.target.value || undefined })}
+                                  className={cn(d.paidDate && "border-nd-success/50 bg-nd-success-soft/40")}
+                                  title="돌려줬거나 청구액에서 뺀 날. 비워 두면 아직 돌려줄 돈으로 셉니다"
+                                  aria-label="돌려준 날"
+                                />
+                                {/* 날을 몰라도 「돌려줌」 — 입금 회차의 「받음」 과 같다. 되돌리면 날짜도 지운다 */}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateDeduction(
+                                      d.id,
+                                      isDeductionReturned(d) ? { returned: undefined, paidDate: undefined } : { returned: true },
+                                    )
+                                  }
+                                  className="shrink-0 rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-nd-accent"
+                                  title={isDeductionReturned(d) ? "눌러서 「남음」 으로 되돌립니다 (돌려준 날도 지웁니다)" : "눌러서 「돌려줌」 으로 — 날짜를 몰라도 됩니다"}
+                                  aria-label={`상태 ${isDeductionReturned(d) ? "돌려줌" : "남음"} — 눌러서 바꾸기`}
+                                >
+                                  <Badge tone={isDeductionReturned(d) ? "success" : "warning"} size="sm" dot className="cursor-pointer">
+                                    {isDeductionReturned(d) ? "돌려줌" : "남음"}
+                                  </Badge>
+                                </button>
+                              </div>
                             </Td>
                             <Td>
                               <Input size="sm" value={d.note ?? ""} onChange={(e) => updateDeduction(d.id, { note: e.target.value || undefined })} placeholder="비고" className="min-w-[8rem]" aria-label="비고" />
@@ -1835,6 +1914,10 @@ function ProjectDetailEditor({ id }: { id: string }) {
                     </tbody>
                   </Table>
                 </TableScroll>
+                <datalist id="deduction-methods">
+                  <option value="현금" />
+                  <option value="계좌이체" />
+                </datalist>
                 <div className="px-5 pb-4 pt-3">
                   <TableNote>
                     「세금계산서 그대로」는 부가세를 처음 끊은 대로 내므로 돌려준 돈 전액이 이익에서 빠집니다.

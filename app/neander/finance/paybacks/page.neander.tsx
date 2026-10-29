@@ -59,7 +59,7 @@ import {
 } from "@/components/neander/ui";
 import { AutoCodeBox } from "@/components/neander/finance/AutoCode";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
-import { DueInput } from "@/components/neander/finance/DueInput";
+import { DueInput, type DueValue } from "@/components/neander/finance/DueInput";
 import { saveFinProject } from "@/lib/neander/finance/client";
 import { nextCode, saveWithAutoCode, takenCodes } from "@/lib/neander/finance/codes";
 import {
@@ -306,7 +306,9 @@ export default function PaybacksPage() {
                           <span className="block max-w-[14rem] truncate font-medium text-nd-fg" title={r.vendor}>
                             {r.vendor}
                           </span>
-                          {r.entity && <span className="text-nd-caption text-nd-fg-3">{r.entity}</span>}
+                          {(r.entity || r.method) && (
+                            <span className="text-nd-caption text-nd-fg-3">{[r.entity, r.method].filter(Boolean).join(" · ")}</span>
+                          )}
                         </Td>
                         <Td className="max-w-[16rem]">
                           <span className="block truncate" title={r.note ? `${r.label} — ${r.note}` : r.label}>
@@ -472,6 +474,10 @@ function ProjectDeductionDialog({
   // 저장된 금액이 계산과 다르면(직접 적은 값) 그 값을 지킨다
   const [amount, setAmount] = useState<number | null>(deduction && deduction.amount !== computed ? deduction.amount : null);
   const [paidDate, setPaidDate] = useState(deduction?.paidDate ?? "");
+  const [returned, setReturned] = useState(Boolean(deduction?.returned));
+  const [due, setDue] = useState<DueValue>({ dueDate: deduction?.dueDate, dueApprox: deduction?.dueApprox });
+  const [method, setMethod] = useState(deduction?.method ?? "");
+  const [entity, setEntity] = useState<ProjectEntity | undefined>(deduction?.entity);
   const [note, setNote] = useState(deduction?.note ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -486,7 +492,12 @@ function ProjectDeductionDialog({
         label: label.trim(),
         amount: Math.abs(Math.round(finalAmount)),
         taxMode,
+        entity,
+        method: method.trim() || undefined,
+        dueDate: due.dueDate,
+        dueApprox: due.dueApprox,
         paidDate: paidDate || undefined,
+        returned: returned && !paidDate ? true : undefined,
         note: note.trim() || undefined,
       });
       await onSaved(`${project.name} — 돌려줄 돈 ${won(finalAmount)}원을 ${deduction ? "고쳤습니다" : "매출 차감으로 넣었습니다"}.`);
@@ -566,11 +577,30 @@ function ProjectDeductionDialog({
         )}
         {finalAmount <= 0 && <InlineNotice tone="danger">우리 몫이 공급가액보다 크거나 같습니다 — 돌려줄 돈이 없습니다.</InlineNotice>}
         <FormRow className="grid-cols-1 sm:grid-cols-2">
+          <FieldBox label="돌려줄 날" hint="모르면 「10월 말」 처럼 대략으로">
+            <DueInput label="돌려줄 날" value={due} onChange={setDue} />
+          </FieldBox>
           <Field label="돌려준 날" hint="적으면 「돌려줌」 — 아직이면 비워 두세요">
             <Input type="date" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} />
           </Field>
+        </FormRow>
+        {!paidDate && (
+          <Checkbox checked={returned} onChange={(e) => setReturned(e.target.checked)} label="돌려줬다 — 날짜는 모름" />
+        )}
+        <FormRow className="grid-cols-1 sm:grid-cols-3">
+          <Field label="돌려주는 사업체" hint="돈이 나가는 쪽 — 받은 쪽과 다를 수 있다">
+            <Select value={entity ?? ""} onChange={(e) => setEntity((e.target.value || undefined) as ProjectEntity | undefined)}>
+              <option value="">—</option>
+              {PROJECT_ENTITIES.map((e) => (
+                <option key={e} value={e}>{e}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="방법">
+            <Input value={method} onChange={(e) => setMethod(e.target.value)} placeholder="현금 · 4223 계좌이체" />
+          </Field>
           <Field label="메모">
-            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="어디서 · 어떻게 돌려줬나" />
+            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="누구에게 · 왜" />
           </Field>
         </FormRow>
       </div>

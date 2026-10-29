@@ -59,6 +59,7 @@ import {
   groupLines,
   installmentStatus,
   installmentStatusText,
+  isDeductionReturned,
   isReceived,
   laborCost,
   laborTotal,
@@ -535,7 +536,8 @@ export default function ProjectReportPage() {
           rows: (p.installments ?? []).map((i) => {
             const st = installmentStatus(i);
             return [
-              i.kind,
+              // 사업체 둘로 나눠 받은 건은 회차마다 받는 곳이 다르다
+              i.entity ? `${i.kind} · ${ENTITY_SHORT[i.entity]}` : i.kind,
               won(i.amount),
               won(splitVat(i.amount, base).total),
               dueLabel(i) || "—",
@@ -578,8 +580,8 @@ export default function ProjectReportPage() {
               won(d.amount),
               won(deductionSplit(d, base).supply),
               DEDUCTION_TAX_LABEL[d.taxMode],
-              d.paidDate ?? "아직",
-              d.note ?? "",
+              d.paidDate ?? (isDeductionReturned(d) ? "돌려줌" : d.dueDate ? `아직 · ${dueLabel(d)}까지` : "아직"),
+              [d.entity && ENTITY_SHORT[d.entity], d.method, d.note].filter(Boolean).join(" · "),
             ]),
           }),
         ]

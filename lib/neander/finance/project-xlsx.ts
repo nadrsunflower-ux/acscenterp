@@ -16,7 +16,9 @@ import {
   PROJECT_STATUS_LABEL,
   VAT_LABEL,
   DEDUCTION_TAX_LABEL,
+  ENTITY_SHORT,
   installmentStatusText,
+  isDeductionReturned,
   isReceived,
   dueLabel,
   paidLabel,
@@ -93,7 +95,7 @@ export function exportProjectXlsx(p: FinProjectDoc, transactions: FinTransaction
     ["입금 일정", "금액", "받기로 한 날", "입금일", "상태"],
     ...(p.installments ?? []).map(
       (i) =>
-        [i.kind, i.amount, dueLabel(i), paidLabel(i), installmentStatusText(i)] as (
+        [i.entity ? `${i.kind} · ${ENTITY_SHORT[i.entity]}` : i.kind, i.amount, dueLabel(i), paidLabel(i), installmentStatusText(i)] as (
           | string
           | number
         )[],
@@ -107,7 +109,13 @@ export function exportProjectXlsx(p: FinProjectDoc, transactions: FinTransaction
     ),
     ...(p.deductions ?? []).map(
       (d) =>
-        [`차감 · ${d.label}`, -d.amount, "", d.paidDate ?? "", d.paidDate ? "돌려줌" : "돌려줄 돈"] as (
+        [
+          [`차감 · ${d.label}`, d.entity && ENTITY_SHORT[d.entity], d.method].filter(Boolean).join(" · "),
+          -d.amount,
+          dueLabel(d),
+          d.paidDate ?? "",
+          isDeductionReturned(d) ? "돌려줌" : "돌려줄 돈",
+        ] as (
           | string
           | number
         )[],
