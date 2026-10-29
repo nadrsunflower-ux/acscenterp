@@ -112,6 +112,11 @@ export const NEANDER_COL = {
   finGrants: "neander_fin_grants",
   /** 돌려줄 돈 — 프로젝트에 묶이지 않은 환급 · 페이백 (finance/payback.ts). 서버(api/neander/finance/paybacks)만 접근한다 */
   finPaybacks: "neander_fin_paybacks",
+  /**
+   * 급여·세무 서류 — 세무사가 보낸 급여대장 · 명세서 · 신고서 · 납부서 PDF (finance/tax-docs.ts).
+   * 파일은 parts/{n} 768KB 조각, 읽은 숫자는 문서 안에. 서버(api/neander/finance/tax-docs)만 접근한다
+   */
+  finTaxDocs: "neander_fin_tax_docs",
   // ---- 매출 단위경제 (/neander/sales) ----
   //  재무와 같은 이유로 서버(Admin SDK)를 거친다 — 보안 규칙을 게시할
   //  권한이 없어서 새 컬렉션은 클라이언트에서 직접 붙을 수 없다.

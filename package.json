@@ -51,6 +51,8 @@
     "finance:verify-focus": "tsx --conditions react-server scripts/neander/verify-assistant-focus.ts",
     "finance:verify-slots": "tsx scripts/neander/verify-import-slots.ts",
     "finance:backfill-slot-account": "tsx scripts/neander/backfill-slot-account.ts",
+    "finance:import-tax-docs": "tsx --conditions react-server scripts/neander/import-tax-docs.ts",
+    "finance:verify-tax-docs": "tsx scripts/neander/verify-tax-docs.ts",
     "ui:login": "node e2e/login.mjs",
     "ui:capture": "node e2e/capture.mjs",
     "ui:verify-parts": "tsx --tsconfig tsconfig.render.json scripts/neander/verify-ui-parts.tsx",

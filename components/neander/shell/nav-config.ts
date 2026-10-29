@@ -102,6 +102,7 @@ export const GLOBAL_NAV: NavGroup[] = [
  *   데이터    : 엑셀 임포트 → 검토 대기함 → 월 마감        (이 달에 하는 일)
  *   재무      : 대시보드 · 거래 원장 · 카드 기록            (그래서 나온 결과)
  *   사업 관리 : 프로젝트 · 지원금 · 돌려줄 돈               (건마다 챙기는 돈)
+ *   분석 및 관리 : 리포트 · 급여 · 세무 서류                 (장부를 맞춰 보는 것)
  *
  * 사업 관리는 원장을 건별로 묶어 보는 화면들이다 — 받을 돈 · 쓴 돈 · 돌려줄 돈을
  * 계약 · 지원사업 단위로 쫓는다. 매일 들여다보는 화면이라 재무 바로 아래에 둔다.
@@ -127,6 +128,8 @@ export const FINANCE_NAV: NavGroup[] = [
     label: "분석 및 관리",
     items: [
       { href: "/neander/finance/reports", label: "리포트", icon: ChartColumn },
+      // 세무사가 보낸 급여대장 · 명세서 · 신고서 — 장부를 만드는 데이터가 아니라 맞춰 보는 서류라 여기
+      { href: "/neander/finance/tax-docs", label: "급여 · 세무 서류", icon: FileText },
     ],
   },
   {
