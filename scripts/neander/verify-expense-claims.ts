@@ -112,6 +112,67 @@ async function main() {
     assert.equal(expenseClaimSummary(first.claim, txs(db)).total, 200);
     assert(txs(db).every((t) => !t.last4 && !t.importBatchId && t.personalUse === false));
   });
+  await check("identical rows selected from the same file in separate requests are both registered once", async () => {
+    const db = fixture();
+    assert.equal((await importExpenseClaim(asDb(db), by, input([row(4)]))).inserted, 1);
+    assert.equal((await importExpenseClaim(asDb(db), by, input([row(5)]))).inserted, 1);
+    const repeated = await importExpenseClaim(asDb(db), by, input([row(4), row(5)]));
+    assert.deepEqual([repeated.inserted, repeated.skipped], [0, 2]);
+    assert.equal(txs(db).length, 2);
+  });
+  await check("151 identical source rows can be selected in batches of 150 and 1 without losing a payment", async () => {
+    const db = fixture();
+    assert.equal((await importExpenseClaim(asDb(db), by, input(Array.from({ length: 150 }, (_, i) => row(i + 1))))).inserted, 150);
+    assert.equal((await importExpenseClaim(asDb(db), by, input([row(151)]))).inserted, 1);
+    assert.equal((await importExpenseClaim(asDb(db), by, input([row(151)]))).inserted, 0);
+    assert.equal(txs(db).length, 151); assert(db.maxWrites <= 500);
+  });
+  await check("cross-file skipped selections reserve their original payments for later subsets of the same file", async () => {
+    const db = fixture();
+    await importExpenseClaim(asDb(db), by, input([row(4)]));
+    const sourceB = { ...input([row(4)]), fileHash: "b".repeat(64) };
+    const skipped = await importExpenseClaim(asDb(db), by, sourceB);
+    assert.equal(skipped.inserted, 0); assert.equal(db.rows(C.finExpenseClaims).length, 1);
+    assert.equal((await importExpenseClaim(asDb(db), by, { ...sourceB, rows: [row(5)] })).inserted, 1);
+    const repeated = await importExpenseClaim(asDb(db), by, { ...sourceB, rows: [row(4), row(5)] });
+    assert.deepEqual([repeated.inserted, repeated.skipped], [0, 2]);
+    assert.equal(txs(db).length, 2);
+    const sourceC = { ...sourceB, fileHash: "c".repeat(64), rows: [row(4), row(5), row(6)] };
+    assert.equal((await importExpenseClaim(asDb(db), by, sourceC)).inserted, 1);
+    assert.equal((await importExpenseClaim(asDb(db), by, { ...sourceC, rows: [row(7)] })).inserted, 1);
+    assert.equal((await importExpenseClaim(asDb(db), by, sourceC)).inserted, 0);
+    assert.equal(txs(db).length, 4);
+  });
+  await check("deleted or cancelled source costs do not permanently suppress a previously skipped file row", async () => {
+    const db = fixture();
+    const first = await importExpenseClaim(asDb(db), by, input([row(4)]));
+    const sourceB = { ...input([row(4), row(5)]), fileHash: "b".repeat(64) };
+    assert.equal((await importExpenseClaim(asDb(db), by, sourceB)).inserted, 1);
+    await cancelExpenseClaim(asDb(db), by, first.claim.id);
+    assert.equal((await importExpenseClaim(asDb(db), by, { ...sourceB, rows: [row(4)] })).inserted, 1);
+    assert.equal(txs(db).length, 2);
+    const deleted = txs(db).find((item) => item.expenseClaim?.rowNo === 4)!;
+    db.data.delete(`${C.finTransactions}/${deleted.id}`);
+    assert.equal((await importExpenseClaim(asDb(db), by, { ...sourceB, rows: [row(4)] })).inserted, 1);
+    assert.equal(txs(db).length, 2);
+  });
+  await check("cancelling one borrowed source preserves the same file's reservation of another claim's live identical cost", async () => {
+    const db = fixture();
+    const first = await importExpenseClaim(asDb(db), by, input([row(4)]));
+    const second = await importExpenseClaim(asDb(db), by, { ...input([row(4), row(5)]), fileHash: "d".repeat(64) });
+    assert.equal(second.inserted, 1);
+    const sourceB = { ...input([row(4), row(5)]), fileHash: "b".repeat(64) };
+    assert.equal((await importExpenseClaim(asDb(db), by, sourceB)).inserted, 0);
+    for (const owner of db.rows(C.finExpenseClaims)) {
+      assert(owner.sourceSelections.every((selection: Data) => selection.sourceClaimId === owner.id));
+    }
+    await cancelExpenseClaim(asDb(db), by, first.claim.id);
+    const restored = await importExpenseClaim(asDb(db), by, { ...sourceB, rows: [row(4)] });
+    assert.equal(restored.inserted, 1);
+    assert.equal((await importExpenseClaim(asDb(db), by, { ...sourceB, rows: [row(5)] })).inserted, 0);
+    assert.equal((await importExpenseClaim(asDb(db), by, sourceB)).inserted, 0);
+    assert.equal(txs(db).length, 2); assert(db.maxWrites <= 451);
+  });
   await check("concurrent imports are serialized and never duplicate costs", async () => {
     const db = fixture();
     const result = await Promise.all([importExpenseClaim(asDb(db), by, input()), importExpenseClaim(asDb(db), by, input())]);

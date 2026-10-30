@@ -7,7 +7,6 @@ import type { FinAccountDoc, FinPaymentMethodDoc } from "../db-types";
 import {
   MAX_EXPENSE_CLAIM_ROWS,
   expenseClaimDedupHash,
-  expenseClaimSourceCounts,
   expenseClaimSummary,
   expensePayerKey,
   expensePaymentKey,
@@ -15,6 +14,7 @@ import {
   type ExpenseClaimDoc,
   type ExpenseClaimImportInput,
   type ExpenseClaimRow,
+  type ExpenseClaimSourceSelection,
 } from "../expense-claims";
 import { trimTransaction } from "../payload";
 import { BIZ_MAJORS } from "../sheet";
@@ -137,26 +137,82 @@ export async function importExpenseClaim(db: Firestore, by: string, raw: Expense
       assert(!row.projectCode || projectCodes.has(row.projectCode.toLowerCase()), `${row.rowNo}행: 존재하지 않는 프로젝트 코드입니다.`);
     });
     const existingTx = existing.docs.map((doc) => asTx(doc.id, doc.data()));
-    const counts = expenseClaimSourceCounts(existingTx);
-    const seen = new Map<string, number>();
+    const claimDocs = knownClaims.docs.map((doc) => asClaim(doc.id, doc.data()));
+    // 같은 파일을 일부씩 선택해도 각 원본 행은 한 결제만 차지한다. 분류·금액
+    // 수정이나 나누기 뒤에도 꼬리표와 원본 hash로 살아 있는 결제를 찾는다.
+    const sourceKey = (claimId: string, rowNo: number) => `${claimId}:${rowNo}`;
+    const selectionKey = (rowNo: number, hash: string) => JSON.stringify([rowNo, hash]);
+    const sources = new Map<string, { claimId: string; rowNo: number; hash: string }>();
+    existingTx.forEach((item) => {
+      if (!item.expenseClaim || !item.dedupHash) return;
+      const { claimId, rowNo } = item.expenseClaim;
+      sources.set(sourceKey(claimId, rowNo), { claimId, rowNo, hash: item.dedupHash.replace(/(?:#split\d+)+$/, "") });
+    });
+    const selectedBefore = new Map<string, ExpenseClaimSourceSelection>();
+    const remember = (selection: ExpenseClaimSourceSelection) => {
+      if (selection.fileHash !== input.fileHash) return;
+      const source = sources.get(sourceKey(selection.sourceClaimId, selection.sourceRowNo));
+      // 삭제되거나 등록 취소된 원본 결제는 다음 적재에서 다시 등록할 수 있다.
+      if (source?.hash === selection.hash) selectedBefore.set(selectionKey(selection.rowNo, selection.hash), selection);
+    };
+    claimDocs.forEach((claim) => {
+      (claim.sourceSelections ?? []).forEach(remember);
+      if (claim.fileHash === input.fileHash) sources.forEach((source) => {
+        if (source.claimId === claim.id) remember({ fileHash: input.fileHash, rowNo: source.rowNo, hash: source.hash,
+          sourceClaimId: source.claimId, sourceRowNo: source.rowNo });
+      });
+    });
+    // 이미 처리한 이 파일의 행은 지금 선택하지 않아도 기존 결제 한 건을
+    // 사용한다. 다른 파일은 남은 결제 개수만큼 중복으로 처리한다.
+    const reserved = new Set([...selectedBefore.values()].map((selection) => sourceKey(selection.sourceClaimId, selection.sourceRowNo)));
+    const selections: ExpenseClaimSourceSelection[] = [];
     const pending: { hash: string; row: ExpenseClaimRow }[] = [];
     let skippedClaimId: string | undefined;
     input.rows.forEach((row) => {
       const label = row.paymentLabel ?? input.paymentLabel;
       const hash = expenseClaimDedupHash(payerKey, label, row);
-      const occurrence = (seen.get(hash) ?? 0) + 1;
-      seen.set(hash, occurrence);
-      if (occurrence <= (counts.get(hash) ?? 0)) {
-        skippedClaimId ??= existingTx.find((item) => item.dedupHash.replace(/(?:#split\d+)+$/, "") === hash)?.expenseClaim?.claimId;
-      } else pending.push({ hash, row });
+      const previous = selectedBefore.get(selectionKey(row.rowNo, hash));
+      if (previous) { skippedClaimId ??= previous.sourceClaimId; return; }
+      const match = [...sources.values()].find((source) => source.hash === hash && !reserved.has(sourceKey(source.claimId, source.rowNo)));
+      if (match) {
+        skippedClaimId ??= match.claimId;
+        reserved.add(sourceKey(match.claimId, match.rowNo));
+        selections.push({ fileHash: input.fileHash, rowNo: row.rowNo, hash, sourceClaimId: match.claimId, sourceRowNo: match.rowNo });
+      } else {
+        pending.push({ hash, row });
+        selections.push({ fileHash: input.fileHash, rowNo: row.rowNo, hash, sourceClaimId: ref.id, sourceRowNo: row.rowNo });
+      }
+    });
+    // 빌려 쓴 원본 결제의 소유 기록에 출처를 남긴다. 다른 기록을 취소해도
+    // 아직 살아 있는 결제에 연결된 파일·행 정보는 함께 사라지지 않는다.
+    const selectionsByOwner = new Map<string, ExpenseClaimSourceSelection[]>();
+    selections.forEach((selection) => {
+      const ownerSelections = selectionsByOwner.get(selection.sourceClaimId) ?? [];
+      ownerSelections.push(selection);
+      selectionsByOwner.set(selection.sourceClaimId, ownerSelections);
+    });
+    const updatedOwners = new Map<string, ExpenseClaimDoc>();
+    selectionsByOwner.forEach((ownerSelections, ownerId) => {
+      if (ownerId === ref.id) return;
+      const owner = claimDocs.find((claim) => claim.id === ownerId);
+      assert(owner, "이미 등록된 비용의 출처 기록을 찾지 못했습니다. 원장에서 확인해 주세요.", 409);
+      updatedOwners.set(ownerId, { ...owner, sourceSelections: [...(owner.sourceSelections ?? []), ...ownerSelections], updatedAt: now, updatedBy: by });
+    });
+    const saveSourceSelections = () => updatedOwners.forEach((owner) => {
+      tx.update(claims(db).doc(owner.id), { sourceSelections: owner.sourceSelections, updatedAt: now, updatedBy: by });
     });
     if (pending.length === 0) {
-      const previous = knownClaims.docs.find((doc) => doc.id === skippedClaimId);
+      const previous = claimDocs.find((claim) => claim.id === skippedClaimId);
       assert(previous, "이미 등록된 비용의 출처 기록을 찾지 못했습니다. 원장에서 확인해 주세요.", 409);
-      return { claim: asClaim(previous.id, previous.data()), transactions: [] as Record<string, unknown>[], inserted: 0, skipped: input.rows.length };
+      if (selections.length) {
+        saveSourceSelections();
+        lockRefs.forEach((lock) => tx.set(lock, { payerKey, updatedAt: now, updatedBy: by }));
+        return { claim: updatedOwners.get(previous.id) ?? previous, transactions: [] as Record<string, unknown>[], inserted: 0, skipped: input.rows.length };
+      }
+      return { claim: previous, transactions: [] as Record<string, unknown>[], inserted: 0, skipped: input.rows.length };
     }
     const claim = clean({ payer: input.payer, payerKey, site: input.site, paymentLabel: input.paymentLabel,
-      fileName: input.fileName, fileHash: input.fileHash, createdAt: now, createdBy: by, updatedAt: now, updatedBy: by });
+      fileName: input.fileName, fileHash: input.fileHash, sourceSelections: selectionsByOwner.get(ref.id) ?? [], createdAt: now, createdBy: by, updatedAt: now, updatedBy: by });
     const added: Record<string, unknown>[] = [];
     pending.forEach(({ hash, row }) => {
       const costRef = transactions(db).doc();
@@ -175,6 +231,7 @@ export async function importExpenseClaim(db: Firestore, by: string, raw: Expense
       added.push(trimTransaction({ ...data, id: costRef.id }));
     });
     tx.create(ref, claim);
+    saveSourceSelections();
     lockRefs.forEach((lock) => tx.set(lock, { payerKey, updatedAt: now, updatedBy: by }));
     return { claim: asClaim(ref.id, claim), transactions: added, inserted: pending.length, skipped: input.rows.length - pending.length };
   });

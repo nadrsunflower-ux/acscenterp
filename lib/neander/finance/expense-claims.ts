@@ -32,6 +32,16 @@ export interface ExpenseClaimDoc {
   createdBy?: string;
   updatedAt?: number;
   updatedBy?: string;
+  /** 선택해서 처리한 원본 행. 다른 명세서와 겹쳐 건너뛴 행도 같은 결제로 다시 판별한다. */
+  sourceSelections?: ExpenseClaimSourceSelection[];
+}
+
+export interface ExpenseClaimSourceSelection {
+  fileHash: string;
+  rowNo: number;
+  hash: string;
+  sourceClaimId: string;
+  sourceRowNo: number;
 }
 
 export interface ExpenseClaimImportInput {
