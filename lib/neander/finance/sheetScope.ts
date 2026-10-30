@@ -1,14 +1,13 @@
 // ============================================================
 //  원장 탭 — 결제수단 종류로 나눠 보기
 // ------------------------------------------------------------
-//  「전체 · 계좌 · 법인카드 · 현금」. 열 필터와 다른 축이라 필터가 아니라
+//  「전체 · 계좌 · 법인카드 · 개인경비 · 현금」. 열 필터와 다른 축이라 필터가 아니라
 //  **보기(view)** 로 둔다 — 열 필터로 만들면 계좌 12개의 뒷 4자리가
 //  필터 칩에 줄줄이 늘어서고, 사용자가 직접 건 계좌 필터와 섞여 버린다.
 //
 //  구분은 결제수단 마스터의 `kind` 다. 별칭의 (신법)·(국법) 은 신한법인·
-//  국민법인이고 뒤의 이름은 소지자다 — 개인 카드가 아니다. 그래서 카드
-//  14장이 곧 법인카드다. 개인 명의 카드(대납)가 생기면 personal 로
-//  갈라지므로 그때 탭을 하나 더 두면 된다.
+//  국민법인이고 뒤의 이름은 소지자다 — 개인 카드가 아니다.
+//  개인 명의 카드와 개인이 먼저 결제한 경비는 개인경비 탭에서 본다.
 //
 //  ⚠️ 탭은 **빠짐없이 나뉘어야 한다.** 계좌/카드만 두면 현금 52건과
 //     마스터에 없는 결제수단이 어느 탭에도 안 보이면서 「전체」 건수와만
@@ -19,7 +18,7 @@
 import type { FinTransaction } from "./types";
 import type { FinPaymentMethodDoc } from "./db-types";
 
-export type ScopeKey = "all" | "account" | "card" | "cash" | "unknown";
+export type ScopeKey = "all" | "account" | "card" | "employee" | "cash" | "unknown";
 
 export interface ScopeTab {
   key: ScopeKey;
@@ -31,6 +30,7 @@ export const SCOPE_TABS: ScopeTab[] = [
   { key: "all", label: "전체", hint: "모든 결제수단" },
   { key: "account", label: "계좌", hint: "법인 통장 — 결제 시점이 곧 출금 시점" },
   { key: "card", label: "법인카드", hint: "사용 시점과 카드대금 출금 시점이 다르다" },
+  { key: "employee", label: "개인경비", hint: "임직원이 먼저 결제한 회사 비용" },
   { key: "cash", label: "현금", hint: "사무실 현금" },
   { key: "unknown", label: "미지정", hint: "결제수단 마스터에 없거나 비어 있는 거래" },
 ];
@@ -44,9 +44,10 @@ export function scopeOf(
   t: FinTransaction,
   index: Map<string, FinPaymentMethodDoc>,
 ): Exclude<ScopeKey, "all"> {
+  if (t.expenseClaim) return "employee";
   const pm = t.last4 ? index.get(t.last4) : undefined;
   if (!pm) return "unknown";
-  return pm.kind === "card" ? "card" : pm.kind === "cash" ? "cash" : "account";
+  return pm.kind === "card" ? (pm.personal ? "employee" : "card") : pm.kind === "cash" ? "cash" : "account";
 }
 
 export const inScope = (
@@ -60,7 +61,7 @@ export function scopeCounts(
   rows: FinTransaction[],
   index: Map<string, FinPaymentMethodDoc>,
 ): Record<ScopeKey, number> {
-  const out: Record<ScopeKey, number> = { all: rows.length, account: 0, card: 0, cash: 0, unknown: 0 };
+  const out: Record<ScopeKey, number> = { all: rows.length, account: 0, card: 0, employee: 0, cash: 0, unknown: 0 };
   rows.forEach((t) => {
     out[scopeOf(t, index)] += 1;
   });

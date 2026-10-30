@@ -31,6 +31,7 @@ import {
 import { AccountPicker } from "./AccountPicker";
 import { TxLogSection } from "./TxLogSection";
 import { useFinance } from "./FinanceProvider";
+import { expenseClaimPaymentLabel } from "@/lib/neander/finance/sheet";
 import type {
   FinAccountDoc,
   FinPaymentMethodDoc,
@@ -112,13 +113,13 @@ export function TransactionEditor({
         refundMatchId: form.refundMatchId || undefined,
         status: status ?? form.status,
         // 날짜·계좌·거래처·금액이 바뀌면 중복 키도 다시 계산해야 한다
-        dedupHash: dedupHashOf({
+        ...(!form.expenseClaim ? { dedupHash: dedupHashOf({
           date: form.date,
           last4: form.last4,
           vendor: form.vendor,
           gross: Number(form.gross) || 0,
           txType: form.txType,
-        }),
+        }) } : {}),
       });
       onClose();
     } finally {
@@ -195,12 +196,13 @@ export function TransactionEditor({
               }));
             }}
           >
-            {TX_TYPES.map((t) => (
+            {(form.expenseClaim ? ["지출", "환급"] as const : TX_TYPES).map((t) => (
               <option key={t} value={t}>{t}</option>
             ))}
           </Select>
         </Field>
-        <Field label="계좌/카번" hint={pm ? `${pm.alias} · ${pm.site}` : "뒷 4자리"}>
+        <Field label={form.expenseClaim ? "개인경비 결제 출처" : "계좌/카번"} hint={form.expenseClaim ? "회사 업무 비용 · 대납자와 원본 결제수단" : pm ? `${pm.alias} · ${pm.site}` : "뒷 4자리"}>
+          {form.expenseClaim ? <Input readOnly value={expenseClaimPaymentLabel(form)} /> : (
           <Select
             value={form.last4 ?? ""}
             onChange={(e) => set("last4", e.target.value || undefined)}
@@ -212,6 +214,7 @@ export function TransactionEditor({
               </option>
             ))}
           </Select>
+          )}
         </Field>
         <Field label="사업장">
           <Input

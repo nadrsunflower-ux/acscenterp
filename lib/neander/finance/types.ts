@@ -45,6 +45,22 @@ export const STATUS_COLOR: Record<ClassificationStatus, string> = {
   needs_review: "#e11d48",
 };
 
+/** 개인이 먼저 결제한 회사 비용. 카드번호나 프로젝트 없이도 원장에 기록한다. */
+export interface ExpenseClaimSource {
+  claimId: string;
+  payer: string;
+  payerKey: string;
+  paymentLabel?: string;
+  fileName: string;
+  rowNo: number;
+}
+
+/** 실제 은행 출금 전체를 한 대납 건의 상환으로 연결한다. */
+export interface ExpenseReimbursement {
+  claimId: string;
+  payer: string;
+}
+
 /** 거래 1건 */
 export interface FinTransaction {
   id: string;
@@ -83,6 +99,10 @@ export interface FinTransaction {
   site?: string;
   /** 임직원 개인 사용분 */
   personalUse?: boolean;
+  /** 임직원 대납 비용의 출처. personalUse(사적 소비)와 별개다. */
+  expenseClaim?: ExpenseClaimSource;
+  /** 대납 상환으로 확인한 은행 자금거래. 손익에서 제외하고 현금흐름에만 넣는다. */
+  expenseReimbursement?: ExpenseReimbursement;
   projectCode?: string;
   /** 비고 (자유 메모) */
   note?: string;

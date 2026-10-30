@@ -64,6 +64,7 @@ import {
   isNewRow,
   normalizeDateInput,
   parseAmountInput,
+  expenseClaimPaymentLabel,
   type RowIssue,
   type SortKey,
   type SortSpec,
@@ -329,15 +330,15 @@ export function LedgerSheet({
             v === t.txType
               ? t
               : { ...t, txType: v as TxType, acctMajor: undefined, acctMid: undefined, acctMinor: undefined },
-          options: () => asOptions([...TX_TYPES]),
+          options: (t) => asOptions(t.expenseClaim ? ["지출", "환급"] : [...TX_TYPES]),
         }),
         ...size("txType"),
       },
       {
         ...createSelectColumn<FinTransaction>({
-          get: (t) => t.last4 ?? "",
-          set: (t, v) => ({ ...t, last4: or(v) }),
-          options: () => pmOptions,
+          get: (t) => expenseClaimPaymentLabel(t) || t.last4 || "",
+          set: (t, v) => t.expenseClaim ? t : ({ ...t, last4: or(v) }),
+          options: (t) => t.expenseClaim ? [{ value: expenseClaimPaymentLabel(t) || "개인경비", label: expenseClaimPaymentLabel(t) || "개인경비" }] : pmOptions,
           placeholder: "(없음)",
         }),
         ...size("last4"),

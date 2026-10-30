@@ -38,7 +38,7 @@ export const BASIS_LABEL: Record<Basis, string> = {
 
 export const BASIS_HINT: Record<Basis, string> = {
   accrual: "카드사용내역 포함 · 카드대금결제 제외 — 비용이 발생한 시점",
-  cash: "카드대금결제 포함 · 카드사용내역 제외 — 통장에서 돈이 나간 시점",
+  cash: "카드대금·대납 상환 포함 · 카드사용·개인 선결제 제외 — 회사에서 돈이 나간 시점",
 };
 
 /** 계정이 비어 있을 때의 표기 (aggregate.ts 의 UNSET 과 같은 뜻) */
@@ -68,18 +68,34 @@ export const legacyPaymentMethods = (paymentMethods: FinPaymentMethodDoc[]) =>
 // ---- 기준 필터 ------------------------------------------------
 
 /**
+ * 대납 상환으로 연결한 실제 통장 출금. 일반 가수금 지급과 구분한다.
+ * 연결 API가 통장 종류와 지급자를 확인하며, 여기서는 태그만 남은 잘못된
+ * 분류를 현금 지출로 세지 않도록 계정과 금액도 함께 확인한다.
+ */
+export function isExpenseClaimReimbursement(t: FinTransaction): boolean {
+  const reimbursement = t.expenseReimbursement;
+  return typeof reimbursement?.claimId === "string" && !!reimbursement.claimId.trim() &&
+    typeof reimbursement.payer === "string" && !!reimbursement.payer.trim() &&
+    !t.expenseClaim && !t.personalUse && /^\d{4}$/.test(t.last4 ?? "") &&
+    t.txType === "자금거래" && t.acctMajor === "가수금" &&
+    t.acctMid === "가수금관리" && t.acctMinor === "가수금지급" &&
+    Number.isFinite(t.gross) && Number.isFinite(t.adjust) && netAmount(t) > 0;
+}
+
+/**
  * 이 거래를 이 기준의 집계에 넣는가.
  *
- * 자금거래(계좌간 이동·예수금 등)는 어느 기준에서도 제외한다 — 손익이
- * 아니고 엑셀 지출상세 시트에도 그 계정 섹션이 없다.
+ * 자금거래는 손익에서 제외한다. 확인한 대납 상환만 현금 기준에 넣으며,
+ * 개인이 먼저 낸 원가와 환급은 회사 통장에서 오간 돈이 아니므로 뺀다.
  */
 export function inBasis(
   t: FinTransaction,
   basis: Basis,
   isCard: (last4?: string) => boolean,
 ): boolean {
-  if (t.txType === "자금거래") return false;
+  if (t.txType === "자금거래") return basis === "cash" && isExpenseClaimReimbursement(t) && !isCard(t.last4);
   if (basis === "accrual") return t.txType !== "카드대금결제";
+  if (t.expenseClaim) return false;
   // 현금흐름: 카드로 쓴 건 아직 통장에서 안 나갔고, 카드대금결제가 그 시점이다
   if (t.txType === "카드대금결제") return true;
   if (t.txType === "지출" && isCard(t.last4)) return false;
@@ -121,7 +137,7 @@ function add(v: ReportValue, t: FinTransaction): void {
   if (t.txType === "수입") v.income += n;
   else if (t.txType === "환급") v.refund += n;
   else {
-    // 지출 · 카드대금결제
+    // 지출 · 카드대금결제 · 현금 기준의 대납 상환
     v.expense += n;
     if (t.personalUse) v.personal += n;
   }

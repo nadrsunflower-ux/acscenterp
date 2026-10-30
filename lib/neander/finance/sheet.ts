@@ -58,6 +58,23 @@ type EditableField = (typeof EDITABLE_FIELDS)[number];
 /** 빈 문자열·null·undefined 를 같은 "비어 있음"으로 본다 */
 const norm = (v: unknown) => (v === "" || v === null || v === undefined ? undefined : v);
 
+/** 대납의 결제수단 표기. 증빙의 일부 번호를 가짜 계좌 뒷자리로 만들지 않는다. */
+export function expenseClaimPaymentLabel(t: Pick<FinTransaction, "expenseClaim">): string | undefined {
+  const source = t.expenseClaim;
+  if (!source) return undefined;
+  return [source.payer, source.paymentLabel || "개인 결제", "대납"].join(" · ");
+}
+
+/** 원장 검색에서 결제자·원본 파일·대납 상환 연결도 찾을 수 있게 한다. */
+export function expenseClaimSearchText(t: Pick<FinTransaction, "expenseClaim" | "expenseReimbursement">): string {
+  const source = t.expenseClaim;
+  const repayment = t.expenseReimbursement;
+  return [
+    ...(source ? ["개인경비 대납", source.payer, source.payerKey, source.paymentLabel, source.fileName, source.claimId] : []),
+    ...(repayment ? ["대납 정산 상환", repayment.payer, repayment.claimId] : []),
+  ].filter(Boolean).join(" ");
+}
+
 /** 사람이 덧붙인 열의 값 비교 — 빈 문자열과 없음을 같게 본다 */
 function extraEqual(a?: Record<string, string>, b?: Record<string, string>): boolean {
   const keys = new Set([...Object.keys(a ?? {}), ...Object.keys(b ?? {})]);
@@ -290,13 +307,17 @@ export function toPatch(t: FinTransaction): Partial<FinTransactionInput> {
     // 덧붙인 열은 값이 있을 때만 실어 보낸다 — 키가 있으면 서버가 null 로
     // 덮어써서 남의 열까지 지운다 (client.ts 의 undefined→null 주석 참고)
     ...(t.extra ? { extra: t.extra } : null),
-    dedupHash: dedupHashOf({
-      date: t.date,
-      last4: t.last4,
-      vendor: t.vendor,
-      gross: Number(t.gross) || 0,
-      txType: t.txType as TxType,
-    }),
+    // 대납 원본의 중복 키는 결제자·원본 행까지 포함해 서버가 만든다.
+    // 화면에는 그 키가 없으므로 분류를 고칠 때 재계산해 덮지 않는다.
+    ...(!t.expenseClaim ? {
+      dedupHash: dedupHashOf({
+        date: t.date,
+        last4: t.last4,
+        vendor: t.vendor,
+        gross: Number(t.gross) || 0,
+        txType: t.txType as TxType,
+      }),
+    } : {}),
   };
 }
 

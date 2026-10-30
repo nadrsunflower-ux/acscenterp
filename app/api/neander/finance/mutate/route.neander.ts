@@ -574,31 +574,27 @@ export async function POST(req: Request) {
 
         // 한 거래를 두 건이 겹쳐 붙이면 잔액이 조용히 두 번 줄어든다 — 화면이 들고 있는
         // 목록은 낡았을 수 있으니 저장 직전에 서버가 다시 센다.
-        const all = (await col.get()).docs.map((d) => ({ id: d.id, ...d.data() }) as FinSuspenseDoc);
-        const prev = id ? (all.find((x) => x.id === id) ?? null) : null;
-        if (id && !prev) return NextResponse.json({ error: "그 건이 없습니다." }, { status: 404 });
         const linkedIds = [...allocatedByTx([parsed.value]).keys()];
-        const txs = (await readTransactions(db, linkedIds)) as unknown as FinTransaction[];
-        const problem = checkNewLinks(
-          parsed.value,
-          prev,
-          new Map(txs.map((t) => [t.id, t])),
-          allocatedByTx(all.filter((x) => x.id !== id)),
-        );
-        if (problem) return NextResponse.json({ error: problem }, { status: 409 });
-
         const ref = id ? col.doc(id) : col.doc();
-        const prevRaw = prev as (FinSuspenseDoc & { createdBy?: string }) | null;
-        await ref.set(
-          clean({
+        const result = await db.runTransaction(async (tr) => {
+          const all = (await tr.get(col)).docs.map((d) => ({ id: d.id, ...d.data() }) as FinSuspenseDoc);
+          const prev = id ? (all.find((x) => x.id === id) ?? null) : null;
+          if (id && !prev) return { error: "그 건이 없습니다.", status: 404 };
+          const txSnaps = linkedIds.length ? await tr.getAll(...linkedIds.map((key) => db.collection(NEANDER_COL.finTransactions).doc(key))) : [];
+          const txs = txSnaps.filter((s) => s.exists).map((s) => ({ id: s.id, ...s.data() }) as FinTransaction);
+          const problem = checkNewLinks(parsed.value, prev, new Map(txs.map((t) => [t.id, t])), allocatedByTx(all.filter((x) => x.id !== id)));
+          if (problem) return { error: problem, status: 409 };
+          const prevRaw = prev as (FinSuspenseDoc & { createdBy?: string }) | null;
+          tr.set(ref, clean({
             ...parsed.value,
             createdAt: prevRaw?.createdAt ?? now,
             createdBy: prevRaw ? prevRaw.createdBy : user.email,
             updatedAt: now,
             updatedBy: user.email,
-          }),
-          { merge: false },
-        );
+          }), { merge: false });
+          return { ok: true };
+        });
+        if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });
         return NextResponse.json({ ok: true, id: ref.id });
       }
 

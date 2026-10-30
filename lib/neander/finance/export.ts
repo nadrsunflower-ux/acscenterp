@@ -13,6 +13,7 @@ import * as XLSX from "xlsx";
 import type { FinTransaction } from "./types";
 import { netAmount, incomeAmount, expenseAmount, lookupKeyOf } from "./types";
 import type { FinAccountDoc, FinPaymentMethodDoc } from "./db-types";
+import { expenseClaimPaymentLabel } from "./sheet";
 
 /** 원본 통합거래장의 29열 (순서 그대로) */
 const HEADER = [
@@ -68,7 +69,7 @@ export function buildLedgerRows(
     return [
       t.date,
       t.last4 ?? "",
-      pm?.alias ?? "",
+      expenseClaimPaymentLabel(t) || pm?.alias || "",
       t.txType,
       t.bizMajor ?? "",
       t.bizMinor ?? "",
@@ -86,7 +87,7 @@ export function buildLedgerRows(
       a?.code ?? "",
       a?.vat ?? "",
       a?.asset ?? "",
-      a?.pay ?? "",
+      t.expenseClaim ? "개인경비·대납" : a?.pay ?? "",
       a?.branch ?? "",
       t.note ?? "",
       incomeAmount(t),

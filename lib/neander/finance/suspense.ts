@@ -411,7 +411,7 @@ export function toInput(item: FinSuspenseDoc): FinSuspenseInput {
 export function checkNewLinks(
   input: Pick<FinSuspenseInput, "direction" | "origins" | "settles">,
   prev: Pick<FinSuspenseDoc, "origins" | "settles"> | null,
-  txById: Map<string, Pick<FinTransaction, "id" | "date" | "txType" | "acctMajor" | "acctMinor" | "gross" | "adjust">>,
+  txById: Map<string, Pick<FinTransaction, "id" | "date" | "txType" | "acctMajor" | "acctMinor" | "gross" | "adjust" | "expenseReimbursement">>,
   /** 다른 건들이 거래마다 붙여 둔 금액 */
   othersAllocated: Map<string, number>,
 ): string | null {
@@ -429,6 +429,7 @@ export function checkNewLinks(
     if (kept.has(key(link.role, link.txId, link.amount))) continue;
     const tx = txById.get(link.txId);
     if (!tx) return "붙이려는 장부 거래가 원장에 없습니다. 화면을 새로 고친 뒤 다시 해 주세요.";
+    if (tx.expenseReimbursement) return `${tx.date} 거래는 이미 ${tx.expenseReimbursement.payer}의 개인경비 정산에 연결돼 있습니다. 같은 출금을 가수금에 다시 연결할 수 없습니다.`;
     if (!isSuspenseTx(tx)) {
       return `${tx.date} 거래는 가수금 계정이 아닙니다. 원장에서 계정을 가수금으로 고친 뒤 붙여 주세요.`;
     }

@@ -175,6 +175,9 @@ console.log("⑤ 저장 전 장부 대조");
   check("가수금 계정이 아니면 막는다", (checkNewLinks(non, ITEMS[3], txById, others("d")) ?? "").includes("가수금 계정이 아닙니다"));
   const ghost = { ...toInput(ITEMS[3]), settles: [{ txId: "없음", amount: 1 }] };
   check("없는 거래는 막는다", (checkNewLinks(ghost, ITEMS[3], txById, others("d")) ?? "").includes("원장에 없습니다"));
+  const claimedRepayment = { ...txById.get("out4")!, expenseReimbursement: { claimId: "expense-claim-example", payer: "직원" } };
+  const claimedTxs = new Map(txById).set("out4", claimedRepayment);
+  check("개인경비 상환 출금을 가수금에 중복 연결하지 않는다", (checkNewLinks(more, a, claimedTxs, others("a")) ?? "").includes("개인경비 정산"));
   // 붙여 둔 거래가 나중에 다른 계정으로 옮겨졌어도 비고는 고칠 수 있어야 한다
   const stale = item({ id: "z", amount: 300_000, settles: [{ txId: "pay", amount: 300_000 }] });
   check("이미 있던 줄은 다시 따지지 않는다", checkNewLinks({ ...toInput(stale), note: "고침" } as never, stale, txById, new Map()) === null);

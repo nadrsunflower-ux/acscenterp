@@ -96,6 +96,8 @@ import {
 import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { useAppData } from "@/components/neander/app-data";
+import { PersonalExpenseImport } from "@/components/neander/finance/PersonalExpenseImport";
+import { looksLikePersonalExpenseWorkbook } from "@/lib/neander/finance/personal-expense-import";
 import {
   NextStep,
   PuzzlePiece,
@@ -224,6 +226,7 @@ const CHAT_CHUNK = 300;
 let seq = 0;
 
 export default function ImportPage() {
+  const [personalFile, setPersonalFile] = useState<File | null>(null);
   const {
     transactions,
     accounts,
@@ -358,6 +361,12 @@ export default function ImportPage() {
 
       // ② 양식 판별
       const wb = readWorkbook(buf);
+      if (looksLikePersonalExpenseWorkbook(wb)) {
+        setPersonalFile(file);
+        window.location.hash = "personal-expenses";
+        toast.info("개인경비 내역은 아래 미리보기에서 확인한 뒤 등록합니다.");
+        return;
+      }
       const detection = detectSource(wb, file.name);
       if (detection.pos && !opts.forceSlot) {
         const pos = parseReconcileSource(wb, file.name);
@@ -899,7 +908,7 @@ export default function ImportPage() {
 
       <PageHeader
         title="엑셀 임포트"
-        description="계좌마다 한 파일, 카드사마다 한 파일. 끌어다 놓으면 출처를 알아내 중복을 걸러내고 자동분류해 바로 적재합니다."
+        description="계좌·법인카드는 출처와 중복을 확인해 바로 적재합니다. 개인카드·대납 내역은 미리보기에서 회사 비용을 골라 등록합니다."
         meta={
           <span className="flex items-center gap-1.5 text-nd-caption text-nd-fg-2">
             <Icon icon={Puzzle} size={14} />
@@ -915,6 +924,10 @@ export default function ImportPage() {
           </span>
         }
       />
+
+      <div className="mb-4 flex justify-end">
+        <a href="#personal-expenses" className="text-nd-table font-medium text-nd-accent-strong underline underline-offset-4">개인카드·대납 내역 등록</a>
+      </div>
 
       {/* 진행 단계 — 지금 어디쯤인지, 다음이 무엇인지 한 줄로 */}
       <Card padding="sm" className="mb-4">
@@ -934,7 +947,7 @@ export default function ImportPage() {
             {
               key: "done",
               label: "적재 완료",
-              hint: sessionInserted > 0 ? `이번에 ${won(sessionInserted)}건` : "놓는 즉시 적재됩니다",
+              hint: sessionInserted > 0 ? `이번에 ${won(sessionInserted)}건` : "계좌·법인카드는 즉시 적재",
             },
           ]}
         />
@@ -1020,6 +1033,8 @@ export default function ImportPage() {
           }
         />
       )}
+
+      <PersonalExpenseImport initialFile={personalFile} onInitialFileConsumed={() => setPersonalFile(null)} />
 
       {/* ---- 카드 사용 메모 (카카오톡) ---- */}
       <ChatMemoCard

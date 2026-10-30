@@ -33,6 +33,8 @@
 //     금액이 나간다 — 신한은 쓴 달에 나눠 미리 내고, KB 는 다음 달 14일쯤 지난달
 //     몫을 낸다(달마다 비슷해 서로 상쇄된다). 자금거래(계좌 간 이동 · 가수금 ·
 //     보증금 · 예수금)는 손익이 아니라 뺀다.
+//     개인이 먼저 결제한 경비는 회사 현금이 나가지 않았으므로 평균에서 빼고,
+//     원장에 연결한 실제 대납 상환만 지급한 달의 별도 줄로 센다.
 //
 //  화면은 app/neander/finance/reports/runway, 저장은 neander_fin_runway
 //  (문서 하나 — 팀이 같은 가정을 본다).
@@ -42,6 +44,7 @@ import type { FinPaymentMethodDoc } from "./db-types";
 import { installmentStatus, isInstallmentReceived, splitVat, type DuePart, type FinProjectDoc } from "./project";
 import { netAmount, type FinImportBatch, type FinTransaction } from "./types";
 import { shiftMonth } from "../format";
+import { isExpenseClaimReimbursement } from "./report";
 
 // ---- 저장하는 것 (사람이 정한 가정) ------------------------------------
 
@@ -180,6 +183,9 @@ function incomeLineOf(t: FinTransaction): { key: string; label: string; hint: st
 
 /** 나간 돈 한 건이 어느 줄인가. 환급은 그 계정에서 빠진다 */
 function expenseLineOf(t: FinTransaction): { key: string; label: string; hint: string } {
+  if (isExpenseClaimReimbursement(t)) {
+    return { key: "out:expense-reimbursement", label: "임직원 대납 정산", hint: "회사가 실제 지급한 대납 상환" };
+  }
   const major = t.acctMajor || UNSET;
   // 계정을 못 찾은 환급은 「환급수입」 으로 적혀 온다 — 들어온 돈이 아니라 지출을 줄이는 돈이다
   if (major === "환급수입") return { key: `out:${major}`, label: "환급", hint: "지출에서 차감" };
@@ -577,6 +583,7 @@ export function buildRunway({ transactions, paymentMethods, projects, settings, 
   const excluded = new Set(settings.excludeSites);
   const baseIdx = new Map(baseMonths.map((m, i) => [m, i]));
   const n = baseMonths.length;
+  const companyAccounts = new Set(paymentMethods.filter((method) => method.kind === "account").map((method) => method.last4));
 
   // ---- 시작 현금 · 내다볼 달 ----
   const { start, cash } = startingCash(transactions, paymentMethods, settings, excluded, asOf, today, imports);
@@ -604,6 +611,7 @@ export function buildRunway({ transactions, paymentMethods, projects, settings, 
     const i = baseIdx.get((t.date ?? "").slice(0, 7));
     if (i === undefined) continue;
     if (t.site && excluded.has(t.site)) continue;
+    if (t.expenseClaim) continue;
     const amt = netAmount(t);
     const early = Number((t.date ?? "").slice(8, 10)) <= EARLY_DAY;
     if (t.txType === "수입") {
@@ -616,7 +624,7 @@ export function buildRunway({ transactions, paymentMethods, projects, settings, 
       const l = touch(def.key, () => ({ ...def, flow: "in", base: baseMonths.map(() => 0), earlyBase: baseMonths.map(() => 0) }));
       l.base[i] += amt;
       if (early) l.earlyBase[i] += amt;
-    } else if (t.txType === "지출" || t.txType === "환급") {
+    } else if (t.txType === "지출" || t.txType === "환급" || (isExpenseClaimReimbursement(t) && companyAccounts.has(t.last4 ?? ""))) {
       // 개인사용분은 회수할 돈이라 지출로 보지 않는다 (리포트의 순수지출과 같다)
       if (t.txType === "지출" && t.personalUse) continue;
       const def = expenseLineOf(t);
@@ -625,7 +633,7 @@ export function buildRunway({ transactions, paymentMethods, projects, settings, 
       l.base[i] += signed;
       if (early) l.earlyBase[i] += signed;
     }
-    // 카드대금결제 · 자금거래는 세지 않는다 (머리말)
+    // 카드대금결제 · 대납 상환 외 자금거래는 세지 않는다 (머리말)
   }
 
   const overridesByLine = new Map<string, RunwayOverride[]>();

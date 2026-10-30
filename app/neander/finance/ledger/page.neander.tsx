@@ -109,6 +109,7 @@ import {
   toInput,
   toPatch,
   validateRow,
+  expenseClaimSearchText,
   type RowIssue,
   type SortKey,
   type SortSpec,
@@ -452,7 +453,7 @@ export default function LedgerPage() {
     (t: FinTransaction) => {
       const q = search.trim().toLowerCase();
       if (!q) return true;
-      return [t.vendor, t.acctMinor, t.note, t.acctNote, t.last4, t.projectCode]
+      return [t.vendor, t.acctMinor, t.note, t.acctNote, t.last4, t.projectCode, expenseClaimSearchText(t)]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
@@ -923,6 +924,9 @@ export default function LedgerPage() {
               {transactions.length.toLocaleString("ko-KR")}건
             </span>
           </h1>
+          <a href="/neander/finance/import#personal-expenses" target="_blank" rel="noopener noreferrer">
+            <Button variant="secondary" size="sm">개인경비 등록</Button>
+          </a>
           <SearchInput
             className="w-52"
             value={search}

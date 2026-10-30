@@ -34,6 +34,8 @@ export const LOGGED_FIELDS = [
   "personalUse",
   "note",
   "cardMemo",
+  "expenseClaim",
+  "expenseReimbursement",
 ] as const;
 export type LoggedField = (typeof LOGGED_FIELDS)[number];
 
@@ -55,6 +57,8 @@ export const FIELD_LABEL: Record<LoggedField, string> = {
   personalUse: "개인사용",
   note: "비고",
   cardMemo: "카드 메모",
+  expenseClaim: "대납 비용 출처",
+  expenseReimbursement: "대납 상환 연결",
 };
 
 /** 무엇으로 바꿨나 — 브라우저가 알려 준다 (모르면 비워 둔다) */
@@ -72,6 +76,7 @@ export const VIA_LABEL: Record<string, string> = {
   receipt: "받을 돈 짝짓기",
   mail: "결제 알림 메일 대조",
   import: "엑셀 임포트",
+  "expense-claim": "개인경비·대납",
 };
 
 export const isVia = (v: unknown): v is string => typeof v === "string" && /^[a-z-]{1,24}$/.test(v);
@@ -100,7 +105,7 @@ export interface TxLogEntry {
 const norm = (v: unknown): LogValue => {
   if (v === undefined || v === null || v === "") return null;
   if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
-  return String(v);
+  return typeof v === "object" ? JSON.stringify(v) : String(v);
 };
 
 /** 바뀐 칸만 — 비어 있음 · null · undefined 는 같은 것으로 본다 */

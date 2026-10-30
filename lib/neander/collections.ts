@@ -114,6 +114,8 @@ export const NEANDER_COL = {
   finGrantFiles: "neander_fin_grant_files",
   /** 돌려줄 돈 — 프로젝트에 묶이지 않은 환급 · 페이백 (finance/payback.ts). 서버(api/neander/finance/paybacks)만 접근한다 */
   finPaybacks: "neander_fin_paybacks",
+  /** 임직원 개인 결제의 회사 비용. 비용 원장·은행 상환은 claimId 꼬리표로 연결하며 법인카드 적재와 분리한다. */
+  finExpenseClaims: "neander_fin_expense_claims",
   /**
    * 급여·세무 서류 — 세무사가 보낸 급여대장 · 명세서 · 신고서 · 납부서 PDF (finance/tax-docs.ts).
    * 파일은 parts/{n} 768KB 조각, 읽은 숫자는 문서 안에. 서버(api/neander/finance/tax-docs)만 접근한다
