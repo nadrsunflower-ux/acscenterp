@@ -1,0 +1,66 @@
+.grant-payment-sheet {
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
+.grant-payment-sheet .dsg-container {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.grant-payment-sheet .dsg-cell-header-container {
+  padding: 0 8px;
+}
+
+.grant-payment-sheet .dsg-cell-disabled {
+  background: rgb(var(--nd-bg-content));
+}
+
+.grant-payment-sheet .dsg-cell-header,
+.grant-payment-sheet .dsg-cell-gutter {
+  background: rgb(var(--nd-bg-sunken));
+}
+
+.grant-payment-sheet .grant-payment-text {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grant-payment-action {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: rgb(var(--nd-accent-strong));
+  font: inherit;
+  cursor: pointer;
+}
+
+.grant-payment-action:hover {
+  background: rgb(var(--nd-accent-soft));
+}
+
+.grant-payment-action:focus-visible {
+  outline: 2px solid rgb(var(--nd-accent));
+  outline-offset: -3px;
+}
+
+.grant-payment-action:disabled {
+  color: rgb(var(--nd-fg-3));
+  cursor: default;
+}
+
+.grant-payment-empty {
+  margin: 0;
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--nd-line);
+  color: rgb(var(--nd-fg-3));
+  font-size: 13px;
+}
