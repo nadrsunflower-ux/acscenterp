@@ -110,6 +110,8 @@ export const NEANDER_COL = {
   finTxLog: "neander_fin_tx_log",
   /** 지원사업 — 받을 회차 · 비목별 예산 · 집행 배정 (finance/grant.ts). 서버(api/neander/finance/grants)만 접근한다 */
   finGrants: "neander_fin_grants",
+  /** 지원사업 첨부파일 — grantId로 연결, 원본은 parts/{n}에 보관. 서버만 접근한다 */
+  finGrantFiles: "neander_fin_grant_files",
   /** 돌려줄 돈 — 프로젝트에 묶이지 않은 환급 · 페이백 (finance/payback.ts). 서버(api/neander/finance/paybacks)만 접근한다 */
   finPaybacks: "neander_fin_paybacks",
   /**

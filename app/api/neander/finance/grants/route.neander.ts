@@ -3,6 +3,7 @@ import { adminDb } from "@/lib/neander/server/admin";
 import { requireErpUser, accessErrorResponse } from "@/lib/neander/server/auth";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import { sanitizeGrant, type FinGrantDoc } from "@/lib/neander/finance/grant";
+import { deleteGrantFilesForGrant } from "@/lib/neander/finance/server/grant-files";
 
 // 지원사업 — 목록 · 저장 · 삭제 (lib/neander/finance/grant.ts).
 //
@@ -10,6 +11,7 @@ import { sanitizeGrant, type FinGrantDoc } from "@/lib/neander/finance/grant";
 // 저장은 문서를 통째로 갈아치운다(프로젝트와 같은 방식) — 회차 · 비목 배열을
 // merge 하면 지운 줄이 되살아난다.
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 /** Firestore 는 undefined 를 거부한다 */
 function clean<T extends Record<string, unknown>>(obj: T): Record<string, unknown> {
@@ -63,13 +65,20 @@ export async function POST(req: Request) {
     }
 
     if (id) {
-      const prev = await col.doc(id).get();
-      if (!prev.exists) return NextResponse.json({ error: "지원사업이 없습니다." }, { status: 404 });
-      const keep = prev.data() ?? {};
-      await col.doc(id).set(
-        clean({ ...parsed.value, createdAt: keep.createdAt ?? now, createdBy: keep.createdBy, updatedAt: now, updatedBy: user.email }),
-        { merge: false },
-      );
+      // 삭제와 자동 저장이 겹쳐도 지운 지원사업을 다시 만들지 않는다.
+      const saved = await db.runTransaction(async (tx) => {
+        const ref = col.doc(id);
+        const prev = await tx.get(ref);
+        if (!prev.exists) return false;
+        const keep = prev.data() ?? {};
+        tx.set(
+          ref,
+          clean({ ...parsed.value, createdAt: keep.createdAt ?? now, createdBy: keep.createdBy, updatedAt: now, updatedBy: user.email }),
+          { merge: false },
+        );
+        return true;
+      });
+      if (!saved) return NextResponse.json({ error: "지원사업이 없습니다." }, { status: 404 });
       return NextResponse.json({ ok: true, id });
     }
     const ref = await col.add(clean({ ...parsed.value, createdAt: now, createdBy: user.email, updatedAt: now, updatedBy: user.email }));
@@ -84,7 +93,10 @@ export async function DELETE(req: Request) {
     await requireErpUser(req);
     const id = new URL(req.url).searchParams.get("id");
     if (!id) return NextResponse.json({ error: "id 가 없습니다." }, { status: 400 });
-    await adminDb().collection(NEANDER_COL.finGrants).doc(id).delete();
+    const db = adminDb();
+    // 부모를 먼저 지워 동시에 새 파일이 붙는 것을 막은 뒤 첨부 원본도 정리한다.
+    await db.collection(NEANDER_COL.finGrants).doc(id).delete();
+    await deleteGrantFilesForGrant(db, id);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return fail(e);

@@ -3,10 +3,12 @@
 // ============================================================
 //  지원금 — 상세 (한 지원사업)
 // ------------------------------------------------------------
-//  제목 줄 → 탭 셋 → 탭 안 내용. 프로젝트 상세와 같은 틀이다.
+//  제목 줄 → 탭 다섯 → 탭 안 내용. 프로젝트 상세와 같은 틀이다.
 //    개요     숫자 띠 · 기본 정보 · 원장에서 찾는 조건(전용 계좌 · 입금자)
-//    받을 돈  회차(매달 반복 만들기) · 원장에서 찾은 입금 · 반납
+//    받은 돈  수령 완료 회차 · 실제 입금 · 원장 밖 수령 · 반납
+//    받을 돈  미수령·부분 수령 회차 · 매달 반복 만들기
 //    쓴 돈    비목별 예산과 쓴 돈 · 원장에서 찾은 지출을 비목에 배정
+//    첨부파일 사업계획서 · 협약서 · 증빙 파일 보관
 //  셈은 lib/neander/finance/grant.ts. 원장 거래에는 아무것도 쓰지 않는다 —
 //  이 사업 돈인지, 어느 비목인지는 지원사업 문서(alloc)에만 남긴다.
 //
@@ -36,6 +38,7 @@ import {
   Checkbox,
   cn,
   Dialog,
+  Disclosure,
   EmptyState,
   Field,
   FieldAction,
@@ -44,6 +47,7 @@ import {
   IconButton,
   InlineNotice,
   Input,
+  KpiItem,
   KpiStrip,
   LoadingState,
   Menu,
@@ -71,6 +75,7 @@ import {
 import { AutoCodeBox } from "@/components/neander/finance/AutoCode";
 import { DueInput } from "@/components/neander/finance/DueInput";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
+import { GrantFilesPanel } from "@/components/neander/finance/GrantFiles";
 import { useCrumbTail } from "@/components/neander/shell/context";
 import { deleteGrant, saveGrant, useGrants } from "@/lib/neander/finance/grant-client";
 import {
@@ -94,6 +99,7 @@ import {
   type FinGrantInput,
   type FinGrantInstallment,
   type GrantInstStatus,
+  type GrantInstView,
   type GrantKind,
   type GrantStatus,
   type GrantTx,
@@ -117,8 +123,8 @@ const INST_TONE: Record<GrantInstStatus, Tone> = {
   planned: "neutral",
 };
 
-type TabKey = "overview" | "receive" | "spend";
-const TAB_HASHES: Record<TabKey, string> = { overview: "#overview", receive: "#receive", spend: "#spend" };
+type TabKey = "overview" | "received" | "receivable" | "spend" | "files";
+const TAB_HASHES: Record<TabKey, string> = { overview: "#overview", received: "#received", receivable: "#receivable", spend: "#spend", files: "#files" };
 const TAB_KEYS = Object.keys(TAB_HASHES) as TabKey[];
 
 /** 좁은 화면에서는 칸이 두 줄로 접혀 줄끼리 섞여 보이므로 줄 사이에 선을 긋는다 */
@@ -183,10 +189,19 @@ function GrantEditor({ id }: { id: string }) {
 
   // ---- 탭 ----
   const [tab, setTab] = useState<TabKey>("overview");
+  const [filesVisited, setFilesVisited] = useState(false);
+  const [activeInst, setActiveInst] = useState<{ id: string; tab: "received" | "receivable" } | null>(null);
+  useEffect(() => {
+    if (tab === "files") setFilesVisited(true);
+  }, [tab]);
   useEffect(() => {
     const apply = () => {
-      const hit = TAB_KEYS.find((k) => TAB_HASHES[k] === window.location.hash);
-      if (hit) setTab(hit);
+      // 이전 「받을 돈」 주소는 이미 받은 내역을 보던 주소이므로 수령 탭으로 잇는다.
+      const hit = window.location.hash === "#receive" ? "received" : TAB_KEYS.find((k) => TAB_HASHES[k] === window.location.hash);
+      if (hit) {
+        setActiveInst(null);
+        setTab(hit);
+      }
     };
     apply();
     window.addEventListener("hashchange", apply);
@@ -194,6 +209,7 @@ function GrantEditor({ id }: { id: string }) {
   }, []);
   const goTab = useCallback((key: string) => {
     const next = (TAB_KEYS as string[]).includes(key) ? (key as TabKey) : "overview";
+    setActiveInst(null);
     setTab(next);
     window.history.replaceState(null, "", TAB_HASHES[next]);
   }, []);
@@ -346,10 +362,34 @@ function GrantEditor({ id }: { id: string }) {
     .map(([txId]) => txById.get(txId))
     .filter((t): t is FinTransaction => !!t);
 
+  // 허용 오차로 paid가 된 빈 줄·소액 회차도 실제 수령이 없으면 예정으로 보인다.
+  const installmentRecords = summary.installments.map<GrantInstView>((v) => {
+    if (v.status !== "paid" || v.filled > 0 || v.inst.received) return v;
+    const amount = Math.max(0, Math.round(v.inst.amount) || 0);
+    return {
+      ...v,
+      remaining: amount,
+      status: amount > 0 && v.inst.dueDate && v.inst.dueDate < today ? "overdue" : "planned",
+    };
+  });
+  const isReceivedInst = (v: GrantInstView) => v.status === "paid" && (v.filled > 0 || !!v.inst.received);
+  const pendingInsts = installmentRecords.filter((v) => !isReceivedInst(v));
+  const pendingAmount = pendingInsts.reduce((sum, v) => sum + v.remaining, 0);
+  const overdueInsts = pendingInsts.filter((v) => v.remaining > 0 && v.inst.dueDate && v.inst.dueDate < today);
+  const overdueAmount = overdueInsts.reduce((sum, v) => sum + v.remaining, 0);
+  const nextInst = [...pendingInsts].filter((v) => v.remaining > 0).sort((a, b) => (a.inst.dueDate ?? "9999").localeCompare(b.inst.dueDate ?? "9999"))[0];
+  // 금액·수령 표시를 고치는 동안에는 줄을 옮기지 않아 입력 포커스를 지킨다.
+  const visibleInsts = installmentRecords.filter((v) =>
+    activeInst?.id === v.inst.id && activeInst.tab === tab
+      ? true
+      : tab === "received" ? isReceivedInst(v) : !isReceivedInst(v),
+  );
   const tabs = [
     { key: "overview", label: "개요" },
-    { key: "receive", label: "받을 돈", hint: form.installments.length > 0 ? `${form.installments.length}회차` : undefined },
+    { key: "received", label: "받은 돈", hint: `${summary.ledger.incomes.length + form.installments.filter((i) => i.received && i.amount > 0).length}건` },
+    { key: "receivable", label: "받을 돈", hint: `${pendingInsts.length}회차` },
     { key: "spend", label: "쓴 돈", hint: form.budget.length > 0 ? `${form.budget.length}비목` : undefined },
+    { key: "files", label: "첨부파일" },
   ];
 
   return (
@@ -444,35 +484,33 @@ function GrantEditor({ id }: { id: string }) {
       {tab === "overview" && (
         <>
           <KpiStrip columns={5} className="mb-5">
-            <StatTile
+            {summary.total > 0 ? <StatTile
               label="총 지원금"
-              value={summary.total || summary.scheduled}
+              value={summary.total}
               flow="income"
               hint={
                 form.selfCash || form.selfInKind
                   ? `자부담 현금 ${won(form.selfCash ?? 0)} · 현물 ${won(form.selfInKind ?? 0)}`
-                  : summary.total === 0
-                    ? "총액을 안 적어 회차 합으로"
-                    : "정부 몫"
+                  : "정부 몫"
               }
-            />
+            /> : <KpiItem label="총 지원금" value="미확인" hint="개요에서 전체 지원금액을 입력하세요" />}
             <StatTile
               label="받은 돈"
               value={summary.received}
               flow="income"
               hint={`원장 입금 ${summary.ledger.incomes.length}건${summary.refunded > 0 ? ` · 반납 ${won(summary.refunded)}` : ""}${summary.receivedManual > 0 ? ` · 원장 밖 ${won(summary.receivedManual)}` : ""}`}
             />
-            <StatTile
-              label="남은 지원금"
+            {summary.total > 0 ? <StatTile
+              label="앞으로 받을 돈"
               value={summary.remaining}
-              tone={summary.overdue > 0 ? "danger" : undefined}
-              hint={summary.overdue > 0 ? `늦은 회차 ${summary.overdueCount}건 · ${won(summary.overdue)}원` : summary.remaining === 0 ? "다 받았습니다" : "아직 안 들어온 돈"}
-            />
+              tone={overdueAmount > 0 ? "danger" : undefined}
+              hint={overdueAmount > 0 ? `늦은 회차 ${overdueInsts.length}건 · ${won(overdueAmount)}원` : summary.remaining === 0 ? "등록한 총 지원금 기준 수령 완료" : "아직 안 들어온 돈"}
+            /> : <KpiItem label="앞으로 받을 돈" value="미확인" hint={`등록된 예정 금액 ${won(pendingAmount)}원 · 전체 잔액 미확인`} />}
             <StatTile
               label="다음 입금"
-              value={summary.next?.amount ?? 0}
+              value={nextInst?.remaining ?? 0}
               flow="income"
-              hint={summary.next ? `${summary.next.label || "회차"} · ${summary.next.dueDate ? grantDueLabel(summary.next) : "날짜 미정"}` : "남은 회차가 없습니다"}
+              hint={nextInst ? `${nextInst.inst.label || "회차"} · ${nextInst.inst.dueDate ? grantDueLabel(nextInst.inst) : "날짜 미정"}` : "등록된 입금 예정이 없습니다"}
             />
             <StatTile
               label="쓴 돈"
@@ -519,7 +557,7 @@ function GrantEditor({ id }: { id: string }) {
                   ))}
                 </Select>
               </Field>
-              <Field label="총 지원금" hint="정부 몫">
+              <Field label="총 지원금" hint="정부 몫 · 모르면 비워 두세요">
                 <NumberInput size="sm" value={form.total || ""} placeholder="0" onValueChange={(v) => setField("total", Number(v) || 0)} className="text-right" />
               </Field>
               <Field label="자부담 현금">
@@ -545,48 +583,83 @@ function GrantEditor({ id }: { id: string }) {
         </>
       )}
 
-      {/* ================= 받을 돈 ================= */}
-      {tab === "receive" && (
+      {/* ================= 받은 돈 · 받을 돈 ================= */}
+      {(tab === "received" || tab === "receivable") && (
         <div className="flex flex-col gap-5">
+          {tab === "received" ? (
+            <KpiStrip columns={3}>
+              <StatTile label="받은 돈" value={summary.received} flow="income" hint="실제 입금 + 원장 밖 수령 − 반납" />
+              <StatTile label="원장 입금" value={summary.receivedLedger} flow="income" hint={`${summary.ledger.incomes.length}건의 입금 내역`} />
+              <StatTile label="반납한 돈" value={summary.refunded} flow="expense" hint={summary.receivedManual > 0 ? `원장 밖 수령 ${won(summary.receivedManual)}원 별도 포함` : "수령액에서 차감한 금액"} />
+            </KpiStrip>
+          ) : (
+            <>
+              <KpiStrip columns={3}>
+                {summary.total > 0 ? (
+                  <StatTile label="앞으로 받을 돈" value={summary.remaining} flow="income" hint="총 지원금에서 이미 받은 돈을 뺀 금액" />
+                ) : (
+                  <KpiItem label="앞으로 받을 돈" value="미확인" hint="총 지원금액을 아직 확인하지 못했습니다" />
+                )}
+                <StatTile label="등록된 예정 금액" value={pendingAmount} flow="income" hint={`${pendingInsts.length}회차 · 부분 수령 회차는 남은 금액만 포함`} />
+                <StatTile label="늦은 회차" value={overdueAmount} tone={overdueAmount > 0 ? "danger" : undefined} hint={`${overdueInsts.length}회차 · 예정일이 지난 미수령 금액`} />
+              </KpiStrip>
+              {summary.total === 0 && (
+                <InlineNotice tone="info">
+                  <strong className="mr-1 font-medium">총 지원금액 미확인.</strong>
+                  아래에는 등록한 입금 예정만 보입니다. 예정 회차가 없어도 전체 지원금을 다 받았다는 뜻은 아닙니다.
+                </InlineNotice>
+              )}
+              {summary.total > 0 && summary.remaining > pendingAmount && (
+                <InlineNotice tone="info">
+                  <strong className="mr-1 font-medium">아직 일정이 없는 받을 돈.</strong>
+                  남은 지원금 중 {won(summary.remaining - pendingAmount)}원은 회차가 등록되지 않았습니다. 받을 금액과 예정일을 추가하세요.
+                </InlineNotice>
+              )}
+            </>
+          )}
           <Card padding="sm">
             <SectionHeader
-              title="받을 회차"
-              hint="들어온 돈을 날짜순 회차에 차례로 채웁니다 — 하루에 여러 건으로 나뉘어 들어와도 됩니다"
+              title={tab === "received" ? "수령 완료 회차" : "앞으로 받을 회차"}
+              hint={tab === "received" ? "완료된 회차 정보입니다. 회차 예정일과 실제 입금일은 다를 수 있으며, 실제 날짜는 아래 입금 내역에서 확인합니다." : "아직 못 받은 회차와 일부만 받은 회차를 관리합니다"}
               action={
-                <>
+                tab === "receivable" ? <>
                   <Button variant="ghost" size="sm" icon={CalendarPlus} onClick={() => setMonthlyOpen(true)}>
                     매달 회차 만들기
                   </Button>
                   <Button variant="ghost" size="sm" icon={Plus} onClick={() => edit((g) => ({ ...g, installments: [...g.installments, newGrantInstallment()] }))}>
                     회차 추가
                   </Button>
-                </>
+                </> : <Button variant="ghost" size="sm" icon={Plus} onClick={() => edit((g) => ({ ...g, installments: [...g.installments, { ...newGrantInstallment(), received: true }] }))}>원장 밖 수령 추가</Button>
               }
             />
-            {form.installments.length === 0 ? (
+            {visibleInsts.length === 0 ? (
               <p className="text-nd-table text-nd-fg-3">
-                아직 없습니다. 매달 같은 날 같은 돈이 들어오면 「매달 회차 만들기」 로 한 번에 만드세요.
+                {tab === "received" ? "수령 완료로 확인된 회차가 없습니다. 실제 원장 입금은 아래에 표시됩니다." : "등록된 미수령 회차가 없습니다. 받을 돈이 있으면 「회차 추가」나 「매달 회차 만들기」로 등록하세요."}
               </p>
             ) : (
               <div className="flex flex-col gap-2">
-                {summary.installments.map(({ inst, status, filled, remaining }) => (
+                {visibleInsts.map(({ inst, status, filled, remaining }) => (
                   <FormRow
                     key={inst.id}
+                    onFocusCapture={() => setActiveInst({ id: inst.id, tab })}
+                    onBlurCapture={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setActiveInst(null);
+                    }}
                     className={cn(MOBILE_ROW_RULE, "grid-cols-2 sm:grid-cols-[minmax(7rem,1fr)_9rem_minmax(11rem,auto)_9rem_auto_minmax(8rem,1.2fr)_auto]")}
                   >
                     <Field label="이름">
                       <Input size="sm" value={inst.label} onChange={(e) => updateInst(inst.id, { label: e.target.value })} placeholder="회차 이름" />
                     </Field>
-                    <Field label="금액">
+                    <Field label="회차 금액">
                       <NumberInput size="sm" value={inst.amount || ""} placeholder="0" onValueChange={(v) => updateInst(inst.id, { amount: Number(v) || 0 })} className="text-right" />
                     </Field>
-                    <Field label="받을 날">
-                      <DueInput value={{ dueDate: inst.dueDate, dueApprox: inst.dueApprox }} onChange={(v) => updateInst(inst.id, { dueDate: v.dueDate, dueApprox: v.dueApprox })} label="받을 날" />
+                    <Field label="회차 예정일">
+                      <DueInput value={{ dueDate: inst.dueDate, dueApprox: inst.dueApprox }} onChange={(v) => updateInst(inst.id, { dueDate: v.dueDate, dueApprox: v.dueApprox })} label="회차 예정일" />
                     </Field>
                     <FieldAction center>
                       <span className="flex items-center gap-1.5">
-                        <Badge tone={INST_TONE[status]} size="sm">{GRANT_INST_LABEL[status]}</Badge>
-                        {status === "partial" && <span className="nd-num text-nd-table text-nd-fg-2">{won(filled)} / 남음 {won(remaining)}</span>}
+                        <Badge tone={INST_TONE[inst.amount <= 0 ? "planned" : status]} size="sm">{inst.amount <= 0 ? "금액 미입력" : GRANT_INST_LABEL[status]}</Badge>
+                        {status === "partial" && <span className="nd-num text-nd-table text-nd-fg-2">받음 {won(filled)} / 받을 돈 {won(remaining)}</span>}
                       </span>
                     </FieldAction>
                     <FieldAction center>
@@ -605,23 +678,24 @@ function GrantEditor({ id }: { id: string }) {
                 ))}
                 <div className="mt-1 flex flex-wrap items-center justify-end gap-6 border-t border-nd-line pt-3 text-nd-table">
                   <span className="text-nd-fg-2">
-                    회차 합 <b className="ml-1 text-nd-body"><Money value={summary.scheduled} unit={false} flow="income" /></b>
+                    전체 회차 합 <b className="ml-1 text-nd-body"><Money value={summary.scheduled} unit={false} flow="income" /></b>
                     {summary.total > 0 && summary.scheduled !== summary.total && (
                       <span className="ml-1.5 text-nd-warning-text">총 지원금과 {won(summary.total - summary.scheduled)} 차이</span>
                     )}
                   </span>
                   <span className="text-nd-fg-2">
-                    받은 돈 <b className="ml-1 text-nd-body"><Money value={summary.received} unit={false} flow="income" /></b>
+                    {tab === "received" ? "실제 받은 돈" : "등록된 예정 잔액"} <b className="ml-1 text-nd-body"><Money value={tab === "received" ? summary.received : pendingAmount} unit={false} flow="income" /></b>
                   </span>
                 </div>
               </div>
             )}
           </Card>
 
+          {tab === "received" && <>
           <Card padding="none" className="overflow-hidden">
             <div className="px-5 pt-5">
               <SectionHeader
-                title="원장에서 찾은 입금"
+                title="실제 입금·반납 내역"
                 hint="개요의 「원장에서 찾는 조건」 으로 골랐습니다 — 이 사업 돈이 아니면 빼세요"
                 action={<TableNote>단위: 원</TableNote>}
               />
@@ -670,9 +744,12 @@ function GrantEditor({ id }: { id: string }) {
                 </Table>
               </TableScroll>
             )}
-            <div className="border-t border-nd-line px-5 py-4">
+          </Card>
+
+          <Disclosure title="이 사업의 입금 연결 관리">
+            <p className="mb-3 text-nd-table text-nd-fg-2">다른 지원사업의 입금도 검색됩니다. 이 사업에서 받은 돈으로 확인한 거래만 연결하세요.</p>
               <TxPicker
-                label="입금 더 찾기"
+                label="입금 후보 검색"
                 placeholder="입금자 · 금액 · 날짜"
                 candidates={transactions.filter(
                   (t) =>
@@ -681,15 +758,16 @@ function GrantEditor({ id }: { id: string }) {
                     form.alloc?.[t.id] !== ALLOC_OUT,
                 )}
                 preferred={(t) => isGrantIncome(t)}
+                requireQuery
                 aliasOf={aliasOf}
                 renderAction={(t) => (
                   <Button variant="secondary" size="sm" onClick={() => setAlloc(t.id, ALLOC_IN)}>받은 돈으로</Button>
                 )}
               />
-            </div>
-          </Card>
+          </Disclosure>
 
           <ExcludedList list={excluded.filter((t) => t.txType === "수입" || isGrantRefund(t))} aliasOf={aliasOf} onRestore={(txId) => setAlloc(txId, null)} />
+          </>}
         </div>
       )}
 
@@ -866,6 +944,10 @@ function GrantEditor({ id }: { id: string }) {
 
           <ExcludedList list={excluded.filter((t) => t.txType !== "수입" && !isGrantRefund(t))} aliasOf={aliasOf} onRestore={(txId) => setAlloc(txId, null)} />
         </div>
+      )}
+
+      {(tab === "files" || filesVisited) && (
+        <div hidden={tab !== "files"}><GrantFilesPanel grantId={id} /></div>
       )}
 
       {monthlyOpen && (
