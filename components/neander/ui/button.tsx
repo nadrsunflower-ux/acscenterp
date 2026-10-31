@@ -32,6 +32,16 @@ const sizeCls: Record<ButtonSize, string> = {
   lg: "h-ctl-lg px-4 text-[15px] rounded-nd-md gap-2",
 };
 
+/** 버튼 모양 그대로 — 새 탭 링크(<a>)처럼 버튼이 아닌 요소에 입힌다 */
+export function buttonClass(variant: ButtonVariant = "primary", size: ButtonSize = "md", className?: string) {
+  return cn(
+    "inline-flex select-none items-center justify-center whitespace-nowrap font-medium transition-colors duration-nd-fast ease-nd disabled:cursor-not-allowed",
+    variantCls[variant],
+    sizeCls[size],
+    className,
+  );
+}
+
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   size?: ButtonSize;
@@ -66,13 +76,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     <button
       ref={ref}
       type={type}
-      className={cn(
-        "inline-flex select-none items-center justify-center whitespace-nowrap font-medium transition-colors duration-nd-fast ease-nd disabled:cursor-not-allowed",
-        variantCls[variant],
-        sizeCls[size],
-        pill && "rounded-full",
-        className,
-      )}
+      className={buttonClass(variant, size, cn(pill && "rounded-full", className))}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       {...props}

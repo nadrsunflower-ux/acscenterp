@@ -367,6 +367,7 @@ export type ComplianceKey =
   | "invalidClick"
   | "dmConsent"
   | "clientApproval"
+  | "noPaidRelation"
   | "sourceRights";
 
 export interface CostEntry {
@@ -398,8 +399,9 @@ export type ProductionMode = "remix" | "hybrid" | "ai";
 /**
  * coupang = 쿠팡 파트너스 제휴 쇼츠 (내 채널에 올려 수수료)
  * brand   = 고객사(브랜드) 대행 영상 — 고객 승인을 받은 파일만 게시한다
+ * general = 일반 영상 (제휴 없음) — 제휴 링크 · 협찬 · 대가가 없는 영상. 고지 문구가 붙지 않는다
  */
-export type ProjectKind = "coupang" | "brand";
+export type ProjectKind = "coupang" | "brand" | "general";
 
 export interface ReviewRound {
   n: number;

@@ -54,7 +54,7 @@ export function Field({
 }) {
   return (
     <label className={cn("flex flex-col gap-1.5", className)}>
-      <span className="text-nd-caption font-medium text-nd-fg-2">
+      <span className="nd-field-label text-nd-caption font-medium text-nd-fg-2">
         {label}
         {required && (
           <span className="ml-0.5 text-nd-danger" aria-hidden>
@@ -64,11 +64,11 @@ export function Field({
       </span>
       {children}
       {error ? (
-        <span className="text-nd-caption text-nd-danger-text" role="alert">
+        <span className="nd-field-hint text-nd-caption text-nd-danger-text" role="alert">
           {error}
         </span>
       ) : (
-        hint && <span className="text-nd-caption text-nd-fg-3">{hint}</span>
+        hint && <span className="nd-field-hint text-nd-caption text-nd-fg-3">{hint}</span>
       )}
     </label>
   );

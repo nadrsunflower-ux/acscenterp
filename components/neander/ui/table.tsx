@@ -39,11 +39,22 @@ export function Table({
   className,
   minWidth,
   dense = false,
+  size = "sm",
   ...rest
-}: HTMLAttributes<HTMLTableElement> & { minWidth?: number; dense?: boolean }) {
+}: HTMLAttributes<HTMLTableElement> & {
+  minWidth?: number;
+  dense?: boolean;
+  /** md — 본문 14px · 머리글 13px · 줄 높이 넉넉히 (읽는 표). 기본 sm 은 13px (훑는 표) */
+  size?: "sm" | "md";
+}) {
   return (
     <table
-      className={cn("w-full border-collapse text-nd-table text-nd-fg", dense && "[&_td]:py-1.5 [&_th]:py-1.5", className)}
+      className={cn(
+        "w-full border-collapse text-nd-fg",
+        size === "md" ? "text-nd-body [&_td]:py-2.5 [&_th]:text-[13px]" : "text-nd-table",
+        dense && "[&_td]:py-1.5 [&_th]:py-1.5",
+        className,
+      )}
       style={minWidth ? { minWidth } : undefined}
       {...rest}
     >

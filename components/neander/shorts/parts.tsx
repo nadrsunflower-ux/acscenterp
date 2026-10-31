@@ -1,9 +1,10 @@
 "use client";
 
-// 쇼핑쇼츠 공용 화면 조각 — 출처 표시 · 상태 배지 · 「모름」 이 되는 숫자 칸
+// 쇼핑쇼츠 공용 화면 조각 — 출처 표시 · 상태 배지 · 「미확인」 이 되는 숫자 칸 · 종류 타일
 
-import { useCallback, useState } from "react";
-import { Badge, NumberInput, type Tone, useToast } from "@/components/neander/ui";
+import { useCallback, useState, type ReactNode } from "react";
+import { Building2, Film, ShoppingBag } from "lucide-react";
+import { Badge, NumberInput, cn, type Tone, useToast } from "@/components/neander/ui";
 import { PUBLICATION_LABEL, SOURCE_LABEL, STAGE_LABEL } from "@/lib/neander/shorts/model";
 import type { JobStatus, Measured, ProjectStage, PublicationStatus } from "@/lib/neander/shorts/types";
 
@@ -36,7 +37,12 @@ const STAGE_TONE: Record<ProjectStage, Tone> = {
   published: "success",
   archived: "neutral",
 };
-export const StageBadge = ({ stage }: { stage: ProjectStage }) => <Badge tone={STAGE_TONE[stage]}>{STAGE_LABEL[stage]}</Badge>;
+type BadgeSize = "sm" | "md" | "lg";
+export const StageBadge = ({ stage, size }: { stage: ProjectStage; size?: BadgeSize }) => (
+  <Badge tone={STAGE_TONE[stage]} size={size}>
+    {STAGE_LABEL[stage]}
+  </Badge>
+);
 
 export const JOB_LABEL: Record<JobStatus, string> = {
   queued: "대기",
@@ -58,7 +64,11 @@ const JOB_TONE: Record<JobStatus, Tone> = {
   uncertain: "warning",
   interrupted: "warning",
 };
-export const JobBadge = ({ status }: { status: JobStatus }) => <Badge tone={JOB_TONE[status]}>{JOB_LABEL[status]}</Badge>;
+export const JobBadge = ({ status, size }: { status: JobStatus; size?: BadgeSize }) => (
+  <Badge tone={JOB_TONE[status]} size={size}>
+    {JOB_LABEL[status]}
+  </Badge>
+);
 
 const PUB_TONE: Record<PublicationStatus, Tone> = {
   scheduled: "info",
@@ -70,20 +80,80 @@ const PUB_TONE: Record<PublicationStatus, Tone> = {
   uncertain: "warning",
   cancelled: "neutral",
 };
-export const PubBadge = ({ status }: { status: PublicationStatus }) => <Badge tone={PUB_TONE[status]}>{PUBLICATION_LABEL[status]}</Badge>;
-
-export const ConnBadge = ({ ok, on = "설정됨", off = "미연결" }: { ok: boolean; on?: string; off?: string }) => (
-  <Badge tone={ok ? "success" : "neutral"}>{ok ? on : off}</Badge>
+export const PubBadge = ({ status, size }: { status: PublicationStatus; size?: BadgeSize }) => (
+  <Badge tone={PUB_TONE[status]} size={size}>
+    {PUBLICATION_LABEL[status]}
+  </Badge>
 );
 
+/** 연결 · 설정 상태. 게시처럼 없으면 막히는 것은 offTone="danger" 와 off="연결 필요" */
+export const ConnBadge = ({
+  ok,
+  on = "설정됨",
+  off = "미연결",
+  offTone = "neutral",
+  size,
+}: {
+  ok: boolean;
+  on?: string;
+  off?: string;
+  offTone?: Tone;
+  size?: BadgeSize;
+}) => (
+  <Badge tone={ok ? "success" : offTone} size={size}>
+    {ok ? on : off}
+  </Badge>
+);
+
+/** 모르는 값 — 공개되지 않았거나 아직 확인하지 않은 숫자. 0 과 다르다 */
+export const UNKNOWN_LABEL = "미확인";
+export function Unknown({ title = "공개되지 않았거나 아직 확인하지 않은 값입니다 (0 이 아닙니다)" }: { title?: string }) {
+  return (
+    <span className="text-nd-fg-3" title={title}>
+      {UNKNOWN_LABEL}
+    </span>
+  );
+}
+
+/** 숫자 하나 — null 이면 「미확인」. 단위는 숫자 뒤에 옅게 */
+export function Num({ value, unit, digits }: { value: number | null | undefined; unit?: string; digits?: number }) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return <Unknown />;
+  return (
+    <span className="nd-num">
+      {value.toLocaleString("ko-KR", digits !== undefined ? { maximumFractionDigits: digits } : undefined)}
+      {unit && <span className="ml-0.5 text-nd-fg-3">{unit}</span>}
+    </span>
+  );
+}
+
 /**
- * 숫자 칸 — 비우면 null(모름 · 비공개). 0 을 치면 0 (확인해 보니 없음).
+ * 목록 줄 앞의 종류 타일 — 실제 파일이 없을 때 쓰는 아이콘 상자 (가짜 사진을 대신 넣지 않는다).
+ * 쿠팡 제휴 = 쇼핑백 · 고객사(브랜드) = 건물.
+ */
+export function KindTile({ kind, className, children }: { kind: "coupang" | "brand" | "general"; className?: string; children?: ReactNode }) {
+  const Icon = kind === "brand" ? Building2 : kind === "general" ? Film : ShoppingBag;
+  return (
+    <span
+      className={cn(
+        "relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-nd-sm",
+        kind === "brand" ? "bg-nd-info-soft text-nd-info-text" : kind === "general" ? "bg-nd-fg/[.06] text-nd-fg-2" : "bg-nd-accent-soft text-nd-accent-strong",
+        className ?? "h-10 w-10",
+      )}
+      aria-label={kind === "brand" ? "고객사 영상" : kind === "general" ? "일반 영상" : "쿠팡 제휴 영상"}
+    >
+      {children ?? <Icon size={18} aria-hidden />}
+    </span>
+  );
+}
+
+/**
+ * 숫자 칸 — 비우면 null(미확인 · 비공개). 0 을 치면 0 (확인해 보니 없음).
  * 출처 표시가 옆에 붙는다. 사람이 고치면 출처는 「직접 입력」 이 된다.
  */
 export function MeasuredInput({
   value,
   onChange,
-  placeholder = "모름",
+  placeholder = UNKNOWN_LABEL,
   disabled,
   ariaLabel,
 }: {

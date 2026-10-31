@@ -12,9 +12,9 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Briefcase, Plus } from "lucide-react";
-import { Badge, Button, Card, Dialog, EmptyState, Field, FormRow, Input, NumberInput, PageHeader, PageShell, Table, TableScroll, Td, Th, Tr } from "@/components/neander/ui";
+import { Badge, Button, Card, Dialog, EmptyState, Field, FormRow, Input, Meter, NumberInput, PageHeader, PageShell, Table, TableScroll, Td, Th, Tr } from "@/components/neander/ui";
 import { useShorts } from "@/components/neander/shorts/ShortsProvider";
-import { useAction } from "@/components/neander/shorts/parts";
+import { KindTile, Unknown, useAction } from "@/components/neander/shorts/parts";
 import { mutate } from "@/lib/neander/shorts/client";
 import { currentMonth, monthProgress } from "@/lib/neander/shorts/model";
 
@@ -45,14 +45,14 @@ export default function ClientsPage() {
       {rows.length === 0 ? (
         <EmptyState icon={Briefcase} title="고객사가 없습니다" description="계약한 브랜드를 등록하면 월별 영상 · 검토 링크 · 월간 보고를 여기서 관리합니다. 내가 담당자인 고객사만 보입니다." action={<Button onClick={() => setCreating(true)}>새 고객사</Button>} />
       ) : (
-        <Card padding="none">
+        <Card padding="none" className="overflow-hidden">
           <TableScroll>
-            <Table minWidth={900}>
+            <Table size="md" minWidth={980}>
               <thead>
                 <tr>
                   <Th>고객사</Th>
                   <Th>상태</Th>
-                  <Th align="right">{month.slice(5)}월 제작 / 계약</Th>
+                  <Th align="right">{Number(month.slice(5))}월 제작 / 계약</Th>
                   <Th align="right">승인</Th>
                   <Th align="right">검토 대기</Th>
                   <Th align="right">수정 요청</Th>
@@ -61,21 +61,50 @@ export default function ClientsPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ c, prog, overCap }) => (
-                  <Tr key={c.id} className="cursor-pointer" onClick={() => router.push(`/neander/shorts/clients/${c.id}`)}>
-                    <Td>
-                      <Link href={`/neander/shorts/clients/${c.id}`} className="font-medium hover:underline" onClick={(e) => e.stopPropagation()}>{c.name}</Link>
-                      {!c.canEdit && <span className="ml-2 text-nd-caption text-nd-fg-3">읽기 전용</span>}
-                    </Td>
-                    <Td><Badge size="sm" tone={STATUS[c.status][1]}>{STATUS[c.status][0]}</Badge></Td>
-                    <Td num className={prog.made < prog.planned ? "" : "text-nd-success-text"}>{prog.made} / {prog.planned}</Td>
-                    <Td num>{prog.approved}</Td>
-                    <Td num className={prog.waiting ? "text-nd-warning-text" : ""}>{prog.waiting}</Td>
-                    <Td num>{prog.revision}{overCap ? <span className="ml-1 text-nd-caption text-nd-danger-text">(상한 넘음 {overCap})</span> : null}</Td>
-                    <Td num>{c.contract.monthlyFeeKrw === null ? "—" : `${c.contract.monthlyFeeKrw.toLocaleString("ko-KR")}원 ${c.contract.vat === "excluded" ? "(부가세 별도)" : "(부가세 포함)"}`}</Td>
-                    <Td muted>{c.members.map(nameOf).join(", ")}</Td>
-                  </Tr>
-                ))}
+                {rows.map(({ c, prog, overCap }) => {
+                  const members = c.members.map(nameOf).join(", ");
+                  return (
+                    <Tr key={c.id} className="cursor-pointer" onClick={() => router.push(`/neander/shorts/clients/${c.id}`)}>
+                      <Td className="w-full max-w-0">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <KindTile kind="brand" className="h-9 w-9" />
+                          <div className="min-w-0">
+                            <Link href={`/neander/shorts/clients/${c.id}`} className="block truncate font-medium hover:underline" title={c.name} onClick={(e) => e.stopPropagation()}>{c.name}</Link>
+                            {!c.canEdit && <p className="text-[13px] text-nd-fg-3">읽기 전용</p>}
+                          </div>
+                        </div>
+                      </Td>
+                      <Td className="whitespace-nowrap"><Badge size="lg" dot tone={STATUS[c.status][1]}>{STATUS[c.status][0]}</Badge></Td>
+                      <Td num className="whitespace-nowrap">
+                        <span className="inline-flex items-center gap-2.5">
+                          <Meter value={prog.made} max={prog.planned} width={56} />
+                          <span className={prog.planned > 0 && prog.made >= prog.planned ? "text-nd-success-text" : ""}>
+                            {prog.made} <span className="text-nd-fg-3">/</span> {prog.planned}
+                            <span className="ml-0.5 text-[13px] text-nd-fg-3">편</span>
+                          </span>
+                        </span>
+                      </Td>
+                      <Td num>{prog.approved}</Td>
+                      <Td num className={prog.waiting ? "font-semibold text-nd-warning-text" : ""}>{prog.waiting}</Td>
+                      <Td num className="whitespace-nowrap">
+                        <span className={prog.revision ? "text-nd-danger-text" : ""}>{prog.revision}</span>
+                        {overCap ? <div className="text-[13px] text-nd-danger-text">상한 넘음 {overCap}</div> : null}
+                      </Td>
+                      <Td num className="whitespace-nowrap">
+                        {c.contract.monthlyFeeKrw === null ? (
+                          <Unknown title="계약 금액을 아직 적지 않았습니다" />
+                        ) : (
+                          <>
+                            {c.contract.monthlyFeeKrw.toLocaleString("ko-KR")}
+                            <span className="ml-0.5 text-nd-fg-3">원</span>
+                            <div className="text-[13px] text-nd-fg-3">{c.contract.vat === "excluded" ? "부가세 별도" : "부가세 포함"}</div>
+                          </>
+                        )}
+                      </Td>
+                      <Td className="max-w-[220px] truncate text-nd-fg-2" title={members}>{members || <span className="text-nd-fg-3">—</span>}</Td>
+                    </Tr>
+                  );
+                })}
               </tbody>
             </Table>
           </TableScroll>

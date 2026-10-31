@@ -3,8 +3,8 @@
 // 프로젝트 파일 — 목록 · 미리보기 주소 · 올리기 (조각 업로드는 lib/neander/shorts/client.ts)
 
 import { useCallback, useEffect, useState } from "react";
-import { Upload } from "lucide-react";
-import { DropZone, useToast } from "@/components/neander/ui";
+import { Film, ImageIcon, Upload, type LucideIcon } from "lucide-react";
+import { DropZone, cn, useToast } from "@/components/neander/ui";
 import { listClientMedia, listProjectMedia, loadMedia, uploadMedia } from "@/lib/neander/shorts/client";
 import { probeMedia } from "@/lib/neander/shorts/render";
 import type { MediaKind, MediaView } from "@/lib/neander/shorts/types";
@@ -125,6 +125,72 @@ export function MediaUpload({
       title={busy ? `올리는 중 ${busy}` : title}
       hint={hint ?? "파일 하나 60MB 까지 · 서버(Firestore 조각)에 저장되고 이 브라우저에 사본이 남습니다"}
     />
+  );
+}
+
+const fmtClock = (sec: number) => {
+  const s = Math.max(0, Math.round(sec));
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+};
+
+/**
+ * 등록된 파일의 썸네일 — 사진은 그대로, 영상은 첫 장면. 파일이 없거나 못 받으면 아이콘 상자.
+ * 파일 전체를 받아 오므로(브라우저 사본이 있으면 바로) 상세 화면에서 쓴다 — 긴 목록에는 KindTile.
+ */
+export function MediaThumb({
+  id,
+  type,
+  duration,
+  alt = "",
+  icon,
+  className,
+  fit = "cover",
+}: {
+  id: string | null | undefined;
+  /** MIME — video/* 면 첫 장면을 보여 준다 */
+  type?: string | null;
+  /** 초 — 있으면 오른쪽 아래에 길이 */
+  duration?: number | null;
+  alt?: string;
+  icon?: LucideIcon;
+  /** 크기 · 비율은 바깥에서 (예: "h-24 w-40" · "aspect-[9/16] w-20") */
+  className?: string;
+  fit?: "cover" | "contain";
+}) {
+  const { url, error } = useBlobUrl(id ?? null);
+  const isVideo = !!type?.startsWith("video/");
+  const Fallback = icon ?? (isVideo ? Film : ImageIcon);
+  const fitCls = fit === "contain" ? "object-contain" : "object-cover";
+  return (
+    <div className={cn("relative shrink-0 overflow-hidden rounded-nd-sm bg-nd-sunken", className)}>
+      {url && !error ? (
+        isVideo ? (
+          <video
+            src={url}
+            muted
+            playsInline
+            preload="metadata"
+            aria-label={alt || undefined}
+            className={cn("h-full w-full", fitCls)}
+            onLoadedMetadata={(e) => {
+              // 첫 프레임이 검은 화면인 영상이 많아 조금 뒤를 보여 준다
+              const v = e.currentTarget;
+              v.currentTime = Math.min(0.5, (v.duration || 1) / 2);
+            }}
+          />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={url} alt={alt} className={cn("h-full w-full", fitCls)} />
+        )
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-nd-fg-3" title={error ?? undefined}>
+          <Fallback size={20} aria-hidden />
+        </div>
+      )}
+      {duration ? (
+        <span className="nd-num absolute bottom-1 right-1 rounded bg-black/70 px-1.5 py-px text-[12px] font-medium text-white">{fmtClock(duration)}</span>
+      ) : null}
+    </div>
   );
 }
 

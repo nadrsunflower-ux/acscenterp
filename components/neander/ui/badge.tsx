@@ -33,7 +33,8 @@ export function Badge({
   color?: string;
   /** 왼쪽에 상태 점 */
   dot?: boolean;
-  size?: "sm" | "md";
+  /** lg — 13px · 표 안의 주요 상태처럼 읽혀야 하는 배지 */
+  size?: "sm" | "md" | "lg";
   className?: string;
 }) {
   const t = toneCls[tone];
@@ -41,7 +42,7 @@ export function Badge({
     <span
       className={cn(
         "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full font-medium",
-        size === "sm" ? "h-5 px-1.5 text-nd-micro" : "h-6 px-2 text-nd-caption",
+        size === "sm" ? "h-5 px-1.5 text-nd-micro" : size === "lg" ? "h-7 px-2.5 text-[13px]" : "h-6 px-2 text-nd-caption",
         !color && t.soft,
         !color && t.text,
         className,

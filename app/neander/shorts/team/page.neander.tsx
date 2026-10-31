@@ -14,8 +14,18 @@ import { useRouter } from "next/navigation";
 import { Badge, Card, InlineNotice, PageHeader, PageShell, Table, TableScroll, Td, Th, TotalRow, Tr } from "@/components/neander/ui";
 import { useAppData } from "@/components/neander/app-data";
 import { useShorts } from "@/components/neander/shorts/ShortsProvider";
-import { fmtUsd } from "@/components/neander/shorts/parts";
-import { fmtCount, fmtPct, perfRates, projectCost, projectTotals } from "@/lib/neander/shorts/model";
+import { Num, Unknown, fmtUsd } from "@/components/neander/shorts/parts";
+import { fmtPct, perfRates, projectCost, projectTotals, type PerfTotals } from "@/lib/neander/shorts/model";
+import type { AccountView } from "@/lib/neander/shorts/types";
+
+/** 영상별 합계를 더한다 — 지표마다 아는 값만 더하고, 아무 영상도 모르면 null(미확인) */
+function sumTotals(list: PerfTotals[]): PerfTotals {
+  const out = { sources: new Set<string>() } as PerfTotals;
+  const keys = ["views", "likes", "comments", "saves", "shares", "infoRequests", "clicks", "orders", "revenue"] as const;
+  for (const k of keys) out[k] = list.some((t) => t[k] !== null) ? list.reduce((n, t) => n + (t[k] ?? 0), 0) : null;
+  for (const t of list) for (const s of t.sources) out.sources.add(s);
+  return out;
+}
 
 const KEY_LABEL = { none: ["키 없음", "neutral"], unverified: ["확인 전", "warning"], ok: ["확인됨", "success"], failed: ["확인 실패", "danger"] } as const;
 
@@ -42,7 +52,9 @@ export default function TeamPage() {
         const projects = d.projects.filter((p) => p.owner === email && !p.sample);
         const ids = new Set(projects.map((p) => p.id));
         const pubs = d.publications.filter((x) => ids.has(x.projectId));
-        const totals = projectTotals(d.metrics.filter((m) => ids.has(m.projectId)));
+        // projectTotals 는 영상 한 편 단위다 — 게시에 안 묶인 쿠팡 기록은 플랫폼 열쇠 하나로 모이므로
+        // 여러 편을 한꺼번에 넣으면 마지막 한 편만 남는다. 영상마다 합친 뒤 더한다 (성과 비교와 같은 방식)
+        const totals = sumTotals(projects.map((p) => projectTotals(d.metrics.filter((m) => m.projectId === p.id))));
         const accounts = d.accounts.filter((a) => a.owner === email);
         const profile = d.profiles.find((p) => p.owner === email);
         return {
@@ -62,7 +74,9 @@ export default function TeamPage() {
       .sort((a, b) => (a.email === d.me ? -1 : b.email === d.me ? 1 : nameOf(a.email).localeCompare(nameOf(b.email), "ko")));
   }, [d, members, nameOf]);
 
-  const sum = (k: "views" | "infoRequests" | "clicks" | "orders" | "revenue") => rows.reduce((n, r) => n + (r.totals[k] ?? 0), 0);
+  // 모르는 지표는 빼고 더한다 — 아무도 모르면 0 이 아니라 「미확인」
+  const sum =(k: "views" | "infoRequests" | "clicks" | "orders" | "revenue") =>
+    rows.some((r) => r.totals[k] !== null) ? rows.reduce((n, r) => n + (r.totals[k] ?? 0), 0) : null;
   const open = (email: string) => {
     setViewer(email === d.me ? "mine" : email);
     router.push("/neander/shorts/projects");
@@ -83,9 +97,9 @@ export default function TeamPage() {
           관리자 몰아보기 — 다른 사람의 비공개 자료는 읽기만 합니다. 클릭수 · 전환율 · 수익금은 쿠팡 파트너스 기밀정보라 ERP 밖으로 공유하지 마세요.
         </InlineNotice>
       )}
-      <Card padding="none">
+      <Card padding="none" className="overflow-hidden">
         <TableScroll>
-          <Table minWidth={1240}>
+          <Table size="md" minWidth={1240}>
             <thead>
               <tr>
                 <Th sticky="left">사용자</Th>
@@ -106,32 +120,34 @@ export default function TeamPage() {
             <tbody>
               {rows.map((r) => {
                 const k = r.profile?.coupang.status ?? "none";
+                const subs = r.profile?.subIds.length ?? 0;
+                const keyMeta = [r.profile?.coupang.afCode, subs ? `채널 아이디 ${subs}개` : ""].filter(Boolean).join(" · ");
                 return (
                   <Tr key={r.email} selected={viewer === r.email || (viewer === "mine" && r.email === d.me)}>
-                    <Td sticky="left">
-                      <button type="button" className="text-left" onClick={() => open(r.email)}>
+                    <Td sticky="left" className="max-w-[240px]">
+                      <button type="button" className="block max-w-full text-left" onClick={() => open(r.email)}>
                         <span className="font-medium hover:underline">{nameOf(r.email)}</span>
-                        {r.email === d.me && <span className="ml-1 text-nd-caption text-nd-fg-3">(나)</span>}
-                        <div className="text-nd-caption text-nd-fg-3">{r.email}</div>
+                        {r.email === d.me && <span className="ml-1 text-[13px] text-nd-fg-3">(나)</span>}
+                        <span className="block truncate text-[13px] text-nd-fg-3" title={r.email}>{r.email}</span>
                       </button>
                     </Td>
-                    <Td className="text-nd-caption">{r.youtube.length ? r.youtube.map((a) => `${a.externalName}${a.coupangSubId ? ` · ${a.coupangSubId}` : ""}`).join(", ") : <span className="text-nd-fg-3">미연결</span>}</Td>
-                    <Td className="text-nd-caption">{r.instagram.length ? r.instagram.map((a) => `${a.externalName}${a.coupangSubId ? ` · ${a.coupangSubId}` : ""}`).join(", ") : <span className="text-nd-fg-3">미연결</span>}</Td>
-                    <Td>
-                      <Badge size="sm" tone={KEY_LABEL[k][1]}>{KEY_LABEL[k][0]}</Badge>
-                      <div className="text-nd-caption text-nd-fg-3">
-                        {r.profile?.coupang.afCode || ""}
-                        {r.profile?.subIds.length ? ` 채널 아이디 ${r.profile.subIds.length}개` : ""}
-                      </div>
+                    <Td><Channels accounts={r.youtube} /></Td>
+                    <Td><Channels accounts={r.instagram} /></Td>
+                    <Td className="whitespace-nowrap">
+                      <Badge size="lg" tone={KEY_LABEL[k][1]}>{KEY_LABEL[k][0]}</Badge>
+                      {keyMeta && <div className="mt-1 max-w-[180px] truncate text-[13px] text-nd-fg-3" title={keyMeta}>{keyMeta}</div>}
                     </Td>
-                    <Td num>{r.projects.length}</Td>
-                    <Td num>{r.published}{r.scheduled ? <span className="ml-1 text-nd-caption text-nd-fg-3">+예약 {r.scheduled}</span> : null}</Td>
-                    <Td num className={r.attention ? "text-nd-warning-text" : ""}>{r.attention}</Td>
-                    <Td num>{fmtCount(r.totals.views)}</Td>
-                    <Td num>{fmtCount(r.totals.infoRequests)} <span className="text-nd-fg-3">({fmtPct(r.rates.infoRate)})</span></Td>
-                    <Td num>{fmtCount(r.totals.clicks)} <span className="text-nd-fg-3">({fmtPct(r.rates.ctr)})</span></Td>
-                    <Td num>{fmtCount(r.totals.orders)}</Td>
-                    <Td num>{r.totals.revenue === null ? "—" : `${Math.round(r.totals.revenue).toLocaleString("ko-KR")}원`}</Td>
+                    <Td num><Num value={r.projects.length} /></Td>
+                    <Td num className="whitespace-nowrap">
+                      <Num value={r.published} />
+                      {r.scheduled ? <div className="text-[13px] text-nd-fg-3">+예약 {r.scheduled}</div> : null}
+                    </Td>
+                    <Td num className={r.attention ? "font-semibold text-nd-warning-text" : ""}>{r.attention}</Td>
+                    <Td num><Num value={r.totals.views} /></Td>
+                    <Td num><CountRate value={r.totals.infoRequests} rate={r.rates.infoRate} /></Td>
+                    <Td num><CountRate value={r.totals.clicks} rate={r.rates.ctr} /></Td>
+                    <Td num><Num value={r.totals.orders} /></Td>
+                    <Td num className="whitespace-nowrap"><Num value={r.totals.revenue === null ? null : Math.round(r.totals.revenue)} unit="원" /></Td>
                     <Td num>{fmtUsd(r.aiUsd || null)}</Td>
                   </Tr>
                 );
@@ -142,14 +158,14 @@ export default function TeamPage() {
                   <Td />
                   <Td />
                   <Td />
-                  <Td num>{rows.reduce((n, r) => n + r.projects.length, 0)}</Td>
-                  <Td num>{rows.reduce((n, r) => n + r.published, 0)}</Td>
-                  <Td num>{rows.reduce((n, r) => n + r.attention, 0)}</Td>
-                  <Td num>{fmtCount(sum("views"))}</Td>
-                  <Td num>{fmtCount(sum("infoRequests"))}</Td>
-                  <Td num>{fmtCount(sum("clicks"))}</Td>
-                  <Td num>{fmtCount(sum("orders"))}</Td>
-                  <Td num>{Math.round(sum("revenue")).toLocaleString("ko-KR")}원</Td>
+                  <Td num>{rows.reduce((n, r) => n + r.projects.length, 0).toLocaleString("ko-KR")}</Td>
+                  <Td num>{rows.reduce((n, r) => n + r.published, 0).toLocaleString("ko-KR")}</Td>
+                  <Td num>{rows.reduce((n, r) => n + r.attention, 0).toLocaleString("ko-KR")}</Td>
+                  <Td num><Num value={sum("views")} /></Td>
+                  <Td num><Num value={sum("infoRequests")} /></Td>
+                  <Td num><Num value={sum("clicks")} /></Td>
+                  <Td num><Num value={sum("orders")} /></Td>
+                  <Td num className="whitespace-nowrap"><Num value={sum("revenue") === null ? null : Math.round(sum("revenue")!)} unit="원" /></Td>
                   <Td num>{fmtUsd(rows.reduce((n, r) => n + r.aiUsd, 0) || null)}</Td>
                 </TotalRow>
               )}
@@ -157,9 +173,33 @@ export default function TeamPage() {
           </Table>
         </TableScroll>
       </Card>
-      <p className="mt-2 text-nd-caption text-nd-fg-3">
-        성과는 영상을 만든 사람 기준으로 묶습니다 (출처별 마지막 기록 · 모르는 지표는 빼고 합). 쿠팡 주문 · 수익은 각자의 키로 각자의 리포트만 읽습니다.
+      <p className="mt-2 text-[13px] text-nd-fg-3">
+        성과는 영상을 만든 사람 기준으로 묶습니다 (출처별 마지막 기록 · 모르는 지표는 빼고 합 · 아무도 모르는 지표는 「미확인」). 쿠팡 주문 · 수익은 각자의 키로 각자의 리포트만 읽습니다.
       </p>
     </PageShell>
+  );
+}
+
+/** 게시 계정 — 게시에 꼭 필요하다. 없으면 「연결 필요」 (빨강), 끊긴 것이 있으면 「다시 연결 필요」 */
+function Channels({ accounts }: { accounts: AccountView[] }) {
+  if (!accounts.length) return <Badge size="lg" tone="danger">연결 필요</Badge>;
+  const names = accounts.map((a) => `${a.externalName}${a.coupangSubId ? ` · ${a.coupangSubId}` : ""}`).join(", ");
+  const broken = accounts.some((a) => a.status === "needs_reauth");
+  return (
+    <div className="min-w-0">
+      <Badge size="lg" tone={broken ? "danger" : "success"}>{broken ? "다시 연결 필요" : `연결됨 ${accounts.length}`}</Badge>
+      <div className="mt-1 max-w-[200px] truncate text-[13px] text-nd-fg-3" title={names}>{names}</div>
+    </div>
+  );
+}
+
+/** 숫자 + 그 아래 비율. 숫자를 모르면 「미확인」, 분모가 0 이면 비율은 「—」 */
+function CountRate({ value, rate }: { value: number | null; rate: number | null }) {
+  if (value === null) return <Unknown />;
+  return (
+    <div className="leading-snug">
+      <Num value={value} />
+      <div className="nd-num text-[13px] text-nd-fg-3">({rate === null ? "—" : fmtPct(rate)})</div>
+    </div>
   );
 }

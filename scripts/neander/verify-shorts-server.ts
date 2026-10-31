@@ -104,7 +104,10 @@ async function main() {
     ok(c1.confirmedBy === A, "동일 상품 확인자는 서버가 요청자로 찍음", String(c1.confirmedBy));
     ok(c1.source === "manual", "화면이 「API 검색에서 찾음」 을 주장해도 직접 추가로 기록", c1.source);
     ok(cur.coupang.affiliate?.by === A && cur.coupang.affiliate.method === "manual", "제휴 링크의 만든 사람 · 방식도 서버가 정함");
-    ok(Object.values(cur.compliance).every((c) => c?.user?.by === A && c.system === null), "정책 확인: 사람 확인자는 요청자, 프로그램 확인 칸은 브라우저 값을 버림");
+    ok(
+      COMPLIANCE_ITEMS.every((i) => cur.compliance[i.key]?.user?.by === A) && Object.values(cur.compliance).every((c) => c?.system === null),
+      "정책 확인: 사람 확인자는 요청자, 프로그램 확인 칸은 브라우저 값을 버림",
+    );
     await rejects(store.saveProject(db, A, pid, { ...cur, coupang: { ...cur.coupang, affiliate: { url: "https://bit.ly/x" } } }, cur.updatedAt), /link\.coupang\.com/, "쿠팡 파트너스 주소가 아니면 저장 거절");
 
     const tid = await store.saveTrend(db, A, null, { url: "https://www.xiaohongshu.com/explore/abc", product: "선반", metrics: { views: { v: 5000, src: "api" }, saves: { v: null, src: "manual" } } });
@@ -484,6 +487,42 @@ async function main() {
     await db.collection(NEANDER_COL.shortsAccounts).doc(otherAccId).delete();
     await clients.deleteClient(db, A, cid);
     ok(!(await db.collection(NEANDER_COL.shortsClients).doc(cid).get()).exists && (await db.collection(NEANDER_COL.shortsMedia).where("clientId", "==", cid).get()).empty, "고객사 지우기: 자료(제품 사진)도 함께");
+    // ---- 13. 일반 영상 (제휴 없음) ----
+    const gp = await store.createProject(db, A, { product: "검증 정리", kind: "general", visibility: "private" });
+    created.projects.push(gp);
+    let gDoc = await store.getProject(db, A, gp);
+    ok(gDoc.kind === "general", "일반 영상(제휴 없음) 만들기");
+    const gr = await media.saveBytes(db, A, { projectId: gp, kind: "render", name: "g.mp4", type: "video/mp4", duration: 6, width: 720, height: 1280, origin: null, codecs: { video: "avc", audio: "aac" }, overlay: null }, randomBytes(2000));
+    await store.patchProject(db, gp, A, (pp) => void pp.renderIds.push(gr.id));
+    gDoc = await store.getProject(db, A, gp);
+    gDoc = await store.saveProject(db, A, gp, { ...gDoc, publish: { ...gDoc.publish, title: "검증 일반 영상", description: "정리 순서 세 가지", synthetic: false } }, gDoc.updatedAt);
+    let gprep = await pubs.preparePublish(db, A, { projectId: gp, accountId: accId, renderId: gr.id });
+    ok(!gprep.caption.includes(DISCLOSURE) && gprep.caption.startsWith("정리 순서"), "일반 영상: 게시 문구에 쿠팡 고지 · 링크 없음", gprep.caption.split("\n")[0]);
+    ok(Object.keys(gprep.checks).sort().join() === "claims,noPaidRelation,sourceRights", "일반 영상: 쿠팡 확인 항목(채널 등록 · 상품 일치 · DM) 없음", Object.keys(gprep.checks).join());
+    ok(gprep.blockers.map((b) => b.key).sort().join() === "claims,noPaidRelation" && gprep.problems.length === 0, "사람 확인 전에는 「대가 없음」 · 표현 확인만 남음", gprep.blockers.map((b) => b.key).join() + " / " + gprep.problems.join(" "));
+    gDoc = await store.getProject(db, A, gp);
+    gDoc = await store.saveProject(db, A, gp, { ...gDoc, compliance: { ...gDoc.compliance, noPaidRelation: { system: null, user: { ok: true } }, claims: { system: null, user: { ok: true } } } }, gDoc.updatedAt);
+    gprep = await pubs.preparePublish(db, A, { projectId: gp, accountId: accId, renderId: gr.id });
+    ok(gprep.blockers.length === 0, "사람이 확인하면 쿠팡 승인 없이 게시할 수 있음", gprep.blockers.map((b) => b.key).join());
+    gDoc = await store.getProject(db, A, gp);
+    gDoc = await store.saveProject(db, A, gp, { ...gDoc, publish: { ...gDoc.publish, description: "제품은 https://link.coupang.com/a/zzz" } }, gDoc.updatedAt);
+    gprep = await pubs.preparePublish(db, A, { projectId: gp, accountId: accId, renderId: gr.id });
+    ok(gprep.checks.noPaidRelation?.system?.ok === false && gprep.blockers.some((b) => b.key === "noPaidRelation"), "일반 영상에 쿠팡 제휴 링크가 있으면 사람 확인이 있어도 막힘", gprep.checks.noPaidRelation?.system?.detail);
+    const gClientAcc = accounts.accountId("youtube", "UCgeneralclient", A);
+    await db.collection(NEANDER_COL.shortsAccounts).doc(gClientAcc).set({ ...acc, externalId: "UCgeneralclient", externalName: "검증 고객사 계정", sealed: secret.sealTokens({ refreshToken: "r" }, gClientAcc), coupangChannel: null, coupangSubId: null, clientId: "verifyGoneClient", clientMembers: [A] });
+    gprep = await pubs.preparePublish(db, A, { projectId: gp, accountId: gClientAcc, renderId: gr.id });
+    ok(gprep.problems.some((x) => /일반 영상을 올리지 않습니다/.test(x)), "고객사 소유 계정에는 일반 영상을 못 올림");
+    await db.collection(NEANDER_COL.shortsAccounts).doc(gClientAcc).delete();
+    gDoc = await store.getProject(db, A, gp);
+    await rejects(store.saveProject(db, A, gp, { ...gDoc, kind: "brand" }, gDoc.updatedAt), /고객사 화면/, "일반 → 고객사 영상으로 바꾸기는 거절");
+    gDoc = await store.saveProject(db, A, gp, { ...gDoc, kind: "coupang" }, gDoc.updatedAt);
+    ok(gDoc.kind === "coupang", "일반 ↔ 쿠팡은 바꿀 수 있음");
+    const bp2 = await store.createProject(db, A, { product: "검증 브랜드 흉내" });
+    created.projects.push(bp2);
+    await store.patchProject(db, bp2, A, (pp) => void (pp.kind = "brand"));
+    const bp2Doc = await store.getProject(db, A, bp2);
+    await rejects(store.saveProject(db, A, bp2, { ...bp2Doc, kind: "general" }, bp2Doc.updatedAt), /종류를 바꿀 수 없습니다/, "고객사 영상은 종류를 바꿀 수 없음");
+
     platforms.setPlatformFetch(null);
   } finally {
     // ---- 정리 ----

@@ -21,6 +21,8 @@ import { scout, useScoutData } from "@/components/neander/shorts/scout/useScout"
 
 type Tab = "report" | "hits" | "formats" | "channels";
 
+const DESCRIPTION = "나라별 감시 채널에서 평소보다 크게 터진 쇼츠를 모아 「어떻게 만들었나」 로 묶고, 해외에서 떠오르는데 한국 표본엔 아직 없는 형식을 주간 보고로 뽑습니다.";
+
 export default function ScoutPage() {
   const { data: d, error, refresh } = useScoutData();
   const toast = useToast();
@@ -28,7 +30,18 @@ export default function ScoutPage() {
   const [tab, setTab] = useState<Tab>("report");
   const [formatId, setFormatId] = useState<string | null>(null);
 
-  if (!d) return error ? <ErrorState title="정찰 자료를 불러오지 못했습니다" description={error} action={<Button size="sm" variant="secondary" onClick={() => void refresh()}>다시 시도</Button>} /> : <LoadingState label="정찰 자료를 불러오는 중" />;
+  if (!d) {
+    return (
+      <PageShell>
+        <PageHeader title="바이럴 형식" description={DESCRIPTION} />
+        {error ? (
+          <ErrorState title="정찰 자료를 불러오지 못했습니다" description={error} action={<Button size="sm" variant="secondary" onClick={() => void refresh()}>다시 시도</Button>} />
+        ) : (
+          <LoadingState label="정찰 자료를 불러오는 중" />
+        )}
+      </PageShell>
+    );
+  }
 
   const keyReady = !!d.quotas.youtubeSearch.source;
   const openFormat = (id: string) => {
@@ -41,7 +54,7 @@ export default function ScoutPage() {
     <PageShell>
       <PageHeader
         title="바이럴 형식"
-        description="나라별 감시 채널에서 평소보다 크게 터진 쇼츠를 모아 「어떻게 만들었나」 로 묶고, 해외에서 떠오르는데 한국 표본엔 아직 없는 형식을 주간 보고로 뽑습니다."
+        description={DESCRIPTION}
         actions={
           <Button
             icon={RefreshCw}
@@ -83,9 +96,9 @@ export default function ScoutPage() {
         ariaLabel="정찰"
       />
 
-      {tab === "report" && <ReportTab d={d} refresh={refresh} onOpenFormat={openFormat} />}
+      {tab === "report" && <ReportTab d={d} refresh={refresh} onOpenFormat={openFormat} onOpenHits={() => setTab("hits")} />}
       {tab === "hits" && <HitsTab d={d} refresh={refresh} onOpenFormat={openFormat} />}
-      {tab === "formats" && <FormatsTab d={d} refresh={refresh} openId={formatId} setOpenId={setFormatId} />}
+      {tab === "formats" && <FormatsTab d={d} refresh={refresh} openId={formatId} setOpenId={setFormatId} onOpenHits={() => setTab("hits")} />}
       {tab === "channels" && <ChannelsTab d={d} refresh={refresh} />}
     </PageShell>
   );

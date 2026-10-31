@@ -89,7 +89,7 @@ export function EmptyState({
         )
       )}
       <p className="text-nd-body font-medium text-nd-fg">{title}</p>
-      {description && <p className="mt-1 max-w-md text-nd-caption leading-relaxed text-nd-fg-3">{description}</p>}
+      {description && <p className="nd-empty-desc mt-1 max-w-md text-nd-caption leading-relaxed text-nd-fg-3">{description}</p>}
       {action && <div className="mt-4 flex flex-wrap items-center justify-center gap-2">{action}</div>}
     </div>
   );

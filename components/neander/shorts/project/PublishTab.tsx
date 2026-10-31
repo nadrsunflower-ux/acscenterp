@@ -10,16 +10,16 @@
 //  결과가 불확실하면 자동으로 다시 올리지 않는다 — 사람이 플랫폼에서 보고 기록한다.
 // ============================================================
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { CircleCheck, CircleX, Copy, Send } from "lucide-react";
-import { Badge, Button, Card, Checkbox, Dialog, Field, FormRow, InlineNotice, Input, SectionHeader, Select, Textarea, useToast } from "@/components/neander/ui";
+import { CircleCheck, CircleDashed, CircleX, Clapperboard, Copy, Plug, Send } from "lucide-react";
+import { Badge, Button, Card, Checkbox, Dialog, EmptyState, Field, FieldAction, FormRow, InlineNotice, Input, SectionHeader, Select, Textarea, buttonClass, cn, useToast } from "@/components/neander/ui";
 import { mutate, notePendingJobs, shortsPost } from "@/lib/neander/shorts/client";
-import { CAPTION_LIMIT, DISCLOSURE, PLATFORM_LABEL, PUBLICATION_LABEL, TITLE_LIMIT, buildCaption, captionLength, complianceItemsFor, disclosureLine, hashtagLine } from "@/lib/neander/shorts/model";
-import type { ComplianceCheck, ComplianceKey, PublicationView, PublishPlatform } from "@/lib/neander/shorts/types";
+import { CAPTION_LIMIT, DISCLOSURE, PLATFORM_LABEL, PUBLICATION_LABEL, TITLE_LIMIT, buildCaption, captionLength, complianceBlockers, complianceItemsFor, disclosureLine, hashtagLine } from "@/lib/neander/shorts/model";
+import type { AccountView, ComplianceCheck, ComplianceKey, MediaView, PublicationView, PublishPlatform } from "@/lib/neander/shorts/types";
 import { useShorts } from "../ShortsProvider";
-import { PubBadge, fmtWhen, useAction } from "../parts";
-import { useProjectMedia } from "../media";
+import { ConnBadge, PubBadge, fmtWhen, useAction } from "../parts";
+import { useBlobUrl, useProjectMedia } from "../media";
 import type { Draft } from "../useProjectDraft";
 
 interface Prepared {
@@ -40,7 +40,7 @@ export function PublishTab({ draft }: { draft: Draft }) {
   const d = data!;
   const toast = useToast();
   const { busy, run } = useAction();
-  const { media } = useProjectMedia(p.id);
+  const { media, loading: mediaLoading } = useProjectMedia(p.id);
   const renders = media.filter((m) => m.kind === "render" && p.renderIds.includes(m.id)).sort((a, b) => b.createdAt - a.createdAt);
   // 브랜드 영상: 그 고객사 계정 + 우리 채널 · 쿠팡 영상: 고객사 계정은 빼고
   const accounts = d.accounts.filter((a) => a.canPublish && (p.kind === "brand" ? !a.clientId || a.clientId === p.clientId : !a.clientId));
@@ -55,6 +55,23 @@ export function PublishTab({ draft }: { draft: Draft }) {
   const caption = useMemo(() => buildCaption(p, platform, { ownBrandAccount }), [p, platform, ownBrandAccount]);
   const items = complianceItemsFor(p, ownBrandAccount);
   const titleLen = [...(p.publish.title || p.title)].length;
+  const selectedRender = renders.find((r) => r.id === (renderId || renders[0]?.id)) ?? null;
+  // 남은 확인 — 마지막 「게시 전 점검」 의 프로그램 확인과 지금 사람 확인으로 (서버가 게시 직전에 다시 계산한다)
+  const remaining = complianceBlockers(
+    Object.fromEntries(items.map((it) => [it.key, { system: prep?.checks[it.key]?.system ?? p.compliance[it.key]?.system ?? null, user: p.compliance[it.key]?.user ?? null }])),
+    items,
+  );
+  const checkedOnce = items.some((it) => (prep?.checks[it.key]?.system ?? p.compliance[it.key]?.system) != null);
+  const ready = !!prep && !prep.problems.length && !prep.blockers.length;
+  const blockedWhy = !accounts.length
+    ? "게시할 계정이 연결되지 않아 게시할 수 없습니다."
+    : !renders.length
+      ? "완성 파일이 없어 게시할 수 없습니다."
+      : !prep
+        ? "「게시 전 점검」 을 먼저 하세요 — 통과하면 게시 버튼이 켜집니다."
+        : prep.problems.length || prep.blockers.length
+          ? "점검에서 막힌 항목을 해결해야 게시할 수 있습니다."
+          : null;
 
   const prepare = () =>
     run("prep", async () => {
@@ -83,17 +100,17 @@ export function PublishTab({ draft }: { draft: Draft }) {
     });
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
       <section>
-        <SectionHeader title="게시 설정" />
-        <Card className="space-y-3">
-          <Field label="제목" error={titleLen > TITLE_LIMIT ? `${TITLE_LIMIT}자 이하 (${titleLen}자)` : undefined} hint="YouTube 제목 · Instagram 은 캡션만 씁니다">
+        <SectionHeader size="lg" title="게시 설정" hint="제목 · 설명 · 해시태그 · 공개 범위 · 고지" />
+        <Card className="space-y-4">
+          <Field label="제목" error={titleLen > TITLE_LIMIT ? `${TITLE_LIMIT}자 이하 (${titleLen}자)` : undefined} hint={`YouTube 제목 · Instagram 은 캡션만 씁니다 · ${titleLen}/${TITLE_LIMIT}자`}>
             <Input value={p.publish.title} placeholder={p.title} onChange={(e) => update((x) => void (x.publish.title = e.target.value))} />
           </Field>
           <Field label="설명 (고지 문구는 맨 앞에 저절로 붙습니다)">
             <Textarea rows={4} value={p.publish.description} onChange={(e) => update((x) => void (x.publish.description = e.target.value))} />
           </Field>
-          <FormRow className="grid-cols-1 sm:grid-cols-[2fr_1fr_1fr]">
+          <FormRow className="grid-cols-1 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
             <Field label="해시태그 (쉼표)"><Input value={p.publish.hashtags.join(", ")} onChange={(e) => update((x) => void (x.publish.hashtags = e.target.value.split(",").map((s) => s.trim()).filter(Boolean)))} /></Field>
             <Field label="공개 범위 (YouTube)">
               <Select value={p.publish.privacy} onChange={(e) => update((x) => void (x.publish.privacy = e.target.value as typeof x.publish.privacy))}>
@@ -123,49 +140,89 @@ export function PublishTab({ draft }: { draft: Draft }) {
       </section>
 
       <section>
-        <SectionHeader title={`게시 문구 미리보기 · ${PLATFORM_LABEL[platform]}`} hint={`${captionLength(caption, platform).toLocaleString()} / ${CAPTION_LIMIT[platform].toLocaleString()}${platform === "youtube" ? "바이트" : "자"}`} action={<Button size="sm" variant="ghost" icon={Copy} onClick={() => void navigator.clipboard.writeText(caption).then(() => toast.success("복사했습니다."))}>복사</Button>} />
+        <SectionHeader
+          size="lg"
+          title={`게시 문구 미리보기 · ${PLATFORM_LABEL[platform]}`}
+          hint={`${captionLength(caption, platform).toLocaleString()} / ${CAPTION_LIMIT[platform].toLocaleString()}${platform === "youtube" ? "바이트" : "자"}`}
+          action={<Button size="sm" variant="secondary" icon={Copy} onClick={() => void navigator.clipboard.writeText(caption).then(() => toast.success("복사했습니다."))}>복사</Button>}
+        />
         <Card>
-          <pre className="whitespace-pre-wrap break-words font-sans text-nd-body">{caption}</pre>
-          {platform === "instagram" && p.coupang.affiliate && <p className="mt-2 text-nd-caption text-nd-fg-3">Instagram 캡션의 링크는 눌리지 않아 넣지 않았습니다 — 프로필 링크 · 댓글 키워드 CTA 를 쓰세요.</p>}
+          <pre className="whitespace-pre-wrap break-words font-sans text-nd-body leading-relaxed">{caption}</pre>
+          {platform === "instagram" && p.coupang.affiliate && <p className="mt-2 text-[13px] text-nd-fg-3">Instagram 캡션의 링크는 눌리지 않아 넣지 않았습니다 — 프로필 링크 · 댓글 키워드 CTA 를 쓰세요.</p>}
         </Card>
       </section>
 
       <section>
         <SectionHeader
-          title={p.kind === "brand" ? `게시 전 확인 · ${ownBrandAccount ? "고객사 계정 (자기 광고)" : "우리 채널 (대가 받은 광고)"}` : "쿠팡 파트너스 정책 확인"}
-          hint={p.kind === "brand" ? "프로그램 확인과 사람 확인을 따로 남깁니다 · 공정위 추천·보증 심사지침 기준" : "프로그램 확인과 사람 확인을 따로 남깁니다 · 2026-09-07 시행 약관 · 운영정책 기준"}
+          size="lg"
+          title={
+            p.kind === "brand"
+              ? `게시 전 확인 · ${ownBrandAccount ? "고객사 계정 (자기 광고)" : "우리 채널 (대가 받은 광고)"}`
+              : p.kind === "general"
+                ? "게시 전 확인 · 일반 영상 (제휴 없음)"
+                : "쿠팡 파트너스 정책 확인"
+          }
+          hint={
+            p.kind === "coupang"
+              ? "프로그램 확인과 사람 확인을 따로 남깁니다 · 2026-09-07 시행 약관 · 운영정책 기준"
+              : p.kind === "general"
+                ? "프로그램 확인과 사람 확인을 따로 남깁니다 · 광고가 아니라 고지 문구가 붙지 않습니다"
+                : "프로그램 확인과 사람 확인을 따로 남깁니다 · 공정위 추천·보증 심사지침 기준"
+          }
+          action={
+            <>
+              {!checkedOnce && <Badge size="lg">프로그램 점검 전</Badge>}
+              <Badge tone={remaining.length ? "warning" : "success"} size="lg">{remaining.length ? `남은 확인 ${remaining.length}개` : "필수 확인 모두 됨"}</Badge>
+            </>
+          }
         />
         <Card padding="none">
+          <div className="hidden grid-cols-[minmax(0,1fr)_9.5rem_14rem] gap-4 border-b border-nd-line px-4 py-2 text-[13px] font-medium text-nd-fg-3 md:grid">
+            <span>확인 항목</span>
+            <span>프로그램 확인</span>
+            <span>사람 확인</span>
+          </div>
           <ul className="divide-y divide-nd-line">
             {items.map((item) => {
               const c = p.compliance[item.key];
               const sys = prep?.checks[item.key]?.system ?? c?.system ?? null;
               return (
-                <li key={item.key} className="px-4 py-3">
-                  <div className="flex flex-wrap items-start gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-nd-body font-medium">
-                        {item.label} {!item.required && <Badge size="sm">선택</Badge>}
-                      </p>
-                      <p className="text-nd-caption text-nd-fg-3">{item.how}</p>
-                    </div>
-                    <div className="flex flex-col items-end gap-1.5">
-                      <span className="flex items-center gap-1.5 text-nd-caption">
-                        <span className="text-nd-fg-3">프로그램</span>
-                        {sys ? (sys.ok ? <Badge tone="success" size="sm"><CircleCheck size={11} className="mr-0.5 inline" />통과</Badge> : <Badge tone={item.required ? "danger" : "neutral"} size="sm"><CircleX size={11} className="mr-0.5 inline" />안 됨</Badge>) : <Badge size="sm">{item.key === "dmConsent" ? "확인 불가 (사람만)" : "점검 전"}</Badge>}
-                      </span>
-                      {item.key === "clientApproval" ? (
-                        <span className="text-nd-caption text-nd-fg-3">승인 기록으로만 (「고객 승인」 탭)</span>
-                      ) : (
-                        <Checkbox
-                          label={<span className="text-nd-caption">사람 확인{c?.user ? ` · ${c.user.by === d.me ? "나" : c.user.by} ${fmtWhen(c.user.at)}` : ""}</span>}
-                          checked={!!c?.user?.ok}
-                          onChange={(e) => userCheck(item.key, e.target.checked)}
-                        />
-                      )}
-                    </div>
+                <li key={item.key} className="grid gap-x-4 gap-y-2 px-4 py-3 md:grid-cols-[minmax(0,1fr)_9.5rem_14rem] md:items-start">
+                  <div className="min-w-0">
+                    <p className="flex flex-wrap items-center gap-1.5 text-nd-body font-medium text-nd-fg">
+                      {item.label} {!item.required && <Badge>선택</Badge>}
+                    </p>
+                    <p className="mt-0.5 text-[13px] text-nd-fg-3">{item.how}</p>
+                    {sys && <p className={cn("mt-1 text-[13px]", sys.ok ? "text-nd-fg-2" : item.required ? "text-nd-danger-text" : "text-nd-fg-2")}>{sys.detail}</p>}
                   </div>
-                  {sys && <p className={`mt-1 text-nd-caption ${sys.ok ? "text-nd-fg-2" : "text-nd-danger-text"}`}>{sys.detail}</p>}
+                  <div className="flex items-center gap-2 md:pt-0.5">
+                    <span className="text-[13px] text-nd-fg-3 md:hidden">프로그램</span>
+                    {sys ? (
+                      sys.ok ? (
+                        <Badge tone="success" size="lg"><CircleCheck size={14} aria-hidden />통과</Badge>
+                      ) : (
+                        <Badge tone={item.required ? "danger" : "neutral"} size="lg"><CircleX size={14} aria-hidden />안 됨</Badge>
+                      )
+                    ) : (
+                      <Badge size="lg"><CircleDashed size={14} aria-hidden />{item.key === "dmConsent" ? "확인 불가 (사람만)" : "점검 전"}</Badge>
+                    )}
+                  </div>
+                  <div className="min-w-0 md:pt-1">
+                    {item.key === "clientApproval" ? (
+                      <span className="text-[13px] text-nd-fg-3">승인 기록으로만 (「고객 승인」 탭)</span>
+                    ) : (
+                      <Checkbox
+                        label={
+                          <span className="text-nd-body">
+                            사람 확인
+                            {c?.user && <span className="ml-1 text-[13px] text-nd-fg-3">· {c.user.by === d.me ? "나" : c.user.by} {fmtWhen(c.user.at)}</span>}
+                          </span>
+                        }
+                        checked={!!c?.user?.ok}
+                        onChange={(e) => userCheck(item.key, e.target.checked)}
+                      />
+                    )}
+                  </div>
                 </li>
               );
             })}
@@ -175,31 +232,59 @@ export function PublishTab({ draft }: { draft: Draft }) {
       </section>
 
       <section>
-        <SectionHeader title="게시" />
-        <Card className="space-y-3">
-          {accounts.length === 0 ? (
-            <InlineNotice tone="neutral" action={<Link href="/neander/shorts/accounts"><Button size="sm" variant="secondary">계정 연결</Button></Link>}>
-              {p.kind === "brand" ? "게시할 계정이 없습니다. 고객사 화면에서 고객사 계정을 연결하거나, 우리 채널(내 채널 · 연결)을 연결하세요." : "게시할 수 있는 계정이 없습니다. YouTube · Instagram 계정을 연결하거나, 연결한 팀원에게 공유를 요청하세요."}
-            </InlineNotice>
-          ) : renders.length === 0 ? (
-            <InlineNotice tone="neutral">완성 파일이 없습니다. 「편집·출력」 탭에서 MP4 를 출력하세요.</InlineNotice>
-          ) : (
-            <>
-              <FormRow className="grid-cols-1 sm:grid-cols-[1.5fr_1.5fr_auto]">
+        <SectionHeader size="lg" title="게시" hint="완성 파일 · 게시 채널 · 지금 게시 또는 예약" />
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+          <Card className="min-w-0">
+            <h3 className="mb-3 text-nd-section text-nd-fg">완성 파일</h3>
+            {renders.length === 0 ? (
+              <EmptyState
+                compact
+                icon={Clapperboard}
+                title={mediaLoading ? "파일 목록을 불러오는 중…" : "완성 파일이 없습니다"}
+                description="「편집·출력」 탭에서 MP4 를 출력하세요."
+                action={<Link href={`/neander/shorts/projects/${p.id}?tab=edit`} scroll={false} className={buttonClass("secondary", "sm")}>편집·출력으로</Link>}
+              />
+            ) : (
+              <div className="space-y-3">
+                {renders.length > 1 && (
+                  <Field label="게시할 완성 파일">
+                    <Select value={renderId || renders[0]?.id} onChange={(e) => { setRenderId(e.target.value); setPrep(null); }}>
+                      {renders.map((r) => <option key={r.id} value={r.id}>{fmtWhen(r.createdAt)} · {r.duration?.toFixed(1)}초 · {r.codecs?.video}/{r.codecs?.audio}{r.overlay?.disclosure ? " · 고지 띠" : ""}</option>)}
+                    </Select>
+                  </Field>
+                )}
+                {selectedRender && <RenderInfo r={selectedRender} />}
+              </div>
+            )}
+          </Card>
+
+          <Card className="min-w-0 space-y-4">
+            <div>
+              <h3 className="mb-2 text-nd-section text-nd-fg">게시 채널 (연결 상태)</h3>
+              <ul className="divide-y divide-nd-line rounded-nd-md border border-nd-line">
+                {(["youtube", "instagram"] as const).map((pf) => (
+                  <ChannelRow key={pf} platform={pf} accounts={accounts.filter((a) => a.platform === pf)} serverOk={(pf === "youtube" ? d.status.youtubeOAuth.configured : d.status.meta.configured) && d.status.tokenKey.configured} />
+                ))}
+              </ul>
+              {accounts.length === 0 && (
+                <InlineNotice tone="warning" className="mt-3">
+                  {p.kind === "brand" ? "게시할 계정이 없습니다. 고객사 화면에서 고객사 계정을 연결하거나, 우리 채널(내 채널 · 연결)을 연결하세요." : "게시할 수 있는 계정이 없습니다. YouTube · Instagram 계정을 연결하거나, 연결한 팀원에게 공유를 요청하세요."}
+                </InlineNotice>
+              )}
+            </div>
+
+            <div className="space-y-3 border-t border-nd-line pt-4">
+              <h3 className="text-nd-section text-nd-fg">게시하기</h3>
+              <FormRow className="grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto]">
                 <Field label="게시 계정">
-                  <Select value={accountId} onChange={(e) => { setAccountId(e.target.value); setPrep(null); }}>
+                  <Select value={accountId} disabled={!accounts.length} onChange={(e) => { setAccountId(e.target.value); setPrep(null); }}>
+                    {!accounts.length && <option value="">(연결된 계정 없음)</option>}
                     {accounts.map((a) => <option key={a.id} value={a.id}>{PLATFORM_LABEL[a.platform]} · {a.externalName}{a.clientId ? " (고객사 계정)" : a.mine ? "" : ` (${a.owner.split("@")[0]} 공유)`}{a.status !== "connected" ? " · 재연결 필요" : ""}</option>)}
                   </Select>
                 </Field>
-                <Field label="완성 파일">
-                  <Select value={renderId || renders[0]?.id} onChange={(e) => { setRenderId(e.target.value); setPrep(null); }}>
-                    {renders.map((r) => <option key={r.id} value={r.id}>{fmtWhen(r.createdAt)} · {r.duration?.toFixed(1)}초 · {r.codecs?.video}/{r.codecs?.audio}{r.overlay?.disclosure ? " · 고지 띠" : ""}</option>)}
-                  </Select>
-                </Field>
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-nd-caption" aria-hidden>{" "}</span>
-                  <Button variant="secondary" disabled={busy === "prep"} onClick={() => void prepare()}>게시 전 점검</Button>
-                </div>
+                <FieldAction size="md">
+                  <Button variant="secondary" disabled={!accounts.length || !renders.length || busy === "prep"} onClick={() => void prepare()}>게시 전 점검</Button>
+                </FieldAction>
               </FormRow>
               {prep && (
                 <div className="space-y-2">
@@ -210,33 +295,103 @@ export function PublishTab({ draft }: { draft: Draft }) {
                       남은 확인: <ul className="mt-1 list-disc pl-5">{prep.blockers.map((b) => <li key={b.key}>{b.label} — {b.reason}</li>)}</ul>
                     </InlineNotice>
                   )}
-                  {!prep.problems.length && !prep.blockers.length && (
-                    <div className="flex flex-wrap items-end gap-2">
-                      <Button icon={Send} disabled={busy === "pub"} onClick={() => void publish(null)}>지금 게시</Button>
-                      <Field label="예약 시각" className="w-56"><Input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} /></Field>
-                      <Button variant="secondary" disabled={busy === "pub" || !when || new Date(when).getTime() < Date.now() + 60_000} onClick={() => void publish(new Date(when).getTime())}>예약</Button>
-                    </div>
-                  )}
+                  {ready && <InlineNotice tone="success">점검을 통과했습니다 — 지금 게시하거나 예약할 수 있습니다.</InlineNotice>}
                 </div>
               )}
-              <p className="text-nd-caption text-nd-fg-3">
+              <FormRow className="grid-cols-1 sm:grid-cols-[auto_minmax(0,14rem)_auto]">
+                <FieldAction size="md">
+                  <Button icon={Send} disabled={!ready || busy === "pub"} onClick={() => void publish(null)}>지금 게시</Button>
+                </FieldAction>
+                <Field label="예약 시각"><Input type="datetime-local" value={when} disabled={!ready} onChange={(e) => setWhen(e.target.value)} /></Field>
+                <FieldAction size="md">
+                  <Button variant="secondary" disabled={!ready || busy === "pub" || !when || new Date(when).getTime() < Date.now() + 60_000} onClick={() => void publish(new Date(when).getTime())}>예약</Button>
+                </FieldAction>
+              </FormRow>
+              {blockedWhy && <p className="text-[13px] font-medium text-nd-fg-2">{blockedWhy}</p>}
+              <p className="text-[13px] leading-relaxed text-nd-fg-3">
                 예약은 「예약 대기 (아직 게시 전)」 로 기록되고, 예약 시각 이후 실행기(열린 ERP 화면 · 매일 06:30 cron)가 처리할 때 실제로 게시됩니다.
                 YouTube API 프로젝트가 감사를 받지 않았으면 업로드가 비공개로 제한될 수 있습니다 — 첫 게시는 「비공개」 로 시험하세요.
               </p>
-            </>
-          )}
-        </Card>
+            </div>
+          </Card>
+        </div>
       </section>
 
       <PublicationList pubs={pubs} />
-      {p.kind !== "brand" && <DmTemplate keyword={p.cta.keyword} link={p.coupang.affiliate?.url ?? ""} virtualHuman={p.virtualHuman} />}
+      {p.kind === "coupang" && <DmTemplate keyword={p.cta.keyword} link={p.coupang.affiliate?.url ?? ""} virtualHuman={p.virtualHuman} />}
+    </div>
+  );
+}
+
+/** 플랫폼 하나의 게시 계정 상태 — 실제 설정(서버 · 연결한 계정)을 따른다 */
+function ChannelRow({ platform, accounts, serverOk }: { platform: PublishPlatform; accounts: AccountView[]; serverOk: boolean }) {
+  const ok = accounts.filter((a) => a.status === "connected");
+  const reauth = accounts.filter((a) => a.status === "needs_reauth");
+  let badge: ReactNode;
+  let detail: string;
+  if (ok.length) {
+    badge = <ConnBadge ok on="연결됨" size="lg" />;
+    detail = ok.map((a) => `${a.externalName}${a.clientId ? " (고객사)" : a.mine ? "" : ` (${a.owner.split("@")[0]} 공유)`}`).join(" · ");
+  } else if (reauth.length) {
+    badge = <Badge tone="danger" size="lg">다시 연결 필요</Badge>;
+    detail = `${reauth.map((a) => a.externalName).join(" · ")} — 토큰이 끊겨 게시할 수 없습니다.`;
+  } else {
+    badge = <ConnBadge ok={false} off="연결 필요" offTone="danger" size="lg" />;
+    detail = serverOk ? "계정을 연결하면 바로 게시할 수 있습니다." : `서버에 ${platform === "youtube" ? "YouTube OAuth" : "Meta 앱"} 설정이 없어 아직 연결할 수 없습니다.`;
+  }
+  return (
+    <li className="grid grid-cols-[6rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-3.5 py-2.5">
+      <span className="text-nd-body font-semibold text-nd-fg">{PLATFORM_LABEL[platform]}</span>
+      <span className="flex min-w-0 items-center">{badge}</span>
+      {!ok.length ? (
+        <Link href="/neander/shorts/accounts" className={buttonClass("secondary", "sm")}>
+          <Plug size={14} aria-hidden className="mr-1" />
+          {reauth.length ? "다시 연결" : "연결하기"}
+        </Link>
+      ) : (
+        <span />
+      )}
+      <span className="col-span-3 text-[13px] text-nd-fg-3 sm:col-span-2 sm:col-start-2">{detail}</span>
+    </li>
+  );
+}
+
+/** 완성 파일 미리보기 + 파일 정보 */
+function RenderInfo({ r }: { r: MediaView }) {
+  const { url, error } = useBlobUrl(r.id);
+  const rows: [string, ReactNode][] = [
+    ["파일명", <span key="n" className="block truncate" title={r.name}>{r.name}</span>],
+    ["해상도", r.width && r.height ? <span key="r" className="nd-num">{r.width} × {r.height}{r.height > r.width ? " (세로)" : ""}</span> : "—"],
+    ["길이", r.duration ? <span key="d" className="nd-num">{r.duration.toFixed(1)}초</span> : "—"],
+    ["파일 크기", r.size ? <span key="s" className="nd-num">{(r.size / 1024 / 1024).toFixed(2)}MB</span> : "—"],
+    ["코덱", r.codecs ? `${r.codecs.video ?? "?"} / ${r.codecs.audio ?? "?"}` : "—"],
+    ["영상 안 고지", r.overlay?.disclosure ? <Badge key="o" tone="success">고지 띠 있음</Badge> : <Badge key="o">고지 띠 없음</Badge>],
+    ["출력 시각", fmtWhen(r.createdAt)],
+  ];
+  return (
+    <div className="grid gap-4 sm:grid-cols-[180px_minmax(0,1fr)]">
+      {error ? (
+        <div className="flex aspect-[9/16] w-full max-w-[180px] items-center justify-center rounded-nd-md bg-nd-sunken p-3 text-center text-[13px] text-nd-danger-text">{error}</div>
+      ) : url ? (
+        <video src={url} controls playsInline preload="metadata" className="aspect-[9/16] w-full max-w-[180px] rounded-nd-md bg-black" aria-label="완성 파일 미리보기" />
+      ) : (
+        <div className="aspect-[9/16] w-full max-w-[180px] animate-pulse rounded-nd-md bg-nd-fg/10" />
+      )}
+      <dl className="min-w-0 divide-y divide-nd-line self-start rounded-nd-md border border-nd-line text-nd-body">
+        {rows.map(([k, v]) => (
+          <div key={k} className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-3 px-3 py-2">
+            <dt className="text-[13px] text-nd-fg-3">{k}</dt>
+            <dd className="min-w-0 text-nd-fg">{v}</dd>
+          </div>
+        ))}
+      </dl>
     </div>
   );
 }
 
 function Disclaimer() {
   return (
-    <p className="mt-2 text-nd-caption text-nd-fg-3">
+    <p className="mt-2 text-[13px] text-nd-fg-3">
       프로그램 확인은 문구 · 기록을 보는 것이며 법적 검토를 대신하지 않습니다. 해외 소스의 출처 · 이용 조건 기록은 선택 항목이고, 해외 영상이라는 이유로 이용 권한이 생기지는 않습니다.
     </p>
   );
@@ -249,26 +404,26 @@ function PublicationList({ pubs }: { pubs: PublicationView[] }) {
   if (!pubs.length) return null;
   return (
     <section>
-      <SectionHeader title="게시 기록" hint="플랫폼별 결과 — 부분 성공 · 실패가 따로 보입니다" />
+      <SectionHeader size="lg" title="게시 기록" hint={`${pubs.length}건 · 플랫폼별 결과 — 부분 성공 · 실패가 따로 보입니다`} />
       <Card padding="none">
         <ul className="divide-y divide-nd-line">
           {pubs.map((x) => (
             <li key={x.id} className="px-4 py-3">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium">{PLATFORM_LABEL[x.platform]}</span>
-                <PubBadge status={x.status} />
-                {x.scheduledAt && x.status === "scheduled" && <span className="text-nd-caption text-nd-fg-3">{fmtWhen(x.scheduledAt)} 이후</span>}
-                {x.result?.url && <a href={x.result.url} target="_blank" rel="noreferrer" className="text-nd-caption text-nd-accent">{x.result.url}</a>}
-                {x.result && <Badge size="sm" tone={x.result.by === "api" ? "info" : "neutral"}>{x.result.by === "api" ? "API 응답으로 확인" : "사람이 확인"}</Badge>}
+                <span className="text-nd-body font-semibold">{PLATFORM_LABEL[x.platform]}</span>
+                <PubBadge status={x.status} size="lg" />
+                {x.scheduledAt && x.status === "scheduled" && <span className="text-[13px] text-nd-fg-3">{fmtWhen(x.scheduledAt)} 이후</span>}
+                {x.result?.url && <a href={x.result.url} target="_blank" rel="noreferrer" className="min-w-0 max-w-[28rem] truncate text-[13px] text-nd-accent hover:underline" title={x.result.url}>{x.result.url}</a>}
+                {x.result && <Badge tone={x.result.by === "api" ? "info" : "neutral"}>{x.result.by === "api" ? "API 응답으로 확인" : "사람이 확인"}</Badge>}
                 <span className="ml-auto flex gap-1">
                   {(x.status === "scheduled" || x.status === "queued") && <Button size="sm" variant="ghost" disabled={busy === x.id} onClick={() => void run(x.id, async () => { await mutate("publication.cancel", { id: x.id }); await refresh(); }, "취소했습니다.")}>취소</Button>}
                   {x.status === "uncertain" && <Button size="sm" variant="secondary" onClick={() => setResolving(x)}>결과 기록</Button>}
                 </span>
               </div>
-              {x.error && <p className="mt-1 text-nd-caption text-nd-danger-text">{x.error.message}</p>}
+              {x.error && <p className="mt-1 text-[13px] text-nd-danger-text">{x.error.message}</p>}
               <details className="mt-1">
-                <summary className="cursor-pointer text-nd-caption text-nd-fg-3">기록 {x.history.length}줄 · 시도 {x.attempts}번</summary>
-                <ul className="mt-1 space-y-0.5 text-nd-caption text-nd-fg-2">
+                <summary className="cursor-pointer text-[13px] text-nd-fg-3">기록 {x.history.length}줄 · 시도 {x.attempts}번</summary>
+                <ul className="mt-1 space-y-0.5 text-[13px] text-nd-fg-2">
                   {x.history.map((h, i) => <li key={i}>{fmtWhen(h.at)} · {PUBLICATION_LABEL[h.status]} · {h.msg} · {h.by}</li>)}
                 </ul>
               </details>
@@ -309,10 +464,10 @@ function DmTemplate({ keyword, link, virtualHuman }: { keyword: string; link: st
   const text = `${disclosureLine(virtualHuman)}\n\n문의 주셔서 감사합니다. 영상 속 제품 정보예요.\n${link || "(제휴 링크)"}\n\n가격 · 옵션은 링크에서 확인해 주세요.`;
   return (
     <section>
-      <SectionHeader title="정보 요청 답장 문구" hint={keyword ? `댓글 · DM 키워드 「${keyword}」 를 남긴 사람에게만` : "먼저 요청한 사람에게만"} action={<Button size="sm" variant="ghost" icon={Copy} onClick={() => void navigator.clipboard.writeText(text).then(() => toast.success("복사했습니다."))}>복사</Button>} />
+      <SectionHeader size="lg" title="정보 요청 답장 문구" hint={keyword ? `댓글 · DM 키워드 「${keyword}」 를 남긴 사람에게만` : "먼저 요청한 사람에게만"} action={<Button size="sm" variant="secondary" icon={Copy} onClick={() => void navigator.clipboard.writeText(text).then(() => toast.success("복사했습니다."))}>복사</Button>} />
       <Card>
-        <pre className="whitespace-pre-wrap font-sans text-nd-body">{text}</pre>
-        <p className="mt-2 text-nd-caption text-nd-fg-3">
+        <pre className="whitespace-pre-wrap break-words font-sans text-nd-body leading-relaxed">{text}</pre>
+        <p className="mt-2 text-[13px] text-nd-fg-3">
           DM 답장에도 고지 문구가 필요하고, 요청하지 않은 사람에게 보내는 광고 DM 은 금지입니다. 이 모듈은 DM 을 자동으로 보내지 않습니다. 첫 줄: 「{DISCLOSURE.slice(0, 18)}…」 · 해시태그 줄 예: {hashtagLine(["살림템"])}
         </p>
       </Card>

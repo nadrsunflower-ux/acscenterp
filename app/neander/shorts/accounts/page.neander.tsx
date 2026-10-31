@@ -9,6 +9,7 @@
 // ============================================================
 
 import { Suspense, useEffect, useState } from "react";
+import { HardDrive, Trash2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { Button, Card, Dialog, Disclosure, Field, Input, PageHeader, PageShell, SectionHeader, Table, TableScroll, Td, Th, Tr, useToast } from "@/components/neander/ui";
 import { useShorts } from "@/components/neander/shorts/ShortsProvider";
@@ -46,15 +47,18 @@ function Accounts() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const ENV_ROWS: { label: string; ok: boolean; missing: string[]; enables: string }[] = [
+  // publish — 게시에 꼭 필요한 연결. 없으면 「연결 필요」 (빨강), 나머지는 「미연결」
+  const ENV_ROWS: { label: string; ok: boolean; missing: string[]; enables: string; publish?: boolean }[] = [
     { label: "AI (OpenRouter)", ok: s.openrouter.configured, missing: s.openrouter.configured ? [] : ["OPENROUTER_API_KEY"], enables: "구성 분석 · 대본 · 중국어 검색어 · AI 음성 · AI 영상" },
     { label: "회사 YouTube 검색 키", ok: s.youtubeSearch.configured, missing: s.youtubeSearch.missing, enables: "개인 키가 없는 사람의 검색 표본 · 공개 통계 · 댓글 표본 (search 하루 100회)" },
-    { label: "YouTube 게시 OAuth", ok: s.youtubeOAuth.configured, missing: s.youtubeOAuth.missing, enables: "사람마다 YouTube 채널 연결 · 업로드 · 내 영상 통계" },
-    { label: "Instagram (Meta 앱)", ok: s.meta.configured, missing: s.meta.missing, enables: "Facebook 로그인으로 프로페셔널 계정 연결 · 릴스 게시 · 인사이트" },
+    { label: "YouTube 게시 OAuth", ok: s.youtubeOAuth.configured, missing: s.youtubeOAuth.missing, enables: "사람마다 YouTube 채널 연결 · 업로드 · 내 영상 통계", publish: true },
+    { label: "Instagram (Meta 앱)", ok: s.meta.configured, missing: s.meta.missing, enables: "Facebook 로그인으로 프로페셔널 계정 연결 · 릴스 게시 · 인사이트", publish: true },
     { label: "회사 공용 쿠팡 키 (선택)", ok: s.companyCoupang.configured, missing: s.coupang.missing, enables: "개인 키가 없는 사람의 상품 검색만 — 딥링크 · 리포트는 각자의 키로" },
-    { label: "토큰 암호화 키", ok: s.tokenKey.configured, missing: s.tokenKey.missing, enables: "게시 계정 토큰 보관 (없으면 NEANDER_MAIL_KEY 에서 끌어냄)" },
+    { label: "토큰 암호화 키", ok: s.tokenKey.configured, missing: s.tokenKey.missing, enables: "게시 계정 토큰 보관 (없으면 NEANDER_MAIL_KEY 에서 끌어냄)", publish: true },
     { label: "주기 실행 (Cron)", ok: s.cron.configured, missing: s.cron.configured ? [] : ["CRON_SECRET"], enables: "매일 06:30 실행기 · 예약 게시 · 성과 다시 읽기" },
   ];
+  const usedRatio = s.storage.quotaMb > 0 ? s.storage.usedMb / s.storage.quotaMb : null;
+  const nearFull = usedRatio !== null && usedRatio >= 0.9;
 
   return (
     <PageShell>
@@ -62,11 +66,11 @@ function Accounts() {
 
       <MyChannelSet onManualInstagram={() => setManual(true)} />
 
-      <section className="mb-8">
-        <SectionHeader title="서버 연결 상태" hint="값은 보이지 않습니다 — 있음 · 없음과 빠진 이름만" />
-        <Card padding="none">
+      <section className="mb-10">
+        <SectionHeader size="lg" title="서버 연결 상태" hint="값은 보이지 않습니다 — 있음 · 없음과 빠진 이름만" />
+        <Card padding="none" className="overflow-hidden">
           <TableScroll>
-            <Table minWidth={760}>
+            <Table size="md" minWidth={900}>
               <thead>
                 <tr>
                   <Th>연결</Th>
@@ -78,25 +82,55 @@ function Accounts() {
               <tbody>
                 {ENV_ROWS.map((r) => (
                   <Tr key={r.label}>
-                    <Td className="font-medium">{r.label}</Td>
-                    <Td><ConnBadge ok={r.ok} /></Td>
-                    <Td className="font-mono text-nd-caption">{r.missing.join(", ") || "—"}</Td>
-                    <Td className="text-nd-caption text-nd-fg-2">{r.enables}</Td>
+                    <Td className="whitespace-nowrap font-medium">{r.label}</Td>
+                    <Td className="whitespace-nowrap">
+                      <ConnBadge ok={r.ok} size="lg" off={r.publish ? "연결 필요" : "미연결"} offTone={r.publish ? "danger" : "neutral"} />
+                    </Td>
+                    <Td className="w-[34%] max-w-0">
+                      {r.missing.length ? (
+                        <ul className="font-mono text-[13px] text-nd-fg-2">
+                          {r.missing.map((m) => <li key={m} className="break-all">{m}</li>)}
+                        </ul>
+                      ) : (
+                        <span className="text-nd-fg-3">—</span>
+                      )}
+                    </Td>
+                    <Td className="text-[13px] text-nd-fg-2">{r.enables}</Td>
                   </Tr>
                 ))}
               </tbody>
             </Table>
           </TableScroll>
         </Card>
-        <p className="mt-2 text-nd-caption text-nd-fg-3">
-          파일 저장: Firestore 조각 {s.storage.usedMb}MB / {s.storage.quotaMb}MB (NEANDER_SHORTS_MEDIA_QUOTA_MB) · Firebase Storage 버킷이 없어 ERP 전체의 Firestore 용량을 나눠 씁니다.
-          {s.allowlist.restricted ? " · 사용자 제한: NEANDER_SHORTS_EMAILS 에 있는 사람만" : " · 사용자 제한 없음 (NEANDER 팀원 전체)"}
-        </p>
-        <Button size="sm" variant="ghost" className="mt-2" onClick={() => void clearMediaCache().then(() => toast.success("이 브라우저의 파일 사본을 지웠습니다 (서버 파일은 그대로)."))}>이 브라우저의 파일 사본 지우기</Button>
+
+        <Card className="mt-4">
+          <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <HardDrive size={18} aria-hidden className="shrink-0 text-nd-fg-3" />
+              <div className="min-w-0 flex-1">
+                <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-3">
+                  <span className="text-nd-body font-medium text-nd-fg">파일 저장 · Firestore 조각</span>
+                  <span className="nd-num text-[13px] text-nd-fg-2">
+                    {s.storage.usedMb.toLocaleString("ko-KR")}MB / {s.storage.quotaMb.toLocaleString("ko-KR")}MB
+                    {usedRatio !== null && <b className={nearFull ? "ml-2 text-nd-danger-text" : "ml-2 text-nd-fg"}>{Math.round(usedRatio * 100)}%</b>}
+                  </span>
+                </div>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-nd-fg/[.08]" role="meter" aria-label="파일 저장 사용량" aria-valuemin={0} aria-valuemax={s.storage.quotaMb} aria-valuenow={s.storage.usedMb}>
+                  <div className={nearFull ? "h-full rounded-full bg-nd-danger" : "h-full rounded-full bg-nd-accent"} style={{ width: `${Math.max(0, Math.min(100, (usedRatio ?? 0) * 100))}%` }} />
+                </div>
+                <p className="mt-2 text-[13px] text-nd-fg-3">
+                  한도 NEANDER_SHORTS_MEDIA_QUOTA_MB · Firebase Storage 버킷이 없어 ERP 전체의 Firestore 용량을 나눠 씁니다.
+                  {s.allowlist.restricted ? " · 사용자 제한: NEANDER_SHORTS_EMAILS 에 있는 사람만" : " · 사용자 제한 없음 (NEANDER 팀원 전체)"}
+                </p>
+              </div>
+            </div>
+            <Button size="md" variant="secondary" icon={Trash2} onClick={() => void clearMediaCache().then(() => toast.success("이 브라우저의 파일 사본을 지웠습니다 (서버 파일은 그대로)."))}>이 브라우저의 파일 사본 지우기</Button>
+          </div>
+        </Card>
       </section>
 
       <section>
-        <SectionHeader title="계정 준비" hint="계정 · 앱 생성은 사람이 직접 합니다 (ERP 가 만들지 않습니다)" />
+        <SectionHeader size="lg" title="계정 준비" hint="계정 · 앱 생성은 사람이 직접 합니다 (ERP 가 만들지 않습니다)" />
         <div className="space-y-2">
           <Disclosure title="① YouTube — 채널 · Google Cloud OAuth">
             <ol className="list-decimal space-y-1.5 pl-5 text-nd-body">

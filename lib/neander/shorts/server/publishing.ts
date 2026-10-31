@@ -103,7 +103,13 @@ export async function preparePublish(db: Firestore, email: string, input: { proj
   });
   const problems: string[] = [];
   if (account.clientId && account.clientId !== project.clientId) {
-    problems.push(project.kind === "brand" ? "다른 고객사의 계정입니다 — 이 고객사 계정이나 우리 채널을 골라 주세요." : "고객사 소유 계정에는 쿠팡 제휴 영상을 올리지 않습니다.");
+    problems.push(
+      project.kind === "brand"
+        ? "다른 고객사의 계정입니다 — 이 고객사 계정이나 우리 채널을 골라 주세요."
+        : project.kind === "general"
+          ? "고객사 소유 계정에는 일반 영상을 올리지 않습니다."
+          : "고객사 소유 계정에는 쿠팡 제휴 영상을 올리지 않습니다.",
+    );
   }
   const title = project.publish.title.trim() || project.title;
   if ([...title].length > TITLE_LIMIT) problems.push(`제목은 ${TITLE_LIMIT}자 이하여야 합니다.`);

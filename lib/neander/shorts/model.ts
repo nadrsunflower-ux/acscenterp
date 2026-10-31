@@ -58,8 +58,13 @@ export const overlayText = (virtualHuman: boolean) =>
  */
 export const brandDisclosureLine = (clientName: string) => `광고 · ${clientName || "브랜드"} 유료 광고`;
 
-/** 이 프로젝트의 영상 안 고지 띠 문구 — 필요 없으면 "" (고객사 자기 계정용 브랜드 영상) */
+/** 영상 종류 이름 */
+export const KIND_LABEL: Record<ProjectDoc["kind"], string> = { coupang: "쿠팡 제휴", brand: "고객사", general: "일반" };
+
+/** 이 프로젝트의 영상 안 고지 띠 문구 — 필요 없으면 "" (고객사 자기 계정용 브랜드 영상 · 일반 영상) */
 export function overlayFor(p: Pick<ProjectDoc, "kind" | "brandTarget" | "clientName" | "virtualHuman">): string {
+  // 일반 영상은 광고가 아니라 고지 띠가 없다 — AI 가상인물이 나오면 그 표시만
+  if (p.kind === "general") return p.virtualHuman ? "가상인물 포함" : "";
   if (p.kind !== "brand") return overlayText(p.virtualHuman);
   if (p.brandTarget === "own") return `${brandDisclosureLine(p.clientName)}${p.virtualHuman ? " · 가상인물 포함" : ""}`;
   return p.virtualHuman ? "가상인물 포함" : "";
@@ -365,16 +370,103 @@ export function domesticLabel(d: DomesticCheck | null | undefined): { text: stri
 
 // ---- 검색어 · 링크 --------------------------------------------------
 
+const xhsSearchUrl = (q: string) => `https://www.xiaohongshu.com/search_result?keyword=${q}&type=51`;
+const douyinSearchUrl = (q: string) => `https://www.douyin.com/search/${q}?type=video`;
+
 /** 직접 검색 링크 — 자동 수집이 없는 플랫폼은 새 탭으로 연다 */
 export function searchLinks(term: string): { platform: ShortsPlatform | "taobao" | "1688"; label: string; url: string }[] {
   const q = encodeURIComponent(term.trim());
   if (!q) return [];
   return [
-    { platform: "xiaohongshu", label: "샤오홍슈", url: `https://www.xiaohongshu.com/search_result?keyword=${q}&type=51` },
-    { platform: "douyin", label: "더우인", url: `https://www.douyin.com/search/${q}?type=video` },
+    { platform: "xiaohongshu", label: "샤오홍슈", url: xhsSearchUrl(q) },
+    { platform: "douyin", label: "더우인", url: douyinSearchUrl(q) },
     { platform: "taobao", label: "타오바오(상품 확인)", url: `https://s.taobao.com/search?q=${q}` },
     { platform: "1688", label: "1688(상품 확인)", url: `https://s.1688.com/selloffer/offer_search.htm?keywords=${q}` },
   ];
+}
+
+/** 소재 발굴에서 직접 둘러보는 플랫폼 (새 탭) */
+export const BROWSE_PLATFORMS = ["instagram", "tiktok", "xiaohongshu", "douyin", "youtube"] as const;
+export type BrowsePlatform = (typeof BROWSE_PLATFORMS)[number];
+
+/** 샤오홍슈 · 더우인은 중국어로 검색해야 결과가 나온다 */
+export const isChinesePlatform = (p: ShortsPlatform) => p === "xiaohongshu" || p === "douyin";
+
+/** 둘러보기 주소 — 검색어가 있으면 짧은 영상 검색, 없으면 그 플랫폼의 탐색 화면 */
+export function browseUrl(platform: BrowsePlatform, term: string): string {
+  const q = encodeURIComponent(term.trim());
+  switch (platform) {
+    case "instagram":
+      return q ? `https://www.instagram.com/explore/search/keyword/?q=${q}` : "https://www.instagram.com/reels/";
+    case "tiktok":
+      return q ? `https://www.tiktok.com/search/video?q=${q}` : "https://www.tiktok.com/explore";
+    case "xiaohongshu":
+      return q ? xhsSearchUrl(q) : "https://www.xiaohongshu.com/explore";
+    case "douyin":
+      return q ? douyinSearchUrl(q) : "https://www.douyin.com/";
+    case "youtube":
+      return q ? youtubeSearchUrl(term) : "https://www.youtube.com/shorts";
+  }
+}
+
+/**
+ * 붙여 넣은 글에서 첫 주소. 샤오홍슈 · 더우인 앱의 「공유」 문구는 설명 글 가운데에
+ * 주소가 있다 — 문구째 붙여도 된다. 전각 쉼표 등 주소 밖 글자에서 끊고, 끝 문장부호는 뗀다.
+ */
+export function extractUrl(text: string): string {
+  const m = /https?:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+/.exec(text);
+  return m ? httpUrl(m[0].replace(/[.,;:!?'")\]]+$/, "")) : "";
+}
+
+/**
+ * 영상 하나를 가리키는 열쇠 — 같은 영상을 두 번 넣지 않으려고 쓴다. 주소 모양이 플랫폼마다
+ * 여럿이다: 더우인 웹은 보고 있는 영상을 `?modal_id=` 로, 샤오홍슈는 경로 끝 24자리 노트 id,
+ * 인스타는 /reel/ · /reels/ · /p/ 뒤 코드. 앱의 짧은 공유 주소는 그 자체를 열쇠로 쓴다.
+ * 알려진 플랫폼인데 영상 주소가 아니면(검색 · 탐색 · 프로필 화면) null.
+ */
+export function videoKey(value: string): string | null {
+  const u = parseUrl(value);
+  if (!u) return null;
+  const host = u.hostname.toLowerCase().replace(/^(?:www|m)\./, "");
+  const path = u.pathname.replace(/\/+$/, "");
+  switch (platformFromUrl(value)) {
+    case "youtube": {
+      const id = youtubeVideoId(value);
+      return id ? `youtube:${id}` : null;
+    }
+    case "instagram": {
+      const m = /^\/(?:[\w.]+\/)?(?:reels?|p|tv)\/([\w-]+)$/.exec(path);
+      return m ? `instagram:${m[1]}` : null;
+    }
+    case "tiktok": {
+      const m = /\/(?:video|photo)\/(\d+)$/.exec(path);
+      if (m) return `tiktok:${m[1]}`;
+      return /^(?:vm|vt)\.tiktok\.com$/.test(host) && path.length > 1 ? `tiktok:short${path}` : null;
+    }
+    case "xiaohongshu": {
+      if (host === "xhslink.com") return path.length > 1 ? `xiaohongshu:short${path}` : null;
+      const m = /^\/(?:explore|discovery\/item|search_result|user\/profile\/[0-9a-f]{24})\/([0-9a-f]{24})$/i.exec(path);
+      return m ? `xiaohongshu:${m[1].toLowerCase()}` : null;
+    }
+    case "douyin": {
+      const modal = u.searchParams.get("modal_id");
+      if (modal && /^\d+$/.test(modal)) return `douyin:${modal}`;
+      const m = /\/(?:video|note)\/(\d+)$/.exec(path);
+      if (m) return `douyin:${m[1]}`;
+      return host === "v.douyin.com" && path.length > 1 ? `douyin:short${path}` : null;
+    }
+    default:
+      return `${host}${path}`;
+  }
+}
+
+/** 브라우저 탭 제목에서 플랫폼 이름 꼬리를 뗀다 (「… - 小红书」 「… | TikTok」) */
+export function cleanPageTitle(title: string): string {
+  const t = title
+    .trim()
+    .replace(/\s*[-|–·•]\s*(?:小红书|抖音|TikTok|YouTube|Instagram)(?:\s*[-–]\s*[^-|–]*)?$/i, "")
+    .trim();
+  return /^(?:小红书|抖音|TikTok|YouTube|Instagram)$/i.test(t) ? "" : t.slice(0, 300);
 }
 
 export const coupangSearchUrl = (term: string) =>
@@ -439,7 +531,7 @@ export function platformFromUrl(value: string): ShortsPlatform {
   if (/(^|\.)instagram\.com$/.test(h)) return "instagram";
   if (/(^|\.)tiktok\.com$/.test(h)) return "tiktok";
   if (/(^|\.)xiaohongshu\.com$|(^|\.)xhslink\.com$/.test(h)) return "xiaohongshu";
-  if (/(^|\.)douyin\.com$/.test(h)) return "douyin";
+  if (/(^|\.)(?:ies)?douyin\.com$/.test(h)) return "douyin";
   if (/(^|\.)coupang\.com$/.test(h)) return "coupang";
   return "other";
 }
@@ -537,6 +629,16 @@ export function buildCaption(
   platform: "youtube" | "instagram",
   ctx: { ownBrandAccount?: boolean } = {},
 ): string {
+  if (p.kind === "general") {
+    // 일반 영상: 제휴 · 대가가 없어 고지 문구를 붙이지 않는다 (쿠팡 링크도 붙이지 않는다)
+    const body = p.publish.description.trim();
+    const lines = p.virtualHuman ? ["가상인물 포함", ""] : [];
+    if (body) lines.push(body, "");
+    if (p.cta.wording.trim()) lines.push(p.cta.wording.trim(), "");
+    const tags = hashtagLine(p.publish.hashtags);
+    if (tags) lines.push(tags);
+    return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  }
   if (p.kind === "brand") {
     // 브랜드 영상: 쿠팡 고지 · 쿠팡 링크가 없다. 우리 채널이면 「광고」 를 첫 줄에, 고객사 계정이면 자기 광고
     const body = p.publish.description.replace(brandDisclosureLine(p.clientName ?? ""), "").trim();
@@ -635,8 +737,46 @@ export function brandComplianceItems(ownBrandAccount: boolean): typeof COMPLIANC
   ];
 }
 
+/**
+ * 일반 영상(제휴 없음)의 확인 항목 — 고지가 필요 없는 대신 「정말 대가가 없는가」 를 사람이 확인한다.
+ * 제휴 링크 · 협찬이 있으면 일반 영상이 아니다 (쿠팡 영상 · 고객사 영상으로 바꾼다).
+ */
+export const GENERAL_COMPLIANCE_ITEMS: typeof COMPLIANCE_ITEMS = [
+  {
+    key: "noPaidRelation",
+    label: "제휴 링크 · 협찬 · 대가 없음 (있으면 쿠팡 영상이나 고객사 영상으로 바꿔 주세요)",
+    required: true,
+    how: "프로그램이 제목 · 게시 문구 · 대본에서 쿠팡 제휴 링크와 「쿠팡 파트너스 · 유료 광고 · 협찬」 같은 말을 찾고, 대가가 없다는 것은 사람이 확인합니다.",
+  },
+  {
+    key: "claims",
+    label: "확인되지 않은 가격·할인·성능·후기 표현 없음",
+    required: true,
+    how: "프로그램이 대본·문구에서 의심 표현을 찾고, 사람이 최종 확인합니다.",
+  },
+  {
+    key: "sourceRights",
+    label: "사용한 소스 · 음원의 출처·이용 조건 기록 (선택)",
+    required: false,
+    how: "선택 항목 — 기록이 없어도 편집·게시를 막지 않습니다.",
+  },
+];
+
 export const complianceItemsFor = (p: Pick<ProjectDoc, "kind">, ownBrandAccount: boolean) =>
-  p.kind === "brand" ? brandComplianceItems(ownBrandAccount) : COMPLIANCE_ITEMS;
+  p.kind === "brand" ? brandComplianceItems(ownBrandAccount) : p.kind === "general" ? GENERAL_COMPLIANCE_ITEMS : COMPLIANCE_ITEMS;
+
+/** 일반 영상에 있으면 안 되는 것 — 제휴 링크 · 대가 표시 */
+const PAID_LINK_RE = /link\.coupang\.com|coupa\.ng/i;
+const PAID_WORD_RE = /쿠팡\s*파트너스|유료\s*광고|협찬|제작\s*지원|수수료를\s*(제공\s*)?받/;
+
+export function paidRelationFlags(text: string): string[] {
+  const out: string[] = [];
+  const link = text.match(PAID_LINK_RE);
+  if (link) out.push(`제휴 링크(${link[0]})`);
+  const word = text.match(PAID_WORD_RE);
+  if (word) out.push(`「${word[0]}」`);
+  return out;
+}
 
 /**
  * 프로그램이 할 수 있는 확인. 사람의 확인(user)은 그대로 두고 system 칸만 새로 쓴다.
@@ -650,6 +790,7 @@ export function systemChecks(
   banned: string[] = [],
 ): Partial<Record<ComplianceKey, ComplianceCheck["system"]>> {
   if (p.kind === "brand") return brandSystemChecks(p, caption, account, render, now, banned);
+  if (p.kind === "general") return generalSystemChecks(p, caption, now);
   const out: Partial<Record<ComplianceKey, ComplianceCheck["system"]>> = {};
   out.disclosure = startsWithDisclosure(caption)
     ? { ok: true, detail: "게시 문구 첫 줄이 표준 고지입니다.", at: now }
@@ -709,6 +850,22 @@ export function systemChecks(
     detail: p.sources.length ? `소스 ${p.sources.length}개 중 ${recorded}개에 출처·조건 기록` : "등록한 해외 소스가 없습니다.",
     at: now,
   };
+  return out;
+}
+
+function generalSystemChecks(p: ProjectDoc, caption: string, now: number): Partial<Record<ComplianceKey, ComplianceCheck["system"]>> {
+  const out: Partial<Record<ComplianceKey, ComplianceCheck["system"]>> = {};
+  const text = [p.publish.title, caption, p.publish.description, ...p.script.lines.map((l) => `${l.text}\n${l.caption}`)].join("\n");
+  const paid = paidRelationFlags(text);
+  out.noPaidRelation = paid.length
+    ? { ok: false, detail: `일반 영상인데 ${paid.join(" · ")} 이(가) 있습니다 — 빼거나 쿠팡 영상 · 고객사 영상으로 바꿔 주세요.`, at: now }
+    : { ok: true, detail: "제휴 링크 · 대가 표시를 찾지 못했습니다 (대가가 없다는 것은 사람이 확인합니다).", at: now };
+  const flags = scanClaims(text, p.facts);
+  out.claims = flags.length
+    ? { ok: false, detail: `확인할 표현 ${flags.length}개: ${flags.map((f) => `「${f.phrase}」`).join(", ")}`, at: now }
+    : { ok: true, detail: "의심 표현을 찾지 못했습니다 (사람의 확인을 대신하지 않습니다).", at: now };
+  const recorded = p.sources.filter((s) => s.terms.trim()).length;
+  out.sourceRights = { ok: recorded === p.sources.length, detail: p.sources.length ? `소스 ${p.sources.length}개 중 ${recorded}개에 출처·조건 기록` : "등록한 소스가 없습니다.", at: now };
   return out;
 }
 
@@ -1166,7 +1323,7 @@ export function emptyDomestic(): DomesticCheck {
 
 export function emptyProject(
   owner: string,
-  input: Partial<Pick<ProjectDoc, "title" | "product" | "category" | "trendId" | "notes" | "visibility">> = {},
+  input: Partial<Pick<ProjectDoc, "title" | "product" | "category" | "trendId" | "notes" | "visibility" | "kind">> = {},
   now = Date.now(),
 ): ProjectDoc {
   return {
@@ -1175,7 +1332,8 @@ export function emptyProject(
     createdAt: now,
     updatedAt: now,
     updatedBy: owner,
-    kind: "coupang",
+    // 고객사 영상은 clients.createClientProject 로만 만든다
+    kind: input.kind === "general" ? "general" : "coupang",
     clientId: null,
     clientName: "",
     month: null,

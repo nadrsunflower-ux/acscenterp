@@ -495,3 +495,18 @@ html[data-pwa-card] [data-nd-main] {
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
 }
+
+/* ============================================================
+   읽기 편한 글씨 범위 — data-nd-text="comfortable" 안에서만
+   ------------------------------------------------------------
+   공용 부품의 12px 꼬리 글씨(입력칸 라벨 · 힌트 · 빈 상태 설명 · KPI 라벨)를
+   13px 로 올린다. 기본값은 그대로라 다른 화면은 바뀌지 않는다. AI STUDIO
+   (app/neander/shorts/layout) 가 켠다 — 큰 모니터에서 12px 가 안 읽힌다.
+   ============================================================ */
+[data-nd-text="comfortable"] .nd-field-label,
+[data-nd-text="comfortable"] .nd-field-hint,
+[data-nd-text="comfortable"] .nd-empty-desc,
+[data-nd-text="comfortable"] .nd-kpi-label,
+[data-nd-text="comfortable"] .nd-kpi-hint {
+  font-size: 13px;
+}

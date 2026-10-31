@@ -73,18 +73,21 @@ export function SectionHeader({
   action,
   className,
   as: Tag = "h2",
+  size = "md",
 }: {
   title: ReactNode;
   hint?: ReactNode;
   action?: ReactNode;
   className?: string;
   as?: "h2" | "h3";
+  /** lg — 화면을 나누는 큰 구역 제목 (17px) · 힌트 13px */
+  size?: "md" | "lg";
 }) {
   return (
     <div className={cn("mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1", className)}>
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-        <Tag className="text-nd-section text-nd-fg">{title}</Tag>
-        {hint && <span className="text-nd-caption text-nd-fg-3">{hint}</span>}
+        <Tag className={cn("text-nd-fg", size === "lg" ? "text-[17px] font-semibold leading-snug" : "text-nd-section")}>{title}</Tag>
+        {hint && <span className={cn("text-nd-fg-3", size === "lg" ? "text-[13px]" : "text-nd-caption")}>{hint}</span>}
       </div>
       {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
     </div>

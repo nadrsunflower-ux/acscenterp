@@ -12,12 +12,12 @@ import { Suspense, useMemo } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, Trash2 } from "lucide-react";
-import { Badge, Button, EmptyState, InlineNotice, Input, PageShell, Select, Tabs, useConfirm } from "@/components/neander/ui";
+import { Badge, Button, EmptyState, InlineNotice, PageShell, Select, Tabs, cn, useConfirm } from "@/components/neander/ui";
 import { useCrumbTail } from "@/components/neander/shell/context";
 import { isReadOnlyFor, useShorts, type WithId } from "@/components/neander/shorts/ShortsProvider";
 import { useBlobUrl } from "@/components/neander/shorts/media";
 import { useProjectDraft } from "@/components/neander/shorts/useProjectDraft";
-import { useAction } from "@/components/neander/shorts/parts";
+import { StageBadge, useAction } from "@/components/neander/shorts/parts";
 import { SourcesTab } from "@/components/neander/shorts/project/SourcesTab";
 import { CoupangTab } from "@/components/neander/shorts/project/CoupangTab";
 import { ScriptTab } from "@/components/neander/shorts/project/ScriptTab";
@@ -63,8 +63,9 @@ function ProjectWorkspace({ initial }: { initial: WithId<ProjectDoc> }) {
   useCrumbTail(p.title);
   const brand = initial.kind === "brand";
   const wanted = search.get("tab") ?? "";
-  // 고객사 영상은 「쿠팡 확인」 대신 「고객사」 · 「고객 승인」
-  const allowed = (k: string) => (TABS as readonly string[]).includes(k) && (brand ? k !== "coupang" : k !== "client" && k !== "review");
+  // 고객사 영상은 「쿠팡 확인」 대신 「고객사」 · 「고객 승인」 · 일반 영상(제휴 없음)은 「쿠팡 확인」 이 없다
+  const allowed = (k: string) =>
+    (TABS as readonly string[]).includes(k) && (brand ? k !== "coupang" : k !== "client" && k !== "review" && !(p.kind === "general" && k === "coupang"));
   const tab = allowed(wanted) ? (wanted as TabKey) : brand ? "client" : "sources";
   const setTab = (k: string) => router.replace(`/neander/shorts/projects/${p.id}?tab=${k}`, { scroll: false });
   const isOwner = p.owner === d.me;
@@ -73,67 +74,100 @@ function ProjectWorkspace({ initial }: { initial: WithId<ProjectDoc> }) {
     const confirmed = !!confirmedCandidate(p);
     const blockers = renderBlockers(p).length;
     const pubs = d.publications.filter((x) => x.projectId === p.id);
-    const edit = { key: "edit", label: "편집·출력", hint: p.renderIds.length ? `완성 ${p.renderIds.length}` : p.scenes.length ? `장면 ${p.scenes.length}${blockers ? " · 확인" : ""}` : undefined };
+    const snaps = d.metrics.filter((m) => m.projectId === p.id).length;
+    const lines = p.script.lines.length;
+    const edit = {
+      key: "edit",
+      label: p.renderIds.length ? (
+        <TabLabel text="편집·출력" hint={`완성 ${p.renderIds.length}`} />
+      ) : p.scenes.length ? (
+        <TabLabel text="편집·출력" hint={`장면 ${p.scenes.length}${blockers ? " · 확인" : ""}`} tone={blockers ? "warning" : "count"} />
+      ) : (
+        <TabLabel text="편집·출력" />
+      ),
+    };
     const rest = [
-      { key: "publish", label: "게시", hint: pubs.length ? String(pubs.length) : undefined },
-      { key: "perf", label: "성과" },
+      { key: "publish", label: <TabLabel text="게시" hint={pubs.length ? String(pubs.length) : undefined} /> },
+      { key: "perf", label: <TabLabel text="성과" hint={snaps ? `기록 ${snaps}` : undefined} tone="muted" /> },
     ];
+    const sources = { key: "sources", label: <TabLabel text="소스" hint={p.sources.length || !brand ? String(p.sources.length) : undefined} /> };
+    const script = { key: "script", label: <TabLabel text="공식·대본" hint={lines ? `${lines}줄` : undefined} /> };
     if (p.kind === "brand") {
       return [
-        { key: "client", label: "고객사", hint: p.clientName },
-        { key: "sources", label: "소스", hint: p.sources.length ? String(p.sources.length) : undefined },
-        { key: "script", label: "공식·대본", hint: p.script.lines.length ? `${p.script.lines.length}줄` : undefined },
+        { key: "client", label: <TabLabel text="고객사" hint={p.clientName || undefined} tone="muted" /> },
+        sources,
+        script,
         edit,
-        { key: "review", label: "고객 승인", hint: REVIEW_LABEL[p.review.state] },
+        { key: "review", label: <TabLabel text="고객 승인" hint={REVIEW_LABEL[p.review.state]} tone={p.review.state === "approved" ? "success" : p.review.state === "revision" ? "warning" : "muted"} /> },
         ...rest,
       ];
     }
+    if (p.kind === "general") return [sources, script, edit, ...rest];
     return [
-      { key: "sources", label: "소스", hint: String(p.sources.length) },
-      { key: "coupang", label: "쿠팡 확인", hint: confirmed ? "확인" : p.coupang.candidates.length ? `후보 ${p.coupang.candidates.length}` : undefined },
-      { key: "script", label: "공식·대본", hint: p.script.lines.length ? `${p.script.lines.length}줄` : undefined },
+      sources,
+      {
+        key: "coupang",
+        label: confirmed ? (
+          <TabLabel text="쿠팡 확인" hint="동일 상품" tone="success" />
+        ) : (
+          <TabLabel text="쿠팡 확인" hint={p.coupang.candidates.length ? `후보 ${p.coupang.candidates.length}` : undefined} />
+        ),
+      },
+      script,
       edit,
       ...rest,
     ];
-  }, [p, d.publications]);
+  }, [p, d.publications, d.metrics, brand]);
 
   const saveLabel = state === "saving" ? "저장 중…" : state === "dirty" ? "고친 내용 저장 대기" : state === "saved" ? "저장됨" : state === "conflict" ? "충돌" : "저장 실패";
 
   return (
     <PageShell>
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+      <header className="mb-4 flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div className="min-w-0 flex-1">
-          <Link href="/neander/shorts/projects" className="mb-1 inline-flex items-center gap-1 text-nd-caption text-nd-fg-3 hover:text-nd-fg">
-            <ChevronLeft size={14} /> {p.kind === "brand" ? `영상 · ${p.clientName}` : "영상"}
+          <Link href="/neander/shorts/projects" className="mb-1 inline-flex items-center gap-1 text-[13px] text-nd-fg-3 hover:text-nd-fg">
+            <ChevronLeft size={15} /> {p.kind === "brand" ? `영상 · ${p.clientName}` : "영상"}
           </Link>
-          <Input
-            aria-label="영상 제목"
-            value={p.title}
-            onChange={(e) => update((x) => void (x.title = e.target.value))}
-            className="h-auto border-transparent bg-transparent px-0 text-nd-title font-semibold shadow-none focus:border-nd-border"
-          />
-          <p className="mt-1 text-nd-caption text-nd-fg-3">
-            {isOwner ? "내 영상" : `${nameOf(p.owner)} 님의 영상`} · 마지막 수정 {p.updatedBy === d.me ? "나" : p.updatedBy === "실행기" ? "실행기" : nameOf(p.updatedBy)} ·{" "}
-            <span className={state === "error" || state === "conflict" ? "text-nd-danger-text" : ""}>{readOnly ? "읽기 전용" : saveLabel}</span>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
+            <TitleInput value={p.title} readOnly={readOnly} onChange={(v) => update((x) => void (x.title = v))} />
+            <StageBadge stage={p.stage} size="lg" />
+            {p.sample && <Badge tone="warning" size="lg">예시 · 실제 수치 아님</Badge>}
+          </div>
+          <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[13px] text-nd-fg-3">
+            <span>{isOwner ? "내 영상" : `${nameOf(p.owner)} 님의 영상`}</span>
+            <span aria-hidden>·</span>
+            <span>
+              마지막 수정 {fmtStamp(p.updatedAt)} {p.updatedBy === d.me ? "나" : p.updatedBy === "실행기" ? "실행기" : nameOf(p.updatedBy)}
+            </span>
+            <span aria-hidden>·</span>
+            <span className={state === "error" || state === "conflict" ? "font-medium text-nd-danger-text" : state === "saved" ? "" : "text-nd-fg-2"} aria-live="polite">
+              {readOnly ? "읽기 전용" : saveLabel}
+            </span>
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {p.sample && <Badge tone="warning">예시</Badge>}
-          <Select size="sm" aria-label="단계" value={p.stage} onChange={(e) => update((x) => void (x.stage = e.target.value as ProjectStage))}>
+          {!brand && (
+            // 쿠팡 ↔ 일반만 바꾼다 — 제휴 링크 · 협찬이 없으면 일반 영상 (고지 문구 · 쿠팡 확인이 빠진다)
+            <Select className="w-44" aria-label="영상 종류" value={p.kind} disabled={readOnly} onChange={(e) => update((x) => void (x.kind = e.target.value as "coupang" | "general"))}>
+              <option value="coupang">쿠팡 제휴 영상</option>
+              <option value="general">일반 영상 (제휴 없음)</option>
+            </Select>
+          )}
+          <Select className="w-36" aria-label="단계" value={p.stage} onChange={(e) => update((x) => void (x.stage = e.target.value as ProjectStage))}>
             {(Object.keys(STAGE_LABEL) as ProjectStage[]).map((s) => (
               <option key={s} value={s}>{STAGE_LABEL[s]}</option>
             ))}
           </Select>
-          <Select size="sm" aria-label="공개 범위" value={p.visibility} disabled={!isOwner} onChange={(e) => update((x) => void (x.visibility = e.target.value as "private" | "team"))}>
+          <Select className="w-32" aria-label="공개 범위" value={p.visibility} disabled={!isOwner} onChange={(e) => update((x) => void (x.visibility = e.target.value as "private" | "team"))}>
             <option value="private">나만 보기</option>
             <option value="team">팀 보기</option>
           </Select>
           {isOwner && (
             <Button
-              size="sm"
               variant="ghost"
               icon={Trash2}
               aria-label="영상 지우기"
+              title="영상 지우기"
               onClick={async () => {
                 if (!(await ask({ title: "영상을 지울까요?", message: "소스 · 음성 · 완성 파일과 버전 기록, 검토 링크가 함께 지워집니다. 이미 게시한 영상은 플랫폼에 그대로 남습니다.", tone: "danger", confirmLabel: "지우기" }))) return;
                 await run("del", async () => {
@@ -145,7 +179,7 @@ function ProjectWorkspace({ initial }: { initial: WithId<ProjectDoc> }) {
             />
           )}
         </div>
-      </div>
+      </header>
 
       {(state === "conflict" || state === "error") && error && (
         <InlineNotice tone={state === "conflict" ? "warning" : "danger"} className="mb-4" action={state === "conflict" ? <Button size="sm" variant="secondary" onClick={() => void reloadLatest()}>최신 불러오기</Button> : undefined}>
@@ -196,4 +230,60 @@ function RenderVideo({ id }: { id: string }) {
   ) : (
     <div className="aspect-[9/16] w-40 shrink-0 animate-pulse rounded-nd-md bg-nd-fg/10" />
   );
+}
+
+/** 탭 이름 + 개수 · 상태 (숫자는 파란색, 상태 글은 13px) */
+function TabLabel({ text, hint, tone = "count" }: { text: string; hint?: string; tone?: "count" | "muted" | "warning" | "success" }) {
+  return (
+    <span className="inline-flex items-baseline gap-1.5">
+      {text}
+      {hint && (
+        <span
+          className={cn(
+            "max-w-[12rem] truncate text-[13px]",
+            tone === "count" && "nd-num font-semibold text-nd-accent",
+            tone === "muted" && "font-normal text-nd-fg-3",
+            tone === "warning" && "font-medium text-nd-warning-text",
+            tone === "success" && "font-medium text-nd-success-text",
+          )}
+        >
+          {hint}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** 제목 — 글 길이만큼만 넓어지는 입력칸 (옆에 단계 배지가 붙는다) */
+function TitleInput({ value, readOnly, onChange }: { value: string; readOnly: boolean; onChange: (v: string) => void }) {
+  const cls = "col-start-1 row-start-1 px-2 text-[22px] font-bold leading-snug tracking-[-0.01em]";
+  return (
+    <span className="-ml-2 inline-grid min-w-0 max-w-full grid-cols-[minmax(0,max-content)]">
+      <span aria-hidden className={cn(cls, "invisible overflow-hidden whitespace-pre border border-transparent py-1")}>
+        {value || "제목 없음"}
+      </span>
+      <input
+        aria-label="영상 제목"
+        value={value}
+        readOnly={readOnly}
+        placeholder="제목 없음"
+        title={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn(
+          cls,
+          "w-full min-w-[8rem] truncate rounded-nd-md border border-transparent bg-transparent py-1 text-nd-fg outline-none transition-colors placeholder:text-nd-fg-3",
+          !readOnly && "hover:border-nd-border focus:border-nd-accent focus:bg-nd-content",
+        )}
+      />
+    </span>
+  );
+}
+
+/** 마지막 수정 시각 — 올해면 「10월 31일 14:20」, 아니면 연도까지 (한국 시간) */
+function fmtStamp(ms: number | null | undefined): string {
+  if (!ms) return "—";
+  const k = new Date(ms + 9 * 3600_000);
+  const nowYear = new Date(Date.now() + 9 * 3600_000).getUTCFullYear();
+  const hm = `${String(k.getUTCHours()).padStart(2, "0")}:${String(k.getUTCMinutes()).padStart(2, "0")}`;
+  return `${k.getUTCFullYear() === nowYear ? "" : `${k.getUTCFullYear()}년 `}${k.getUTCMonth() + 1}월 ${k.getUTCDate()}일 ${hm}`;
 }

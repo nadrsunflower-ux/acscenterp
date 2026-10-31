@@ -24,6 +24,10 @@ import {
   narrationLength,
   parseTimingNotes,
   platformFromUrl,
+  browseUrl,
+  cleanPageTitle,
+  extractUrl,
+  videoKey,
   projectTotals,
   publicationKey,
   renderBlockers,
@@ -114,6 +118,40 @@ test("플랫폼·YouTube id 판별", () => {
   assert.equal(youtubeVideoId("https://www.youtube.com/shorts/jnD00wWWhqo"), "jnD00wWWhqo");
   assert.equal(youtubeVideoId("https://www.youtube.com/watch?v=jnD00wWWhqo"), "jnD00wWWhqo");
   assert.equal(youtubeVideoId("https://youtu.be/jnD00wWWhqo"), "jnD00wWWhqo");
+});
+
+test("둘러보기 · 붙여 넣은 링크 — 공유 문구에서 주소 · 같은 영상 열쇠", () => {
+  // 검색어가 없으면 탐색 화면, 있으면 검색
+  assert.equal(browseUrl("instagram", ""), "https://www.instagram.com/reels/");
+  assert.equal(browseUrl("tiktok", "접이식 선반"), "https://www.tiktok.com/search/video?q=%EC%A0%91%EC%9D%B4%EC%8B%9D%20%EC%84%A0%EB%B0%98");
+  assert.equal(browseUrl("douyin", "折叠置物架"), "https://www.douyin.com/search/%E6%8A%98%E5%8F%A0%E7%BD%AE%E7%89%A9%E6%9E%B6?type=video");
+  assert.equal(browseUrl("xiaohongshu", " "), "https://www.xiaohongshu.com/explore");
+
+  // 앱 공유 문구 — 전각 쉼표 · 공백에서 끊는다
+  assert.equal(extractUrl("【折叠置物架】超好用 http://xhslink.com/a/AbC12，复制本条信息，打开【小红书】App查看精彩内容！"), "http://xhslink.com/a/AbC12");
+  assert.equal(extractUrl("7.94 复制打开抖音，看看【某某的作品】厨房神器 https://v.douyin.com/iAbCdEf/ 01/23 kPx:/ "), "https://v.douyin.com/iAbCdEf/");
+  assert.equal(extractUrl("이거 봐 (https://www.instagram.com/reel/C9xYz_1AbCd/)."), "https://www.instagram.com/reel/C9xYz_1AbCd/");
+  assert.equal(extractUrl("주소 없음"), "");
+
+  // 같은 영상은 주소 모양이 달라도 같은 열쇠
+  assert.equal(videoKey("https://www.douyin.com/jingxuan?modal_id=7431234567890123456"), "douyin:7431234567890123456");
+  assert.equal(videoKey("https://www.douyin.com/video/7431234567890123456"), "douyin:7431234567890123456");
+  assert.equal(videoKey("https://www.iesdouyin.com/share/video/7431234567890123456/"), "douyin:7431234567890123456");
+  assert.equal(videoKey("https://www.xiaohongshu.com/explore/66f1a2b3c4d5e6f708192a3b?xsec_token=AB"), "xiaohongshu:66f1a2b3c4d5e6f708192a3b");
+  assert.equal(videoKey("https://www.xiaohongshu.com/search_result/66F1A2B3C4D5E6F708192A3B?xsec_source=pc_search"), "xiaohongshu:66f1a2b3c4d5e6f708192a3b");
+  assert.equal(videoKey("https://www.instagram.com/reel/C9xYz_1AbCd/?igsh=abc"), "instagram:C9xYz_1AbCd");
+  assert.equal(videoKey("https://www.instagram.com/reels/C9xYz_1AbCd/"), "instagram:C9xYz_1AbCd");
+  assert.equal(videoKey("https://www.tiktok.com/@someone/video/7412345678901234567?is_from_webapp=1"), "tiktok:7412345678901234567");
+  assert.equal(videoKey("https://youtube.com/shorts/jnD00wWWhqo?si=x"), "youtube:jnD00wWWhqo");
+  // 영상이 아닌 화면 — 검색 · 탐색 · 프로필
+  assert.equal(videoKey("https://www.douyin.com/search/折叠?type=video"), null);
+  assert.equal(videoKey("https://www.xiaohongshu.com/user/profile/66f1a2b3c4d5e6f708192a3b"), null);
+  assert.equal(videoKey("https://www.instagram.com/reels/"), null);
+  assert.equal(videoKey("https://www.tiktok.com/foryou"), null);
+
+  assert.equal(cleanPageTitle("超好用的折叠置物架 - 小红书"), "超好用的折叠置物架");
+  assert.equal(cleanPageTitle("주방 정리 꿀템 | TikTok"), "주방 정리 꿀템");
+  assert.equal(cleanPageTitle("抖音"), "");
 });
 
 test("확인되지 않은 주장 찾기 — 사실 목록에 있는 말은 넘어간다", () => {
@@ -379,4 +417,43 @@ test("브랜드: 우리 채널이면 고지 · 영상 안 고지 확인", () => 
 test("고객사 월 진행 집계", () => {
   const mk = (state: ProjectDoc["review"]["state"], stage: ProjectDoc["stage"]) => ({ review: { state, rounds: [], revisionsUsed: 0 }, stage });
   assert.deepEqual(monthProgress([mk("approved", "published"), mk("waiting", "ready"), mk("revision", "editing")], 8), { planned: 8, made: 3, approved: 1, published: 1, waiting: 1, revision: 1 });
+});
+
+import { GENERAL_COMPLIANCE_ITEMS, complianceItemsFor } from "./model";
+
+const generalProject = () => {
+  const p = emptyProject("a@x.com", { product: "주방 정리", kind: "general" });
+  p.publish = { ...p.publish, title: "싱크대 아래 정리", description: "정리 순서 세 가지", hashtags: ["살림"] };
+  return p;
+};
+
+test("일반 영상: 고지 문구 · 쿠팡 링크 없이 문구를 만들고, 확인 항목에 쿠팡 항목이 없다", () => {
+  const p = generalProject();
+  assert.equal(p.kind, "general");
+  const cap = buildCaption(p, "youtube");
+  assert.ok(!cap.includes(DISCLOSURE) && !startsWithDisclosure(cap) && !cap.includes("광고"), cap);
+  assert.ok(cap.startsWith("정리 순서 세 가지"));
+  assert.deepEqual(complianceItemsFor(p, false).map((i) => i.key), ["noPaidRelation", "claims", "sourceRights"]);
+  assert.equal(GENERAL_COMPLIANCE_ITEMS.find((i) => i.key === "sourceRights")?.required, false);
+  assert.equal(overlayFor(p), "", "광고가 아니라 고지 띠가 없다");
+  p.virtualHuman = true;
+  assert.equal(overlayFor(p), "가상인물 포함");
+  assert.ok(buildCaption(p, "instagram").startsWith("가상인물 포함"));
+  assert.equal(emptyProject("a@x.com", { kind: "brand" as never }).kind, "coupang", "고객사 영상은 이 길로 못 만든다");
+});
+
+test("일반 영상: 제휴 링크 · 대가 표시가 있으면 프로그램 확인 실패 (사람 확인으로 못 넘김)", () => {
+  const p = generalProject();
+  let sys = systemChecks(p, buildCaption(p, "youtube"), null, { id: "r1", overlay: null }, 1, []);
+  assert.equal(sys.noPaidRelation?.ok, true);
+  assert.equal(sys.disclosure, undefined, "쿠팡 항목은 보지 않는다");
+  assert.equal(sys.channelRegistered, undefined);
+  for (const bad of ["제품 링크 https://link.coupang.com/a/abc", "https://coupa.ng/xyz", "이 포스팅은 쿠팡 파트너스 활동의 일환", "유료 광고 포함", "협찬 받았습니다"]) {
+    p.publish.description = bad;
+    sys = systemChecks(p, buildCaption(p, "youtube"), null, { id: "r1", overlay: null }, 1, []);
+    assert.equal(sys.noPaidRelation?.ok, false, bad);
+  }
+  const userOk = { ok: true, by: "a", at: 1, note: "" };
+  const checks = Object.fromEntries(Object.entries(sys).map(([k, v]) => [k, { system: v, user: userOk }]));
+  assert.deepEqual(complianceBlockers(checks, GENERAL_COMPLIANCE_ITEMS).map((b) => b.key), ["noPaidRelation"]);
 });

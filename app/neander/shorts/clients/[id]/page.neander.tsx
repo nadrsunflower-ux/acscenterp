@@ -11,7 +11,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ChevronLeft, ClipboardCheck, KeyRound, Plug, Plus, Printer, Trash2 } from "lucide-react";
+import { Ban, ChevronLeft, ClipboardCheck, ImageIcon, KeyRound, Plug, Plus, Printer, Trash2, X } from "lucide-react";
 import {
   Badge,
   Button,
@@ -19,6 +19,7 @@ import {
   Dialog,
   EmptyState,
   Field,
+  FieldAction,
   FormRow,
   InlineNotice,
   Input,
@@ -36,15 +37,19 @@ import {
   Textarea,
   Th,
   Tr,
+  buttonClass,
+  cn,
+  type Tone,
   useConfirm,
 } from "@/components/neander/ui";
 import { useCrumbTail } from "@/components/neander/shell/context";
 import { useShorts } from "@/components/neander/shorts/ShortsProvider";
-import { PubBadge, StageBadge, fmtWhen, useAction } from "@/components/neander/shorts/parts";
-import { MediaUpload, useBlobUrl, useClientMedia } from "@/components/neander/shorts/media";
+import { ConnBadge, KindTile, PubBadge, StageBadge, fmtWhen, useAction } from "@/components/neander/shorts/parts";
+import { MediaThumb, MediaUpload, useClientMedia } from "@/components/neander/shorts/media";
 import { deleteMedia, mutate, shortsGet, shortsPost } from "@/lib/neander/shorts/client";
-import { PLATFORM_LABEL, REVIEW_LABEL, currentMonth, monthProgress, newId } from "@/lib/neander/shorts/model";
-import type { ClientDoc, ClientView } from "@/lib/neander/shorts/types";
+import { PLATFORM_LABEL, REVIEW_LABEL, currentMonth, latestRound, monthProgress, newId } from "@/lib/neander/shorts/model";
+import { splitVat } from "@/lib/neander/finance/project";
+import type { AccountView, ClientDoc, ClientView, ProjectDoc, PublishPlatform } from "@/lib/neander/shorts/types";
 
 const TABS = [
   { key: "month", label: "월별 영상" },
@@ -53,6 +58,10 @@ const TABS = [
   { key: "accounts", label: "게시 계정" },
 ];
 
+/** 고객 검토 상태 색 — 승인 초록 · 검토 대기 노랑 · 수정 요청 빨강 · 보내기 전 회색 */
+const REVIEW_TONE: Record<ProjectDoc["review"]["state"], Tone> = { approved: "success", waiting: "warning", revision: "danger", none: "neutral" };
+
+/** from ~ to 의 달 목록 — MonthStepper 가 받는 대로 최신 달이 앞 */
 function monthsBetween(from: string, to: string): string[] {
   const out: string[] = [];
   let [y, m] = from.split("-").map(Number);
@@ -63,8 +72,10 @@ function monthsBetween(from: string, to: string): string[] {
     if (m > 12) (m = 1), y++;
     if (out.length > 60) break;
   }
-  return out;
+  return out.reverse();
 }
+
+const won = (n: number) => `${n.toLocaleString("ko-KR")}원`;
 
 export default function ClientPage() {
   const { id } = useParams<{ id: string }>();
@@ -73,7 +84,7 @@ export default function ClientPage() {
   if (!client) {
     return (
       <PageShell>
-        <EmptyState title="고객사를 찾지 못했습니다" description="지워졌거나 내가 담당자가 아닌 고객사입니다." action={<Link href="/neander/shorts/clients"><Button variant="secondary">목록으로</Button></Link>} />
+        <EmptyState title="고객사를 찾지 못했습니다" description="지워졌거나 내가 담당자가 아닌 고객사입니다." action={<Link href="/neander/shorts/clients" className={buttonClass("secondary")}>목록으로</Link>} />
       </PageShell>
     );
   }
@@ -129,21 +140,22 @@ function ClientWorkspace({ initial }: { initial: ClientView }) {
   const [tab, setTab] = useState("month");
   useCrumbTail(c.name);
   const readOnly = !initial.canEdit;
+  const saveLabel = readOnly ? "읽기 전용" : state === "saving" ? "저장 중…" : state === "dirty" ? "저장 대기" : state === "error" ? "저장 실패" : "저장됨";
 
   return (
     <PageShell>
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <Link href="/neander/shorts/clients" className="mb-1 inline-flex items-center gap-1 text-nd-caption text-nd-fg-3 hover:text-nd-fg">
+          <Link href="/neander/shorts/clients" className="mb-1 inline-flex items-center gap-1 text-[13px] text-nd-fg-3 hover:text-nd-fg">
             <ChevronLeft size={14} /> 고객사
           </Link>
-          <Input aria-label="고객사 이름" value={c.name} disabled={readOnly} onChange={(e) => update((x) => void (x.name = e.target.value))} className="h-auto border-transparent bg-transparent px-0 text-nd-title font-semibold shadow-none focus:border-nd-border" />
-          <p className="mt-1 text-nd-caption text-nd-fg-3">
-            담당자 {c.members.map(nameOf).join(", ")} · {readOnly ? "읽기 전용" : state === "saving" ? "저장 중…" : state === "dirty" ? "저장 대기" : state === "error" ? "저장 실패" : "저장됨"}
+          <Input aria-label="고객사 이름" value={c.name} disabled={readOnly} onChange={(e) => update((x) => void (x.name = e.target.value))} className="h-auto border-transparent bg-transparent px-0 text-nd-title font-semibold shadow-none focus:border-nd-border disabled:bg-transparent disabled:text-nd-fg" />
+          <p className="mt-1 text-[13px] text-nd-fg-3">
+            담당자 {c.members.map(nameOf).join(", ") || "없음"} · <span className={cn(state === "error" && !readOnly && "font-medium text-nd-danger-text")}>{saveLabel}</span>
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Select size="sm" aria-label="상태" value={c.status} disabled={readOnly} onChange={(e) => update((x) => void (x.status = e.target.value as ClientDoc["status"]))}>
+          <Select size="sm" aria-label="상태" value={c.status} disabled={readOnly} onChange={(e) => update((x) => void (x.status = e.target.value as ClientDoc["status"]))} className="w-auto">
             <option value="active">진행</option>
             <option value="paused">멈춤</option>
             <option value="ended">종료</option>
@@ -179,6 +191,9 @@ interface FormatLite {
   korea: { status: string };
 }
 
+/** 고객사 계정이 하나라도 연결돼 있는가 — 고객사 계정 게시의 전제 */
+const clientConnected = (accounts: AccountView[], clientId: string) => accounts.some((a) => a.clientId === clientId && a.status === "connected");
+
 function MonthBoard({ c }: { c: ClientView }) {
   const { data, refresh } = useShorts();
   const d = data!;
@@ -195,29 +210,43 @@ function MonthBoard({ c }: { c: ClientView }) {
   }, [c.contract.startMonth]);
   const projects = d.projects.filter((p) => p.clientId === c.id && p.month === month);
   const prog = monthProgress(projects, c.contract.videosPerMonth);
+  const connected = clientConnected(d.accounts, c.id);
+  const left = prog.planned - prog.made;
+  const addButton = (
+    <Button icon={Plus} disabled={!c.canEdit} onClick={() => setAdding(true)}>영상 추가</Button>
+  );
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <MonthStepper months={months} value={month} onChange={setMonth} />
-        <div className="flex gap-2">
-          <Link href={`/neander/shorts/clients/${c.id}/report?month=${month}`}><Button variant="secondary" icon={Printer}>{month.slice(5)}월 보고</Button></Link>
-          <Button icon={Plus} disabled={!c.canEdit} onClick={() => setAdding(true)}>영상 추가</Button>
+        <div className="flex flex-wrap gap-2">
+          <Link href={`/neander/shorts/clients/${c.id}/report?month=${month}`} className={buttonClass("secondary")}>
+            <Printer size={16} aria-hidden /> {Number(month.slice(5))}월 보고
+          </Link>
+          {addButton}
         </div>
       </div>
-      <KpiStrip columns={5}>
-        <KpiItem label="제작 / 계약" value={`${prog.made} / ${prog.planned}`} unit="편" />
-        <KpiItem label="고객 승인" value={String(prog.approved)} unit="편" />
-        <KpiItem label="검토 대기" value={String(prog.waiting)} unit="편" />
-        <KpiItem label="수정 요청 중" value={String(prog.revision)} unit="편" />
-        <KpiItem label="게시됨" value={String(prog.published)} unit="편" />
+      <KpiStrip columns={6}>
+        <KpiItem label="계약" value={String(prog.planned)} unit="편" hint={`편당 수정 ${c.contract.revisionLimit}회까지`} />
+        <KpiItem label="제작" value={String(prog.made)} unit="편" hint={left > 0 ? `계약까지 ${left}편 남음` : left < 0 ? `계약보다 ${-left}편 많음` : "계약 편수를 채움"} />
+        <KpiItem label="고객 승인" value={String(prog.approved)} unit="편" tone="success" />
+        <KpiItem label="검토 대기" value={String(prog.waiting)} unit="편" tone="warning" />
+        <KpiItem label="수정 요청 중" value={String(prog.revision)} unit="편" tone="danger" />
+        <KpiItem label="게시됨" value={String(prog.published)} unit="편" tone="success" />
       </KpiStrip>
       {projects.length === 0 ? (
-        <EmptyState compact icon={ClipboardCheck} title={`${month.slice(5)}월 영상이 없습니다`} description={`계약은 월 ${c.contract.videosPerMonth}편입니다. 「영상 추가」 로 제품 · 정찰 형식을 골라 시작하세요.`} />
+        <EmptyState
+          compact
+          icon={ClipboardCheck}
+          title={`${Number(month.slice(5))}월 영상이 없습니다`}
+          description={`계약은 월 ${c.contract.videosPerMonth}편입니다. 「영상 추가」 로 제품 · 정찰 형식을 골라 시작하세요.`}
+          action={addButton}
+        />
       ) : (
         <Card padding="none">
           <TableScroll>
-            <Table minWidth={860}>
+            <Table size="md" minWidth={1040}>
               <thead>
                 <tr>
                   <Th>영상</Th>
@@ -226,22 +255,65 @@ function MonthBoard({ c }: { c: ClientView }) {
                   <Th align="right">수정 사용 / 상한</Th>
                   <Th>올릴 곳</Th>
                   <Th>게시</Th>
+                  <Th align="right">갱신</Th>
                 </tr>
               </thead>
               <tbody>
                 {projects.map((p) => {
                   const pubs = d.publications.filter((x) => x.projectId === p.id);
+                  const product = c.products.find((x) => x.id === p.clientProductId)?.name ?? "제품 미정";
+                  const round = latestRound(p.review);
+                  const overLimit = p.review.revisionsUsed > c.contract.revisionLimit;
                   return (
                     <Tr key={p.id}>
-                      <Td>
-                        <Link href={`/neander/shorts/projects/${p.id}`} className="font-medium hover:underline">{p.title}</Link>
-                        <div className="text-nd-caption text-nd-fg-3">{c.products.find((x) => x.id === p.clientProductId)?.name ?? "제품 미정"}{p.formatId ? " · 정찰 형식" : ""}</div>
+                      <Td className="max-w-[360px]">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <KindTile kind="brand" />
+                          <div className="min-w-0">
+                            <Link href={`/neander/shorts/projects/${p.id}`} title={p.title} className="block truncate font-medium hover:underline">{p.title}</Link>
+                            <div className="truncate text-[13px] text-nd-fg-3" title={product}>{product}{p.formatId ? " · 정찰 형식" : ""}</div>
+                          </div>
+                        </div>
                       </Td>
-                      <Td><StageBadge stage={p.stage} /></Td>
-                      <Td><Badge size="sm" tone={p.review.state === "approved" ? "success" : p.review.state === "waiting" ? "info" : p.review.state === "revision" ? "warning" : "neutral"}>{REVIEW_LABEL[p.review.state]}</Badge></Td>
-                      <Td num className={p.review.revisionsUsed > c.contract.revisionLimit ? "text-nd-danger-text" : ""}>{p.review.revisionsUsed} / {c.contract.revisionLimit}</Td>
-                      <Td muted>{p.brandTarget === "client" ? "고객사 계정" : "우리 채널 (광고 고지)"}</Td>
-                      <Td>{pubs.length ? pubs.map((x) => <span key={x.id} className="mr-1"><PubBadge status={x.status} /></span>) : <span className="text-nd-caption text-nd-fg-3">—</span>}</Td>
+                      <Td><StageBadge stage={p.stage} size="lg" /></Td>
+                      <Td>
+                        <div className="flex items-center gap-2 whitespace-nowrap">
+                          <Badge size="lg" tone={REVIEW_TONE[p.review.state]}>{REVIEW_LABEL[p.review.state]}</Badge>
+                          {round && <span className="nd-num whitespace-nowrap text-[13px] text-nd-fg-3">{round.n}차</span>}
+                        </div>
+                      </Td>
+                      <Td num className={overLimit ? "font-medium text-nd-danger-text" : ""} title={overLimit ? "계약상 수정 횟수를 넘었습니다 (별도 협의 대상)" : undefined}>
+                        {p.review.revisionsUsed} / {c.contract.revisionLimit}
+                        {overLimit && <span className="ml-1 text-[13px]">초과</span>}
+                      </Td>
+                      <Td>
+                        {p.brandTarget === "client" ? (
+                          <div className="flex items-center gap-2 whitespace-nowrap">
+                            <span>고객사 계정</span>
+                            <ConnBadge ok={connected} on="연결됨" off="연결 필요" offTone="danger" />
+                          </div>
+                        ) : (
+                          <span className="whitespace-nowrap text-nd-fg-2">우리 채널 <span className="text-[13px] text-nd-fg-3">(광고 고지)</span></span>
+                        )}
+                      </Td>
+                      <Td>
+                        {pubs.length ? (
+                          <div className="space-y-1.5">
+                            {pubs.map((x) => (
+                              <div key={x.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                <PubBadge status={x.status} size="lg" />
+                                <span className="whitespace-nowrap text-[13px] text-nd-fg-3">
+                                  {PLATFORM_LABEL[x.platform]} · {fmtWhen(x.result?.at ?? x.scheduledAt ?? x.updatedAt)}
+                                  {x.result?.by === "manual" ? " · 수동 기록" : ""}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-nd-fg-3" title="아직 게시 기록이 없습니다">—</span>
+                        )}
+                      </Td>
+                      <Td num className="whitespace-nowrap text-[13px] text-nd-fg-3">{fmtWhen(p.updatedAt)}</Td>
                     </Tr>
                   );
                 })}
@@ -267,7 +339,7 @@ function AddVideo({ c, month, onClose, onCreated }: { c: ClientView; month: stri
     <Dialog
       open
       onClose={onClose}
-      title={`${month.slice(5)}월 영상 추가`}
+      title={`${Number(month.slice(5))}월 영상 추가`}
       description="제품의 확인된 사실이 대본의 재료가 됩니다. 정찰 형식을 고르면 그 형식의 훅 · 구성 · 편집이 참고 자료로 들어갑니다."
       footer={
         <>
@@ -305,19 +377,47 @@ function AddVideo({ c, month, onClose, onCreated }: { c: ClientView; month: stri
 
 // ---- 계약 · 브리프 ---------------------------------------------------------
 
-function ListEditor({ label, hint, values, onChange, placeholder }: { label: string; hint?: string; values: string[]; onChange: (v: string[]) => void; placeholder?: string }) {
+function ListEditor({
+  label,
+  hint,
+  values,
+  onChange,
+  placeholder,
+  tone = "neutral",
+  className,
+}: {
+  label: string;
+  hint?: string;
+  values: string[];
+  onChange: (v: string[]) => void;
+  placeholder?: string;
+  /** danger — 금지 표현처럼 눈에 띄어야 하는 목록 */
+  tone?: "neutral" | "danger";
+  className?: string;
+}) {
   const [text, setText] = useState("");
   return (
-    <Field label={label} hint={hint}>
-      <div className="space-y-1.5">
-        <div className="flex flex-wrap gap-1.5">
-          {values.map((v, i) => (
-            <span key={`${v}-${i}`} className="inline-flex items-center gap-1 rounded-full bg-nd-fg/[.06] px-2.5 py-1 text-nd-caption">
-              {v}
-              <button type="button" aria-label={`${v} 지우기`} className="text-nd-fg-3 hover:text-nd-danger" onClick={() => onChange(values.filter((_, j) => j !== i))}>×</button>
-            </span>
-          ))}
-        </div>
+    <Field label={label} hint={hint} className={className}>
+      <div className="space-y-2">
+        {values.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {values.map((v, i) => (
+              <span
+                key={`${v}-${i}`}
+                title={v}
+                className={cn(
+                  "inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full py-1 pl-3 pr-2 text-[13px]",
+                  tone === "danger" ? "bg-nd-danger-soft font-medium text-nd-danger-text" : "bg-nd-fg/[.06] text-nd-fg",
+                )}
+              >
+                <span className="min-w-0 break-all">{v}</span>
+                <button type="button" aria-label={`${v} 지우기`} className="shrink-0 rounded-full p-0.5 text-nd-fg-3 hover:bg-nd-fg/10 hover:text-nd-danger disabled:hidden" onClick={() => onChange(values.filter((_, j) => j !== i))}>
+                  <X size={13} aria-hidden />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <Input
           size="sm"
           value={text}
@@ -336,14 +436,40 @@ function ListEditor({ label, hint, values, onChange, placeholder }: { label: str
   );
 }
 
+/** 월 금액을 부가세 기준에 따라 풀어 보인다 — 공급가액 · 부가세 · 받을 돈 */
+function VatBreakdown({ fee, vat }: { fee: number | null; vat: ClientDoc["contract"]["vat"] }) {
+  if (fee === null || !(fee > 0)) {
+    return <p className="rounded-nd-md bg-nd-sunken px-3 py-2 text-[13px] text-nd-fg-3">월 금액을 적으면 공급가액 · 부가세 · 받을 돈을 나눠 보여 줍니다.</p>;
+  }
+  const s = splitVat(fee, vat);
+  const rows: [string, number, boolean][] = [
+    ["공급가액", s.supply, vat === "excluded"],
+    ["부가세 10%", s.vat, false],
+    ["받을 돈 (월)", s.total, vat === "included"],
+  ];
+  return (
+    <div className="rounded-nd-md bg-nd-sunken px-3 py-2">
+      <dl className="grid grid-cols-3 gap-3">
+        {rows.map(([k, v, typed]) => (
+          <div key={k} className="min-w-0">
+            <dt className="truncate text-[13px] text-nd-fg-3">{k}{typed ? " · 적은 금액" : ""}</dt>
+            <dd className="nd-num truncate font-semibold text-nd-fg">{won(v)}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-1 text-[13px] text-nd-fg-3">{vat === "excluded" ? "부가세 별도 — 적은 금액이 공급가액이고 부가세 10% 를 더 받습니다." : "부가세 포함 — 적은 금액 안에 부가세가 들어 있습니다."}</p>
+    </div>
+  );
+}
+
 function BriefTab({ c, update }: { c: ClientView; update: (fn: (x: ClientView) => void) => void }) {
   const [members, setMembers] = useState(c.members.join(", "));
   return (
-    <div className="space-y-8">
-      <section>
-        <SectionHeader title="계약" hint="조회수는 약속하지 않습니다 — 계약은 제작 편수 · 수정 횟수까지" />
-        <Card className="space-y-3">
-          <FormRow className="grid-cols-2 sm:grid-cols-4">
+    <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
+      <section className="min-w-0">
+        <SectionHeader size="lg" title="계약" hint="조회수는 약속하지 않습니다 — 계약은 제작 편수 · 수정 횟수까지" />
+        <Card className="space-y-4">
+          <FormRow className="grid-cols-1 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
             <Field label="월 금액 (원)"><NumberInput size="sm" value={c.contract.monthlyFeeKrw} onValueChange={(r) => update((x) => void (x.contract.monthlyFeeKrw = r === "" ? null : Number(r)))} /></Field>
             <Field label="부가세">
               <Select size="sm" value={c.contract.vat} onChange={(e) => update((x) => void (x.contract.vat = e.target.value as "excluded" | "included"))}>
@@ -351,38 +477,47 @@ function BriefTab({ c, update }: { c: ClientView; update: (fn: (x: ClientView) =
                 <option value="included">포함</option>
               </Select>
             </Field>
+          </FormRow>
+          <VatBreakdown fee={c.contract.monthlyFeeKrw} vat={c.contract.vat} />
+          <FormRow className="grid-cols-2">
             <Field label="월 편수"><NumberInput size="sm" value={c.contract.videosPerMonth} onValueChange={(r) => update((x) => void (x.contract.videosPerMonth = Math.max(1, Number(r) || 1)))} /></Field>
             <Field label="한 편당 수정 횟수"><NumberInput size="sm" value={c.contract.revisionLimit} onValueChange={(r) => update((x) => void (x.contract.revisionLimit = Math.max(0, Number(r) || 0)))} /></Field>
           </FormRow>
-          <FormRow className="grid-cols-2 sm:grid-cols-4">
+          <FormRow className="grid-cols-2">
             <Field label="시작 월"><Input size="sm" type="month" value={c.contract.startMonth} onChange={(e) => update((x) => void (x.contract.startMonth = e.target.value))} /></Field>
             <Field label="끝 월 (비우면 계속)"><Input size="sm" type="month" value={c.contract.endMonth ?? ""} onChange={(e) => update((x) => void (x.contract.endMonth = e.target.value || null))} /></Field>
+          </FormRow>
+          <FormRow className="grid-cols-1 sm:grid-cols-2">
             <Field label="재무 프로젝트 코드" hint="입금 · 손익은 재무에서"><Input size="sm" value={c.contract.financeCode} placeholder="PJ-…" onChange={(e) => update((x) => void (x.contract.financeCode = e.target.value))} /></Field>
             <Field label="고객사 담당자 이름"><Input size="sm" value={c.contactName} onChange={(e) => update((x) => void (x.contactName = e.target.value))} /></Field>
           </FormRow>
-          <Field label="계약 메모"><Textarea rows={2} value={c.contract.note} onChange={(e) => update((x) => void (x.contract.note = e.target.value))} /></Field>
-          <FormRow className="grid-cols-1 sm:grid-cols-[3fr_auto]">
+          <Field label="계약 메모"><Textarea rows={3} value={c.contract.note} onChange={(e) => update((x) => void (x.contract.note = e.target.value))} /></Field>
+          <FormRow className="grid-cols-[minmax(0,1fr)_auto]">
             <Field label="우리 쪽 담당자 (ERP 이메일, 쉼표)" hint="이 사람들이 고객사 자료 · 영상 · 계정을 함께 씁니다"><Input size="sm" value={members} onChange={(e) => setMembers(e.target.value)} /></Field>
-            <div className="flex flex-col gap-1.5">
-              <span className="text-nd-caption" aria-hidden>{" "}</span>
+            <FieldAction>
               <Button size="sm" variant="secondary" onClick={() => update((x) => void (x.members = members.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)))}>담당자 반영</Button>
-            </div>
+            </FieldAction>
           </FormRow>
         </Card>
       </section>
-      <section>
-        <SectionHeader title="브리프" hint="AI 대본 · 문구 검사가 이 내용을 씁니다" />
-        <Card className="space-y-3">
+      <section className="min-w-0">
+        <SectionHeader size="lg" title="브리프" hint="AI 대본 · 문구 검사가 이 내용을 씁니다" />
+        <Card className="space-y-4">
+          <div className="flex gap-3 rounded-nd-md border border-nd-danger/25 bg-nd-danger-soft/40 p-3.5">
+            <Ban size={18} aria-hidden className="mt-0.5 shrink-0 text-nd-danger" />
+            <ListEditor tone="danger" className="min-w-0 flex-1" label="금지 표현" hint="대본 · 게시 문구에 들어가면 게시 전 점검이 찾아냅니다 (AI 에게도 금지로 넘깁니다)" values={c.brief.banned} onChange={(v) => update((x) => void (x.brief.banned = v))} placeholder="예: 최저가 · 1위 · 치료 · 경쟁사 이름" />
+          </div>
           <Field label="브랜드 · 캠페인 요약"><Textarea rows={3} value={c.brief.summary} onChange={(e) => update((x) => void (x.brief.summary = e.target.value))} /></Field>
           <FormRow className="grid-cols-1 sm:grid-cols-2">
             <Field label="대상 (누구에게)"><Input size="sm" value={c.brief.target} onChange={(e) => update((x) => void (x.brief.target = e.target.value))} /></Field>
             <Field label="말투"><Input size="sm" value={c.brief.tone} onChange={(e) => update((x) => void (x.brief.tone = e.target.value))} placeholder="예: 담백하고 친근하게, 과장 없이" /></Field>
           </FormRow>
-          <ListEditor label="핵심 메시지" values={c.brief.keyMessages} onChange={(v) => update((x) => void (x.brief.keyMessages = v))} />
-          <ListEditor label="반드시 넣을 것" values={c.brief.mustInclude} onChange={(v) => update((x) => void (x.brief.mustInclude = v))} />
-          <ListEditor label="금지 표현" hint="대본 · 게시 문구에 들어가면 게시 전 점검이 찾아냅니다 (AI 에게도 금지로 넘깁니다)" values={c.brief.banned} onChange={(v) => update((x) => void (x.brief.banned = v))} placeholder="예: 최저가 · 1위 · 치료 · 경쟁사 이름" />
+          <FormRow className="grid-cols-1 lg:grid-cols-2">
+            <ListEditor label="핵심 메시지" values={c.brief.keyMessages} onChange={(v) => update((x) => void (x.brief.keyMessages = v))} />
+            <ListEditor label="반드시 넣을 것" values={c.brief.mustInclude} onChange={(v) => update((x) => void (x.brief.mustInclude = v))} />
+          </FormRow>
           <ListEditor label="참고 영상 · 자료 주소" values={c.brief.references} onChange={(v) => update((x) => void (x.brief.references = v))} placeholder="https://…" />
-          <Field label="그 밖의 지시"><Textarea rows={3} value={c.brief.notes} onChange={(e) => update((x) => void (x.brief.notes = e.target.value))} /></Field>
+          <Field label="그 밖의 지시"><Textarea rows={4} value={c.brief.notes} onChange={(e) => update((x) => void (x.brief.notes = e.target.value))} /></Field>
         </Card>
       </section>
     </div>
@@ -391,54 +526,71 @@ function BriefTab({ c, update }: { c: ClientView; update: (fn: (x: ClientView) =
 
 // ---- 제품 · 사진 -----------------------------------------------------------
 
-function Photo({ id, onRemove }: { id: string; onRemove: () => void }) {
-  const { url } = useBlobUrl(id);
+function Photo({ id, alt, onRemove }: { id: string; alt: string; onRemove: () => void }) {
   return (
-    <div className="relative h-24 w-24 overflow-hidden rounded-nd-md bg-nd-fg/10">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      {url && <img src={url} alt="" className="h-full w-full object-cover" />}
-      <button type="button" aria-label="사진 지우기" onClick={onRemove} className="absolute right-1 top-1 rounded-full bg-black/60 px-1.5 text-white">×</button>
+    <div className="relative">
+      <MediaThumb id={id} type="image/*" alt={alt} className="aspect-square w-full rounded-nd-md" />
+      <button
+        type="button"
+        aria-label="사진 지우기"
+        title="사진 지우기"
+        onClick={onRemove}
+        className="absolute right-1.5 top-1.5 inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80 disabled:hidden"
+      >
+        <X size={14} aria-hidden />
+      </button>
     </div>
   );
 }
 
 function ProductsTab({ c, update }: { c: ClientView; update: (fn: (x: ClientView) => void) => void }) {
-  const { refresh } = useClientMedia(c.id);
+  const { media, refresh } = useClientMedia(c.id);
   const ask = useConfirm();
+  const addProduct = () => update((x) => void x.products.push({ id: newId("pd_"), name: "새 제품", url: "", facts: [], photoIds: [], note: "" }));
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-nd-body text-nd-fg-2">실사진은 AI 장면을 실제 제품과 비교하는 기준이 됩니다. 확인된 사실 밖의 성능 · 가격 · 후기는 대본에 쓰지 않습니다.</p>
-        <Button size="sm" icon={Plus} onClick={() => update((x) => void x.products.push({ id: newId("pd_"), name: "새 제품", url: "", facts: [], photoIds: [], note: "" }))}>제품 추가</Button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="min-w-0 flex-1 text-nd-body text-nd-fg-2">실사진은 AI 장면을 실제 제품과 비교하는 기준이 됩니다. 확인된 사실 밖의 성능 · 가격 · 후기는 대본에 쓰지 않습니다.</p>
+        <Button size="sm" icon={Plus} onClick={addProduct}>제품 추가</Button>
       </div>
-      {c.products.length === 0 && <EmptyState compact title="제품이 없습니다" description="홍보할 제품과 확인된 사실 · 실사진을 넣어 주세요." />}
+      {c.products.length === 0 && <EmptyState compact icon={ImageIcon} title="제품이 없습니다" description="홍보할 제품과 확인된 사실 · 실사진을 넣어 주세요." action={<Button size="sm" icon={Plus} onClick={addProduct}>제품 추가</Button>} />}
       {c.products.map((p, i) => (
-        <Card key={p.id} className="space-y-3">
-          <FormRow className="grid-cols-1 sm:grid-cols-[1.5fr_2fr_auto]">
-            <Field label="제품 이름"><Input size="sm" value={p.name} onChange={(e) => update((x) => void (x.products[i].name = e.target.value))} /></Field>
-            <Field label="제품 주소"><Input size="sm" value={p.url} onChange={(e) => update((x) => void (x.products[i].url = e.target.value))} placeholder="https://…" /></Field>
-            <div className="flex flex-col gap-1.5">
-              <span className="text-nd-caption" aria-hidden>{" "}</span>
-              <Button size="sm" variant="ghost" icon={Trash2} aria-label="제품 지우기" onClick={async () => {
-                if (!(await ask({ title: `「${p.name}」 을 지울까요?`, tone: "danger", confirmLabel: "지우기" }))) return;
-                update((x) => void x.products.splice(i, 1));
-              }} />
+        <Card key={p.id}>
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <div className="min-w-0 space-y-4">
+              <FormRow className="grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_auto]">
+                <Field label="제품 이름"><Input size="sm" value={p.name} onChange={(e) => update((x) => void (x.products[i].name = e.target.value))} /></Field>
+                <Field label="제품 주소" className="order-last col-span-2 sm:order-none sm:col-span-1"><Input size="sm" value={p.url} onChange={(e) => update((x) => void (x.products[i].url = e.target.value))} placeholder="https://…" /></Field>
+                <FieldAction>
+                  <Button size="sm" variant="ghost" icon={Trash2} aria-label="제품 지우기" onClick={async () => {
+                    if (!(await ask({ title: `「${p.name}」 을 지울까요?`, tone: "danger", confirmLabel: "지우기" }))) return;
+                    update((x) => void x.products.splice(i, 1));
+                  }} />
+                </FieldAction>
+              </FormRow>
+              <ListEditor label="확인된 사실" hint="고객사 자료 · 상세 페이지로 확인한 것만" values={p.facts} onChange={(v) => update((x) => void (x.products[i].facts = v))} />
+              <Field label="메모"><Input size="sm" value={p.note} onChange={(e) => update((x) => void (x.products[i].note = e.target.value))} /></Field>
             </div>
-          </FormRow>
-          <ListEditor label="확인된 사실" hint="고객사 자료 · 상세 페이지로 확인한 것만" values={p.facts} onChange={(v) => update((x) => void (x.products[i].facts = v))} />
-          <Field label="메모"><Input size="sm" value={p.note} onChange={(e) => update((x) => void (x.products[i].note = e.target.value))} /></Field>
-          <div>
-            <p className="mb-1.5 text-nd-caption font-medium text-nd-fg-2">실사진 {p.photoIds.length}장</p>
-            <div className="flex flex-wrap gap-2">
-              {p.photoIds.map((pid) => (
-                <Photo key={pid} id={pid} onRemove={async () => {
-                  await deleteMedia(pid).catch(() => undefined);
-                  update((x) => void (x.products[i].photoIds = x.products[i].photoIds.filter((y) => y !== pid)));
-                  await refresh();
-                }} />
-              ))}
-            </div>
-            <div className="mt-2">
+            <div className="min-w-0 space-y-2.5">
+              <p className="text-nd-body font-medium text-nd-fg">실사진 <span className="nd-num text-nd-fg-3">{p.photoIds.length}장</span></p>
+              {p.photoIds.length > 0 ? (
+                <div className="grid grid-cols-3 gap-2">
+                  {p.photoIds.map((pid) => (
+                    <Photo
+                      key={pid}
+                      id={pid}
+                      alt={media.find((m) => m.id === pid)?.name ?? `${p.name} 사진`}
+                      onRemove={async () => {
+                        await deleteMedia(pid).catch(() => undefined);
+                        update((x) => void (x.products[i].photoIds = x.products[i].photoIds.filter((y) => y !== pid)));
+                        await refresh();
+                      }}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[13px] text-nd-fg-3">아직 실사진이 없습니다 — 실제 제품 사진을 올리면 AI 장면과 비교하는 기준이 됩니다.</p>
+              )}
               <MediaUpload compact projectId="" clientId={c.id} kind="image" title="제품 사진 올리기" onUploaded={async (ms) => { update((x) => void x.products[i].photoIds.push(...ms.map((m) => m.id))); await refresh(); }} />
             </div>
           </div>
@@ -462,31 +614,69 @@ function AccountsTab({ c }: { c: ClientView }) {
       const r = await shortsPost<{ url: string }>("oauth", { platform, clientId: c.id });
       window.location.assign(r.url);
     });
+  /** 연결 버튼을 못 누르는 까닭 — 서버 설정 · 권한 */
+  const blocked = (app: { configured: boolean; missing: string[] }, appName: string) => {
+    if (!c.canEdit) return "담당자만 연결할 수 있습니다.";
+    if (!app.configured) return `서버에 ${appName} 연결 설정이 없습니다${app.missing.length ? ` (빠진 값: ${app.missing.join(", ")})` : ""}.`;
+    if (!s.tokenKey.configured) return "서버에 토큰 암호화 키가 없습니다.";
+    return null;
+  };
+  const platforms: { key: PublishPlatform; app: { configured: boolean; missing: string[] }; appName: string; need: string }[] = [
+    { key: "youtube", app: s.youtubeOAuth, appName: "YouTube", need: "고객사 YouTube 채널의 관리자 권한" },
+    { key: "instagram", app: s.meta, appName: "Instagram (Meta)", need: "고객사 Meta 비즈니스 · Instagram 프로페셔널 계정 권한" },
+  ];
   return (
     <div className="space-y-4">
       <InlineNotice tone="info">
         고객사 계정은 고객사의 것입니다 — 담당자 누구나 이 계정으로 게시하고, 토큰은 서버에 암호화해 둡니다. 고객사 계정에 올리는 브랜드 영상은 자기 광고라 「광고」 고지가 필요 없습니다. 연결은 고객사가 우리에게 계정 권한(Meta 비즈니스 · YouTube 관리자)을 준 뒤에 합니다.
       </InlineNotice>
-      <div className="flex flex-wrap gap-2">
-        <Button size="sm" icon={Plug} disabled={!c.canEdit || !s.youtubeOAuth.configured || !s.tokenKey.configured || busy === "youtube"} onClick={() => void connect("youtube")}>고객사 YouTube 연결</Button>
-        <Button size="sm" icon={Plug} disabled={!c.canEdit || !s.meta.configured || !s.tokenKey.configured || busy === "instagram"} onClick={() => void connect("instagram")}>고객사 Instagram 연결</Button>
-        <Button size="sm" variant="secondary" icon={KeyRound} disabled={!c.canEdit || !s.tokenKey.configured} onClick={() => setManual(true)}>Instagram 토큰 직접 입력</Button>
-      </div>
       {accounts.length === 0 ? (
-        <p className="text-nd-body text-nd-fg-3">아직 연결한 고객사 계정이 없습니다 — 고객사 계정 게시는 미연결 상태입니다. 우리 채널에 「광고」 고지를 달아 올릴 수는 있습니다.</p>
+        <InlineNotice tone="warning">
+          아직 연결한 고객사 계정이 없습니다 — 고객사 계정 게시는 미연결 상태입니다. 우리 채널에 「광고」 고지를 달아 올릴 수는 있습니다.
+        </InlineNotice>
       ) : (
-        <Card padding="none">
-          <ul className="divide-y divide-nd-line">
-            {accounts.map((a) => (
-              <li key={a.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5">
-                <span className="font-medium">{PLATFORM_LABEL[a.platform]} · {a.externalName}</span>
-                {a.status === "connected" ? <Badge tone="success" size="sm">연결됨</Badge> : <Badge tone="warning" size="sm">다시 연결 필요</Badge>}
-                <span className="text-nd-caption text-nd-fg-3">연결 {nameOf(a.owner)} · {fmtWhen(a.createdAt)}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
+        !accounts.some((a) => a.status === "connected") && (
+          <InlineNotice tone="warning">연결이 끊긴 고객사 계정만 있습니다 — 다시 연결해야 고객사 계정으로 게시할 수 있습니다.</InlineNotice>
+        )
       )}
+      <div className="grid gap-4 lg:grid-cols-2">
+        {platforms.map(({ key, app, appName, need }) => {
+          const list = accounts.filter((a) => a.platform === key);
+          const ok = list.some((a) => a.status === "connected");
+          const reauth = !ok && list.some((a) => a.status === "needs_reauth");
+          const why = blocked(app, appName);
+          return (
+            <Card key={key} className="flex min-w-0 flex-col gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-nd-section text-nd-fg">고객사 {PLATFORM_LABEL[key]}</h3>
+                {reauth ? <Badge tone="warning" size="lg">다시 연결 필요</Badge> : <ConnBadge ok={ok} on="연결됨" off="연결 필요" offTone="danger" size="lg" />}
+              </div>
+              {list.length ? (
+                <ul className="divide-y divide-nd-line rounded-nd-md border border-nd-line">
+                  {list.map((a) => (
+                    <li key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5">
+                      <span className="min-w-0 truncate font-medium" title={a.externalName}>{a.externalName}</span>
+                      {a.status === "connected" ? <Badge tone="success">연결됨</Badge> : <Badge tone="warning">다시 연결 필요</Badge>}
+                      <span className="text-[13px] text-nd-fg-3">연결 {nameOf(a.owner)} · {fmtWhen(a.createdAt)}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-[13px] text-nd-fg-3">연결한 계정이 없습니다 — 연결하려면 {need}이 필요합니다.</p>
+              )}
+              <div className="mt-auto flex flex-wrap gap-2">
+                <Button size="sm" icon={Plug} disabled={!!why || busy === key} onClick={() => void connect(key)}>
+                  고객사 {PLATFORM_LABEL[key]} 연결
+                </Button>
+                {key === "instagram" && (
+                  <Button size="sm" variant="secondary" icon={KeyRound} disabled={!c.canEdit || !s.tokenKey.configured} onClick={() => setManual(true)}>Instagram 토큰 직접 입력</Button>
+                )}
+              </div>
+              {why && <p className="break-words text-[13px] text-nd-fg-3">{why}</p>}
+            </Card>
+          );
+        })}
+      </div>
       {manual && <ManualToken clientId={c.id} onClose={() => setManual(false)} onDone={async () => { setManual(false); await refresh(); }} />}
     </div>
   );

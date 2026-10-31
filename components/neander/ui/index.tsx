@@ -7,7 +7,7 @@
 // ============================================================
 export { cn } from "./cn";
 export { Icon, type LucideIcon } from "./icon";
-export { Button, IconButton, ButtonGroup, type ButtonProps, type IconButtonProps, type ButtonVariant, type ButtonSize } from "./button";
+export { Button, IconButton, ButtonGroup, buttonClass, type ButtonProps, type IconButtonProps, type ButtonVariant, type ButtonSize } from "./button";
 export { Field, FormRow, FieldAction, Input, Textarea, Select, Checkbox, Switch, controlClass, type ControlSize, type InputProps, type SelectProps, type TextareaProps } from "./field";
 export { Card, Glass, Divider, SectionHeader } from "./surface";
 export { Badge, StatusDot, CountBadge, toneCls, type Tone } from "./badge";

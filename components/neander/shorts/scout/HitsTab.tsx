@@ -11,6 +11,7 @@ import {
   Dialog,
   EmptyState,
   Field,
+  FieldAction,
   FormRow,
   InlineNotice,
   Input,
@@ -25,10 +26,10 @@ import {
   Tr,
   useConfirm,
 } from "@/components/neander/ui";
-import { SourceTag, fmtUsd, fmtWhen, useAction } from "@/components/neander/shorts/parts";
+import { Num, SourceTag, Unknown, fmtUsd, fmtWhen, useAction } from "@/components/neander/shorts/parts";
 import { PLATFORM_LABEL, fmtCount, fmtPct, platformFromUrl } from "@/lib/neander/shorts/model";
-import { COUNTRIES, RISK_LABEL, countryLabel, fmtMultiple, type HitDoc } from "@/lib/neander/shorts/scout";
-import { AiBadge, CountrySelect, CountryTag, LangBadge, fmtAgo, fmtDate } from "./bits";
+import { COUNTRIES, RISK_LABEL, countryLabel, type HitDoc } from "@/lib/neander/shorts/scout";
+import { Ago, AiBadge, CountrySelect, CountryText, LangBadge, Multiple, Note, VideoThumb, fmtDate } from "./bits";
 import { scout, type ScoutData, type WithId } from "./useScout";
 
 type Filter = "new" | "assigned" | "dismissed" | "all";
@@ -59,114 +60,137 @@ export function HitsTab({ d, refresh, onOpenFormat }: { d: ScoutData; refresh: (
             { key: "new", label: "묶기 전", badge: count("new") },
             { key: "assigned", label: "형식에 묶음", badge: count("assigned") },
             { key: "dismissed", label: "제외", badge: count("dismissed") },
-            { key: "all", label: "전체" },
+            { key: "all", label: "전체", badge: count("all") },
           ]}
           value={filter}
           onChange={(k) => setFilter(k as Filter)}
           ariaLabel="상태"
         />
-        <div className="flex items-center gap-2">
-          <Select size="sm" value={country} onChange={(e) => setCountry(e.target.value)} aria-label="나라">
+        <div className="flex flex-wrap items-center gap-2">
+          <Select size="md" className="w-auto" value={country} onChange={(e) => setCountry(e.target.value)} aria-label="나라">
             <option value="">모든 나라</option>
             {COUNTRIES.filter((c) => d.hits.some((h) => h.country === c.code)).map((c) => (
               <option key={c.code} value={c.code}>{c.label}</option>
             ))}
           </Select>
-          <Select size="sm" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} aria-label="정렬">
+          <Select size="md" className="w-auto" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} aria-label="정렬">
             <option value="multiple">배수 큰 순</option>
             <option value="found">찾은 순</option>
             <option value="published">올린 순</option>
           </Select>
-          <Button size="sm" icon={Plus} onClick={() => setAdding(true)}>영상 등록</Button>
+          <Button icon={Plus} onClick={() => setAdding(true)}>영상 등록</Button>
         </div>
       </div>
 
       {rows.length === 0 ? (
         <EmptyState
+          compact
           icon={Flame}
           title={filter === "new" ? "묶을 영상이 없습니다" : "영상이 없습니다"}
           description="감시 채널을 훑으면 평소보다 크게 터진 쇼츠가 여기 모입니다. 틱톡 · 더우인 · 인스타에서 본 영상은 「영상 등록」 으로 넣으세요."
+          action={<Button size="sm" variant="secondary" icon={Plus} onClick={() => setAdding(true)}>영상 등록</Button>}
         />
       ) : (
-        <Card padding="none">
-          <TableScroll>
-            <Table minWidth={1080}>
-              <thead>
-                <tr>
-                  <Th>영상</Th>
-                  <Th>나라</Th>
-                  <Th>올린 지</Th>
-                  <Th align="right">조회</Th>
-                  <Th align="right" title="조회수 ÷ 그 채널 평소 조회수">배수</Th>
-                  <Th>형식</Th>
-                  <Th align="right" title="댓글 표본 중 한글 댓글 — 한국 사람이 이미 보고 있나">한글 댓글</Th>
-                  <Th align="right"> </Th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((h) => {
-                  const suggestion = !h.formatId && h.analysis?.match.formatId ? formatName.get(h.analysis.match.formatId) : null;
-                  return (
-                    <Tr key={h.id} className={h.status === "dismissed" ? "opacity-60" : undefined}>
-                      <Td className="max-w-[380px]">
-                        <button type="button" className="flex w-full items-center gap-3 text-left" onClick={() => setOpen(h.id)}>
-                          {h.thumbnail ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={h.thumbnail} alt="" className="h-10 w-[72px] shrink-0 rounded-nd-sm object-cover" loading="lazy" />
+        <>
+          <Card padding="none">
+            <TableScroll>
+              <Table size="md" minWidth={1080}>
+                <thead>
+                  <tr>
+                    <Th>영상</Th>
+                    <Th>나라</Th>
+                    <Th>올린 지</Th>
+                    <Th align="right" title="원본 영상의 조회수 · 그 채널 평소 조회수">원본 조회 · 평소</Th>
+                    <Th align="right" title="조회수 ÷ 그 채널 평소 조회수">배수</Th>
+                    <Th>형식 · 분석</Th>
+                    <Th align="right" title="댓글 표본 중 한글 댓글 — 한국 사람이 이미 보고 있나">한글 댓글</Th>
+                    <Th align="right">작업</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((h) => {
+                    const suggestion = !h.formatId && h.analysis?.match.formatId ? formatName.get(h.analysis.match.formatId) : null;
+                    return (
+                      <Tr key={h.id} className={h.status === "dismissed" ? "opacity-60" : undefined}>
+                        <Td className="w-[34%] max-w-0">
+                          <button type="button" className="group flex w-full min-w-0 items-center gap-3 text-left" onClick={() => setOpen(h.id)} title={h.title || h.url}>
+                            <VideoThumb src={h.thumbnail} duration={h.duration} label={PLATFORM_LABEL[h.platform]} />
+                            <span className="min-w-0">
+                              <span className="block truncate font-medium group-hover:underline">{h.title || h.url}</span>
+                              <span className="block truncate text-[13px] text-nd-fg-2">{h.channel || "채널 모름"}</span>
+                              <span className="block truncate text-[13px] text-nd-fg-3">
+                                {PLATFORM_LABEL[h.platform]} · {h.found === "manual" ? "직접 등록" : "감시 채널에서 찾음"}
+                                {h.status === "dismissed" ? " · 제외함" : ""}
+                              </span>
+                            </span>
+                          </button>
+                        </Td>
+                        <Td><CountryText codes={[h.country]} /></Td>
+                        <Td><Ago iso={h.publishedAt} /></Td>
+                        <Td num>
+                          <span className="block"><Num value={h.views.v} /></span>
+                          <span className="block text-[13px] text-nd-fg-3" title={h.baseline.ref}>
+                            평소 {h.baseline.v === null ? <Unknown title="그 채널 평소 조회수를 모릅니다" /> : fmtCount(h.baseline.v)}
+                          </span>
+                        </Td>
+                        <Td num className="text-[15px]"><Multiple value={h.multiple} /></Td>
+                        <Td className="max-w-[230px]">
+                          {h.formatId ? (
+                            <button type="button" className="block max-w-full truncate text-left font-medium text-nd-accent hover:underline" title={formatName.get(h.formatId) ?? "(지워진 카드)"} onClick={() => onOpenFormat(h.formatId as string)}>
+                              {formatName.get(h.formatId) ?? "(지워진 카드)"}
+                            </button>
+                          ) : h.analysis ? (
+                            <span className="block min-w-0">
+                              <Badge tone="info" size="lg">분석됨 · 안 묶음</Badge>
+                              <span className="mt-1 block truncate text-[13px] text-nd-fg-2" title={h.analysis.summary}>
+                                {suggestion ? `제안: ${suggestion}` : `새 형식? ${h.analysis.formatName}`}
+                              </span>
+                            </span>
                           ) : (
-                            <span className="flex h-10 w-[72px] shrink-0 items-center justify-center rounded-nd-sm bg-nd-fg/[.06] text-nd-caption text-nd-fg-3">{PLATFORM_LABEL[h.platform]}</span>
+                            <Badge tone="neutral" size="lg">분석 전</Badge>
                           )}
-                          <span className="min-w-0">
-                            <span className="line-clamp-1 font-medium hover:underline">{h.title || h.url}</span>
-                            <span className="line-clamp-1 text-nd-caption text-nd-fg-3">{h.channel}{h.found === "manual" ? " · 직접 등록" : ""}</span>
-                          </span>
-                        </button>
-                      </Td>
-                      <Td>{h.country ? <CountryTag code={h.country} /> : <span className="text-nd-fg-3">—</span>}</Td>
-                      <Td className="text-nd-table">{fmtAgo(h.publishedAt)}</Td>
-                      <Td num>{fmtCount(h.views.v)}</Td>
-                      <Td num title={`평소 ${fmtCount(h.baseline.v)} · ${h.baseline.ref ?? ""}`}>
-                        <span className={(h.multiple ?? 0) >= 10 ? "font-semibold text-nd-success-text" : undefined}>{fmtMultiple(h.multiple)}</span>
-                      </Td>
-                      <Td className="max-w-[220px]">
-                        {h.formatId ? (
-                          <button type="button" className="line-clamp-1 text-left font-medium hover:underline" onClick={() => onOpenFormat(h.formatId as string)}>{formatName.get(h.formatId) ?? "(지워진 카드)"}</button>
-                        ) : h.analysis ? (
-                          <span className="line-clamp-1 text-nd-table text-nd-fg-2" title={h.analysis.summary}>
-                            {suggestion ? `제안: ${suggestion}` : `새 형식? ${h.analysis.formatName}`}
-                          </span>
-                        ) : (
-                          <span className="text-nd-table text-nd-fg-3">분석 전</span>
-                        )}
-                      </Td>
-                      <Td num>{h.koreanComments ? fmtPct(h.koreanComments.sampled ? h.koreanComments.korean / h.koreanComments.sampled : null, 0) : "—"}</Td>
-                      <Td align="right">
-                        {!h.analysis && h.platform === "youtube" ? (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            icon={Sparkles}
-                            disabled={busy === `an-${h.id}`}
-                            onClick={() =>
-                              void run(`an-${h.id}`, async () => {
-                                await scout("hit.analyze", { id: h.id });
-                                await refresh();
-                              }, "AI 가 영상을 보고 형식을 뽑았습니다.")
-                            }
-                          >
-                            {busy === `an-${h.id}` ? "보는 중…" : "분석"}
-                          </Button>
-                        ) : (
-                          <Button size="sm" variant="ghost" onClick={() => setOpen(h.id)}>보기</Button>
-                        )}
-                      </Td>
-                    </Tr>
-                  );
-                })}
-              </tbody>
-            </Table>
-          </TableScroll>
-        </Card>
+                        </Td>
+                        <Td num>
+                          {h.koreanComments ? (
+                            fmtPct(h.koreanComments.sampled ? h.koreanComments.korean / h.koreanComments.sampled : null, 0)
+                          ) : h.platform === "youtube" ? (
+                            <Unknown title="댓글 표본을 아직 읽지 않았습니다" />
+                          ) : (
+                            <span className="text-nd-fg-3" title="YouTube 영상만 댓글 표본을 읽습니다">—</span>
+                          )}
+                        </Td>
+                        <Td align="right">
+                          <div className="flex justify-end gap-1.5">
+                            {!h.analysis && h.platform === "youtube" && (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                icon={Sparkles}
+                                disabled={busy === `an-${h.id}`}
+                                onClick={() =>
+                                  void run(`an-${h.id}`, async () => {
+                                    await scout("hit.analyze", { id: h.id });
+                                    await refresh();
+                                  }, "AI 가 영상을 보고 형식을 뽑았습니다.")
+                                }
+                              >
+                                {busy === `an-${h.id}` ? "보는 중…" : "분석"}
+                              </Button>
+                            )}
+                            <Button size="sm" variant="secondary" onClick={() => setOpen(h.id)}>열기</Button>
+                          </div>
+                        </Td>
+                      </Tr>
+                    );
+                  })}
+                </tbody>
+              </Table>
+            </TableScroll>
+          </Card>
+          <Note className="mt-2">
+            조회 · 배수는 원본 영상(남의 채널)의 공개 반응입니다 — 우리 영상 성과가 아닙니다. 배수 = 조회 ÷ 그 채널 평소 조회수(최근 쇼츠 중앙값). 직접 등록한 영상의 숫자는 사람이 보고 적은 값입니다.
+          </Note>
+        </>
       )}
 
       {hit && <HitDialog d={d} hit={hit} refresh={refresh} onClose={() => setOpen(null)} onOpenFormat={onOpenFormat} />}
@@ -230,13 +254,21 @@ function HitDialog({ d, hit: h, refresh, onClose, onOpenFormat }: { d: ScoutData
       }
     >
       <div className="space-y-5">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-nd-body">
-          <a href={h.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-nd-accent hover:underline">원본 열기 <ExternalLink size={13} /></a>
-          <span className="inline-flex items-center gap-1.5">조회 {fmtCount(h.views.v)} <SourceTag src={h.views.src} title={h.views.ref} /></span>
-          <span className="inline-flex items-center gap-1.5" title={h.baseline.ref}>평소 {fmtCount(h.baseline.v)} <SourceTag src={h.baseline.src} title={h.baseline.ref} /></span>
-          <span className="font-semibold">{fmtMultiple(h.multiple)}</span>
-          <span>올린 날 {fmtDate(h.publishedAt)} ({fmtAgo(h.publishedAt)})</span>
-          {h.duration ? <span>{Math.round(h.duration)}초</span> : null}
+        <div className="flex flex-wrap items-center gap-4">
+          <VideoThumb src={h.thumbnail} duration={h.duration} label={PLATFORM_LABEL[h.platform]} className="h-[72px] w-32" />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-nd-body">
+              <span className="inline-flex items-center gap-1.5">원본 조회 <Num value={h.views.v} /> <SourceTag src={h.views.src} title={h.views.ref} /></span>
+              <span className="inline-flex items-center gap-1.5" title={h.baseline.ref}>평소 <Num value={h.baseline.v} /> <SourceTag src={h.baseline.src} title={h.baseline.ref} /></span>
+              <span className="inline-flex items-center gap-1.5">배수 <Multiple value={h.multiple} className="text-[15px]" /></span>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[13px] text-nd-fg-2">
+              <span>올린 날 {h.publishedAt ? <>{fmtDate(h.publishedAt)} (<Ago iso={h.publishedAt} />)</> : <Unknown title="게시일을 모릅니다" />}</span>
+              {h.duration ? <span>{Math.round(h.duration)}초</span> : null}
+              <a href={h.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-nd-accent hover:underline">원본 열기 <ExternalLink size={13} /></a>
+            </div>
+            <p className="text-[13px] text-nd-fg-3">원본 영상의 공개 반응입니다 — 우리 영상 성과가 아닙니다.</p>
+          </div>
         </div>
 
         <FormRow className="grid-cols-1 sm:grid-cols-[1fr_2fr]">
@@ -298,7 +330,7 @@ function HitDialog({ d, hit: h, refresh, onClose, onOpenFormat }: { d: ScoutData
             <div className="space-y-3">
               {suggested && (
                 <div className="flex flex-wrap items-center gap-2 text-nd-body">
-                  <Badge tone="info" size="sm">AI 제안</Badge>
+                  <Badge tone="info">AI 제안</Badge>
                   <span className="font-medium">{suggested.name}</span>
                   <span className="text-nd-fg-3">{a?.match.reason}</span>
                   <Button size="sm" variant="secondary" disabled={busy === "as"} onClick={() => void act("as", "hit.assign", { formatId: suggested.id }, "형식 카드에 묶었습니다.")}>여기에 묶기</Button>
@@ -313,16 +345,14 @@ function HitDialog({ d, hit: h, refresh, onClose, onOpenFormat }: { d: ScoutData
                     ))}
                   </Select>
                 </Field>
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-nd-caption" aria-hidden>{" "}</span>
+                <FieldAction>
                   <Button size="sm" variant="secondary" disabled={!pick || busy === "as"} onClick={() => void act("as", "hit.assign", { formatId: pick }, "형식 카드에 묶었습니다.")}>묶기</Button>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-nd-caption" aria-hidden>{" "}</span>
+                </FieldAction>
+                <FieldAction>
                   <Button size="sm" disabled={!a || busy === "as"} title={a ? undefined : "먼저 분석해 주세요"} onClick={() => void act("as", "hit.assign", { formatId: "new" }, "분석 내용으로 새 형식 카드를 만들었습니다.")}>
                     새 형식 카드로{a ? ` (「${a.formatName}」)` : ""}
                   </Button>
-                </div>
+                </FieldAction>
               </FormRow>
             </div>
           )}
@@ -351,7 +381,7 @@ export function AnalysisView({ a }: { a: NonNullable<HitDoc["analysis"]> }) {
         <LangBadge dep={a.languageDependence} />
         <AiBadge level={a.aiFeasibility.level} />
         {a.risks.map((r) => (
-          <Badge key={r} tone="warning" size="sm">{RISK_LABEL[r]}</Badge>
+          <Badge key={r} tone="warning">{RISK_LABEL[r]}</Badge>
         ))}
       </div>
       <div className="divide-y divide-nd-line">
@@ -369,7 +399,7 @@ export function AnalysisView({ a }: { a: NonNullable<HitDoc["analysis"]> }) {
         {a.koreanQueries.length > 0 && row("국내 확인 검색어", a.koreanQueries.join(" / "))}
         {row("길이 · 컷", [a.totalSec ? `${a.totalSec}초` : "", a.cutCount ? `${a.cutCount}컷` : ""].filter(Boolean).join(" · ") || undefined)}
       </div>
-      <p className="mt-2 text-nd-caption text-nd-fg-3">AI 가 영상을 보고 쓴 관찰 · 가설입니다 (사실 확인 아님) · {a.model} · {fmtUsd(a.costUsd)} · {fmtWhen(a.at)}</p>
+      <p className="mt-2 text-[13px] text-nd-fg-3">AI 가 영상을 보고 쓴 관찰 · 가설입니다 (사실 확인 아님) · {a.model} · {fmtUsd(a.costUsd)} · {fmtWhen(a.at)}</p>
     </div>
   );
 }

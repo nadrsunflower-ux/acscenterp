@@ -81,7 +81,7 @@ export function KpiItem({
         className,
       )}
     >
-      <div className="flex min-w-0 items-center gap-2 text-nd-caption font-medium text-nd-fg-2 sm:mb-1">
+      <div className="nd-kpi-label flex min-w-0 items-center gap-2 text-nd-caption font-medium text-nd-fg-2 sm:mb-1">
         {(marker || tone) && (
           <span
             aria-hidden
@@ -99,7 +99,7 @@ export function KpiItem({
         {unit && <span className="text-nd-body text-nd-fg-2">{unit}</span>}
       </div>
       {/* 힌트는 sm 이상에서 항상 한 줄을 차지해 이웃 칸과 숫자 높이가 맞는다 */}
-      <div className={cn("truncate text-nd-caption text-nd-fg-3 sm:min-h-[1.1rem]", !hint && "hidden sm:block")}>
+      <div className={cn("nd-kpi-hint truncate text-nd-caption text-nd-fg-3 sm:min-h-[1.1rem]", !hint && "hidden sm:block")}>
         {hint ?? "\u00a0"}
       </div>
     </div>

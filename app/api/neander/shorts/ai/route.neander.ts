@@ -67,6 +67,7 @@ export async function POST(req: Request) {
         brand: client
           ? { name: client.name, summary: client.brief.summary, target: client.brief.target, tone: client.brief.tone, keyMessages: client.brief.keyMessages, mustInclude: client.brief.mustInclude, banned: client.brief.banned }
           : null,
+        general: p.kind === "general",
       });
       if (p.script.lines.length) await addVersion(db, p.id, "script", { script: p.script, scenes: p.scenes }, email, "AI 대본 전 모습");
       const scenes: Scene[] = r.draft.scenes.map((s) => ({

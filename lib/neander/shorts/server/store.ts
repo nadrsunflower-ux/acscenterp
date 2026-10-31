@@ -493,6 +493,7 @@ const COMPLIANCE_KEYS: ComplianceKey[] = [
   "claims",
   "invalidClick",
   "dmConsent",
+  "noPaidRelation",
   "sourceRights",
 ];
 
@@ -560,8 +561,14 @@ export function sanitizeProject(input: unknown, prev: StoredProject, email: stri
       };
     });
 
+  // 영상 종류: 쿠팡 ↔ 일반만 화면에서 바꾼다. 고객사 영상은 clients.createClientProject 로만 생기고 바뀌지 않는다
+  if (r.kind !== undefined && r.kind !== prev.kind) {
+    if (prev.kind === "brand") throw new Error("고객사 영상은 종류를 바꿀 수 없습니다.");
+    if (r.kind === "brand") throw new Error("고객사 영상은 고객사 화면의 「영상 추가」 로만 만듭니다.");
+  }
   const next: StoredProject = {
     ...prev,
+    kind: prev.kind === "brand" ? "brand" : r.kind === "general" || r.kind === "coupang" ? r.kind : prev.kind,
     visibility: prev.owner === email ? vis(r.visibility) : prev.visibility,
     updatedAt: now,
     updatedBy: email,
@@ -675,7 +682,7 @@ export async function getProject(db: Firestore, email: string, id: unknown, admi
 export async function createProject(
   db: Firestore,
   email: string,
-  input: { title?: unknown; product?: unknown; category?: unknown; trendId?: unknown; visibility?: unknown; notes?: unknown },
+  input: { title?: unknown; product?: unknown; category?: unknown; trendId?: unknown; visibility?: unknown; notes?: unknown; kind?: unknown },
 ): Promise<string> {
   const id = newDocId();
   const trendId = isDocId(input.trendId) ? input.trendId : null;
@@ -691,6 +698,7 @@ export async function createProject(
     trendId,
     notes: str(input.notes, 6000) || seed.notes,
     visibility: vis(input.visibility),
+    kind: input.kind === "general" ? "general" : "coupang",
   });
   if (trendId) {
     const t = await getTrend(db, email, trendId);
