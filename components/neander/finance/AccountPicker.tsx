@@ -14,6 +14,7 @@ import { useMemo } from "react";
 import { Field, Select } from "@/components/neander/ui";
 import type { FinAccountDoc } from "@/lib/neander/finance/db-types";
 import type { TxType } from "@/lib/neander/finance/types";
+import { selectableAccounts } from "@/lib/neander/finance/account-options";
 
 export interface AccountValue {
   acctMajor?: string;
@@ -49,13 +50,7 @@ export function AccountPicker({
   // 은퇴 계정(active:false)은 후보에서 뺀다 — 단, 지금 이 거래가 이미 그
   // 계정을 들고 있으면 보여준다 (과거 거래를 열었을 때 값이 사라지면 안 된다)
   const pool = useMemo(
-    () =>
-      accounts.filter(
-        (a) =>
-          a.txType === txType &&
-          (a.active !== false ||
-            (a.major === value.acctMajor && a.mid === value.acctMid && a.minor === value.acctMinor)),
-      ),
+    () => selectableAccounts(accounts, { txType, ...value }),
     [accounts, txType, value.acctMajor, value.acctMid, value.acctMinor],
   );
   const majors = useMemo(() => uniq(pool.map((a) => a.major)), [pool]);

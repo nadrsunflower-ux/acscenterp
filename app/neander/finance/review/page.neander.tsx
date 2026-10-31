@@ -131,6 +131,7 @@ import { trustCellOf } from "@/lib/neander/finance/trust";
 import type { FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
 import { monthLabel } from "@/lib/neander/format";
 import {
+  PL_TX_TYPES,
   STATUS_LABEL,
   netAmount,
   type ClassificationStatus,
@@ -1746,8 +1747,10 @@ export default function ReviewPage() {
                                     <b className="font-semibold text-nd-fg">{t.bizMajor}</b>
                                   )}
                                 </span>
-                              ) : (
+                              ) : PL_TX_TYPES.includes(t.txType) ? (
                                 <span className="font-medium text-nd-danger-text">아직 없음</span>
+                              ) : (
+                                <span className="text-nd-fg-3">손익 분류 불필요</span>
                               )}
                             </p>
                             {t.projectCode && (
@@ -1974,7 +1977,7 @@ export default function ReviewPage() {
                                 <NoteInput id="rv-note" value={t.note ?? ""} onSave={(next) => setNote(t, next)} />
                               </div>
                             </div>
-                            {!(t.bizMajor && t.bizMinor) && (
+                            {PL_TX_TYPES.includes(t.txType) && !(t.bizMajor && t.bizMinor) && (
                               <p className="mt-1.5 text-nd-table text-nd-danger-text">
                                 사업구분이 비어 있습니다 — 사업부 손익에서 빠집니다
                               </p>

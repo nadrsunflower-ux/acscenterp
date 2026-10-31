@@ -49,6 +49,7 @@ import type {
   FinLedgerColumnDoc,
   FinPaymentMethodDoc,
 } from "@/lib/neander/finance/db-types";
+import { selectableAccounts } from "@/lib/neander/finance/account-options";
 import {
   STATUS_LABEL,
   TX_TYPES,
@@ -298,13 +299,7 @@ export function LedgerSheet({
 
     // 계정 후보 — 거래유형 → 대 → 중 → 소 순으로 좁힌다.
     // 은퇴 계정(active:false)은 빼되, 그 행이 이미 들고 있는 계정은 남긴다.
-    const pool = (t: FinTransaction) =>
-      accounts.filter(
-        (a) =>
-          a.txType === t.txType &&
-          (a.active !== false ||
-            (a.major === t.acctMajor && a.mid === t.acctMid && a.minor === t.acctMinor)),
-      );
+    const pool = (t: FinTransaction) => selectableAccounts(accounts, t);
     const majors = (t: FinTransaction) => asOptions(uniq(pool(t).map((a) => a.major)));
     const mids = (t: FinTransaction) =>
       asOptions(uniq(pool(t).filter((a) => a.major === t.acctMajor).map((a) => a.mid)));
