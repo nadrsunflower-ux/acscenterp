@@ -35,7 +35,7 @@ import type { AgentMessage } from "@/lib/neander/ai/agent";
 //
 //  ⚠️ 이 라우트는 **판매 줄을 쓰지 않는다.** 모델의 변경 요청은 제안으로만
 //     돌아가고, 저장은 사용자가 승인했을 때 기존 경로(line.bulkResolve ·
-//     product.upsert)로 나간다.
+//     line.split · product.upsert)로 나간다.
 //
 //  인증은 재무와 같은 게이트(NEANDER_FINANCE_EMAILS)를 쓴다 — 매출 데이터
 //  라우트 전체가 그 기준이다 (api/neander/sales/data 주석).

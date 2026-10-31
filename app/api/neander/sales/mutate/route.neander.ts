@@ -315,11 +315,15 @@ export async function POST(req: Request) {
        * 붙는다 (splitFrom = 원래 줄 id). 적재 때 해석기가 나누는 방식과 같다.
        * 줄 금액의 합은 늘 원래 결제액과 같아야 한다 — 다르면 거절한다.
        * 이미 확정된 줄은 나누지 않는다 (두 번 나누면 매출이 불어난다).
+       *
+       * 정가 합계보다 덜 받은 결제(50ml×2 + 피규어 106,000 → 102,000)는 차액을
+       * 상품별로 나눈 금액과 함께 part.discount 로 온다 — line.bulkResolve 의
+       * 할인 기록과 같은 모양이다. 합계 = 결제액 규칙은 그대로다.
        */
       case "line.split": {
         const { ids, parts } = payload as {
           ids: string[];
-          parts: { productId: string; qty: number; amount: number }[];
+          parts: { productId: string; qty: number; amount: number; discount?: { list: number; rate: number } }[];
         };
         if (!Array.isArray(ids) || ids.length === 0) {
           return NextResponse.json({ error: "ids 배열이 필요합니다." }, { status: 400 });
@@ -330,6 +334,15 @@ export async function POST(req: Request) {
           parts.some((p) => !p.productId || !(p.qty > 0) || !(p.amount > 0))
         ) {
           return NextResponse.json({ error: "상품·수량·금액이 모두 있어야 합니다." }, { status: 400 });
+        }
+        if (
+          parts.some(
+            (p) =>
+              p.discount &&
+              !(Number(p.discount.list) > 0 && Number(p.discount.rate) > 0 && Number(p.discount.rate) < 1),
+          )
+        ) {
+          return NextResponse.json({ error: "할인은 정가 합계와 0~100% 사이 할인율이 필요합니다." }, { status: 400 });
         }
         const sum = parts.reduce((s2, p) => s2 + p.amount, 0);
         const col = db.collection(NEANDER_COL.salesLines);
@@ -362,6 +375,7 @@ export async function POST(req: Request) {
             createdAt: d.createdAt,
           });
           parts.forEach((p, i) => {
+            const discount = p.discount ? { list: Number(p.discount.list), rate: Number(p.discount.rate) } : null;
             const data = {
               ...base,
               productId: p.productId,
@@ -372,11 +386,12 @@ export async function POST(req: Request) {
               updatedBy: user.email,
             };
             if (i === 0) {
-              ops.push((b) => b.set(col.doc(snap.id), { ...data, reason: null }, { merge: true }));
+              // 할인 없이 나누면 예전 기록을 지운다 (line.bulkResolve 와 같다)
+              ops.push((b) => b.set(col.doc(snap.id), { ...data, reason: null, discount }, { merge: true }));
             } else {
               const ref = col.doc();
               created.push(ref.id);
-              ops.push((b) => b.set(ref, { ...data, splitFrom: snap.id }));
+              ops.push((b) => b.set(ref, { ...data, splitFrom: snap.id, ...(discount ? { discount } : {}) }));
             }
           });
         });

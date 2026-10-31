@@ -126,6 +126,7 @@ import {
   type NaverTrend,
 } from "@/lib/neander/sales/discount";
 import type { SalesLineDiscount } from "@/lib/neander/sales/types";
+import { PRODUCT_CODE_PREFIX, nextProductCode } from "@/lib/neander/sales/product-code";
 
 /**
  * 같은 원본 문구 · 같은 금액 · 같은 매장 · **같은 이벤트**를 한 묶음으로.
@@ -1495,23 +1496,6 @@ function DiscountPanel({
 //     자동화하는 셈이다. 문구가 그 상품만을 가리킬 때에만 사람이 적는다.
 // ============================================================
 
-/** 같은 접두(IDI·IDE·WOW·ONL)에서 다음 빈 번호 */
-function nextCode(products: SalesProduct[], prefix: string): string {
-  const used = products
-    .map((p) => p.id)
-    .filter((id) => id.startsWith(`${prefix}-`))
-    .map((id) => Number(id.slice(prefix.length + 1)))
-    .filter((n) => Number.isFinite(n));
-  const next = (used.length ? Math.max(...used) : 0) + 1;
-  return `${prefix}-${String(next).padStart(3, "0")}`;
-}
-
-const PREFIX: Record<SalesStore, { event: string; regular: string }> = {
-  id: { event: "IDE", regular: "IDI" },
-  wow: { event: "WOW", regular: "WOW" },
-  online: { event: "ONL", regular: "ONL" },
-};
-
 function NewProductDialog({
   bucket,
   products,
@@ -1534,7 +1518,7 @@ function NewProductDialog({
   const [dedicated, setDedicated] = useState(!!bucket.eventId);
   const kind: SalesKind = dedicated || bucket.eventId ? "event" : "regular";
   const [code, setCode] = useState(() =>
-    nextCode(products, PREFIX[bucket.store][kind === "event" ? "event" : "regular"]),
+    nextProductCode(products, PRODUCT_CODE_PREFIX[bucket.store][kind]),
   );
   const [name, setName] = useState("");
   const [option, setOption] = useState("기본");

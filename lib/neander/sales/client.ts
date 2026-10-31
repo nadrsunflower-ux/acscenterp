@@ -186,10 +186,13 @@ export const bulkResolveSalesLines = (
 export const restoreSalesLines = (lines: SalesLine[], deleteIds: string[] = []) =>
   mutate<{ ok: true; count: number; deleted: number; lines: SalesLine[] }>("line.restore", { lines, deleteIds });
 
-/** 한 결제를 여러 상품으로 나눠 확정 — 합계가 결제액과 같아야 한다 */
+/**
+ * 한 결제를 여러 상품으로 나눠 확정 — 합계가 결제액과 같아야 한다.
+ * 정가보다 덜 받았으면 상품마다 discount(그 상품의 정가 · 할인율)를 붙인다.
+ */
 export const splitSalesLines = (
   ids: string[],
-  parts: { productId: string; qty: number; amount: number }[],
+  parts: { productId: string; qty: number; amount: number; discount?: SalesLineDiscount }[],
 ) => mutate<{ ok: true; count: number; created: string[]; lines: SalesLine[] }>("line.split", { ids, parts });
 
 /** 이벤트 기간의 일반 손님 — 이벤트 매출에서 떼거나(true) 날짜로 다시 붙인다(false) */

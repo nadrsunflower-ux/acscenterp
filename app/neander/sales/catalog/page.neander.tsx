@@ -71,6 +71,7 @@ import {
 import { useSales } from "@/components/neander/sales/SalesProvider";
 import { ProductHero, ProductThumb, Rate } from "@/components/neander/sales/ui";
 import { deleteSalesProduct, upsertSalesProduct } from "@/lib/neander/sales/client";
+import { PRODUCT_CODE_PREFIX, nextProductCode } from "@/lib/neander/sales/product-code";
 import {
   SALES_KINDS,
   SALES_STORES,
@@ -918,21 +919,6 @@ function EventScopeCell({
 //  체계를 외우게 만들 이유가 없다.
 // ============================================================
 
-const CODE_PREFIX: Record<SalesStore, Record<SalesKind, string>> = {
-  id: { event: "IDE", regular: "IDI" },
-  wow: { event: "WOW", regular: "WOW" },
-  online: { event: "ONL", regular: "ONL" },
-};
-
-function suggestCode(products: SalesProduct[], prefix: string): string {
-  const used = products
-    .map((p) => p.id)
-    .filter((id) => id.startsWith(`${prefix}-`))
-    .map((id) => Number(id.slice(prefix.length + 1)))
-    .filter((n) => Number.isFinite(n));
-  return `${prefix}-${String((used.length ? Math.max(...used) : 0) + 1).padStart(3, "0")}`;
-}
-
 function ProductForm({
   products,
   events,
@@ -945,7 +931,7 @@ function ProductForm({
   const toast = useToast();
   const [store, setStore] = useState<SalesStore>("id");
   const [kind, setKind] = useState<SalesKind>("event");
-  const [code, setCode] = useState(() => suggestCode(products, CODE_PREFIX.id.event));
+  const [code, setCode] = useState(() => nextProductCode(products, PRODUCT_CODE_PREFIX.id.event));
   const [codeTouched, setCodeTouched] = useState(false);
   const [name, setName] = useState("");
   const [option, setOption] = useState("기본");
@@ -961,7 +947,7 @@ function ProductForm({
     setStore(nextStore);
     setKind(nextKind);
     setEventId("");
-    if (!codeTouched) setCode(suggestCode(products, CODE_PREFIX[nextStore][nextKind]));
+    if (!codeTouched) setCode(nextProductCode(products, PRODUCT_CODE_PREFIX[nextStore][nextKind]));
   };
 
   const taken = products.some((p) => p.id === code.trim());
