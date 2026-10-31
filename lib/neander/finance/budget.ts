@@ -14,6 +14,34 @@
 
 import type { FinAccountDoc, FinBudgetDoc } from "./db-types";
 import type { TreeNode } from "./report";
+import { todayStrKST } from "../format";
+
+const isBudgetMonth = (month: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(month);
+const monthIndex = (month: string) => Number(month.slice(0, 4)) * 12 + Number(month.slice(5)) - 1;
+const monthAt = (index: number) => `${String(Math.floor(index / 12)).padStart(4, "0")}-${String(index % 12 + 1).padStart(2, "0")}`;
+
+/** 실적이 아직 없는 미래 월도 선택한 그대로 유지한다. */
+export function budgetMonthOf(selected: string, current = todayStrKST().slice(0, 7)): string {
+  return isBudgetMonth(selected) ? selected : current;
+}
+
+/**
+ * 거래·저장 예산·선택 월을 연속된 월 목록으로 만든다. 선택한 달이나 이번
+ * 달 중 더 늦은 달에서 1년 뒤까지 열어 두어 미래로 계속 이동할 수 있다.
+ */
+export function budgetMonths(known: string[], selected: string, current = todayStrKST().slice(0, 7)): string[] {
+  const now = monthIndex(budgetMonthOf(current));
+  const active = monthIndex(budgetMonthOf(selected, budgetMonthOf(current)));
+  let first = Math.min(now, active);
+  let last = Math.max(now, active) + 12;
+  for (const month of known) {
+    if (!isBudgetMonth(month)) continue;
+    const index = monthIndex(month);
+    first = Math.min(first, index);
+    last = Math.max(last, index);
+  }
+  return Array.from({ length: last - first + 1 }, (_, index) => monthAt(last - index));
+}
 
 /** 지출 계정의 대분류 집합 — 예산 화면이 다룰 범위 */
 export function expenseMajors(accounts: FinAccountDoc[]): Set<string> {

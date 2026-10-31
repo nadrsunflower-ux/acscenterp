@@ -55,6 +55,7 @@ import {
   StatTile,
   TableNote,
   useToast,
+  useConfirm,
   useStickyState,
 } from "@/components/neander/ui";
 import { ToolbarPortal } from "@/components/neander/shell/context";
@@ -69,10 +70,13 @@ import { saveFinBudget } from "@/lib/neander/finance/client";
 import { ledgerHref } from "@/lib/neander/finance/ledgerLink";
 import {
   budgetLinesOf,
+  budgetMonthOf,
+  budgetMonths,
   budgetSummary,
   expenseMajors,
   rollupBudget,
 } from "@/lib/neander/finance/budget";
+import { addMonth } from "@/lib/neander/months";
 import {
   buildReport,
   makeIsCard,
@@ -105,18 +109,24 @@ const EDITED_CELL = "border-nd-warning bg-nd-warning-soft";
 export default function BudgetReport() {
   const { transactions, accounts, paymentMethods, budgets, loading, refresh } = useFinance();
   const toast = useToast();
+  const confirm = useConfirm();
 
-  const months = useMemo(() => availableMonths(transactions), [transactions]);
-  const [month, setMonth] = useStickyState<string>("finance.reports.month", "");
+  // 예산 계획의 미래 월이 실적 리포트의 조회 월까지 바꾸지 않게 따로 기억한다.
+  const [month, setMonth] = useStickyState<string>("finance.reports.budget.month", budgetMonthOf(""),
+    (value) => typeof value === "string" && budgetMonthOf(value) === value);
+  const activeMonth = budgetMonthOf(month);
+  const months = useMemo(() => budgetMonths([
+    ...availableMonths(transactions), ...budgets.map((budget) => budget.month),
+  ], activeMonth), [transactions, budgets, activeMonth]);
   const [showEmpty, setShowEmpty] = useStickyState("finance.reports.budget.showEmpty", false);
   const [draft, setDraft] = useState<Record<string, number> | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const activeMonth = month || months[0] || "";
   const isCard = useMemo(() => makeIsCard(paymentMethods), [paymentMethods]);
   const majors = useMemo(() => expenseMajors(accounts), [accounts]);
 
   const saved = useMemo(() => budgetLinesOf(budgets, activeMonth), [budgets, activeMonth]);
+  const hasSavedBudget = Object.keys(saved).length > 0;
   /** 초안이 없으면 저장된 값이 그대로 보인다 */
   const lines = draft ?? saved;
 
@@ -124,6 +134,11 @@ export default function BudgetReport() {
   useEffect(() => {
     setDraft(null);
   }, [activeMonth]);
+
+  // 실적도 예산도 없는 달에도 계정소분류를 펼쳐 계획을 입력할 수 있어야 한다.
+  useEffect(() => {
+    if (!loading && !hasSavedBudget) setShowEmpty(true);
+  }, [activeMonth, loading, hasSavedBudget, setShowEmpty]);
 
   const report = useMemo(
     () => buildReport(transactions, { basis: BASIS, isCard, scope: { month: activeMonth }, accounts }),
@@ -169,11 +184,21 @@ export default function BudgetReport() {
     }
   };
 
+  const changeMonth = async (next: string) => {
+    if (saving || next === activeMonth) return;
+    if (dirtyKeys.length > 0 && !(await confirm({
+      title: "저장하지 않은 예산이 있습니다",
+      message: `${monthLabel(activeMonth)}의 변경 내용을 저장하지 않고 다른 달로 이동할까요? 예산을 남기려면 취소한 뒤 먼저 저장하세요.`,
+      confirmLabel: "저장하지 않고 이동",
+      tone: "danger",
+    }))) return;
+    setDraft(null);
+    setMonth(next);
+  };
+
   /** 직전 달 예산을 그대로 가져온다 — 매달 처음부터 채우는 건 비현실적이다 */
   const copyPrevious = () => {
-    const idx = months.indexOf(activeMonth);
-    const prev = months[idx + 1]; // months 는 최신순
-    if (!prev) return;
+    const prev = addMonth(activeMonth, -1);
     const prevLines = budgetLinesOf(budgets, prev);
     if (Object.keys(prevLines).length === 0) {
       toast.error(`${monthLabel(prev)} 에 저장된 예산이 없습니다.`);
@@ -183,7 +208,7 @@ export default function BudgetReport() {
     toast.info(`${monthLabel(prev)} 예산 ${Object.keys(prevLines).length}줄을 불러왔습니다. 확인 후 저장하세요.`);
   };
 
-  const prevMonth = months[months.indexOf(activeMonth) + 1];
+  const prevMonth = addMonth(activeMonth, -1);
 
   const columns = useMemo<TreeColumn[]>(
     () => [
@@ -207,6 +232,7 @@ export default function BudgetReport() {
             <span className="inline-block w-24">
               <NumberInput
                 size="sm"
+                disabled={saving}
                 value={lines[node.path] ?? ""}
                 placeholder="0"
                 onValueChange={(v) => setLine(node.path, Number(v))}
@@ -261,23 +287,10 @@ export default function BudgetReport() {
           ),
       },
     ],
-    [rolled, lines, draft, saved, setLine, summary],
+    [rolled, lines, draft, saved, setLine, summary, saving],
   );
 
   if (loading) return <LoadingState label="리포트를 만드는 중…" />;
-  if (transactions.length === 0) {
-    return (
-      <PageShell>
-        <PageHeader title="예산" description="예산 대비 결산" />
-        <ReportTabs className="mb-6" />
-        <EmptyState
-          icon={Target}
-          title="아직 거래가 없습니다"
-          description="결산과 비교할 실적이 있어야 예산이 의미를 가집니다."
-        />
-      </PageShell>
-    );
-  }
 
   const noSavedBudget = Object.keys(saved).length === 0 && !draft;
   const dirty = dirtyKeys.length > 0;
@@ -285,7 +298,7 @@ export default function BudgetReport() {
   return (
     <PageShell>
       <ToolbarPortal order={0}>
-        <MonthStepper glass months={months} value={activeMonth} onChange={setMonth} />
+        <MonthStepper glass months={months} value={activeMonth} onChange={(next) => void changeMonth(next)} />
       </ToolbarPortal>
 
       <PageHeader
@@ -357,7 +370,7 @@ export default function BudgetReport() {
           compact
           icon={Target}
           title={`${monthLabel(activeMonth)} 예산이 아직 없습니다`}
-          description="소분류 칸에 금액을 넣으면 바로 초안이 됩니다. 예산 없이도 아래 결산은 그대로 보입니다."
+          description="거래 내역이 없는 미래 달도 미리 작성할 수 있습니다. 아래 계정을 펼쳐 소분류에 금액을 입력한 뒤 저장하세요."
           action={
             prevMonth ? (
               <Button variant="secondary" size="sm" icon={Copy} disabled={saving} onClick={copyPrevious}>
