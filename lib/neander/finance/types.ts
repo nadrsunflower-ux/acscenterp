@@ -192,6 +192,14 @@ export interface FinImportBatch {
   /** 적재한 사람 (팀원 id) */
   byMemberId?: string;
   createdAt: number;
+  /** 같은 파일을 다시 대조한 시각 — 기존 거래를 보존한 갱신도 최신 파일로 보인다. */
+  updatedAt?: number;
+  /** 기존 거래는 유지하고, 원장에 없는 거래만 추가한 안전 갱신. */
+  mode?: "append";
+  /** 원본 파일의 거래 수. inserted는 이 배치에서 실제 추가한 거래 수다. */
+  sourceRows?: number;
+  /** 여러 청크로 적재하다 중단되면 같은 파일을 다시 올려 이어간다. */
+  complete?: boolean;
   /**
    * 월별 적재 퍼즐의 자리 — 어느 달의 어느 칸을 이 파일이 채웠는가.
    * (`account:4223` · `card:shinhan-card`). 옛 배치(통합거래장 CLI)에는 없다.

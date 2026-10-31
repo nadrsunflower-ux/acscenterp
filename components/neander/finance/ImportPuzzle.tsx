@@ -249,6 +249,12 @@ export function PuzzlePiece({
                 {batch.from.slice(5)} ~ {batch.to.slice(5)}
               </p>
             )}
+            {batch?.mode === "append" && (
+              <p className="text-nd-caption text-nd-fg-3">기존 거래 보존 · 파일 {won(batch.sourceRows ?? 0)}건 대조</p>
+            )}
+            {batch?.mode === "append" && batch.complete === false && (
+              <p className="text-nd-caption text-nd-warning-text">갱신이 중단됐습니다. 같은 파일을 다시 올리면 이어서 추가합니다.</p>
+            )}
             <p className="nd-num text-[15px] font-semibold text-nd-fg">
               {won(status.count)}건
               {status.otherCount > 0 && (
@@ -280,7 +286,7 @@ export function PuzzlePiece({
             </p>
             <div className="mt-auto flex items-center justify-between gap-1 pt-1">
               <Button size="sm" variant="ghost" icon={Upload} onClick={() => inputRef.current?.click()}>
-                바꾸기
+                파일 갱신
               </Button>
               {onUndo && batch && (
                 <Button size="sm" variant="ghost" icon={Undo2} onClick={onUndo}>

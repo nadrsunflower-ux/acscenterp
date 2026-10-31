@@ -382,8 +382,8 @@ export const createFinImport = (input: Omit<FinImportBatch, "id" | "createdAt">)
 export const updateFinImport = (id: string, patch: Partial<FinImportBatch>) =>
   mutate("import.update", { id, patch });
 
-export const undoFinImport = (id: string) =>
-  mutate<{ deleted: number }>("import.undo", { id });
+export const undoFinImport = (id: string, opts?: { confirmDelete?: boolean }) =>
+  mutate<{ deleted: number }>("import.undo", { id, ...(opts?.confirmDelete ? { confirmDelete: true } : {}) });
 
 // ---- AI 분류 추천 ----------------------------------------------
 

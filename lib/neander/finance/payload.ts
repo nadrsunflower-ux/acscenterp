@@ -21,6 +21,17 @@
 
 export const FIN_HIDDEN_FIELDS = ["dedupHash", "importBatchId", "createdAt", "updatedBy"] as const;
 
+/** 적재 원본의 중복 키는 사람이 유형·거래처·금액을 고쳐도 바뀌지 않는다. */
+export function preserveImportDedup(
+  patch: Record<string, unknown>,
+  before?: Record<string, unknown>,
+): Record<string, unknown> {
+  if ((before?.importBatchId || before?.expenseClaim) && typeof before.dedupHash === "string" && before.dedupHash && "dedupHash" in patch) {
+    return { ...patch, dedupHash: before.dedupHash };
+  }
+  return patch;
+}
+
 export function trimTransaction(doc: Record<string, unknown>): Record<string, unknown> {
   const { dedupHash: _d, importBatchId: _i, createdAt: _c, updatedBy: _u, ...rest } = doc;
   return rest;

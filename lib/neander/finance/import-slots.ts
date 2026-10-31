@@ -210,6 +210,13 @@ export function splitAmounts(rows: Pick<FinTransaction, "txType" | "gross" | "ad
 
 const monthOfDate = (d?: string) => (d ?? "").slice(0, 7);
 
+/** 신규 거래가 없는 파일 갱신도 가장 최근에 확인한 파일로 표시한다. */
+export function sortFinImports(imports: FinImportBatch[]): FinImportBatch[] {
+  return [...imports].sort((a, b) =>
+    (b.updatedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.createdAt ?? 0) || b.id.localeCompare(a.id),
+  );
+}
+
 /** 한 달의 칸 상태 전부 + 퍼즐 완성도 */
 export function finPuzzleOf(
   slots: FinImportSlot[],
@@ -225,8 +232,9 @@ export function finPuzzleOf(
 
   // 아직 열지 않은 계좌는 그 달의 칸이 아니다
   const live = slots.filter((s) => !s.from || s.from <= month);
+  const orderedImports = sortFinImports(imports);
   const pieces: FinSlotStatus[] = live.map((slot) => {
-    const batch = imports.find((b) => b.month === month && b.slotKey === slot.key);
+    const batch = orderedImports.find((b) => b.month === month && b.slotKey === slot.key);
     const rows = slot.last4s.flatMap((l4) => byLast4.get(l4) ?? []);
     let confirmed = 0;
     let suggested = 0;

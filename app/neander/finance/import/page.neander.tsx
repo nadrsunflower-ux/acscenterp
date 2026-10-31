@@ -120,7 +120,6 @@ import { parseReconcileSource } from "@/lib/neander/finance/adapters";
 import {
   buildVendorIndex,
   classifyOne,
-  summarize,
   type ClassifyContext,
 } from "@/lib/neander/finance/classify";
 import {
@@ -146,7 +145,7 @@ import {
   monthOfRows,
   NO_ACTIVITY_LABEL,
   resolveFinSlot,
-  splitAmounts,
+  sortFinImports,
   withSlotAccount,
   type AccountGuess,
   type FinBank,
@@ -156,11 +155,11 @@ import {
   applyFinEdits,
   fetchVendorKinds,
   fetchFinDedupCounts,
-  bulkAddFinTransactions,
   createFinImport,
   decryptFinanceFile,
   undoFinImport,
 } from "@/lib/neander/finance/client";
+import { appendFinImport, hashImportFile } from "@/lib/neander/finance/import-append-client";
 import type { FinImportBatch, FinTransaction, FinTransactionInput } from "@/lib/neander/finance/types";
 import { availableMonths } from "@/lib/neander/finance/aggregate";
 import { reviewHref } from "@/lib/neander/finance/ledgerLink";
@@ -248,6 +247,7 @@ export default function ImportPage() {
 
   // ---- 칸과 달 ----------------------------------------------
   const slots = useMemo(() => buildFinSlots(paymentMethods), [paymentMethods]);
+  const recentImports = useMemo(() => sortFinImports(imports), [imports]);
   const months = useMemo(
     () =>
       selectableMonths([
@@ -454,37 +454,26 @@ export default function ImportPage() {
         return;
       }
 
-      // ⑥ 이미 채워진 칸이면 바꿀지 묻는다
+      // ⑥ 파일 갱신은 기존 거래를 유지하고 신규 거래만 더한다.
       const piece = puzzle.pieces.find((p) => p.slot.key === slot!.key);
-      if (piece?.batch?.noActivity) {
-        // 「거래 없음」 표시만 있던 칸 — 지울 거래가 없으니 묻지 않고 표시를 거둔다
-        await undoFinImport(piece.batch.id);
-      } else if (piece?.filled) {
+      if (piece?.filled && !piece.noActivity) {
         const ok = await confirm({
           title: piece.batch
             ? `${slot.label} 칸에 이미 「${piece.batch.fileName}」이 있습니다`
             : `${slot.label} 칸에 이미 ${monthLabel(activeMonth)} 거래 ${won(piece.count)}건이 있습니다`,
-          message: piece.batch
-            ? "그 적재를 되돌리고 이 파일로 바꿉니다. 검토 대기함에서 고친 분류도 함께 지워집니다."
-            : "옛 방식(통합거래장)으로 들어온 거래라 되돌릴 배치가 없습니다. 그대로 두고 겹치지 않는 건만 더합니다.",
-          confirmLabel: piece.batch ? "바꾸기" : "계속",
-          ...(piece.batch ? { tone: "danger" as const } : {}),
+          message: "기존 거래를 유지하고 이 파일에서 새로 확인된 거래만 추가합니다. 확정 상태·분류·메모·프로젝트/회차 연결은 바뀌지 않으며, 파일에서 빠진 기존 거래도 삭제하지 않습니다.",
+          confirmLabel: "신규 거래만 추가",
         });
         if (!ok) {
           setAct(slot.key, { kind: "idle" });
           return;
         }
-        if (piece.batch) {
-          setAct(slot.key, { kind: "busy", step: "이전 적재 되돌리는 중…", fileName: file.name });
-          await undoFinImport(piece.batch.id);
-          // 되돌린 거래는 더 이상 중복이 아니다 — 개수를 다시 받는다
-          countsRef.current = null;
-        }
       }
 
-      // ⑦ 중복 검사 — 이미 들어와 있는 거래를 먼저 가린다
+      // ⑦ 이 사본은 업종 확인을 줄이기 위한 참고다. 실제 중복 판정은 서버가
+      // 최신 원장과 다시 대조하므로, 사본이 오래돼도 기존 거래를 덮어쓰지 않는다.
       setAct(slot.key, { kind: "busy", step: "분류 중…", fileName: file.name });
-      const existingCounts = await ensureCounts();
+      const existingCounts = await ensureCounts().catch(() => new Map<string, number>());
       const seen = new Map<string, number>();
       const flagged = result.rows.map((row) => {
         const nth = seen.get(row.dedupHash) ?? 0;
@@ -530,53 +519,13 @@ export default function ImportPage() {
           trust: trustGate,
         }),
       }));
-      const fresh = prepared.filter((p) => !p.duplicate);
-      const skipped = prepared.length - fresh.length;
-      if (fresh.length === 0) {
-        setAct(slot.key, { kind: "idle" });
-        setResults((prev) => [
-          ...prev,
-          {
-            fileName: file.name,
-            slotLabel: slot!.label,
-            inserted: 0,
-            skipped,
-            errors: result.errors.length,
-            income: 0,
-            expense: 0,
-            confirmed: 0,
-            suggested: 0,
-            needsReview: 0,
-          },
-        ]);
-        toast.success(`${slot.label} — 모두 이미 들어와 있습니다 (중복 ${won(skipped)}건).`);
-        return;
-      }
-
-      // ⑧ 적재 — 배치는 파일 하나가 하나 (되돌리기가 "그 파일만" 이어야 한다)
-      setAct(slot.key, { kind: "busy", step: `${won(fresh.length)}건 적재 중…`, fileName: file.name });
-      // 수입·지출은 나눠 센다 — 한 숫자로 더하면 뜻이 없어진다 (gross 는 늘 양수)
-      const money = splitAmounts(fresh.map((p) => ({ ...p.row, txType: p.suggestion.txType ?? p.row.txType })));
-      const { id: batchId } = await createFinImport({
-        fileName: file.name,
-        inserted: fresh.length,
-        skipped,
-        byMemberId: currentMember?.id,
-        month: period.month,
-        slotKey: slot.key,
-        adapterId: result.adapterId,
-        from: period.from,
-        to: period.to,
-        last4s: result.detectedLast4.length ? result.detectedLast4 : slot.last4s,
-        income: money.income,
-        expense: money.expense,
-      });
-
-      const rows: FinTransactionInput[] = fresh.map(({ row, suggestion }) => ({
+      // ⑧ 같은 거래는 원장 ID·분류·연결까지 그대로 둔다. 중복만 있는
+      // 파일도 서버에 보내 최신 파일명·기간과 갱신 이력을 남긴다.
+      setAct(slot.key, { kind: "busy", step: "기존 거래 보존 · 신규 거래 확인 중…", fileName: file.name });
+      const rows: FinTransactionInput[] = prepared.map(({ row, suggestion }) => ({
         date: row.date,
         datetime: row.datetime,
         last4: row.last4,
-        // 분류가 유형을 고쳤으면 그것을 쓴다 (은행은 방향만 안다)
         txType: suggestion.txType ?? row.txType,
         bizMajor: suggestion.bizMajor,
         bizMinor: suggestion.bizMinor,
@@ -594,39 +543,39 @@ export default function ImportPage() {
         vendorKind: vendorKindOf(row),
         status: suggestion.status,
         classReason: suggestion.classReason,
-        // 엔진이 붙인 분류의 지문 · 근거 칸 — 사람이 나중에 바꿨는지를 이것으로 안다 (trust.ts)
         engineSig: engineSigOf({ ...suggestion, txType: suggestion.txType ?? row.txType }),
         ...(suggestion.basis ? { engineCell: trustCellOf(suggestion.basis) } : {}),
         refundMatchId: row.refundMatchId,
         dedupHash: row.dedupHash,
-        importBatchId: batchId,
         balanceAfter: row.balanceAfter,
       }));
-      await bulkAddFinTransactions(rows, (done, total) =>
-        setAct(slot!.key, { kind: "busy", step: `적재 ${done}/${total}`, fileName: file.name }),
-      );
-
-      const sum = summarize(fresh.map((p) => p.suggestion));
-      setResults((prev) => [
-        ...prev,
-        {
-          fileName: file.name,
-          slotLabel: slot!.label,
-          inserted: fresh.length,
-          skipped,
-          errors: result.errors.length,
-          income: money.income,
-          expense: money.expense,
-          confirmed: sum.confirmed,
-          suggested: sum.suggested,
-          needsReview: sum.needsReview,
-        },
-      ]);
+      const saved = await appendFinImport({
+        fileName: file.name,
+        fileHash: await hashImportFile(buf),
+        month: period.month,
+        slotKey: slot.key,
+        adapterId: result.adapterId,
+        from: period.from,
+        to: period.to,
+        last4s: result.detectedLast4.length ? result.detectedLast4 : slot.last4s,
+        rows,
+      });
+      countsRef.current = null;
+      setResults((prev) => [...prev, {
+        fileName: file.name,
+        slotLabel: slot!.label,
+        inserted: saved.inserted,
+        skipped: saved.skipped,
+        errors: result.errors.length,
+        income: saved.income,
+        expense: saved.expense,
+        confirmed: saved.confirmed,
+        suggested: saved.suggested,
+        needsReview: saved.needsReview,
+      }]);
       fxWaiting.current.delete(slot.key);
       setAct(slot.key, { kind: "idle" });
-      toast.success(
-        `${slot.label} — ${won(fresh.length)}건 적재${skipped > 0 ? ` · 중복 ${won(skipped)}건 제외` : ""}`,
-      );
+      toast.success(`${slot.label} — 신규 ${won(saved.inserted)}건 추가 · 기존 ${won(saved.skipped)}건 유지`);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       if (slotKey) setAct(slotKey, { kind: "error", message, fileName: file.name });
@@ -766,7 +715,7 @@ export default function ImportPage() {
     }
   }
 
-  /** 여러 파일을 한 번에 — 순서대로 (바꾸기 확인이 겹치지 않게) */
+  /** 여러 파일을 한 번에 — 순서대로 (갱신 확인이 겹치지 않게) */
   const busyRef = useRef(false);
   const [busy, setBusy] = useState(false);
   async function ingest(files: File[], opts?: { forceSlot?: FinImportSlot; buf?: ArrayBuffer; fxRate?: number }) {
@@ -835,13 +784,15 @@ export default function ImportPage() {
     }
   }
 
-  async function undoSlot(target: Pick<FinImportBatch, "id" | "noActivity">, label: string) {
+  async function undoSlot(target: Pick<FinImportBatch, "id" | "noActivity" | "mode" | "inserted">, label: string) {
     // 「거래 없음」 표시는 지울 거래가 없다 — 묻지 않는다
     if (
       !target.noActivity &&
       !(await confirm({
         title: `${label} 칸의 적재를 되돌릴까요?`,
-        message: "이 파일로 들어온 거래만 지웁니다. 다른 칸은 그대로 남습니다.",
+        message: target.mode === "append"
+          ? `이 갱신으로 새로 추가한 ${won(target.inserted)}건을 삭제합니다. 갱신 전에 있던 거래는 유지됩니다. 삭제 대상의 확정 상태·수정 내용·연결 정보도 함께 제거되며 원본은 휴지통에 보관합니다.`
+          : "이 파일로 들어온 거래를 확정 건도 포함해 삭제합니다. 수정한 분류·메모·연결도 함께 제거되며 원본은 휴지통에 보관합니다. 파일을 갱신하려면 「파일 갱신」을 사용하세요.",
         confirmLabel: "되돌리기",
         tone: "danger",
       }))
@@ -849,7 +800,7 @@ export default function ImportPage() {
       return;
     setBusy(true);
     try {
-      await undoFinImport(target.id);
+      await undoFinImport(target.id, { confirmDelete: !target.noActivity });
       countsRef.current = null;
       await refresh();
       toast.success(target.noActivity ? "「거래 없음」 표시를 지웠습니다." : "적재를 되돌렸습니다.");
@@ -908,7 +859,7 @@ export default function ImportPage() {
 
       <PageHeader
         title="엑셀 임포트"
-        description="계좌·법인카드는 출처와 중복을 확인해 바로 적재합니다. 개인카드·대납 내역은 미리보기에서 회사 비용을 골라 등록합니다."
+        description="계좌·법인카드는 기존 거래를 유지하고 새 거래만 추가합니다. 개인카드·대납 내역은 미리보기에서 회사 비용을 골라 등록합니다."
         meta={
           <span className="flex items-center gap-1.5 text-nd-caption text-nd-fg-2">
             <Icon icon={Puzzle} size={14} />
@@ -1276,7 +1227,7 @@ export default function ImportPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {imports.slice(0, 20).map((b) => (
+                  {recentImports.slice(0, 20).map((b) => (
                     <Tr key={b.id}>
                       <Td className="pl-5">
                         <span className="block max-w-[22rem] truncate font-medium text-nd-fg" title={b.fileName}>
@@ -1289,7 +1240,7 @@ export default function ImportPage() {
                       <Td num muted={b.noActivity}>{b.noActivity ? "—" : b.inserted.toLocaleString("ko-KR")}</Td>
                       <Td num muted>{b.skipped > 0 ? b.skipped.toLocaleString("ko-KR") : "—"}</Td>
                       <Td className="whitespace-nowrap text-nd-fg-2">
-                        {b.createdAt ? formatTimestamp(b.createdAt) : "—"}
+                        {b.updatedAt || b.createdAt ? formatTimestamp(b.updatedAt ?? b.createdAt) : "—"}
                       </Td>
                       <Td align="right" className="pr-5">
                         <Button

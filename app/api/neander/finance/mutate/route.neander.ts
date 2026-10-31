@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/neander/server/admin";
 import { requireErpUser, accessErrorResponse } from "@/lib/neander/server/auth";
 import { NEANDER_COL } from "@/lib/neander/collections";
-import { FIN_HIDDEN_FIELDS, trimTransaction } from "@/lib/neander/finance/payload";
+import { FIN_HIDDEN_FIELDS, preserveImportDedup, trimTransaction } from "@/lib/neander/finance/payload";
 import { fillHidden, moveToTrash, readBases } from "@/lib/neander/server/trash";
 import { seedFinanceMasterData } from "@/lib/neander/finance/server/seed";
 import { matchMemos, patchFromMemo, type FinCardMemo } from "@/lib/neander/finance/card-memo";
@@ -94,8 +94,9 @@ export async function POST(req: Request) {
           data[k] = patch[k] === undefined || patch[k] === null ? null : patch[k];
         });
         const before = await readForLog(db, [id]);
-        await db.collection(NEANDER_COL.finTransactions).doc(id).set(data, { merge: true });
-        await writeLog(db, user.email, payload.via, [{ txId: id, kind: "edit", before: before.get(id), after: data }]);
+        const protectedData = preserveImportDedup(data, before.get(id));
+        await db.collection(NEANDER_COL.finTransactions).doc(id).set(protectedData, { merge: true });
+        await writeLog(db, user.email, payload.via, [{ txId: id, kind: "edit", before: before.get(id), after: protectedData }]);
         return NextResponse.json({ ok: true, transactions: await readTransactions(db, [id]) });
       }
 
@@ -239,11 +240,11 @@ export async function POST(req: Request) {
         for (let i = 0; i < ids.length; i += BATCH_LIMIT) {
           const batch = db.batch();
           ids.slice(i, i + BATCH_LIMIT).forEach((id) => {
-            batch.set(db.collection(NEANDER_COL.finTransactions).doc(id), data, { merge: true });
+            batch.set(db.collection(NEANDER_COL.finTransactions).doc(id), preserveImportDedup(data, patchBefore.get(id)), { merge: true });
           });
           await batch.commit();
         }
-        await writeLog(db, user.email, payload.via, ids.map((id) => ({ txId: id, kind: "edit" as const, before: patchBefore.get(id), after: data })));
+        await writeLog(db, user.email, payload.via, ids.map((id) => ({ txId: id, kind: "edit" as const, before: patchBefore.get(id), after: preserveImportDedup(data, patchBefore.get(id)) })));
         return NextResponse.json({
           ok: true,
           updated: ids.length,
@@ -271,8 +272,9 @@ export async function POST(req: Request) {
           Object.keys(patch ?? {}).forEach((k) => {
             data[k] = patch[k] === undefined || patch[k] === null ? null : patch[k];
           });
-          ops.push((b) => b.set(col.doc(id), data, { merge: true }));
-          logItems.push({ txId: id, kind: "edit", before: editBefore.get(id), after: data });
+          const protectedData = preserveImportDedup(data, editBefore.get(id));
+          ops.push((b) => b.set(col.doc(id), protectedData, { merge: true }));
+          logItems.push({ txId: id, kind: "edit", before: editBefore.get(id), after: protectedData });
         });
         const insertedIds: string[] = [];
         (inserts ?? []).forEach((r) => {
@@ -385,22 +387,26 @@ export async function POST(req: Request) {
       }
 
       case "import.undo": {
-        // 이 배치로 들어온 거래를 전부 지우고 이력도 삭제한다.
-        const { id } = payload as { id: string };
+        // 파일 갱신은 이 경로를 쓰지 않는다. 예전 화면의 「바꾸기」 요청이
+        // 도착해도 거래를 삭제하지 않도록, 명시적 되돌리기만 허용한다.
+        const { id, confirmDelete } = payload as { id: string; confirmDelete?: boolean };
         if (!id) return NextResponse.json({ error: "id 가 필요합니다." }, { status: 400 });
-        const snap = await db
-          .collection(NEANDER_COL.finTransactions)
-          .where("importBatchId", "==", id)
-          .get();
+        const importRef = db.collection(NEANDER_COL.finImports).doc(id);
+        const [snap, original] = await Promise.all([
+          db.collection(NEANDER_COL.finTransactions).where("importBatchId", "==", id).get(),
+          importRef.get(),
+        ]);
         const ids = snap.docs.map((d) => d.id);
-        for (let i = 0; i < ids.length; i += BATCH_LIMIT) {
-          const batch = db.batch();
-          ids.slice(i, i + BATCH_LIMIT).forEach((tid) =>
-            batch.delete(db.collection(NEANDER_COL.finTransactions).doc(tid)),
-          );
-          await batch.commit();
+        if (ids.length > 0 && confirmDelete !== true) {
+          return NextResponse.json({ error: "기존 거래를 삭제하지 않았습니다. 화면을 새로고침한 뒤 「파일 갱신」을 사용하세요. 실제 삭제는 「되돌리기」에서 확인한 경우에만 가능합니다." }, { status: 409 });
         }
-        await db.collection(NEANDER_COL.finImports).doc(id).delete();
+        if (original.exists) await db.collection(NEANDER_COL.finTrash).doc(`import_${id}_${now}`).set({
+          kind: "import", sourceCollection: NEANDER_COL.finImports, sourceId: id,
+          doc: original.data(), deletedAt: now, deletedBy: user.email,
+        });
+        await moveToTrash(db, NEANDER_COL.finTransactions, NEANDER_COL.finTrash, ids, user.email, now);
+        await writeLog(db, user.email, "import", ids.map((txId) => ({ txId, kind: "delete" as const })));
+        await importRef.delete();
         return NextResponse.json({ ok: true, deleted: ids.length });
       }
 
