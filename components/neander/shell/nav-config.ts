@@ -15,6 +15,8 @@ import {
   Boxes,
   CalendarCheck,
   CalendarPlus,
+  Clapperboard,
+  Briefcase,
   CalendarDays,
   ChartColumn,
   ChartNoAxesColumn,
@@ -32,19 +34,23 @@ import {
   ListChecks,
   MessageCircle,
   Package,
+  Plug,
+  Radar,
   RefreshCw,
   Rocket,
   Scale,
   ScrollText,
   Send,
+  Sparkles,
   Server,
+  Telescope,
   TrendingUp,
   Users,
   Wallet,
 } from "lucide-react";
 
 /** 사이드바 배지 키 — 값은 ShellContext.badges 에서 온다 */
-export type BadgeKey = "requests" | "messenger" | "mail" | "finance-review" | "sales-review";
+export type BadgeKey = "requests" | "messenger" | "mail" | "finance-review" | "sales-review" | "shorts-attention";
 
 export interface NavItem {
   href: string;
@@ -90,6 +96,10 @@ export const GLOBAL_NAV: NavGroup[] = [
       // 행사 건을 챙기는 사람이 찾지 못했다. 권한은 재무와 같다 (서버 게이트).
       { href: "/neander/finance/projects", label: "프로젝트", icon: FolderOpen },
     ],
+  },
+  {
+    label: "콘텐츠",
+    items: [{ href: "/neander/shorts", label: "AI STUDIO", icon: Clapperboard, badge: "shorts-attention" }],
   },
   {
     label: "조직",
@@ -189,6 +199,52 @@ export const SALES_NAV: NavGroup[] = [
 ];
 
 /**
+ * AI STUDIO 메뉴는 **영상 한 편이 만들어지는 순서**로 읽힌다.
+ * (주소 · 코드 이름은 처음 이름인 shorts 그대로 — 화면에 보이는 이름만 AI STUDIO · 영상)
+ *
+ *   기획      : 소재 발굴 → 성공 공식          (무엇을 · 어떤 구성으로)
+ *   제작      : 영상 · 고객사                  (영상 한 편 = 소스 · 쿠팡 확인 · 대본 · 편집 · 게시가 한 화면)
+ *   게시·성과 : 게시 현황 · 성과 비교           (올라갔나 · 무엇이 클릭·구매로 이어졌나)
+ *   사람별    : 사용자별 현황 · 내 채널·연결    (사람마다 YouTube·Instagram·쿠팡 키를 따로 · 관리자는 몰아보기)
+ */
+export const SHORTS_NAV: NavGroup[] = [
+  {
+    label: "AI STUDIO",
+    items: [{ href: "/neander/shorts", label: "대시보드", icon: LayoutDashboard, exact: true }],
+  },
+  {
+    label: "기획",
+    items: [
+      { href: "/neander/shorts/trends", label: "소재 발굴", icon: Radar },
+      { href: "/neander/shorts/scout", label: "바이럴 형식", icon: Telescope },
+      { href: "/neander/shorts/templates", label: "성공 공식", icon: Sparkles },
+    ],
+  },
+  {
+    label: "제작",
+    items: [
+      { href: "/neander/shorts/projects", label: "영상", icon: Clapperboard },
+      // 브랜드 대행 — 고객사마다 계약 · 브리프 · 월 N편 · 승인 · 월간 보고
+      { href: "/neander/shorts/clients", label: "고객사", icon: Briefcase },
+    ],
+  },
+  {
+    label: "게시·성과",
+    items: [
+      { href: "/neander/shorts/publish", label: "게시 현황", icon: Send, badge: "shorts-attention" },
+      { href: "/neander/shorts/analytics", label: "성과 비교", icon: ChartColumn },
+    ],
+  },
+  {
+    label: "사람별",
+    items: [
+      { href: "/neander/shorts/team", label: "사용자별 현황", icon: Users },
+      { href: "/neander/shorts/accounts", label: "내 채널 · 연결", icon: Plug },
+    ],
+  },
+];
+
+/**
  * 워크스페이스 — 전역 ERP 밖으로 나가는 모듈들.
  * 사이드바·브레드크럼·스위처가 모두 이 표 하나를 본다.
  */
@@ -204,6 +260,7 @@ export interface Workspace {
 export const WORKSPACES: Workspace[] = [
   { key: "finance", label: "재무", href: "/neander/finance", icon: Wallet, nav: FINANCE_NAV },
   { key: "sales", label: "매출", href: "/neander/sales", icon: TrendingUp, nav: SALES_NAV },
+  { key: "shorts", label: "AI STUDIO", href: "/neander/shorts", icon: Clapperboard, nav: SHORTS_NAV },
 ];
 
 /** 이 경로가 어느 워크스페이스인가 (아니면 undefined) */

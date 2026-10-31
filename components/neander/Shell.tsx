@@ -18,6 +18,7 @@ import { ShellProvider, useShell } from "./shell/context";
 import { Sidebar } from "./shell/Sidebar";
 import { Topbar } from "./shell/Topbar";
 import { StatusCard, StatusScreen } from "./shell/StatusScreen";
+import { ShortsRunner } from "./shorts/ShortsRunner";
 
 /** 전역 배지(요청·메신저·메일)를 셸에 밀어 넣는다 */
 function GlobalBadges() {
@@ -110,6 +111,7 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <ShellProvider>
       <GlobalBadges />
+      <ShortsRunner />
       <Frame>{children}</Frame>
     </ShellProvider>
   );

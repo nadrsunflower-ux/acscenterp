@@ -190,4 +190,44 @@ export const NEANDER_COL = {
   decks: "neander_decks",
   /** 회의용 저장본 — 장표 가정값 한 벌에 이름을 붙여 둔 것 */
   deckScenarios: "neander_deck_scenarios",
+  // ---- 쇼핑쇼츠 (/neander/shorts) ----
+  //  쿠팡 파트너스 쇼핑쇼츠 제작·게시. 전부 서버(api/neander/shorts)만 접근한다.
+  //  문서마다 owner(이메일) · visibility(private|team) 가 붙는다 (shorts/server/access.ts).
+  /** 소재 후보 — 트렌드 표본 한 건 = 문서 1개 */
+  shortsTrends: "neander_shorts_trends",
+  /** 제작 프로젝트 — 소스 · 쿠팡 확인 · 대본 · 장면 · 게시 설정이 문서 안에 */
+  shortsProjects: "neander_shorts_projects",
+  /** 참고 자료 · 구성 분석 · 대본의 버전 기록 */
+  shortsVersions: "neander_shorts_versions",
+  /** 성공 공식 템플릿 */
+  shortsTemplates: "neander_shorts_templates",
+  /** 영상 · 음성 · 이미지 파일 (Storage 버킷이 없어 parts/{n} 768KB 조각) */
+  shortsMedia: "neander_shorts_media",
+  /** 비동기 작업 큐 — AI 영상 · 음성 · 출력 · 게시 */
+  shortsJobs: "neander_shorts_jobs",
+  /** 게시 계정 — 토큰은 암호문, 연결한 사람의 것 */
+  shortsAccounts: "neander_shorts_accounts",
+  /** OAuth 진행 중 상태 (10분) */
+  shortsOAuth: "neander_shorts_oauth",
+  /** 게시 원장 — 문서 id 가 계정·파일·플랫폼 중복 열쇠 */
+  shortsPublications: "neander_shorts_publications",
+  /** 성과 기록 (출처별 스냅숏) */
+  shortsMetrics: "neander_shorts_metrics",
+  /** 사람별 설정 (점수 가중치) · 사용량 계수기 */
+  shortsSettings: "neander_shorts_settings",
+  /** 사람별 채널 세트 — 쿠팡 파트너스 키(암호문) · 채널 아이디 · 개인 검색 키 (문서 id = ERP 이메일) */
+  shortsProfiles: "neander_shorts_profiles",
+  /** 고객사(브랜드 대행) — 계약 · 브리프 · 금지 표현 · 제품 · 담당자 (shorts/server/clients.ts) */
+  shortsClients: "neander_shorts_clients",
+  /** 고객 검토 링크 — 문서 id = 토큰의 sha256 (토큰은 저장하지 않는다) · 로그인 없이 그 영상만 */
+  shortsReviewLinks: "neander_shorts_review_links",
+  //  바이럴 형식 정찰 — 회사 공용(visibility 없음). shorts/scout.ts · server/scout-*.ts
+  /** 감시 채널 (문서 id = yt_{채널 id}) */
+  shortsWatch: "neander_shorts_watch",
+  /** 터진 영상 — 채널 평소의 몇 배 (문서 id = yt_{영상 id} · 직접 등록은 임의) */
+  shortsHits: "neander_shorts_hits",
+  /** 형식 카드 — 터진 영상을 「어떻게 만들었나」 로 묶은 것 */
+  shortsFormats: "neander_shorts_formats",
+  /** 주간 보고 (문서 id = 2026-W44) */
+  shortsReports: "neander_shorts_reports",
 } as const;
