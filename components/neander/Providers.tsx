@@ -16,10 +16,11 @@ import { LoadingScreen, StatusCard, StatusScreen } from "@/components/neander/sh
 
 const LOGIN_PATH = "/neander/login";
 /**
- * 로그인 없이 여는 화면 — 고객사 검토 링크(/neander/review/<토큰>). 그 화면은 토큰으로
- * 영상 한 편만 받는 공개 API(api/neander/shorts/review)만 부르고, ERP 자료를 읽지 않는다.
+ * 로그인 없이 여는 화면
+ *  · 고객사 검토 링크(/neander/review/<토큰>) — 토큰으로 영상 한 편만 받는 공개 API 만 부르고 ERP 자료를 읽지 않는다
+ *  · 공개 안내(/neander/legal/*) — AI STUDIO 소개 · 개인정보처리방침 (Google OAuth 동의 화면이 가리킨다)
  */
-const isPublicPath = (p: string) => p === LOGIN_PATH || p.startsWith("/neander/review/");
+const isPublicPath = (p: string) => p === LOGIN_PATH || p.startsWith("/neander/review/") || p.startsWith("/neander/legal/");
 
 /** 로그인은 됐지만 허용 목록에 없는 계정 */
 function NotAuthorized() {
