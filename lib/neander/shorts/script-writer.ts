@@ -6,6 +6,8 @@
 //  · 사진은 처음 쓸 때 · 새로 붙일 때만 AI 에 보여 주고, AI 가 읽어 낸 「확인된 사실」 을 글로 이어 간다.
 //  · 장면은 이 회사 방식 그대로 — 제품 사진(image) · AI 생성(ai) · 직접 찍어야 하는 장면(clip, 되도록 적게).
 //  · 「이 대본으로 영상 만들기」 는 기존 영상(프로젝트)으로 옮긴다 (server/script-writer.ts).
+//  · 영상 방식 두 가지 — 제품 소개(리뷰형) · 스토리 광고(캐릭터 · 갈등 → 제품이 해결 → 역전 → 엔드카드).
+//    스토리 광고는 로그라인 · 캐릭터 시트(영문 고정 묘사) · 막 구조 · 컷별 카메라 · 소리 · 이어 붙이기 · 엔드카드까지 쓴다.
 // ============================================================
 
 import type { BeatKey, CtaPlan } from "./types";
@@ -15,6 +17,27 @@ export const WRITER_KIND_LABEL: Record<WriterKind, string> = { coupang: "쿠팡 
 
 export type WriterRefKind = "auto" | "format" | "template" | "radar";
 export const WRITER_REF_LABEL: Record<WriterRefKind, string> = { auto: "AI 가 고르기", format: "바이럴 형식 카드", template: "성공 공식", radar: "AI 레이더 후보" };
+
+export type WriterStyle = "intro" | "story";
+export const WRITER_STYLE_LABEL: Record<WriterStyle, string> = { intro: "제품 소개 (리뷰형)", story: "스토리 광고" };
+
+export const STORY_TONES = ["코믹", "반전", "감동", "긴장감", "밈 · 패러디"] as const;
+export const STORY_LOOKS = ["3D 애니메이션 (픽사풍)", "실사", "2D 만화", "클레이 · 스톱모션"] as const;
+
+/** 스토리 광고를 처음 쓸 때 사람이 주는 재료 (모두 선택) */
+export interface StoryInput {
+  /** 이 제품이 해결하는 문제 · 핵심 장점 — 스토리의 갈등이 된다 */
+  problem: string;
+  /** 스토리 아이디어 · 무대 · 하고 싶은 장면 */
+  idea: string;
+  /** 주인공 · 등장인물 */
+  characters: string;
+  tone: string;
+  /** 그림체 */
+  look: string;
+  /** 엔드카드에 넣을 것 (가격 · 할인 · 문구) */
+  endCard: string;
+}
 
 export const WRITER_LENGTHS = [15, 30, 45, 60] as const;
 export const WRITER_MAX_PHOTOS = 4;
@@ -39,6 +62,33 @@ export interface WriterScene {
   aiPrompt: string;
   /** 쓸 제품 사진 번호 (0부터) — image 장면만, 없으면 null */
   photo: number | null;
+  /** 스토리 광고 — 카메라(구도 · 움직임) · 소리(효과음 · 음악 분위기) · 앞 컷과 잇는 법(기준 이미지 · 첫 화면) */
+  camera?: string;
+  sound?: string;
+  continuity?: string;
+}
+
+export interface StoryCharacter {
+  name: string;
+  /** 주인공 · 라이벌 · 조연 · 보호자 … */
+  role: string;
+  /** 한국어 외형 · 성격 */
+  look: string;
+  /** 모든 AI 장면 프롬프트에 그대로 붙이는 영문 고정 묘사 (생김새가 컷마다 바뀌지 않게) */
+  lookPrompt: string;
+}
+
+export interface WriterStory {
+  logline: string;
+  /** 캐치프레이즈 (엔드카드 · 자막) */
+  catchphrase: string;
+  /** 그림체 · 화면 질감 (모든 AI 프롬프트 공통) */
+  look: string;
+  characters: StoryCharacter[];
+  /** 막 구조 — 설정 · 문제 · 굴욕 · 제품 개입 · 역전 · 엔드카드 … */
+  acts: { name: string; fromSec: number; toSec: number; summary: string }[];
+  /** 엔드카드 — 실제 제품 사진 위에 */
+  endCard: { visual: string; text: string; cta: string };
 }
 
 export interface WriterLine {
@@ -61,6 +111,8 @@ export interface WriterScript {
   cta: CtaPlan;
   scenes: WriterScene[];
   lines: WriterLine[];
+  /** 스토리 광고일 때만 */
+  story?: WriterStory | null;
 }
 
 export interface WriterBasis {
@@ -126,6 +178,10 @@ export interface ScriptSessionDoc {
   updatedAt: number;
   title: string;
   kind: WriterKind;
+  /** 영상 방식 — 예전 세션엔 없다(= 제품 소개) */
+  style?: WriterStyle;
+  /** 스토리 광고 재료 */
+  storyInput?: StoryInput | null;
   clientId: string | null;
   product: { name: string; info: string };
   /** AI 가 읽어 내고 사람이 고칠 수 있는 확인된 사실 */
@@ -148,7 +204,7 @@ export interface ScriptSessionDoc {
   cover: string | null;
 }
 
-export type ScriptSessionSummary = Pick<ScriptSessionDoc, "title" | "kind" | "updatedAt" | "createdAt" | "costUsd" | "projectId" | "versionCount" | "cover"> & {
+export type ScriptSessionSummary = Pick<ScriptSessionDoc, "title" | "kind" | "style" | "updatedAt" | "createdAt" | "costUsd" | "projectId" | "versionCount" | "cover"> & {
   id: string;
   product: string;
 };
@@ -167,8 +223,9 @@ const num = (v: unknown, lo: number, hi: number, d: number) => {
  * AI 가 준 대본을 저장할 모양으로 — 길이 · 개수를 자르고, 줄이 없는 장면 번호를 가리키지 않게,
  * 없는 사진 번호를 쓰지 않게(사진 장면이면 AI 장면으로 바꾼다) 고친다.
  */
-export function sanitizeWriterScript(raw: unknown, photoCount: number): WriterScript {
+export function sanitizeWriterScript(raw: unknown, photoCount: number, style: WriterStyle = "intro"): WriterScript {
   const r = (raw ?? {}) as Record<string, unknown>;
+  const story = style === "story";
   const cta = (r.cta ?? {}) as Record<string, unknown>;
   const scenes: WriterScene[] = (Array.isArray(r.scenes) ? r.scenes : []).slice(0, 20).map((x) => {
     const sc = (x ?? {}) as Record<string, unknown>;
@@ -180,8 +237,9 @@ export function sanitizeWriterScript(raw: unknown, photoCount: number): WriterSc
       kind,
       durationSec: Math.round(num(sc.durationSec, 0.5, 30, 3) * 10) / 10,
       visual: s(sc.visual, 400),
-      aiPrompt: kind === "ai" ? s(sc.aiPrompt, 1500) : "",
+      aiPrompt: kind === "ai" ? s(sc.aiPrompt, 2500) : "",
       photo: kind === "image" ? (p ?? 0) : null,
+      ...(story ? { camera: s(sc.camera, 200), sound: s(sc.sound, 200), continuity: s(sc.continuity, 200) } : {}),
     };
   });
   if (!scenes.length) scenes.push({ label: "장면 1", kind: "ai", durationSec: 3, visual: "", aiPrompt: "", photo: null });
@@ -211,6 +269,27 @@ export function sanitizeWriterScript(raw: unknown, photoCount: number): WriterSc
     },
     scenes,
     lines,
+    ...(story ? { story: sanitizeStory(r.story) } : {}),
+  };
+}
+
+function sanitizeStory(raw: unknown): WriterStory {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const end = (r.endCard ?? {}) as Record<string, unknown>;
+  return {
+    logline: s(r.logline, 300),
+    catchphrase: s(r.catchphrase, 80),
+    look: s(r.look, 300),
+    characters: (Array.isArray(r.characters) ? r.characters : []).slice(0, 6).map((x) => {
+      const c = (x ?? {}) as Record<string, unknown>;
+      return { name: s(c.name, 40) || "이름 없음", role: s(c.role, 40), look: s(c.look, 300), lookPrompt: s(c.lookPrompt, 600) };
+    }),
+    acts: (Array.isArray(r.acts) ? r.acts : []).slice(0, 8).map((x) => {
+      const a = (x ?? {}) as Record<string, unknown>;
+      const from = num(a.fromSec, 0, 180, 0);
+      return { name: s(a.name, 30) || "구간", fromSec: from, toSec: Math.max(from, num(a.toSec, 0, 180, from)), summary: s(a.summary, 300) };
+    }),
+    endCard: { visual: s(end.visual, 300), text: s(end.text, 200), cta: s(end.cta, 120) },
   };
 }
 
@@ -231,15 +310,34 @@ export function writerTimeline(sc: Pick<WriterScript, "scenes">): { from: number
 export function writerScriptText(sc: WriterScript, beatLabel: Record<BeatKey, string>): string {
   const tl = writerTimeline(sc);
   const out: string[] = [`제목: ${sc.title}`, sc.hook ? `훅: ${sc.hook}` : "", `길이: 약 ${writerTotalSec(sc)}초`, ""];
+  const st = sc.story;
+  if (st) {
+    if (st.logline) out.push(`로그라인: ${st.logline}`);
+    if (st.catchphrase) out.push(`캐치프레이즈: ${st.catchphrase}`);
+    if (st.look) out.push(`그림체: ${st.look}`);
+    if (st.characters.length) {
+      out.push("", "등장인물:");
+      for (const c of st.characters) out.push(`- ${c.name}${c.role ? ` (${c.role})` : ""}: ${c.look}${c.lookPrompt ? `\n  영문 고정 묘사: ${c.lookPrompt}` : ""}`);
+    }
+    if (st.acts.length) {
+      out.push("", "구성:");
+      for (const a of st.acts) out.push(`- ${a.name} ${a.fromSec}~${a.toSec}초: ${a.summary}`);
+    }
+    out.push("");
+  }
   sc.scenes.forEach((x, i) => {
     out.push(`[장면 ${i + 1} · ${tl[i].from}~${tl[i].to}초 · ${x.kind === "image" ? `제품 사진 ${(x.photo ?? 0) + 1}` : x.kind === "ai" ? "AI 생성" : "직접 촬영"}] ${x.label}`);
     if (x.visual) out.push(`  화면: ${x.visual}`);
+    if (x.camera) out.push(`  카메라: ${x.camera}`);
+    if (x.sound) out.push(`  소리: ${x.sound}`);
+    if (x.continuity) out.push(`  이어 붙이기: ${x.continuity}`);
     for (const l of sc.lines.filter((y) => y.scene === i)) {
       out.push(`  (${beatLabel[l.beat]}) ${l.text}`);
       if (l.caption && l.caption !== l.text) out.push(`    자막: ${l.caption}`);
     }
     if (x.aiPrompt) out.push(`  AI 프롬프트: ${x.aiPrompt}`);
   });
+  if (st && (st.endCard.visual || st.endCard.text)) out.push("", `엔드카드: ${st.endCard.visual}${st.endCard.text ? ` · 문구 「${st.endCard.text}」` : ""}${st.endCard.cta ? ` · ${st.endCard.cta}` : ""}`);
   out.push("", `CTA: ${sc.cta.wording}${sc.cta.keyword ? ` (키워드 ${sc.cta.keyword})` : ""}`, "", sc.description, sc.hashtags.length ? sc.hashtags.map((h) => `#${h}`).join(" ") : "");
   return out.filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n").trim();
 }
@@ -250,3 +348,16 @@ export const keepLast = <T,>(xs: T[], n: number) => (xs.length > n ? xs.slice(xs
 /** 확인된 사실 다듬기 — 빈 줄 · 겹침 · 길이 */
 export const cleanFacts = (xs: unknown, max = 20) =>
   [...new Set((Array.isArray(xs) ? xs : []).map((x) => s(x, 200)).filter(Boolean))].slice(0, max);
+
+/** 스토리 광고 재료 다듬기 */
+export function cleanStoryInput(raw: unknown): StoryInput {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  return {
+    problem: s(r.problem, 600),
+    idea: s(r.idea, 1500),
+    characters: s(r.characters, 800),
+    tone: s(r.tone, 30),
+    look: s(r.look, 60),
+    endCard: s(r.endCard, 300),
+  };
+}

@@ -23,7 +23,9 @@ import {
   RotateCcw,
   SendHorizontal,
   Sparkles,
+  Theater,
   Trash2,
+  Users,
   TriangleAlert,
   Wand2,
   X,
@@ -55,8 +57,11 @@ import { shortsGet, shortsPost } from "@/lib/neander/shorts/client";
 import { BEAT_LABEL } from "@/lib/neander/shorts/model";
 import { krwOf } from "@/lib/neander/shorts/radar";
 import {
+  STORY_LOOKS,
+  STORY_TONES,
   WRITER_KIND_LABEL,
   WRITER_LENGTHS,
+  WRITER_STYLE_LABEL,
   WRITER_MAX_PHOTOS,
   WRITER_REF_LABEL,
   WRITER_SUGGESTIONS,
@@ -69,6 +74,7 @@ import {
   type WriterRef,
   type WriterRefKind,
   type WriterScript,
+  type WriterStyle,
 } from "@/lib/neander/shorts/script-writer";
 import { DEFAULT_FIN_AI_MODEL, FIN_AI_MODELS } from "@/lib/neander/ai/models";
 
@@ -78,6 +84,7 @@ type PhotoDraft = { name: string; dataUrl: string; thumb: string };
 
 const won = (usd: number) => `${krwOf(usd).toLocaleString("ko-KR")}원`;
 const MODEL_KEY = "neander.shorts.writerModel";
+const STORY_SUGGESTIONS = ["반전을 더 크게", "웃음 포인트 하나 더", "제품 등장을 더 자연스럽게", "45초로 줄여 줘", "엔드카드 문구 바꿔 줘", "AI 로 만들기 쉬운 컷으로"];
 
 // ---- 사진 줄이기 (브라우저) -------------------------------------------------------
 
@@ -177,6 +184,8 @@ export function ScriptWriter() {
         <div className="min-w-0">
           {isNew ? (
             <NewScript
+              key={search.get("product") ?? ""}
+              prefill={{ product: search.get("product") ?? "", info: search.get("info") ?? "", style: search.get("style") === "story" ? "story" : "intro" }}
               onCreated={(r) => {
                 onSession(r.session);
                 go(`?id=${r.session.id}`);
@@ -258,6 +267,7 @@ function SessionList({ list, error, selected, onPick, onRetry }: { list: ScriptS
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-nd-body font-medium text-nd-fg" title={x.title}>{x.title}</span>
                   <span className="block truncate text-[13px] text-nd-fg-3">
+                    {x.style === "story" ? "스토리 · " : ""}
                     {x.versionCount ? `v${x.versionCount}` : "대본 전"} · {fmtWhen(x.updatedAt)}
                     {x.projectId ? " · 영상 있음" : ""}
                   </span>
@@ -366,13 +376,25 @@ function PhotoPicker({ photos, setPhotos, room }: { photos: PhotoDraft[]; setPho
   );
 }
 
-function NewScript({ onCreated }: { onCreated: (r: TurnResult) => void }) {
+/** prefill — 트렌드 노트의 「대본으로」 처럼 다른 화면이 주소로 넘긴 제품 이름 · 정보 · 방식 */
+function NewScript({ onCreated, prefill }: { onCreated: (r: TurnResult) => void; prefill?: { product: string; info: string; style: WriterStyle } }) {
   const { data } = useShorts();
   const clients = data?.clients ?? [];
   const { busy, run } = useAction();
   const [model, setModel] = useModel();
   const [refs, setRefs] = useState<WriterRef[] | null>(null);
-  const [f, setF] = useState({ name: "", info: "", kind: "coupang" as WriterKind, clientId: "", cta: "", targetSec: 30, ref: "auto", message: "" });
+  const [f, setF] = useState({
+    name: prefill?.product.slice(0, 120) ?? "",
+    info: prefill?.info.slice(0, 3000) ?? "",
+    kind: "coupang" as WriterKind,
+    clientId: "",
+    cta: "",
+    targetSec: prefill?.style === "story" ? 45 : 30,
+    ref: "auto",
+    message: "",
+  });
+  const [style, setStyle] = useState<WriterStyle>(prefill?.style ?? "intro");
+  const [story, setStory] = useState({ problem: "", idea: "", characters: "", tone: STORY_TONES[0] as string, look: STORY_LOOKS[0] as string, endCard: "" });
   const [photos, setPhotos] = useState<PhotoDraft[]>([]);
   useEffect(() => {
     shortsGet<{ refs: WriterRef[] }>("scripts?refs=1")
@@ -403,17 +425,35 @@ function NewScript({ onCreated }: { onCreated: (r: TurnResult) => void }) {
         message: f.message,
         model,
         photos,
+        style,
+        story: style === "story" ? story : undefined,
       });
       onCreated(r);
     });
 
   return (
     <Card className="space-y-5">
-      <div>
-        <h2 className="text-[17px] font-bold text-nd-fg">새 대본</h2>
-        <p className="mt-1 text-nd-body text-nd-fg-2">
-          제품 사진과 정보를 넣으면 AI 가 분석해 둔 형식 · 공식을 바탕으로 소개 영상 대본을 씁니다. 다 쓴 뒤에는 오른쪽 대화로 「훅을 더 세게」 처럼 고쳐 가세요.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-[17px] font-bold text-nd-fg">새 대본</h2>
+          <p className="mt-1 text-nd-body text-nd-fg-2">
+            {style === "story"
+              ? "제품이 해결하는 문제를 갈등으로 삼아 짧은 이야기를 짜고, 캐릭터 시트 · 컷별 카메라 · AI 영상 프롬프트 · 엔드카드까지 콘티로 씁니다."
+              : "제품 사진과 정보를 넣으면 AI 가 분석해 둔 형식 · 공식을 바탕으로 소개 영상 대본을 씁니다."}{" "}
+            다 쓴 뒤에는 대화로 고쳐 가세요.
+          </p>
+        </div>
+        <SegmentedControl
+          ariaLabel="영상 방식"
+          value={style}
+          onChange={(v) => {
+            setStyle(v);
+            // 스토리 광고는 보통 더 길다 — 기본 길이만 바꾼다(사람이 고른 길이는 그대로)
+            if (v === "story" && f.targetSec === 30) setF({ ...f, targetSec: 45 });
+            if (v === "intro" && f.targetSec === 45) setF({ ...f, targetSec: 30 });
+          }}
+          options={(Object.keys(WRITER_STYLE_LABEL) as WriterStyle[]).map((k) => ({ value: k, label: WRITER_STYLE_LABEL[k], icon: k === "story" ? Theater : PenLine }))}
+        />
       </div>
       <FormRow className="grid-cols-1 md:grid-cols-[2fr_1fr]">
         <Field label="제품 이름" required>
@@ -437,7 +477,46 @@ function NewScript({ onCreated }: { onCreated: (r: TurnResult) => void }) {
           placeholder={"예: 접으면 2cm · 싱크대 가장자리에 흡착 · 3,000원(다이소) · 실리콘이라 물에 강함\n여기 적지 않은 가격 · 효능은 대본에 쓰지 않습니다."}
         />
       </Field>
-      <Field label={`제품 사진 (최대 ${WRITER_MAX_PHOTOS}장 — AI 가 보고 외형 · 구성을 읽습니다)`}>
+      {style === "story" && (
+        <div className="space-y-4 rounded-nd-md border border-nd-accent/25 bg-nd-accent-soft/30 p-4">
+          <p className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-nd-accent-strong">
+            <Theater size={15} aria-hidden /> 스토리 재료 — 비워 두면 AI 가 제안합니다
+          </p>
+          <Field label="이 제품이 해결하는 문제 · 핵심 장점 (스토리의 갈등이 됩니다)">
+            <Textarea rows={2} value={story.problem} onChange={(e) => setStory({ ...story, problem: e.target.value })} maxLength={600} placeholder="예: 발바닥 털이 길면 미끄러운 바닥에서 못 멈춘다 → 털을 정리하면 젤리로 딱 선다" />
+          </Field>
+          <Field label="스토리 아이디어 · 무대">
+            <Textarea rows={3} value={story.idea} onChange={(e) => setStory({ ...story, idea: e.target.value })} maxLength={1500} placeholder="예: 단풍 공원 데크에서 강아지 두 마리 달리기 시합 → 고양이가 끼어듦 → 털 많은 주인공만 못 멈춰 냥펀치 → 털 정리 후 리매치" />
+          </Field>
+          <FormRow className="grid-cols-1 md:grid-cols-[2fr_1fr_1fr]">
+            <Field label="등장인물">
+              <Input value={story.characters} onChange={(e) => setStory({ ...story, characters: e.target.value })} maxLength={800} placeholder="예: 몰티즈 솜이(주인공) · 푸들 초코(라이벌) · 치즈냥(심판)" />
+            </Field>
+            <Field label="톤">
+              <Select value={story.tone} onChange={(e) => setStory({ ...story, tone: e.target.value })}>
+                {STORY_TONES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="그림체">
+              <Select value={story.look} onChange={(e) => setStory({ ...story, look: e.target.value })}>
+                {STORY_LOOKS.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </FormRow>
+          <Field label="엔드카드에 넣을 것 (가격 · 할인 · 문구 — 적은 것만 씁니다)">
+            <Input value={story.endCard} onChange={(e) => setStory({ ...story, endCard: e.target.value })} maxLength={300} placeholder="예: 23,500원 → 18,900원 · 「사주세요」" />
+          </Field>
+        </div>
+      )}
+      <Field label={`제품 사진 (최대 ${WRITER_MAX_PHOTOS}장 — AI 가 보고 외형 · 구성을 읽습니다${style === "story" ? " · 제품 컷 · 엔드카드는 실제 사진으로" : ""})`}>
         <PhotoPicker photos={photos} setPhotos={setPhotos} room={WRITER_MAX_PHOTOS} />
       </Field>
       <FormRow className="grid-cols-1 md:grid-cols-2">
@@ -492,12 +571,14 @@ function NewScript({ onCreated }: { onCreated: (r: TurnResult) => void }) {
       </Field>
       <div className="flex flex-wrap items-center gap-3 border-t border-nd-line pt-4">
         <Button icon={Sparkles} loading={busy === "make"} disabled={!canMake || busy !== null} onClick={make}>
-          {busy === "make" ? "AI 가 대본을 쓰는 중… (10~60초)" : "대본 만들기"}
+          {busy === "make" ? "AI 가 대본을 쓰는 중… (10~60초)" : style === "story" ? "스토리 · 콘티 만들기" : "대본 만들기"}
         </Button>
         <div className="w-[min(320px,100%)]">
           <ModelSelect value={model} onChange={setModel} />
         </div>
-        <span className="text-[13px] text-nd-fg-3">한 번에 20초 안팎 · Gemini Flash 는 약 15원(사진 포함), Claude 는 그보다 비쌉니다 — 쓴 비용은 대화마다 적힙니다.</span>
+        <span className="text-[13px] text-nd-fg-3">
+          {style === "story" ? "스토리 · 콘티는 한 번에 40~50초 · Gemini Flash 약 40원" : "한 번에 20초 안팎 · Gemini Flash 약 15원(사진 포함)"}, Claude 는 그보다 비쌉니다 — 쓴 비용은 대화마다 적힙니다.
+        </span>
       </div>
     </Card>
   );
@@ -535,7 +616,7 @@ function SessionView({ s, onChange, onDeleted }: { s: Session; onChange: (s: Ses
         <div className="min-w-0">
           <h2 className="truncate text-[20px] font-bold text-nd-fg" title={s.title}>{s.title}</h2>
           <p className="text-[13px] text-nd-fg-3">
-            {WRITER_KIND_LABEL[s.kind]} · 만든 날 {fmtWhen(s.createdAt)} · AI 비용 합 {won(s.costUsd)}
+            {WRITER_STYLE_LABEL[s.style ?? "intro"]} · {WRITER_KIND_LABEL[s.kind]} · 만든 날 {fmtWhen(s.createdAt)} · AI 비용 합 {won(s.costUsd)}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -653,7 +734,7 @@ function ChatPane({ s, onChange, onViewVersion }: { s: Session; onChange: (s: Se
           </Button>
         )}
         <div className="flex flex-wrap gap-1.5">
-          {WRITER_SUGGESTIONS.map((q) => (
+          {(s.style === "story" ? STORY_SUGGESTIONS : WRITER_SUGGESTIONS).map((q) => (
             <button key={q} type="button" disabled={busy !== null || !s.script} onClick={() => send(q)} className="rounded-full border border-nd-border bg-nd-content px-2.5 py-1 text-[13px] text-nd-fg-2 hover:bg-nd-sunken disabled:opacity-50">
               {q}
             </button>
@@ -769,6 +850,7 @@ function ScriptPane({ s, script, view, setView, onChange }: { s: Session; script
             <p className="mt-0.5 text-[15px] font-semibold text-nd-fg [overflow-wrap:anywhere]">{script.hook}</p>
           </div>
         )}
+        {script.story && <StoryHead story={script.story} />}
         {s.basis && s.basis.kind !== "none" && (
           <p className="flex items-start gap-1.5 text-[13px] leading-relaxed text-nd-fg-2">
             <Lightbulb size={14} className="mt-[3px] shrink-0 text-nd-accent" aria-hidden />
@@ -805,6 +887,11 @@ function ScriptPane({ s, script, view, setView, onChange }: { s: Session; script
                       <span className="min-w-0 text-nd-body font-medium text-nd-fg [overflow-wrap:anywhere]">{sc.label}</span>
                     </div>
                     {sc.visual && <p className="mt-1 text-[13px] text-nd-fg-3 [overflow-wrap:anywhere]">화면 · {sc.visual}</p>}
+                    {(sc.camera || sc.sound || sc.continuity) && (
+                      <p className="mt-0.5 text-[13px] text-nd-fg-3 [overflow-wrap:anywhere]">
+                        {[sc.camera && `카메라 · ${sc.camera}`, sc.sound && `소리 · ${sc.sound}`, sc.continuity && `잇기 · ${sc.continuity}`].filter(Boolean).join("  ·  ")}
+                      </p>
+                    )}
                     <ul className="mt-1.5 space-y-1">
                       {lines.map((l, k) => (
                         <li key={k} className="text-nd-body text-nd-fg">
@@ -827,6 +914,14 @@ function ScriptPane({ s, script, view, setView, onChange }: { s: Session; script
           })}
         </ol>
 
+        {script.story && (script.story.endCard.visual || script.story.endCard.text) && (
+          <div className="rounded-nd-md border border-nd-line px-3 py-2.5">
+            <p className="text-[13px] font-semibold text-nd-fg-2">엔드카드 (실제 제품 사진 위에)</p>
+            {script.story.endCard.text && <p className="mt-0.5 text-[15px] font-semibold text-nd-fg [overflow-wrap:anywhere]">「{script.story.endCard.text}」</p>}
+            {script.story.endCard.visual && <p className="mt-0.5 text-[13px] text-nd-fg-3 [overflow-wrap:anywhere]">화면 · {script.story.endCard.visual}</p>}
+            {script.story.endCard.cta && <p className="text-[13px] text-nd-fg-3 [overflow-wrap:anywhere]">CTA · {script.story.endCard.cta}</p>}
+          </div>
+        )}
         <div className="space-y-1.5 rounded-nd-md bg-nd-sunken px-3 py-2.5 text-nd-body">
           <p>
             <span className="text-[13px] font-medium text-nd-fg-3">CTA </span>
@@ -883,3 +978,66 @@ function ScriptPane({ s, script, view, setView, onChange }: { s: Session; script
   );
 }
 
+/** 스토리 광고 머리 — 로그라인 · 캐치프레이즈 · 그림체 · 등장인물(영문 고정 묘사 복사) · 막 구조 */
+function StoryHead({ story }: { story: NonNullable<WriterScript["story"]> }) {
+  const toast = useToast();
+  const total = Math.max(1, ...story.acts.map((a) => a.toSec));
+  const copy = async (t: string) => {
+    try {
+      await navigator.clipboard.writeText(t);
+      toast.success("영문 고정 묘사를 복사했습니다.");
+    } catch {
+      toast.error("복사하지 못했습니다.");
+    }
+  };
+  return (
+    <div data-writer-story className="space-y-3">
+      {(story.logline || story.catchphrase) && (
+        <div className="rounded-nd-md border border-nd-accent/25 bg-nd-accent-soft/30 px-3 py-2.5">
+          {story.logline && <p className="text-nd-body text-nd-fg [overflow-wrap:anywhere]">{story.logline}</p>}
+          {story.catchphrase && <p className="mt-1 text-[15px] font-bold text-nd-accent-strong [overflow-wrap:anywhere]">「{story.catchphrase}」</p>}
+          {story.look && <p className="mt-1 text-[13px] text-nd-fg-3">그림체 · {story.look}</p>}
+        </div>
+      )}
+      {story.acts.length > 0 && (
+        <div>
+          <p className="mb-1 text-[13px] font-medium text-nd-fg-2">구성</p>
+          <div className="flex h-2 overflow-hidden rounded-full bg-nd-fg/[.06]" aria-hidden>
+            {story.acts.map((a, i) => (
+              <span key={i} style={{ width: `${((a.toSec - a.fromSec) / total) * 100}%` }} className={cn("h-full", i % 2 ? "bg-nd-accent/45" : "bg-nd-accent")} />
+            ))}
+          </div>
+          <ol className="mt-1.5 space-y-0.5">
+            {story.acts.map((a, i) => (
+              <li key={i} className="text-[13px] text-nd-fg-2 [overflow-wrap:anywhere]">
+                <b className="font-semibold text-nd-fg">{a.name}</b> <span className="nd-num text-nd-fg-3">{a.fromSec}~{a.toSec}초</span> · {a.summary}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {story.characters.length > 0 && (
+        <div>
+          <p className="mb-1 inline-flex items-center gap-1 text-[13px] font-medium text-nd-fg-2">
+            <Users size={14} aria-hidden /> 등장인물 — 영문 고정 묘사는 모든 AI 컷 프롬프트에 그대로 들어갑니다
+          </p>
+          <ul className="grid gap-2 [@container(min-width:520px)]:grid-cols-2">
+            {story.characters.map((c, i) => (
+              <li key={i} className="min-w-0 rounded-nd-md border border-nd-line px-3 py-2">
+                <p className="text-nd-body font-semibold text-nd-fg">
+                  {c.name} {c.role && <span className="text-[13px] font-normal text-nd-fg-3">· {c.role}</span>}
+                </p>
+                {c.look && <p className="text-[13px] text-nd-fg-2 [overflow-wrap:anywhere]">{c.look}</p>}
+                {c.lookPrompt && (
+                  <button type="button" onClick={() => void copy(c.lookPrompt)} className="mt-1 block w-full text-left font-mono text-[12.5px] leading-snug text-nd-fg-3 hover:text-nd-fg [overflow-wrap:anywhere]" title="눌러서 복사">
+                    {c.lookPrompt}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -968,6 +968,31 @@ async function main() {
     ok(wt.created && wproj.scenes.length === 3 && wproj.scenes[0].kind === "blank" && /제품 사진 2/.test(wproj.scenes[0].label) && wproj.scenes[1].kind === "ai" && wproj.scenes[1].ai?.prompt === "water" && wproj.script.lines.length === 3 && wproj.script.lines[0].sceneId === wproj.scenes[0].id, "이 대본으로 영상 만들기 — 장면 · 줄 · 사진 장면은 빈 장면(사진 번호 표시)", JSON.stringify(wproj.scenes.map((x) => [x.kind, x.label])));
     ok(wproj.publish.title === "검증 대본 1" && wproj.cta.keyword === "검증" && wproj.facts.includes("용량 350ml") && wproj.stage === "scripting", "게시 제목 · CTA · 확인된 사실 · 단계");
     ok((await scriptWriter.scriptSessionToProject(db, A, ws.id)).projectId === wt.projectId, "두 번 눌러도 같은 영상");
+    // 스토리 광고 — 재료 저장 · 길이 기본 45초 · 영상 메모에 로그라인 · 등장인물 · 컷 메모
+    setAiFetch((async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: JSON.stringify({
+            reply: "스토리를 썼어요",
+            script: {
+              title: "공원 그랑프리", hook: "출발선", targetSec: 45, description: "", hashtags: [], cta: { type: "other", keyword: "", wording: "사주세요", atSec: null },
+              scenes: [{ label: "출발", kind: "ai", durationSec: 3, visual: "출발선", aiPrompt: "white Maltese, camera does not rotate", photo: null, camera: "정면 고정", sound: "호루라기", continuity: "" }],
+              lines: [{ beat: "hook", text: "", caption: "공원 그랑프리", scene: 0 }],
+              story: { logline: "털 많은 솜이의 역전", catchphrase: "브레이크는 발바닥에 있다", look: "3D", characters: [{ name: "솜이", role: "주인공", look: "몰티즈", lookPrompt: "white Maltese" }], acts: [{ name: "설정", fromSec: 0, toSec: 3, summary: "출발" }], endCard: { visual: "제품 3색", text: "18,900원", cta: "사주세요" } },
+            },
+            facts: [], basis: { kind: "none", id: "", name: "", why: "" }, checks: [],
+          }) } }],
+          usage: { cost: 0.002 },
+        }),
+      )) as typeof fetch);
+    const sw = await scriptWriter.createScriptSession(db, A, { productName: "검증 이발기", kind: "coupang", style: "story", story: { problem: "발바닥 털", idea: "달리기 시합", tone: "코믹" } });
+    ok(!sw.error && sw.session.style === "story" && sw.session.targetSec === 45 && sw.session.storyInput?.problem === "발바닥 털" && sw.session.script?.story?.catchphrase === "브레이크는 발바닥에 있다", "스토리 광고 세션 — 재료 · 기본 45초 · 이야기", JSON.stringify({ e: sw.error, st: sw.session.style, t: sw.session.targetSec }));
+    ok((await scriptWriter.listScriptSessions(db, A)).find((x) => x.id === sw.session.id)?.style === "story", "목록에 영상 방식");
+    const swp = await scriptWriter.scriptSessionToProject(db, A, sw.session.id);
+    created.projects.push(swp.projectId);
+    const swProj = await store.getProject(db, A, swp.projectId);
+    ok(/로그라인: 털 많은 솜이의 역전/.test(swProj.notes) && /white Maltese/.test(swProj.notes) && /카메라 정면 고정/.test(swProj.notes) && /엔드카드: 제품 3색/.test(swProj.notes) && swProj.scenes[0].ai?.prompt.includes("camera does not rotate"), "스토리 → 영상: 메모에 로그라인 · 등장인물 · 컷 메모 · 엔드카드, 장면 프롬프트 그대로");
+    await scriptWriter.deleteScriptSession(db, A, sw.session.id);
     await scriptWriter.deleteScriptSession(db, A, ws.id);
     ok(!(await db.collection(NEANDER_COL.shortsScripts).doc(ws.id).get()).exists && (await db.collection(NEANDER_COL.shortsScripts).doc(ws.id).collection("photos").get()).size === 0, "지우기 — 세션과 사진 원본 모두");
     setAiFetch(null);

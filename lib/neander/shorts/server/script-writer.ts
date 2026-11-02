@@ -22,6 +22,7 @@ import {
   WRITER_PHOTO_MAX_CHARS,
   WRITER_THUMB_MAX_CHARS,
   cleanFacts,
+  cleanStoryInput,
   keepLast,
   type ScriptSessionDoc,
   type ScriptSessionSummary,
@@ -29,6 +30,7 @@ import {
   type WriterPhotoMeta,
   type WriterRef,
   type WriterRefKind,
+  type WriterStyle,
 } from "../script-writer";
 import type { FormatDoc } from "../scout";
 import type { RadarDoc } from "../radar";
@@ -81,7 +83,7 @@ async function getOwn(db: Firestore, email: string, id: unknown, read = false): 
 }
 
 export async function listScriptSessions(db: Firestore, email: string): Promise<ScriptSessionSummary[]> {
-  const snap = await col(db).where("owner", "==", email).select("title", "kind", "updatedAt", "createdAt", "costUsd", "projectId", "product", "versionCount", "cover").get();
+  const snap = await col(db).where("owner", "==", email).select("title", "kind", "style", "updatedAt", "createdAt", "costUsd", "projectId", "product", "versionCount", "cover").get();
   return snap.docs
     .map((d) => {
       const x = d.data() as Partial<ScriptSessionDoc>;
@@ -89,6 +91,7 @@ export async function listScriptSessions(db: Firestore, email: string): Promise<
         id: d.id,
         title: x.title ?? "",
         kind: x.kind ?? "coupang",
+        style: x.style ?? "intro",
         updatedAt: x.updatedAt ?? 0,
         createdAt: x.createdAt ?? 0,
         costUsd: x.costUsd ?? 0,
@@ -216,6 +219,10 @@ export interface WriterCreateInput {
   photos?: unknown;
   /** 처음 요청 (비우면 「대본을 처음 써 주세요」) */
   message?: unknown;
+  /** 제품 소개 · 스토리 광고 */
+  style?: unknown;
+  /** 스토리 광고 재료 (problem · idea · characters · tone · look · endCard) */
+  story?: unknown;
 }
 
 /** 새 대본 — 세션을 먼저 저장하고(사진 포함) 첫 대본을 부른다. AI 가 실패해도 세션은 남는다 */
@@ -230,6 +237,7 @@ export async function createScriptSession(db: Firestore, email: string, input: W
     clientId = c.id;
   }
   const refKind = REF_KINDS.includes(input.refKind as WriterRefKind) ? (input.refKind as WriterRefKind) : "auto";
+  const style: WriterStyle = input.style === "story" ? "story" : "intro";
   const photos = cleanPhotos(input.photos, WRITER_MAX_PHOTOS);
   const id = newDocId();
   const now = Date.now();
@@ -241,13 +249,15 @@ export async function createScriptSession(db: Firestore, email: string, input: W
     updatedAt: now,
     title: name,
     kind,
+    style,
+    storyInput: style === "story" ? cleanStoryInput(input.story) : null,
     clientId,
     product: { name, info: str(input.productInfo, 3000) },
     facts: [],
     checks: [],
     reference: { kind: refKind, id: refKind === "auto" ? null : isDocId(input.refId) || /^yt_[\w-]{11}$/.test(String(input.refId)) ? String(input.refId) : null, name: str(input.refName, 120) },
     basis: null,
-    targetSec: (WRITER_LENGTHS as readonly number[]).includes(targetSec) ? targetSec : 30,
+    targetSec: (WRITER_LENGTHS as readonly number[]).includes(targetSec) ? targetSec : style === "story" ? 45 : 30,
     ctaKeyword: str(input.ctaKeyword, 30),
     model: shortsTextModel(input.model),
     photos: metas,
@@ -263,7 +273,7 @@ export async function createScriptSession(db: Firestore, email: string, input: W
   batch.set(col(db).doc(id), doc);
   photos.forEach((p, i) => batch.set(col(db).doc(id).collection("photos").doc(metas[i].id), { dataUrl: p.dataUrl, name: p.name, at: now }));
   await batch.commit();
-  const message = str(input.message, WRITER_MESSAGE_MAX) || "제품을 소개하는 쇼츠 대본을 처음 써 주세요.";
+  const message = str(input.message, WRITER_MESSAGE_MAX) || (style === "story" ? "이 제품을 홍보하는 스토리 광고 쇼츠의 대본과 콘티를 처음 써 주세요." : "제품을 소개하는 쇼츠 대본을 처음 써 주세요.");
   return runTurn(db, email, id, { message, newPhotoIds: metas.map((m) => m.id), model: doc.model });
 }
 
@@ -309,6 +319,8 @@ async function runTurn(
   const input: WriterTurnInput = {
     model: o.model,
     kind: s.kind,
+    style: s.style ?? "intro",
+    storyInput: s.storyInput ?? null,
     product: s.product,
     facts: s.facts,
     targetSec: s.targetSec,
@@ -431,7 +443,7 @@ export async function scriptSessionToProject(db: Firestore, email: string, id: u
   const projectId =
     s.kind === "brand" && s.clientId
       ? await createClientProject(db, email, { clientId: s.clientId, title: sc.title })
-      : await createProject(db, email, { title: sc.title, product: s.product.name, kind: s.kind === "general" ? "general" : "coupang", visibility: "private", notes: `대본 작성기에서 옮김 · ${s.product.info}`.slice(0, 6000) });
+      : await createProject(db, email, { title: sc.title, product: s.product.name, kind: s.kind === "general" ? "general" : "coupang", visibility: "private", notes: projectNotes(s).slice(0, 6000) });
   const scenes: Scene[] = sc.scenes.map((x, i) => ({
     id: newId("sc_"),
     kind: x.kind === "ai" ? "ai" : "blank",
@@ -444,6 +456,7 @@ export async function scriptSessionToProject(db: Firestore, email: string, id: u
   }));
   const lines: ScriptLine[] = sc.lines.map((l) => ({ id: newId("ln_"), beat: l.beat, text: l.text, caption: l.caption, sceneId: scenes[l.scene]?.id ?? null }));
   await patchProject(db, projectId, email, (pp) => {
+    if (sc.story && s.kind === "brand") pp.notes = [pp.notes, projectNotes(s)].filter(Boolean).join("\n\n").slice(0, 6000);
     pp.product = pp.product || s.product.name;
     pp.facts = [...new Set([...pp.facts, ...s.facts])].slice(0, 30);
     pp.script = { lines };
@@ -455,4 +468,23 @@ export async function scriptSessionToProject(db: Firestore, email: string, id: u
   });
   await col(db).doc(s.id).update({ projectId, updatedAt: Date.now() });
   return { projectId, created: true };
+}
+
+/** 영상 메모 — 스토리 광고면 로그라인 · 캐치프레이즈 · 그림체 · 등장인물(영문 고정 묘사) · 컷별 카메라 · 이어 붙이기 · 엔드카드 */
+function projectNotes(s: ScriptSessionDoc): string {
+  const sc = s.script;
+  const st = sc?.story;
+  if (!sc || !st) return `대본 작성기에서 옮김 · ${s.product.info}`;
+  return [
+    "대본 작성기(스토리 광고)에서 옮김",
+    st.logline && `로그라인: ${st.logline}`,
+    st.catchphrase && `캐치프레이즈: ${st.catchphrase}`,
+    st.look && `그림체: ${st.look}`,
+    st.characters.length && `등장인물:\n${st.characters.map((c) => `- ${c.name}(${c.role}): ${c.look} / ${c.lookPrompt}`).join("\n")}`,
+    `컷 메모:\n${sc.scenes.map((x, i) => `${i + 1}. ${x.label} — 카메라 ${x.camera || "-"} · 소리 ${x.sound || "-"} · 잇기 ${x.continuity || "-"}`).join("\n")}`,
+    (st.endCard.visual || st.endCard.text) && `엔드카드: ${st.endCard.visual} · 「${st.endCard.text}」 · ${st.endCard.cta}`,
+    s.product.info && `제품 정보: ${s.product.info}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }

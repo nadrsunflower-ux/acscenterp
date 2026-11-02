@@ -459,6 +459,45 @@ test("대본 작성기: 사진은 image_url 로 · 규칙 · 대화 · 지금 �
   }
 });
 
+test("대본 작성기 스토리 광고: 스토리 규칙 · 스키마 · 재료가 요청에 들어가고 답에 story 가 남는다", async () => {
+  let body: Record<string, any> = {};
+  const script = {
+    title: "공원 그랑프리", hook: "출발선의 두 강아지", targetSec: 45, description: "", hashtags: [],
+    cta: { type: "other", keyword: "", wording: "", atSec: null },
+    scenes: [{ label: "출발", kind: "ai", durationSec: 3, visual: "출발선", aiPrompt: "camera does not rotate", photo: null, camera: "정면 고정", sound: "호루라기", continuity: "" }],
+    lines: [{ beat: "hook", text: "", caption: "공원 그랑프리", scene: 0 }],
+    story: { logline: "l", catchphrase: "브레이크는 발바닥에 있다", look: "3D", characters: [{ name: "솜이", role: "주인공", look: "몰티즈", lookPrompt: "white Maltese" }], acts: [{ name: "설정", fromSec: 0, toSec: 3, summary: "s" }], endCard: { visual: "v", text: "t", cta: "c" } },
+  };
+  mock((_url, init) => {
+    body = JSON.parse(String(init.body));
+    return json({ choices: [{ message: { content: JSON.stringify({ reply: "썼어요", script, facts: [], basis: { kind: "none", id: "", name: "", why: "" }, checks: ["밈 · 음원 저작권 확인"] }) } }] });
+  });
+  try {
+    const r = await A.writerTurn({
+      model: null, kind: "coupang", style: "story",
+      storyInput: { problem: "발바닥 털 때문에 미끄러짐", idea: "달리기 시합", characters: "솜이 · 초코", tone: "코믹", look: "3D 애니메이션 (픽사풍)", endCard: "18,900원" },
+      product: { name: "SBC-12", info: "" }, facts: [], targetSec: 45, ctaKeyword: "", brand: null, reference: "", referenceMode: "fixed", current: null, history: [], message: "처음", photos: [], photoCount: 1,
+    });
+    const sys = body.messages[0].content as string;
+    assert.match(sys, /스토리 광고 작가/);
+    assert.match(sys, /camera does not rotate/);
+    assert.match(sys, /실존 인물 · 유명 밈 · 유행 음원/);
+    assert.match(sys, /제품 모양은 AI 로 지어내지 않는다/);
+    const schema = body.response_format.json_schema.schema;
+    assert.ok(schema.properties.script.required.includes("story"));
+    assert.ok(schema.properties.script.properties.scenes.items.required.includes("camera"));
+    assert.match(body.messages.at(-1).content[0].text, /"storyInput":\{"problem":"발바닥 털 때문에 미끄러짐"/);
+    assert.equal(r.out.script.story?.catchphrase, "브레이크는 발바닥에 있다");
+    assert.equal(r.out.script.scenes[0].camera, "정면 고정");
+    // 소개 방식 요청에는 스토리 규칙 · 칸이 없다
+    await A.writerTurn({ model: null, kind: "coupang", product: { name: "x", info: "" }, facts: [], targetSec: 30, ctaKeyword: "", brand: null, reference: "", referenceMode: "fixed", current: null, history: [], message: "m", photos: [], photoCount: 0 });
+    assert.doesNotMatch(body.messages[0].content, /스토리 광고/);
+    assert.equal(body.response_format.json_schema.schema.properties.script.required.includes("story"), false);
+  } finally {
+    restore();
+  }
+});
+
 test("토큰 암호화: 다른 계정 문서에 옮겨 붙이면 풀리지 않는다", () => {
   const sealed = S.sealTokens({ refreshToken: "rt-secret" }, "youtube_UC1_abc");
   assert.doesNotMatch(sealed, /rt-secret/);

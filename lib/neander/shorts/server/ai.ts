@@ -20,7 +20,7 @@ import "server-only";
 import { DEFAULT_FIN_AI_MODEL, isFinAiModelId } from "@/lib/neander/ai/models";
 import { BEAT_LABEL } from "../model";
 import type { BeatKey, ChineseTermKind, CtaPlan, FormulaAnalysis, TemplateDoc } from "../types";
-import { cleanFacts, sanitizeWriterScript, type WriterKind, type WriterScript, type WriterTurnOut } from "../script-writer";
+import { cleanFacts, sanitizeWriterScript, type StoryInput, type WriterKind, type WriterScript, type WriterStyle, type WriterTurnOut } from "../script-writer";
 import type { Fetcher } from "./platforms";
 
 const OR = "https://openrouter.ai/api/v1";
@@ -481,6 +481,9 @@ ${RULES}
 export interface WriterTurnInput {
   model: unknown;
   kind: WriterKind;
+  /** 제품 소개(리뷰형) · 스토리 광고 — 없으면 제품 소개 */
+  style?: WriterStyle;
+  storyInput?: StoryInput | null;
   product: { name: string; info: string };
   facts: string[];
   targetSec: number;
@@ -562,7 +565,75 @@ const WRITER_SCHEMA = {
   },
 };
 
-export function writerSystem(input: Pick<WriterTurnInput, "kind" | "targetSec" | "ctaKeyword" | "referenceMode" | "photoCount" | "brand">): string {
+/** 스토리 광고 스키마 — 소개 스키마에 story 와 장면의 카메라 · 소리 · 이어 붙이기를 더한다 */
+function writerSchema(style: WriterStyle) {
+  if (style !== "story") return WRITER_SCHEMA;
+  const sc = WRITER_SCHEMA.properties.script;
+  const scene = sc.properties.scenes.items;
+  const str = { type: "string" };
+  return {
+    ...WRITER_SCHEMA,
+    properties: {
+      ...WRITER_SCHEMA.properties,
+      script: {
+        ...sc,
+        required: [...sc.required, "story"],
+        properties: {
+          ...sc.properties,
+          scenes: {
+            type: "array",
+            items: { ...scene, required: [...scene.required, "camera", "sound", "continuity"], properties: { ...scene.properties, camera: str, sound: str, continuity: str } },
+          },
+          story: {
+            type: "object",
+            additionalProperties: false,
+            required: ["logline", "catchphrase", "look", "characters", "acts", "endCard"],
+            properties: {
+              logline: str,
+              catchphrase: str,
+              look: str,
+              characters: {
+                type: "array",
+                items: { type: "object", additionalProperties: false, required: ["name", "role", "look", "lookPrompt"], properties: { name: str, role: str, look: str, lookPrompt: str } },
+              },
+              acts: {
+                type: "array",
+                items: { type: "object", additionalProperties: false, required: ["name", "fromSec", "toSec", "summary"], properties: { name: str, fromSec: { type: "number" }, toSec: { type: "number" }, summary: str } },
+              },
+              endCard: { type: "object", additionalProperties: false, required: ["visual", "text", "cta"], properties: { visual: str, text: str, cta: str } },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+/**
+ * 스토리 광고 규칙 — 이야기 구조 + AI 영상 생성에서 실제로 겪은 함정(2026-10 바비온 SBC-12 「공원 그랑프리」 작업):
+ * 생김새가 컷마다 바뀜 · 카메라가 멋대로 돎 · 발 뒤집기에서 없던 젤리가 생김 · 작은 물건 다루는 손이 어색 ·
+ * 제품이 갑자기 튀어나옴 · 유행 음원 · 실존 인물 밈은 광고에 못 씀.
+ */
+const STORY_RULES = `이 영상은 「스토리 광고」다 — 리뷰가 아니라 짧은 이야기로 제품을 기억하게 만든다.
+스토리 구조:
+- 캐릭터 · 무대 설정(첫 3초가 훅) → 제품이 해결하는 문제가 갈등으로 드러남 → 굴욕 · 좌절(웃음 포인트) → 제품 개입(사용 장면 — 문제 → 해결이 눈에 보이게, 제품이 갑자기 튀어나오지 않게 앞에서 문제를 충분히 보여 준다) → 역전 · 리매치 → 리액션 → 엔드카드(실제 제품 사진 · 문구 · CTA).
+- 제품은 「해결사」로 한 번, 분명하게 나온다. 사람이 준 문제 · 해결 범위 안에서만 — 효능 · 수치 과장 없이.
+- 말 없이도 화면만으로 웃기고 이해되게 한다. lines 는 내레이션이 아니라 짧은 자막 · 대사 · 효과 문구로 써도 된다 (caption 에 자막, text 에 대사 · 내레이션).
+- story.catchphrase 는 기억에 남는 한 줄 (예: 「브레이크는 발바닥에 있다」). story.acts 는 구간 이름 · 시작 · 끝 초 · 요약으로, 장면 길이 합과 맞춘다.
+- story.characters 는 이름 · 역할 · 한국어 외형 · lookPrompt(영문 고정 묘사: 종 · 색 · 털 · 옷 · 크기 · 눈에 띄는 특징). 사람이 준 등장인물을 따른다.
+- story.endCard 는 visual(실제 제품 사진을 어떻게 놓을지) · text(화면 문구, 사람이 준 가격 · 할인만) · cta.
+AI 영상 생성 규칙 (실제 작업에서 얻은 것):
+- 컷 하나에 동작 하나, 2~5초. 긴 동작은 컷을 나누고 continuity 에 잇는 법을 적는다 (예: 「앞 컷 마지막 화면을 첫 화면으로」 「캐릭터 기준 이미지 사용」).
+- aiPrompt 에는 매번 그림체(story.look)와 그 컷에 나오는 등장인물의 lookPrompt 를 그대로 넣는다 — 생김새가 컷마다 바뀌지 않게.
+- 카메라는 고정이거나 움직임 하나만. 돌면 안 되는 컷의 aiPrompt 에는 "camera does not rotate" 를 넣는다. camera 칸에 구도(클로즈업 · 바닥 높이 · 어깨 너머 · 측면 롱테이크 등)와 움직임을 한국어로 적는다.
+- AI 가 잘 못 그리는 것을 피한다: 발 · 손을 뒤집거나 돌리는 동작, 손가락으로 작은 물건 다루기, 화면 속 글자 · 로고, 빠른 연속 동작. 보여 줘야 하면 처음부터 그 면이 보이는 구도로 잡는다.
+- 제품 모양은 AI 로 지어내지 않는다. 제품이 크게 나오는 컷은 image(제품 사진)로 하거나, ai 컷이면 continuity 에 「제품 사진 n 을 참고 이미지로」 라고 적는다.
+- 엔드카드 컷은 kind image(제품 사진 번호)다 — 가격 · 문구 · CTA 는 편집에서 사진 위에 얹는다 (clip 이나 ai 로 만들지 않는다). 사진이 없으면 엔드카드 컷만 ai 로 두고 continuity 에 「실제 제품 사진으로 바꿀 것」 이라고 적는다.
+- clip(직접 촬영)은 실물이 꼭 필요한 컷에만 — 대부분은 ai · image 로 만든다.
+- 실존 인물 · 유명 밈 · 유행 음원 · 다른 회사 캐릭터를 쓰지 않는다 (광고 저작권 · 퍼블리시티권). sound 에는 분위기와 효과음만 (예: 「경쾌한 우쿨렐레 · 미끄러지는 효과음」).
+- 동물 · 사물 의인화는 표정 · 몸짓으로 보여 준다.`;
+
+export function writerSystem(input: Pick<WriterTurnInput, "kind" | "targetSec" | "ctaKeyword" | "referenceMode" | "photoCount" | "brand" | "style">): string {
   const kindRules =
     input.kind === "brand" && input.brand
       ? `
@@ -579,9 +650,10 @@ export function writerSystem(input: Pick<WriterTurnInput, "kind" | "targetSec" |
         : `
 이 영상은 쿠팡 파트너스 제휴 쇼핑 영상이다.
 - CTA 는 「제품 정보가 궁금하면 댓글에 '${input.ctaKeyword || "키워드"}' 남겨 주세요」 처럼 자발적 요청을 받는 방식.`;
-  return `너는 AI STUDIO(주식회사 네안데르)의 한국어 숏폼 소개 영상 대본 작가다. 사람과 대화하며 대본 하나를 함께 고쳐 간다.
+  const story = input.style === "story";
+  return `너는 AI STUDIO(주식회사 네안데르)의 한국어 숏폼 ${story ? "스토리 광고 작가 겸 콘티 작가" : "소개 영상 대본 작가"}다. 사람과 대화하며 대본 하나를 함께 고쳐 간다.
 이 회사는 실제 촬영을 거의 하지 않는다 — 장면은 ① 제품 사진(image) ② AI 영상 생성(ai) 으로 만들고, 실물이 꼭 필요한 장면만 clip(직접 촬영)으로 둔다.
-${RULES}${kindRules}
+${RULES}${kindRules}${story ? `\n${STORY_RULES}` : ""}
 대본 규칙:
 - 길이는 약 ${Math.round(input.targetSec)}초 (사람이 바꾸라고 하면 따르고 targetSec 도 고친다). 9:16 세로 쇼츠. 장면은 2~4초.
 - 첫 3초 훅이 가장 중요하다 — hook 에 한 줄로 적고, 첫 장면 · 첫 줄이 그 훅이다.
@@ -609,6 +681,7 @@ export async function writerTurn(input: WriterTurnInput): Promise<{ out: WriterT
     ctaKeyword: input.ctaKeyword.slice(0, 30),
     brandBrief: input.brand ?? undefined,
     photoCount: input.photoCount,
+    ...(input.style === "story" && input.storyInput ? { videoStyle: "story", storyInput: input.storyInput } : {}),
     currentScript: input.current,
   };
   const text = [
@@ -639,7 +712,7 @@ export async function writerTurn(input: WriterTurnInput): Promise<{ out: WriterT
           ...input.history.slice(-12).map((m) => ({ role: m.role, content: m.text.slice(0, 2000) })),
           { role: "user", content },
         ],
-        response_format: { type: "json_schema", json_schema: { name: "script_writer", strict: true, schema: WRITER_SCHEMA } },
+        response_format: { type: "json_schema", json_schema: { name: "script_writer", strict: true, schema: writerSchema(input.style ?? "intro") } },
         usage: { include: true },
       }),
       signal: AbortSignal.timeout(110_000),
@@ -664,7 +737,7 @@ export async function writerTurn(input: WriterTurnInput): Promise<{ out: WriterT
   const b = (d.basis ?? {}) as Record<string, unknown>;
   const out: WriterTurnOut = {
     reply: typeof d.reply === "string" ? d.reply.trim().slice(0, 1500) : "",
-    script: sanitizeWriterScript(d.script, input.photoCount),
+    script: sanitizeWriterScript(d.script, input.photoCount, input.style ?? "intro"),
     facts: cleanFacts(d.facts),
     basis: {
       kind: b.kind === "format" || b.kind === "template" || b.kind === "radar" ? b.kind : "none",

@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { BEAT_LABEL } from "./model";
-import { cleanFacts, keepLast, sanitizeWriterScript, writerScriptText, writerTimeline, writerTotalSec } from "./script-writer";
+import { cleanFacts, cleanStoryInput, keepLast, sanitizeWriterScript, writerScriptText, writerTimeline, writerTotalSec } from "./script-writer";
 
 const raw = {
   title: "  물막이 하나로 끝  ",
@@ -68,4 +68,40 @@ test("확인된 사실 · 끝에서 n 개", () => {
   assert.equal(cleanFacts(Array.from({ length: 30 }, (_, i) => `사실 ${i}`)).length, 20);
   assert.deepEqual(keepLast([1, 2, 3, 4], 2), [3, 4]);
   assert.deepEqual(keepLast([1], 2), [1]);
+});
+
+test("스토리 광고 — 이야기 · 캐릭터 시트 · 막 구조 · 컷 카메라 · 엔드카드", () => {
+  const storyRaw = {
+    ...raw,
+    scenes: raw.scenes.map((x, i) => ({ ...x, camera: i === 0 ? "바닥 높이 · 고정" : "", sound: "미끄러지는 효과음", continuity: i === 1 ? "제품 사진 2 를 참고 이미지로" : "" })),
+    story: {
+      logline: "털 많은 솜이가 달리기에서 못 멈추다가 발바닥 털을 정리하고 역전한다",
+      catchphrase: "브레이크는 발바닥에 있다",
+      look: "3D animation, Pixar-like",
+      characters: [{ name: "솜이", role: "주인공", look: "흰 몰티즈", lookPrompt: "small white Maltese with long fluffy fur" }, { name: "", role: "", look: "", lookPrompt: "" }],
+      acts: [{ name: "설정", fromSec: 0, toSec: 5, summary: "출발선" }, { name: "역전", fromSec: 30, toSec: 20, summary: "끝이 시작보다 앞" }],
+      endCard: { visual: "제품 사진 3색", text: "18,900원", cta: "사주세요" },
+    },
+  };
+  const st = sanitizeWriterScript(storyRaw, 2, "story");
+  assert.equal(st.story?.catchphrase, "브레이크는 발바닥에 있다");
+  assert.equal(st.story?.characters[1].name, "이름 없음");
+  assert.equal(st.story?.acts[1].toSec, 30); // 끝이 시작보다 앞이면 시작으로
+  assert.equal(st.scenes[0].camera, "바닥 높이 · 고정");
+  assert.equal(st.scenes[1].continuity, "제품 사진 2 를 참고 이미지로");
+  // 소개 방식이면 스토리 칸을 남기지 않는다
+  const intro = sanitizeWriterScript(storyRaw, 2);
+  assert.equal(intro.story, undefined);
+  assert.equal(intro.scenes[0].camera, undefined);
+  const txt = writerScriptText(st, BEAT_LABEL);
+  assert.match(txt, /로그라인: 털 많은 솜이가/);
+  assert.match(txt, /캐치프레이즈: 브레이크는 발바닥에 있다/);
+  assert.match(txt, /영문 고정 묘사: small white Maltese/);
+  assert.match(txt, /설정 0~5초: 출발선/);
+  assert.match(txt, /카메라: 바닥 높이 · 고정/);
+  assert.match(txt, /엔드카드: 제품 사진 3색 · 문구 「18,900원」 · 사주세요/);
+  const si = cleanStoryInput({ problem: "  미끄러짐  ", idea: "x".repeat(3000), tone: "코믹", extra: 1 });
+  assert.equal(si.problem, "미끄러짐");
+  assert.equal(si.idea.length, 1500);
+  assert.equal(si.look, "");
 });
