@@ -29,6 +29,8 @@ import {
 } from "@/lib/neander/shorts/scout";
 import { Ago, AiBadge, CountryText, KoreaBadge, LangBadge, LifeBadge, Multiple, Note, VideoThumb, fmtDate } from "./bits";
 import type { ScoutRunActions } from "./AutoPanel";
+import { HitDialog } from "./HitsTab";
+import { ScoutFeed } from "./ScoutFeed";
 import type { ScoutData } from "./useScout";
 
 /** 한국 시각 월/일 (10/26) */
@@ -40,6 +42,7 @@ const n = (v: number) => v.toLocaleString("ko-KR");
 
 export function ReportTab({
   d,
+  refresh,
   report: r,
   setWeek,
   actions,
@@ -48,6 +51,7 @@ export function ReportTab({
   onOpenHits,
 }: {
   d: ScoutData;
+  refresh: () => Promise<void>;
   /** 고른 주의 보고 (없으면 null) — 페이지가 고른다 */
   report: ScoutReportDoc | null;
   setWeek: (week: string) => void;
@@ -62,6 +66,8 @@ export function ReportTab({
   const formatById = useMemo(() => new Map(d.formats.map((f) => [f.id, f])), [d.formats]);
   const running = actions.busy !== null;
   const [allCards, setAllCards] = useState(false);
+  // 쇼츠처럼 보기의 「자세히 · 묶기」 — 영상 창
+  const [detail, setDetail] = useState<string | null>(null);
 
   if (!r) {
     return (
@@ -204,7 +210,20 @@ export function ReportTab({
 
       {/* 아래 — 원본 영상 목록 · 시차 · 구간별 표 (예전 보고 내용 그대로) */}
       <section>
-        <SectionHeader size="lg" title={`최근 ${days}일 새로 찾은 영상`} hint="배수 큰 순 · 최대 15편 · 원본 영상의 반응" />
+        <SectionHeader
+          size="lg"
+          title={`최근 ${days}일 새로 찾은 영상`}
+          hint="배수 큰 순 · 최대 15편 · 원본 영상의 반응"
+          action={
+            <ScoutFeed
+              d={d}
+              hits={r.newHits.map((l) => hitById.get(l.hitId)).filter((h): h is NonNullable<typeof h> => !!h)}
+              refresh={refresh}
+              onOpenFormat={onOpenFormat}
+              onDetail={setDetail}
+            />
+          }
+        />
         {r.newHits.length === 0 ? (
           <p className="text-nd-body text-nd-fg-3">이 기간에 새로 찾은 영상이 없습니다.</p>
         ) : (
@@ -323,6 +342,8 @@ export function ReportTab({
           </Card>
         )}
       </section>
+
+      {detail && hitById.get(detail) && <HitDialog d={d} hit={hitById.get(detail)!} refresh={refresh} onClose={() => setDetail(null)} onOpenFormat={onOpenFormat} />}
 
       <Disclosure
         title="구간별 표 — 해외 먼저 · 떠오름 · 포화 조짐"

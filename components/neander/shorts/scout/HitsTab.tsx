@@ -30,6 +30,7 @@ import { Num, SourceTag, Unknown, fmtUsd, fmtWhen, useAction } from "@/component
 import { PLATFORM_LABEL, fmtCount, fmtPct, platformFromUrl } from "@/lib/neander/shorts/model";
 import { COUNTRIES, RISK_LABEL, countryLabel, hitNoteState, type HitDoc } from "@/lib/neander/shorts/scout";
 import { Ago, AiBadge, CountrySelect, CountryText, LangBadge, Multiple, Note, VideoThumb, fmtDate } from "./bits";
+import { ScoutFeed } from "./ScoutFeed";
 import { scout, type ScoutData, type WithId } from "./useScout";
 
 type Filter = "new" | "assigned" | "dismissed" | "all";
@@ -78,6 +79,7 @@ export function HitsTab({ d, refresh, onOpenFormat }: { d: ScoutData; refresh: (
             <option value="found">찾은 순</option>
             <option value="published">올린 순</option>
           </Select>
+          <ScoutFeed d={d} hits={rows} refresh={refresh} onOpenFormat={onOpenFormat} onDetail={(id) => setOpen(id)} />
           <Button icon={Plus} onClick={() => setAdding(true)}>영상 등록</Button>
         </div>
       </div>
@@ -201,7 +203,7 @@ export function HitsTab({ d, refresh, onOpenFormat }: { d: ScoutData; refresh: (
 
 // ---- 영상 하나 ---------------------------------------------------------------
 
-function HitDialog({ d, hit: h, refresh, onClose, onOpenFormat }: { d: ScoutData; hit: WithId<HitDoc>; refresh: () => Promise<void>; onClose: () => void; onOpenFormat: (id: string) => void }) {
+export function HitDialog({ d, hit: h, refresh, onClose, onOpenFormat }: { d: ScoutData; hit: WithId<HitDoc>; refresh: () => Promise<void>; onClose: () => void; onOpenFormat: (id: string) => void }) {
   const ask = useConfirm();
   const { busy, run } = useAction();
   const [model, setModel] = useState(d.models[0]?.id ?? "");

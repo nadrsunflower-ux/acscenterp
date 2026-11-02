@@ -66,6 +66,12 @@ AI 로 만드는 영상을 한 흐름으로 다룬다. 영상은 세 종류다.
 
 설정(검색어 · 기간 · 최소 조회 · 검색 수 · AI 상한 · 자동 켜기)은 AI STUDIO 관리자만 바꾼다. 검증: `npm run shorts:verify-server` 14번 구간(YouTube · AI · 네이버 모의).
 
+## 쇼츠처럼 보기 (공용 드로어)
+
+`components/neander/shorts/feed/ShortsFeed.tsx` — 오른쪽 드로어에 한 칸 = 한 편(스냅 스크롤 · 휠은 한 번에 한 편 · ↑↓ · 스페이스 재생/정지 · M 소리 · 처음으로), 보고 있는 칸에만 YouTube 플레이어(youtube-nocookie · postMessage). 칸 안의 정보는 화면마다 `renderSlide`, 화면마다 더 받는 키는 `onKey`, 「이어 보기 · N번째」 는 `useFeedResume(열쇠)`(이 브라우저).
+- AI 레이더(소재 발굴): `neander.shorts.radarFeedLast` · 단축키 1 · 2 · 0 촬영 표시.
+- 바이럴 형식(2026-11-02): 주간 보고 「최근 N일 새로 찾은 영상」 · 「터진 영상」 탭(지금 필터 · 정렬 순서) — `scout/ScoutFeed.tsx` · `neander.shorts.scoutFeedLast`. 칸 = 원본 반응(조회 · 배수 · 평소 · 좋아요 · 댓글 · 한글 댓글) · AI 형식 분석 · 메모(AI 가 참고) · AI 제안 형식에 바로 묶기 · 제외 · 「자세히 · 묶기」(드로어를 닫고 영상 창). YouTube 가 아닌 영상은 썸네일 + 「원본 열기」.
+
 ## 대본 작성기 (/neander/shorts/scripts · 제작)
 
 제품 사진(최대 4장) · 정보 + 분석(바이럴 형식 카드 · 성공 공식 · AI 레이더 후보, 또는 「AI 가 고르기」)으로 소개 영상 대본을 쓰고 대화로 고친다. 2026-11-02.

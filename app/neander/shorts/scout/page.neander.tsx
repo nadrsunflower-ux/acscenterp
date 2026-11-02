@@ -163,6 +163,7 @@ export default function ScoutPage() {
       {tab === "report" && (
         <ReportTab
           d={d}
+          refresh={refresh}
           report={report}
           setWeek={setWeek}
           actions={actions}

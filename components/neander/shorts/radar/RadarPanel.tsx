@@ -23,8 +23,6 @@ import {
   BookmarkCheck,
   BookmarkPlus,
   ChevronDown,
-  ChevronUp,
-  ChevronsUp,
   Hand,
   Clapperboard,
   ExternalLink,
@@ -52,12 +50,10 @@ import {
   ErrorState,
   Field,
   FormRow,
-  IconButton,
   InlineNotice,
   NumberInput,
   SearchInput,
   SegmentedControl,
-  Sheet,
   Skeleton,
   Switch,
   Tabs,
@@ -69,6 +65,7 @@ import {
 import { useShorts } from "@/components/neander/shorts/ShortsProvider";
 import { Num, SourceTag, Unknown, fmtWhen, useAction } from "@/components/neander/shorts/parts";
 import { Ago, Multiple, fmtAgo, fmtDur } from "@/components/neander/shorts/scout/bits";
+import { FeedSlideLayout, FeedVideo, ShortsFeedSheet, hqOf, useFeedResume } from "@/components/neander/shorts/feed/ShortsFeed";
 import { countInfoRequests } from "@/lib/neander/shorts/model";
 import { mutate, shortsGet, shortsPost } from "@/lib/neander/shorts/client";
 import {
@@ -105,16 +102,6 @@ const NAVER_TONE: Record<NaverTrend["label"], Tone> = { rising: "success", stead
 const FILTER_KEY = "neander.shorts.radarFilter";
 /** 쇼츠처럼 보기에서 마지막으로 본 후보 (이 브라우저) — 다시 열 때 그 영상부터 */
 const FEED_LAST_KEY = "neander.shorts.radarFeedLast";
-type FeedLast = { id: string; at: number };
-function loadFeedLast(): FeedLast | null {
-  try {
-    const raw = typeof window !== "undefined" ? window.localStorage.getItem(FEED_LAST_KEY) : null;
-    const v = raw ? (JSON.parse(raw) as Partial<FeedLast>) : null;
-    return v && typeof v.id === "string" ? { id: v.id, at: Number(v.at) || 0 } : null;
-  } catch {
-    return null;
-  }
-}
 const PAGE = 12;
 const won = (n: number) => n.toLocaleString("ko-KR");
 
@@ -793,7 +780,6 @@ function AiSummary({ i, className }: { i: Item; className?: string }) {
 // ---- 썸네일 ----------------------------------------------------------------
 
 /** YouTube 의 같은 영상 큰 썸네일 (mq 320×180 → hq 480×360). 못 받으면 저장된 주소 → 아이콘 상자 (가짜 사진 금지) */
-const hqOf = (u: string) => (/^https:\/\/i\.ytimg\.com\/vi\/[\w-]+\/mqdefault\.jpg$/.test(u) ? u.replace(/mqdefault\.jpg$/, "hqdefault.jpg") : u);
 
 function RadarThumb({ i, onOpen, className }: { i: Item; onOpen: () => void; className?: string }) {
   const [step, setStep] = useState(0); // 0 = 큰 것 · 1 = 저장된 주소 · 2 = 실패
@@ -1139,17 +1125,7 @@ export function RadarPanel() {
   // 카드의 「메모」 창 — id 로 들고 있다가 새로 받은 자료에서 찾는다 (다시 분석하면 바로 바뀌게)
   const [notesId, setNotesId] = useState<string | null>(null);
   // 쇼츠처럼 보기 — 마지막으로 본 후보 (이 브라우저)
-  const [feedLast, setFeedLast] = useState<FeedLast | null>(null);
-  useEffect(() => setFeedLast(loadFeedLast()), []);
-  const onSeen = useCallback((id: string) => {
-    const v = { id, at: Date.now() };
-    setFeedLast(v);
-    try {
-      window.localStorage.setItem(FEED_LAST_KEY, JSON.stringify(v));
-    } catch {
-      /* 기억 못 해도 보기는 그대로 */
-    }
-  }, []);
+  const { last: feedLast, onSeen } = useFeedResume(FEED_LAST_KEY);
   // 한 후보만 바로 고친다 (목록 전체를 다시 받지 않게 — 넘기며 빠르게 표시할 때)
   const patchItem = (id: string, patch: Partial<Item>) => setData((d) => (d ? { ...d, items: d.items.map((x) => (x.id === id ? { ...x, ...patch } : x)) } : d));
 
@@ -1398,7 +1374,24 @@ export function RadarPanel() {
         <span>AI 상품명 · 해설은 추정</span>
       </p>
 
-      <ShortsFeedSheet startId={feedStart} groups={groups} a={actions} onClose={() => setFeedStart(null)} onSeen={onSeen} />
+      <ShortsFeedSheet
+        startId={feedStart}
+        groups={groups}
+        onClose={() => setFeedStart(null)}
+        onSeen={onSeen}
+        ariaLabel="후보 쇼츠처럼 보기"
+        hint="휠 · ↑↓ 넘기기 · 스페이스 재생/정지 · M 소리 · 1 · 2 촬영 표시"
+        emptyTitle="넘겨 볼 후보가 없습니다"
+        onKey={(k, it, e) => {
+          // 1 직접 촬영 · 2 직접 촬영 아님 · 0 지우기 — 보면서 바로 표시
+          if ((k !== "1" && k !== "2" && k !== "0") || e.metaKey || e.ctrlKey || e.altKey) return false;
+          e.preventDefault();
+          const v = k === "1" ? "self" : k === "2" ? "not_self" : null;
+          if ((it.filmed?.value ?? null) !== v) actions.onFilmed(it, v);
+          return true;
+        }}
+        renderSlide={({ item, group, active, onPick, onFocus }) => <FeedSlide i={item} group={group} active={active} a={actions} onPick={onPick} onFocus={onFocus} />}
+      />
 
       <Dialog open={!!commentsOf} onClose={() => setCommentsOf(null)} size="lg" title="댓글" description={commentsOf?.title}>
         {commentsOf && <CommentList key={commentsOf.id} i={commentsOf} />}
@@ -1467,310 +1460,7 @@ function RadarCard({ items, a, onOpen }: { items: Item[]; a: Actions; onOpen: (i
   );
 }
 
-// ---- 쇼츠처럼 보기 (오른쪽 드로어) -------------------------------------------
-
-type FeedGroup = { key: string; items: Item[] };
-
-/** 드로어 폭 — 화면 높이에 맞춘 세로 영상(9:16) + 오른쪽 정보 칸 */
-function useFeedWidth() {
-  const [w, setW] = useState(1000);
-  useEffect(() => {
-    const calc = () => {
-      const videoW = Math.max(0, window.innerHeight - 64 - 32) * (9 / 16);
-      setW(Math.round(Math.min(1320, Math.max(760, videoW + 32 + 20 + 430))));
-    };
-    calc();
-    window.addEventListener("resize", calc);
-    return () => window.removeEventListener("resize", calc);
-  }, []);
-  return w;
-}
-
-/**
- * 후보를 쇼츠처럼 한 편씩 — 한 칸이 드로어 높이 전체(스냅 스크롤).
- * 넘기는 방법: 휠 · 터치 · ↑↓(PageUp/Down · J/K) · 머리의 위아래 버튼. 순서는 지금 필터 · 정렬의 묶음 순서.
- * 플레이어는 보고 있는 칸에만 띄우고, 앞뒤 두 칸까지만 내용을 그린다 (나머지는 빈 칸 — 높이만 같다).
- */
-function ShortsFeedSheet({ startId, groups, a, onClose, onSeen }: { startId: string | null; groups: FeedGroup[]; a: Actions; onClose: () => void; onSeen: (id: string) => void }) {
-  const width = useFeedWidth();
-  const [active, setActive] = useState(0);
-  const activeRef = useRef(0);
-  const scroller = useRef<HTMLDivElement | null>(null);
-  const pending = useRef<number | null>(null);
-  // 묶음 안에서 고른 영상 (묶음 열쇠 → 영상 id)
-  const [picked, setPicked] = useState<Record<string, string>>({});
-  const open = !!startId;
-  const cur = Math.max(0, Math.min(active, groups.length - 1));
-
-  // 열 때 — 누른 후보 칸으로 바로 간다 (부드럽게 말고 즉시)
-  useEffect(() => {
-    if (!startId) return;
-    const idx = Math.max(0, groups.findIndex((g) => g.items.some((x) => x.id === startId)));
-    const g = groups[idx];
-    setPicked(g && g.items[0].id !== startId ? { [g.key]: startId } : {});
-    activeRef.current = idx;
-    setActive(idx);
-    pending.current = idx;
-    if (scroller.current) {
-      scroller.current.scrollTop = idx * scroller.current.clientHeight;
-      pending.current = null;
-    }
-    // 열 때 한 번만 — 넘기는 동안 목록이 바뀌어도(제외 등) 다시 옮기지 않는다
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startId]);
-  // 휠 · 트랙패드 — 한 번 굴리면 한 편. 관성으로 이어지는 휠은 멈출 때까지 한 번으로 친다.
-  // (스냅만 두면 한 칸보다 짧은 휠은 제자리로 돌아가고, 트랙패드 관성은 여러 칸을 넘긴다)
-  const goRef = useRef<(d: number) => void>(() => undefined);
-  const wheel = useRef({ acc: 0, lockedAt: 0, last: 0, locked: false });
-  const onWheel = useCallback((e: WheelEvent) => {
-    const el = scroller.current;
-    if (!el || e.ctrlKey) return;
-    // 정보 칸처럼 스스로 더 굴러갈 수 있는 상자 안이면 그 상자를 먼저 굴린다
-    for (let n = e.target as HTMLElement | null; n && n !== el; n = n.parentElement) {
-      if (n.scrollHeight > n.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(n).overflowY)) {
-        if ((e.deltaY > 0 && n.scrollTop + n.clientHeight < n.scrollHeight - 1) || (e.deltaY < 0 && n.scrollTop > 0)) return;
-      }
-    }
-    e.preventDefault();
-    const w = wheel.current;
-    const now = performance.now();
-    if (w.locked && now - w.last > 220 && now - w.lockedAt > 450) w.locked = false;
-    w.last = now;
-    if (w.locked) return;
-    w.acc += e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
-    if (Math.abs(w.acc) >= 24) {
-      goRef.current(w.acc > 0 ? 1 : -1);
-      w.acc = 0;
-      w.locked = true;
-      w.lockedAt = now;
-    }
-  }, []);
-  // 드로어는 포털이라 칸 상자가 늦게 붙는다 — 붙는 순간 위치를 맞추고 휠을 건다(passive: false 라야 막을 수 있다)
-  const setScroller = useCallback(
-    (el: HTMLDivElement | null) => {
-      scroller.current?.removeEventListener("wheel", onWheel);
-      scroller.current = el;
-      if (!el) return;
-      el.addEventListener("wheel", onWheel, { passive: false });
-      if (pending.current !== null) {
-        el.scrollTop = pending.current * el.clientHeight;
-        pending.current = null;
-      }
-    },
-    [onWheel],
-  );
-
-  const onScroll = () => {
-    const el = scroller.current;
-    if (!el || !el.clientHeight) return;
-    const idx = Math.round(el.scrollTop / el.clientHeight);
-    if (idx !== activeRef.current) {
-      activeRef.current = idx;
-      setActive(idx);
-    }
-  };
-  const go = useCallback(
-    (d: number) => {
-      const el = scroller.current;
-      if (!el) return;
-      const next = Math.max(0, Math.min(groups.length - 1, activeRef.current + d));
-      el.scrollTo({ top: next * el.clientHeight, behavior: "smooth" });
-    },
-    [groups.length],
-  );
-  goRef.current = go;
-  // 지금 보는 영상 — 다음에 열 때 여기서 이어 보게 기억한다
-  const curItem = groups[cur] ? (groups[cur].items.find((x) => x.id === picked[groups[cur].key]) ?? groups[cur].items[0]) : null;
-  useEffect(() => {
-    if (open && curItem) onSeen(curItem.id);
-  }, [open, curItem?.id, onSeen]); // eslint-disable-line react-hooks/exhaustive-deps
-  const curRef = useRef(curItem);
-  curRef.current = curItem;
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
-      const k = e.key;
-      // 1 직접 촬영 · 2 직접 촬영 아님 · 0 지우기 — 보면서 바로 표시
-      if ((k === "1" || k === "2" || k === "0") && curRef.current && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        e.preventDefault();
-        const v = k === "1" ? "self" : k === "2" ? "not_self" : null;
-        if ((curRef.current.filmed?.value ?? null) !== v) a.onFilmed(curRef.current, v);
-        return;
-      }
-      const d = k === "ArrowDown" || k === "PageDown" || k === "j" || k === "ArrowRight" ? 1 : k === "ArrowUp" || k === "PageUp" || k === "k" || k === "ArrowLeft" ? -1 : 0;
-      if (!d) return;
-      e.preventDefault();
-      go(d);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, go, a]);
-
-  return (
-    <Sheet
-      open={open}
-      onClose={onClose}
-      width={width}
-      ariaLabel="후보 쇼츠처럼 보기"
-      title={
-        <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span>쇼츠처럼 보기</span>
-          <span className="nd-num text-[13px] font-normal text-nd-fg-2" aria-live="polite">
-            {groups.length ? `${cur + 1} / ${groups.length}` : "0 / 0"}
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <IconButton icon={ChevronUp} label="이전 후보 (↑)" variant="secondary" size="sm" data-feed-key disabled={cur <= 0} onClick={() => go(-1)} />
-            <IconButton icon={ChevronDown} label="다음 후보 (↓)" variant="secondary" size="sm" data-feed-key disabled={cur >= groups.length - 1} onClick={() => go(1)} />
-            <IconButton
-              icon={ChevronsUp}
-              label="처음 후보로"
-              variant="secondary"
-              size="sm"
-              data-feed-key
-              disabled={cur <= 0}
-              onClick={() => {
-                if (scroller.current) scroller.current.scrollTop = 0;
-              }}
-            />
-          </span>
-          <span className="hidden text-[13px] font-normal text-nd-fg-3 md:inline">휠 · ↑↓ 넘기기 · 스페이스 재생/정지 · M 소리 · 1 · 2 촬영 표시</span>
-        </span>
-      }
-    >
-      {groups.length === 0 ? (
-        <div className="p-5">
-          <EmptyState compact icon={GalleryVerticalEnd} title="넘겨 볼 후보가 없습니다" description="필터를 풀거나 다른 탭을 고르세요." />
-        </div>
-      ) : (
-        <div ref={setScroller} onScroll={onScroll} data-radar-feed data-feed-key className="h-full snap-y snap-mandatory overflow-y-auto overscroll-contain">
-          {groups.map((g, idx) => {
-            const near = Math.abs(idx - cur) <= 2;
-            const i = g.items.find((x) => x.id === picked[g.key]) ?? g.items[0];
-            return (
-              <section key={g.key} data-feed-slide={idx} aria-label={`${idx + 1}번째 후보`} className="h-full snap-start snap-always">
-                {near && <FeedSlide i={i} group={g.items} active={idx === cur} a={a} onPick={(id) => setPicked((p) => ({ ...p, [g.key]: id }))} onFocus={() => go(idx - activeRef.current)} />}
-              </section>
-            );
-          })}
-        </div>
-      )}
-    </Sheet>
-  );
-}
-
-const YT_ORIGIN = "https://www.youtube-nocookie.com";
-
-/**
- * 보고 있는 칸의 플레이어 — YouTube 퍼가기 위에 투명한 층을 깐다.
- * 층이 휠 · 스와이프를 받아 다음 편으로 넘기고(iframe 은 휠을 바깥으로 넘겨주지 않는다), 누르면 재생/정지.
- * 재생 · 소리(M)는 YouTube 플레이어 API(postMessage · enablejsapi)로 보낸다. 위 아이콘 줄(소리 · 자막 · 설정)과
- * 아래 진행 막대 줄은 층을 비워 YouTube 것을 그대로 쓴다.
- * 층을 눌러도 키보드가 iframe 으로 가지 않아 ↑↓ · 스페이스 · M 이 계속 듣는다.
- */
-function FeedPlayer({ i }: { i: Item }) {
-  const ref = useRef<HTMLIFrameElement>(null);
-  const [state, setState] = useState(-1); // -1 시작 전 · 0 끝 · 1 재생 · 2 정지 · 3 버퍼링 · 5 대기
-  const [muted, setMuted] = useState(false);
-  const [stalled, setStalled] = useState(false);
-  const known = useRef(false); // 플레이어가 상태를 알려 오는가 (안 오면 누를 때마다 번갈아 보낸다)
-  const [guess, setGuess] = useState(true);
-  const send = useCallback((func: string) => ref.current?.contentWindow?.postMessage(JSON.stringify({ event: "command", func, args: [] }), YT_ORIGIN), []);
-  useEffect(() => {
-    const onMsg = (e: MessageEvent) => {
-      if (e.origin !== YT_ORIGIN || e.source !== ref.current?.contentWindow) return;
-      let d: { event?: string; info?: unknown } | null = null;
-      try {
-        d = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
-      } catch {
-        return;
-      }
-      const info = d?.info as { playerState?: number; muted?: boolean } | number | undefined;
-      if (d?.event === "onStateChange" && typeof info === "number") {
-        known.current = true;
-        setState(info);
-      }
-      if (d?.event === "infoDelivery" && info && typeof info === "object") {
-        if (typeof info.playerState === "number") {
-          known.current = true;
-          setState(info.playerState);
-        }
-        if (typeof info.muted === "boolean") setMuted(info.muted);
-      }
-    };
-    window.addEventListener("message", onMsg);
-    const t = window.setTimeout(() => setStalled(true), 2500);
-    return () => {
-      window.removeEventListener("message", onMsg);
-      window.clearTimeout(t);
-    };
-  }, []);
-  const playing = known.current ? state === 1 || state === 3 : guess;
-  const toggle = useCallback(() => {
-    if (known.current) send(state === 1 || state === 3 ? "pauseVideo" : "playVideo");
-    else {
-      send(guess ? "pauseVideo" : "playVideo");
-      setGuess(!guess);
-      setStalled(false);
-    }
-  }, [send, state, guess]);
-  const toggleMute = useCallback(() => {
-    send(muted ? "unMute" : "mute");
-    setMuted(!muted);
-  }, [send, muted]);
-  useEffect(() => {
-    const typing = (t: HTMLElement | null) => !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
-    // 스페이스는 쇼츠처럼 늘 재생/정지 — 넘기기 버튼 · 영상 층 · 드로어 바탕에 포커스가 있어도. (저장 · 제외 같은 버튼은 그대로 스페이스로 누른다)
-    const spaceIsPlayer = (t: HTMLElement | null) => !t || t === document.body || t.getAttribute("role") === "dialog" || !!t.closest("[data-feed-key]");
-    const onDown = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (typing(t)) return;
-      if (e.key === " " && spaceIsPlayer(t)) {
-        e.preventDefault();
-        if (!e.repeat) toggle();
-      } else if (e.key === "m" || e.key === "M") toggleMute();
-    };
-    // 버튼은 스페이스를 뗄 때 눌리므로 그것도 막는다
-    const onUp = (e: KeyboardEvent) => {
-      if (e.key === " " && !typing(e.target as HTMLElement | null) && spaceIsPlayer(e.target as HTMLElement | null)) e.preventDefault();
-    };
-    window.addEventListener("keydown", onDown, true);
-    window.addEventListener("keyup", onUp, true);
-    return () => {
-      window.removeEventListener("keydown", onDown, true);
-      window.removeEventListener("keyup", onUp, true);
-    };
-  }, [toggle, toggleMute]);
-  const showPlay = known.current ? state === 2 || state === 5 || (state === -1 && stalled) : !guess;
-  return (
-    <>
-      <iframe
-        ref={ref}
-        src={`${YT_ORIGIN}/embed/${i.videoId}?autoplay=1&playsinline=1&rel=0&modestbranding=1&loop=1&playlist=${i.videoId}&enablejsapi=1&origin=${encodeURIComponent(typeof window !== "undefined" ? window.location.origin : "")}`}
-        title={i.title}
-        allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-        allowFullScreen
-        onLoad={() => ref.current?.contentWindow?.postMessage(JSON.stringify({ event: "listening", id: i.videoId, channel: "widget" }), YT_ORIGIN)}
-        className="h-full w-full"
-      />
-      <button
-        type="button"
-        data-feed-overlay
-        data-feed-key
-        onClick={toggle}
-        aria-label={playing ? "일시정지 (스페이스)" : "재생 (스페이스)"}
-        className="absolute inset-x-0 bottom-14 top-14 flex items-center justify-center bg-transparent"
-      >
-        {showPlay && (
-          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-black/55 text-white" aria-hidden>
-            <Play size={28} fill="currentColor" className="ml-1" />
-          </span>
-        )}
-      </button>
-    </>
-  );
-}
+// ---- 쇼츠처럼 보기 (오른쪽 드로어 · 공용 feed/ShortsFeed) ----------------------------
 
 /** 쇼츠 한 칸 — 왼쪽 세로 영상, 오른쪽(좁으면 아래) 근거 · 버튼 */
 function FeedSlide({ i, group, active, a, onPick, onFocus }: { i: Item; group: Item[]; active: boolean; a: Actions; onPick: (id: string) => void; onFocus: () => void }) {
@@ -1778,23 +1468,7 @@ function FeedSlide({ i, group, active, a, onPick, onFocus }: { i: Item; group: I
   const [comments, setComments] = useState(false);
   useEffect(() => setComments(false), [i.id]);
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 p-4 pt-0 sm:flex-row sm:gap-5">
-      <div className="flex min-h-0 flex-1 items-center justify-center sm:h-full sm:flex-none">
-        <div className="relative aspect-[9/16] h-full max-w-full overflow-hidden rounded-nd-lg bg-black">
-          {active ? (
-            <FeedPlayer key={i.videoId} i={i} />
-          ) : (
-            <button type="button" onClick={onFocus} aria-label={`${i.title} — 이 후보로 넘기기`} className="group block h-full w-full">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              {i.thumbnail && <img src={hqOf(i.thumbnail)} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-cover opacity-80" />}
-              <span className="absolute left-1/2 top-1/2 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white" aria-hidden>
-                <Play size={24} fill="currentColor" className="ml-1" />
-              </span>
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="flex max-h-[46%] min-w-0 flex-col gap-3 overflow-y-auto sm:h-full sm:max-h-none sm:flex-1">
+    <FeedSlideLayout video={<FeedVideo active={active} videoId={i.videoId} thumbnail={i.thumbnail} title={i.title} url={i.url} onFocus={onFocus} />}>
         <div className="flex items-start gap-3">
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             <BadgeRow i={i} />
@@ -1856,8 +1530,7 @@ function FeedSlide({ i, group, active, a, onPick, onFocus }: { i: Item; group: I
         <div className="sticky bottom-0 mt-auto border-t border-nd-line bg-nd-content pt-3">
           <ActionRow i={i} a={a} linkLabel="YouTube에서 열기" notes={false} />
         </div>
-      </div>
-    </div>
+    </FeedSlideLayout>
   );
 }
 
