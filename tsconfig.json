@@ -29,5 +29,5 @@
     ".next/types/**/*.ts",
     ".next-neander/types/**/*.ts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "output", "private"]
 }
