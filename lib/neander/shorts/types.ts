@@ -693,6 +693,17 @@ export type PublicationStatus =
   | "uncertain"
   | "cancelled";
 
+/** 밖에서 올린 게시물 — 플랫폼에서 찾아 자동으로 붙인 기록 (shorts/external.ts) */
+export interface ExternalPostInfo {
+  importedAt: number;
+  /** 이 게시물 때문에 새로 만든 영상인가 — 다른 영상에 붙여 옮기면 빈 영상은 지운다 */
+  autoProject: boolean;
+  thumbnail: string;
+  durationSec: number | null;
+  /** 어떻게 이 영상에 붙었나 */
+  matched: "new" | "paired" | "moved";
+}
+
 export interface PublicationDoc {
   owner: string;
   projectId: string;
@@ -711,6 +722,9 @@ export interface PublicationDoc {
   };
   compliance: Partial<Record<ComplianceKey, ComplianceCheck>>;
   result: { externalId: string; url: string | null; at: number; by: "api" | "manual" } | null;
+  /** 어디서 올렸나 — 없으면 ERP. external 이면 renderId 는 "" (완성 파일 없이 플랫폼에서 직접) */
+  origin?: "erp" | "external";
+  external?: ExternalPostInfo | null;
   error: { code: string; message: string } | null;
   history: { at: number; status: PublicationStatus; msg: string; by: string }[];
   attempts: number;

@@ -603,3 +603,100 @@ export async function instagramComments(token: string, mediaId: string): Promise
   const { data } = await providerRequest(`${GRAPH}/${mediaId}/comments?fields=text&limit=50`, { headers: igHeaders(token) }, { code: "INSTAGRAM_COMMENTS_FAILED", label: "Instagram 댓글 읽기" });
   return (Array.isArray(data.data) ? data.data : []).map((c) => String(record(c).text ?? "")).filter(Boolean);
 }
+
+// ---- 밖에서 올린 게시물 찾기 (읽기 · external.ts) ------------------------------
+
+export interface ChannelPost {
+  externalId: string;
+  url: string;
+  title: string;
+  caption: string;
+  /** 플랫폼에 올라간 시각 (ms) */
+  publishedAt: number;
+  thumbnail: string;
+  durationSec: number | null;
+  /** YouTube 공개 상태 · Instagram 은 늘 public */
+  privacy: string;
+  /** YouTube 는 video · Instagram 은 media_type (VIDEO · IMAGE · CAROUSEL_ALBUM) */
+  mediaType: string;
+}
+
+const isoSec = (v: unknown) => {
+  const m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$/.exec(String(v ?? ""));
+  return m ? Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0) : null;
+};
+
+/**
+ * 채널에 올린 최근 영상 (최대 50) — 채널의 「업로드」 재생목록 → 영상 정보.
+ * 쿼터 3 단위. youtube.readonly 범위로 비공개 · 일부 공개도 보인다 (고르는 건 부르는 쪽).
+ */
+export async function youtubeChannelUploads(accessToken: string, channelId: string, max = 50): Promise<ChannelPost[]> {
+  if (!/^UC[\w-]{10,40}$/.test(channelId)) throw new PublishingError("YOUTUBE_CHANNEL_INVALID", "YouTube 채널 id 가 올바르지 않습니다.", 400);
+  const headers = { Authorization: `Bearer ${accessToken}` };
+  const ctx = { code: "YOUTUBE_UPLOADS_FAILED", label: "YouTube 업로드 목록 확인" };
+  const { data: ch } = await providerRequest(`https://www.googleapis.com/youtube/v3/channels?part=contentDetails&id=${encodeURIComponent(channelId)}`, { headers }, ctx);
+  const uploads = String(record(record(record((Array.isArray(ch.items) ? ch.items : [])[0]).contentDetails).relatedPlaylists).uploads ?? "");
+  if (!uploads) return [];
+  const { data: pl } = await providerRequest(
+    `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&maxResults=${Math.min(50, Math.max(1, max))}&playlistId=${encodeURIComponent(uploads)}`,
+    { headers },
+    ctx,
+  );
+  const ids = (Array.isArray(pl.items) ? pl.items : []).map((it) => String(record(record(it).contentDetails).videoId ?? "")).filter((id) => /^[\w-]{6,20}$/.test(id));
+  if (!ids.length) return [];
+  const { data: vs } = await providerRequest(`https://www.googleapis.com/youtube/v3/videos?part=snippet,status,contentDetails&id=${ids.join(",")}`, { headers }, ctx);
+  return (Array.isArray(vs.items) ? vs.items : []).map((it) => {
+    const r = record(it);
+    const sn = record(r.snippet);
+    const th = record(sn.thumbnails);
+    const dur = isoSec(record(r.contentDetails).duration);
+    const id = String(r.id);
+    return {
+      externalId: id,
+      // 3분 이하는 쇼츠 주소로 (세로 여부는 API 가 알려 주지 않는다 — 긴 영상이어도 열린다)
+      url: dur !== null && dur <= 180 ? `https://www.youtube.com/shorts/${id}` : `https://www.youtube.com/watch?v=${id}`,
+      title: String(sn.title ?? ""),
+      caption: String(sn.description ?? ""),
+      publishedAt: Date.parse(String(sn.publishedAt ?? "")) || 0,
+      thumbnail: String(record(th.medium).url ?? record(th.default).url ?? ""),
+      durationSec: dur,
+      privacy: String(record(r.status).privacyStatus ?? ""),
+      mediaType: "video",
+    };
+  });
+}
+
+/** 계정의 최근 게시물 (최대 50) — 릴스 · 사진 · 묶음 모두 (고르는 건 부르는 쪽) */
+export async function instagramRecentMedia(token: string, igUserId: string, max = 50): Promise<ChannelPost[]> {
+  validIgId(igUserId, "Instagram 계정");
+  const fields = "id,caption,media_type,media_product_type,permalink,timestamp,thumbnail_url";
+  const { data } = await providerRequest(
+    `${GRAPH}/${igUserId}/media?fields=${encodeURIComponent(fields)}&limit=${Math.min(50, Math.max(1, max))}`,
+    { headers: igHeaders(token) },
+    { code: "INSTAGRAM_MEDIA_FAILED", label: "Instagram 게시물 목록 확인" },
+  );
+  return (Array.isArray(data.data) ? data.data : [])
+    .map(record)
+    .filter((m) => present(m.id) && /^\d{1,40}$/.test(m.id))
+    .map((m) => {
+      let url = "";
+      try {
+        const u = new URL(String(m.permalink ?? ""));
+        if (u.protocol === "https:" && ["instagram.com", "www.instagram.com"].includes(u.hostname)) url = u.href;
+      } catch {
+        url = "";
+      }
+      return {
+        externalId: String(m.id),
+        url,
+        title: "",
+        caption: String(m.caption ?? ""),
+        // Graph API 는 +0000 꼴 — Date.parse 가 못 읽는 환경이 있어 콜론을 넣는다
+        publishedAt: Date.parse(String(m.timestamp ?? "").replace(/([+-]\d{2})(\d{2})$/, "$1:$2")) || 0,
+        thumbnail: String(m.thumbnail_url ?? ""),
+        durationSec: null,
+        privacy: "public",
+        mediaType: m.media_product_type === "REELS" ? "REELS" : String(m.media_type ?? ""),
+      };
+    });
+}

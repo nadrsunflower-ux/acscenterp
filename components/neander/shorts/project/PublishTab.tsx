@@ -484,7 +484,7 @@ function PublicationList({ pubs }: { pubs: PublicationView[] }) {
                 <PubBadge status={x.status} size="lg" />
                 {x.scheduledAt && x.status === "scheduled" && <span className="text-[13px] text-nd-fg-3">{fmtWhen(x.scheduledAt)} 이후</span>}
                 {x.result?.url && <a href={x.result.url} target="_blank" rel="noreferrer" className="min-w-0 max-w-[28rem] truncate text-[13px] text-nd-accent hover:underline" title={x.result.url}>{x.result.url}</a>}
-                {x.result && <Badge tone={x.result.by === "api" ? "info" : "neutral"}>{x.result.by === "api" ? "API 응답으로 확인" : "사람이 확인"}</Badge>}
+                {x.result && <Badge tone={x.result.by === "api" ? "info" : "neutral"}>{x.origin === "external" ? "밖에서 올림 · 자동 연결" : x.result.by === "api" ? "API 응답으로 확인" : "사람이 확인"}</Badge>}
                 <span className="ml-auto flex gap-1">
                   {(x.status === "scheduled" || x.status === "queued") && <Button size="sm" variant="ghost" disabled={busy === x.id} onClick={() => void run(x.id, async () => { await mutate("publication.cancel", { id: x.id }); await refresh(); }, "취소했습니다.")}>취소</Button>}
                   {x.status === "uncertain" && <Button size="sm" variant="secondary" onClick={() => setResolving(x)}>결과 기록</Button>}
