@@ -31,12 +31,17 @@ export interface YoutubeSearchItem {
   url: string;
   title: string;
   channel: string;
+  /** 채널 id (UC…) — videos.list 가 준다. 예전 저장분 · 모의 응답에는 없을 수 있다 */
+  channelId?: string;
   publishedAt: string;
   duration: number;
   views: number | null;
   likes: number | null;
   comments: number | null;
   thumbnail: string;
+  /** 설명 앞부분 · 태그 — AI 레이더가 상품을 추정할 때만 쓴다 (저장하지 않는다) */
+  description?: string;
+  tags?: string[];
 }
 
 function ytError(status: number, payload: unknown, label: string): Error {
@@ -68,7 +73,7 @@ const countOf = (v: unknown) => (v === undefined || v === null ? null : Number.i
 
 type VideoRes = {
   id?: string;
-  snippet?: { title?: string; channelTitle?: string; publishedAt?: string; thumbnails?: Record<string, { url?: string }> };
+  snippet?: { title?: string; channelTitle?: string; channelId?: string; publishedAt?: string; description?: string; tags?: string[]; thumbnails?: Record<string, { url?: string }> };
   statistics?: Record<string, unknown>;
   contentDetails?: { duration?: string };
 };
@@ -90,6 +95,7 @@ export async function youtubeVideos(ids: string[], apiKey?: string): Promise<You
         url: `https://www.youtube.com/watch?v=${v.id}`,
         title: s.title ?? "",
         channel: s.channelTitle ?? "",
+        channelId: s.channelId ?? "",
         publishedAt: s.publishedAt ?? "",
         duration: isoDuration(v.contentDetails?.duration ?? ""),
         // 숨긴 좋아요 · 꺼진 댓글은 필드가 없다 — 0 이 아니라 null
@@ -97,6 +103,8 @@ export async function youtubeVideos(ids: string[], apiKey?: string): Promise<You
         likes: countOf(v.statistics?.likeCount),
         comments: countOf(v.statistics?.commentCount),
         thumbnail: s.thumbnails?.medium?.url ?? s.thumbnails?.high?.url ?? `https://i.ytimg.com/vi/${v.id}/mqdefault.jpg`,
+        description: (s.description ?? "").slice(0, 600),
+        tags: (s.tags ?? []).slice(0, 15),
       },
     ];
   });

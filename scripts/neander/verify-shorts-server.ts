@@ -34,6 +34,11 @@ import * as coupang from "@/lib/neander/shorts/server/coupang";
 import * as metrics from "@/lib/neander/shorts/server/metrics";
 import * as clients from "@/lib/neander/shorts/server/clients";
 import * as reviews from "@/lib/neander/shorts/server/reviews";
+import * as radarRun from "@/lib/neander/shorts/server/radar-run";
+import { setAiFetch } from "@/lib/neander/shorts/server/ai";
+import { setNaverFetch } from "@/lib/neander/shorts/server/naver";
+import { setYoutubeDataFetch } from "@/lib/neander/shorts/server/youtube-data";
+import { DEFAULT_RADAR_SETTINGS } from "@/lib/neander/shorts/radar";
 
 process.env.NEANDER_SHORTS_TOKEN_KEY = Buffer.alloc(32, 9).toString("base64");
 process.env.NEANDER_SHORTS_GOOGLE_CLIENT_ID = "verify-client";
@@ -523,9 +528,141 @@ async function main() {
     const bp2Doc = await store.getProject(db, A, bp2);
     await rejects(store.saveProject(db, A, bp2, { ...bp2Doc, kind: "general" }, bp2Doc.updatedAt), /종류를 바꿀 수 없습니다/, "고객사 영상은 종류를 바꿀 수 없음");
 
+    // ---- 14. AI 레이더 (YouTube · AI · 네이버 모두 모의 — 실제 오늘 한도 · 비용 계수기는 건드리지 않음) ----
+    process.env.NEANDER_SHORTS_NAVER_CLIENT_ID ||= "verify-naver";
+    process.env.NEANDER_SHORTS_NAVER_CLIENT_SECRET ||= "verify-naver";
+    const CH_A = "UCvrfyRadarChannelAAAA01";
+    const CH_B = "UCvrfyRadarChannelBBBB01";
+    const nowR = Date.now();
+    const ago = (days: number) => new Date(nowR - days * 86_400_000).toISOString();
+    let bump = 0;
+    const vids: Record<string, { ch: string; title: string; views: number; days: number; dur: string; comments: number; tags?: string[] }> = {
+      vrfyRadar01: { ch: CH_A, title: "자석 양치컵 이거 물건이네", views: 300_000, days: 2, dur: "PT45S", comments: 40, tags: ["양치컵"] },
+      vrfyRadar02: { ch: CH_B, title: "욕실 자석 컵 정리", views: 50_000, days: 3, dur: "PT30S", comments: 10 },
+      vrfyRadar03: { ch: CH_A, title: "긴 영상 살림 브이로그", views: 80_000, days: 1, dur: "PT10M", comments: 5 },
+      vrfyRadar04: { ch: CH_B, title: "조회 적은 살림템", views: 5_000, days: 1, dur: "PT20S", comments: 3 },
+      vrfyRadar05: { ch: CH_B, title: "오늘 저녁 먹방", views: 20_000, days: 2, dur: "PT20S", comments: 0 },
+      vrfyRadar06: { ch: CH_A, title: "새로 나온 다이소 수납함", views: 40_000, days: 1, dur: "PT25S", comments: 0 },
+    };
+    for (let n = 1; n <= 6; n++) {
+      vids[`vrfyBaseA0${n}`] = { ch: CH_A, title: "평소 영상", views: 10_000, days: 10 + n, dur: "PT30S", comments: 1 };
+      vids[`vrfyBaseB0${n}`] = { ch: CH_B, title: "평소 영상", views: 5_000, days: 10 + n, dur: "PT30S", comments: 1 };
+    }
+    let searchIds = ["vrfyRadar01", "vrfyRadar02", "vrfyRadar03", "vrfyRadar04", "vrfyRadar05"];
+    const radarCalls: string[] = [];
+    setYoutubeDataFetch((async (input: RequestInfo | URL) => {
+      const u = new URL(String(input));
+      radarCalls.push(u.pathname.split("/").pop()!);
+      if (u.pathname.endsWith("/search")) return new Response(JSON.stringify({ items: searchIds.map((videoId) => ({ id: { videoId } })) }));
+      if (u.pathname.endsWith("/videos")) {
+        const ids = (u.searchParams.get("id") ?? "").split(",");
+        return new Response(
+          JSON.stringify({
+            items: ids.filter((id) => vids[id]).map((id) => {
+              const v = vids[id];
+              return {
+                id,
+                snippet: { title: v.title, channelTitle: v.ch === CH_A ? "검증 채널 A" : "검증 채널 B", channelId: v.ch, publishedAt: ago(v.days), description: `${v.title} 설명`, tags: v.tags ?? [] },
+                statistics: { viewCount: String(v.views + (id === "vrfyRadar01" ? bump : 0)), likeCount: "100", commentCount: String(v.comments) },
+                contentDetails: { duration: v.dur },
+              };
+            }),
+          }),
+        );
+      }
+      if (u.pathname.endsWith("/playlistItems")) {
+        const ch = `UC${(u.searchParams.get("playlistId") ?? "").slice(2)}`;
+        return new Response(JSON.stringify({ items: Object.entries(vids).filter(([, v]) => v.ch === ch).map(([id, v]) => ({ contentDetails: { videoId: id, videoPublishedAt: ago(v.days) } })) }));
+      }
+      if (u.pathname.endsWith("/commentThreads")) {
+        const texts = u.searchParams.get("videoId") === "vrfyRadar01" ? ["어디서 사요?", "링크 주세요", "좋네요", "와"] : ["좋아요"];
+        return new Response(JSON.stringify({ items: texts.map((textDisplay) => ({ snippet: { topLevelComment: { snippet: { textDisplay } } } })) }));
+      }
+      return new Response("{}", { status: 404 });
+    }) as typeof fetch);
+    let aiSeen: string[] = [];
+    setAiFetch((async (_input: RequestInfo | URL, init: RequestInit = {}) => {
+      const body = JSON.parse(String(init.body));
+      const list = JSON.parse(body.messages[1].content) as { videoId: string; title: string }[];
+      aiSeen = [...aiSeen, ...list.map((v) => v.videoId)];
+      const items = list.map((v) => {
+        const food = v.title.includes("먹방");
+        return {
+          videoId: v.videoId,
+          relevant: !food,
+          product: food ? "" : v.title.includes("수납함") ? "다이소 수납함" : "자석 양치컵",
+          productKey: food ? "" : v.title.includes("수납함") ? "수납함" : "자석 양치컵",
+          category: food ? "기타" : "살림",
+          confidence: "likely",
+          evidence: "제목",
+          why: "문제 → 해결",
+          hook: "",
+          naverKeywords: food ? [] : ["자석 양치컵"],
+          coupangQuery: "자석 양치컵",
+          caution: "",
+        };
+      });
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ items }) } }], usage: { cost: 0.001 } }));
+    }) as typeof fetch);
+    const naverBodies: string[] = [];
+    setNaverFetch((async (_input: RequestInfo | URL, init: RequestInit = {}) => {
+      naverBodies.push(String(init.body));
+      const data = [10, 10, 10, 10, 10, 10, 30, 40].map((ratio, i) => ({ period: `2026-01-0${i + 1}`, ratio }));
+      return new Response(JSON.stringify({ results: [{ data }] }));
+    }) as typeof fetch);
+    const rset = { ...DEFAULT_RADAR_SETTINGS, keywords: ["검증살림"], maxSearchesPerRun: 1 };
+    const ropt = { by: A, key: "verify-key", day: "verify", quotaPrefix: "verify_" };
+    const rs1 = await radarRun.runRadar(db, { ...ropt, deadline: Date.now() + 90_000, settings: rset, now: nowR });
+    const rid = (v: string) => `yt_${v}`;
+    const rget = async (v: string) => (await db.collection(NEANDER_COL.shortsRadar).doc(rid(v)).get()).data() as import("@/lib/neander/shorts/radar").RadarDoc | undefined;
+    const rd1 = await rget("vrfyRadar01");
+    ok(rs1.searched === 1 && rs1.found === 3 && rs1.created === 3, "레이더: 검색 1회 → 쇼츠 길이 · 최소 조회로 거른 3편", JSON.stringify({ searched: rs1.searched, found: rs1.found, created: rs1.created }));
+    ok(!(await rget("vrfyRadar03")) && !(await rget("vrfyRadar04")), "긴 영상 · 조회 적은 영상은 후보가 아님");
+    ok(rd1?.baseline === 10_000 && rd1.multiple === 30, "채널 평소(7일 넘은 쇼츠 중앙값) 대비 배수", `평소 ${rd1?.baseline} · ${rd1?.multiple}배`);
+    ok(rd1?.velocityBasis === "since_publish" && (rd1.velocityPerDay ?? 0) > 100_000, "처음 본 영상은 올린 뒤 평균 속도", String(rd1?.velocityPerDay));
+    ok(rd1?.info?.sampled === 4 && rd1.info.matched === 2, "댓글 표본에서 정보 요청 2/4");
+    ok((rd1?.score ?? 0) > 50, "점수 계산", String(rd1?.score));
+    ok(rd1?.ai?.product === "자석 양치컵" && rd1.ai.relevant && (await rget("vrfyRadar02"))?.ai?.productKey === "자석 양치컵", "AI 상품 추정 · 같은 상품 열쇠");
+    ok((await rget("vrfyRadar05"))?.ai?.relevant === false, "먹방은 AI 가 무관으로 표시");
+    ok(rd1?.naver?.label === "rising" && naverBodies.length === 1, "네이버 추세: 같은 상품 묶음은 한 번만 불러 「상승」", `${rd1?.naver?.label} · 호출 ${naverBodies.length}회`);
+    ok(rs1.aiCalls === 1 && Math.abs(rs1.aiUsd - 0.001) < 1e-9, "AI 1회 · 비용 기록", `${rs1.aiCalls}회 $${rs1.aiUsd}`);
+    ok((await store.readQuota(db, "verify_ytsearch_verify")) === 1, "검색 계수기(소재 발굴과 같은 이름 · 검증용 접두사)");
+    ok(!radarCalls.includes("commentThreads") || radarCalls.filter((c) => c === "commentThreads").length <= 20, "댓글 표본은 상한 안에서만");
+
+    // 두 번째 실행: 하루 뒤 · 조회수 증가 · 새 영상 하나 · AI 상한을 1원으로
+    bump = 100_000;
+    searchIds = ["vrfyRadar01", "vrfyRadar06"];
+    aiSeen = [];
+    const rs2 = await radarRun.runRadar(db, { ...ropt, deadline: Date.now() + 90_000, settings: { ...rset, aiBudgetKrw: 1 }, now: nowR + 86_400_000 });
+    const rd1b = await rget("vrfyRadar01");
+    ok(rd1b?.velocityBasis === "history" && rd1b.velocityPerDay === 100_000 && rd1b.viewHistory.length === 2, "다시 본 영상은 실제 증가로 속도 (하루 +10만)", `${rd1b?.velocityBasis} ${rd1b?.velocityPerDay}`);
+    ok(rd1b?.ai?.product === "자석 양치컵" && !aiSeen.includes("vrfyRadar01"), "이미 추정한 영상은 AI 를 다시 부르지 않음");
+    ok((await rget("vrfyRadar06"))?.ai === null && rs2.notes.some((n) => /비용 상한/.test(n)), "하루 AI 비용 상한에 닿으면 내일로 미룸", rs2.notes.join(" | "));
+    ok(rd1b?.firstSeenAt === rd1?.firstSeenAt, "처음 본 날은 그대로");
+
+    // 사람의 손: 소재로 저장 · 제외
+    const tA = await radarRun.saveRadarAsTrend(db, A, rid("vrfyRadar01"), "private");
+    const trA = await store.getTrend(db, A, tA);
+    ok(trA.product === "자석 양치컵" && trA.identification.status === "likely" && trA.metrics.views.src === "api" && trA.infoSample.sampled === 4 && trA.tags.includes("AI 레이더"), "소재로 저장 — 상품(추정) · API 숫자 · 댓글 표본이 옮겨짐");
+    ok(/영상을 보지 않고/.test(trA.identification.evidence) && /단정하지 않음/.test(trA.notes), "저장한 소재에 「AI 추정 · 글 기준」 · 「네이버는 단정 아님」 이 남음");
+    ok((await radarRun.saveRadarAsTrend(db, A, rid("vrfyRadar01"), "private")) === tA, "같은 사람이 다시 저장하면 같은 소재");
+    const tB = await radarRun.saveRadarAsTrend(db, B, rid("vrfyRadar01"), "private");
+    ok(tB !== tA && (await store.getTrend(db, B, tB)).owner === B, "다른 사람은 자기 소재로 따로 저장");
+    await rejects(store.getTrend(db, B, tA), /비공개/, "A 의 소재는 B 에게 비공개 그대로");
+    await radarRun.setRadarDismissed(db, B, rid("vrfyRadar05"), true);
+    ok((await rget("vrfyRadar05"))?.dismissed?.by === B, "제외 — 누가 뺐는지 남음");
+    await radarRun.setRadarDismissed(db, B, rid("vrfyRadar05"), false);
+    ok((await rget("vrfyRadar05"))?.dismissed === null, "되살리기");
+    await rejects(radarRun.saveRadarAsTrend(db, A, "yt_../../x", "private"), /올바르지 않습니다/, "이상한 id 는 거절");
+    setYoutubeDataFetch(null);
+    setAiFetch(null);
+    setNaverFetch(null);
+
     platforms.setPlatformFetch(null);
   } finally {
     // ---- 정리 ----
+    for (const v of ["vrfyRadar01", "vrfyRadar02", "vrfyRadar03", "vrfyRadar04", "vrfyRadar05", "vrfyRadar06"]) await db.collection(NEANDER_COL.shortsRadar).doc(`yt_${v}`).delete();
+    for (const k of ["usage_verify_ytsearch_verify", "usage_verify_radarusd_verify", "verify_radar_lock"]) await db.collection(NEANDER_COL.shortsSettings).doc(k).delete();
     for (const who of [A, B]) await db.collection(NEANDER_COL.shortsProfiles).doc(who).delete();
     for (const col of [NEANDER_COL.shortsJobs, NEANDER_COL.shortsPublications, NEANDER_COL.shortsAccounts, NEANDER_COL.shortsMetrics, NEANDER_COL.shortsTemplates, NEANDER_COL.shortsTrends]) {
       for (const who of [A, B]) {

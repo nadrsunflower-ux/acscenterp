@@ -1,7 +1,7 @@
 "use client";
 
 // ============================================================
-//  소재 발굴 — 국내외 검색 표본 비교 · 저장한 후보 · 반응 점수
+//  소재 발굴 — AI 레이더(매일 자동) · 국내외 검색 표본 비교 · 저장한 후보 · 반응 점수
 // ------------------------------------------------------------
 //  · 검색 표본은 YouTube Data API(서버 키)로만 자동 수집한다. Instagram · TikTok ·
 //    샤오홍슈는 남의 게시물 검색 API 가 없어 링크 등록 · 직접 입력이다.
@@ -62,6 +62,7 @@ import {
 } from "@/components/neander/ui";
 import { isReadOnlyFor, useScoped, useShorts, type WithId } from "@/components/neander/shorts/ShortsProvider";
 import { MeasuredInput, Num, SampleTag, SourceTag, Unknown, fmtWhen, useAction } from "@/components/neander/shorts/parts";
+import { RadarPanel } from "@/components/neander/shorts/radar/RadarPanel";
 import { mutate, shortsPost } from "@/lib/neander/shorts/client";
 import {
   BROWSE_PLATFORMS,
@@ -213,6 +214,8 @@ export default function TrendsPage() {
           </Button>
         }
       />
+
+      <RadarPanel />
 
       <PlatformBrowse note={linkNote} busy={busy === "take"} onTake={(text, product) => void takeLink(text, product)} />
 

@@ -376,6 +376,91 @@ export async function chineseTerms(input: { model: unknown; product: string; cat
   return { terms: out.data.terms.slice(0, 16), costUsd: out.costUsd, model: out.model };
 }
 
+/** AI 레이더 — 영상 글(제목 · 설명 · 태그 · 댓글 표본)만 보고 상품을 추정한다. 한 번에 최대 10편 */
+export interface RadarVideoInput {
+  videoId: string;
+  title: string;
+  channel: string;
+  description: string;
+  tags: string[];
+  comments: string[];
+}
+export type RadarIdentifyItem = {
+  videoId: string;
+  relevant: boolean;
+  product: string;
+  productKey: string;
+  category: "살림" | "주방" | "수납" | "청소" | "다이소" | "기타";
+  confidence: "likely" | "unclear";
+  evidence: string;
+  why: string;
+  hook: string;
+  naverKeywords: string[];
+  coupangQuery: string;
+  caution: string;
+};
+
+export async function radarIdentify(videos: RadarVideoInput[]): Promise<{ items: RadarIdentifyItem[]; costUsd: number; model: string }> {
+  const list = videos.slice(0, 10);
+  if (!list.length) return { items: [], costUsd: 0, model: shortsTextModel(null) };
+  const s = { type: "string" };
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["items"],
+    properties: {
+      items: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["videoId", "relevant", "product", "productKey", "category", "confidence", "evidence", "why", "hook", "naverKeywords", "coupangQuery", "caution"],
+          properties: {
+            videoId: s,
+            relevant: { type: "boolean" },
+            product: s,
+            productKey: s,
+            category: { type: "string", enum: ["살림", "주방", "수납", "청소", "다이소", "기타"] },
+            confidence: { type: "string", enum: ["likely", "unclear"] },
+            evidence: s,
+            why: s,
+            hook: s,
+            naverKeywords: { type: "array", items: s },
+            coupangQuery: s,
+            caution: s,
+          },
+        },
+      },
+    },
+  };
+  const system = `너는 한국 살림·생활용품 쇼츠에서 「무슨 상품이 반응을 얻었나」 를 정리한다. 영상마다 한 줄씩 돌려준다.
+${RULES}
+- 너는 영상을 보지 않았다. 제목 · 설명 · 태그 · 댓글 표본 글만 근거로 추정한다. 글에 상품이 분명하지 않으면 product 를 "" 로, confidence 를 unclear 로 둔다.
+- relevant: 살림 · 주방 · 수납 · 청소 · 세탁 · 욕실 · 생활용품 · 다이소 상품을 보여 주는 영상이면 true. 먹방 · 요리 레시피만 · 연예 · 뉴스 · 차량 · 뷰티 · 패션이면 false.
+- product: 일반 명칭(예: 「자석 양치컵」 「접이식 건조대」). 브랜드 · 모델명은 글에 분명히 적혀 있을 때만.
+- 제목 · 설명이 「N가지」 「BEST」 「모음」 「추천템들」 처럼 여러 상품을 모은 영상이면 하나를 골라 대표로 삼지 않는다. product 와 productKey 를 "" 로, confidence 를 unclear 로, evidence 를 「여러 상품 모음 영상」 으로 둔다 (설명에 상품 목록이 있어도 마찬가지).
+- productKey: 같은 상품을 묶는 짧은 일반 명사구(2~4 낱말, 브랜드 · 수식어 없이).
+- evidence: 무엇을 보고 추정했는지 한 줄 (예: 「제목 · 태그 #양치컵」 「댓글 '자석 컵 어디서 사요'」).
+- why: 반응이 좋았을 이유를 글로 본 추정 한 줄 (문제 → 해결, 의외성, 가격 앵커 등). 조회수 · 판매량을 지어내지 않는다.
+- hook: 제목으로 짐작되는 첫 장면 훅 한 줄. 짐작이 안 되면 "".
+- naverKeywords: 한국 사람이 네이버에서 이 상품을 찾을 검색어 1~3개 (짧게). product 가 "" 이면 [].
+- coupangQuery: 쿠팡에서 같은 종류를 찾을 검색어 하나. 모르면 "".
+- caution: 효능 · 안전 · 과장 위험이 있으면 한 줄(예: 「살균 효과 표현 주의」), 없으면 "".`;
+  const user = JSON.stringify(
+    list.map((v) => ({
+      videoId: v.videoId,
+      title: v.title.slice(0, 200),
+      channel: v.channel.slice(0, 80),
+      description: v.description.slice(0, 400),
+      tags: v.tags.slice(0, 12),
+      comments: v.comments.slice(0, 8).map((c) => c.slice(0, 120)),
+    })),
+  );
+  const out = await chatJson<{ items: RadarIdentifyItem[] }>(shortsTextModel(null), system, user, "radar_identify", schema, 7000);
+  const ids = new Set(list.map((v) => v.videoId));
+  return { items: out.data.items.filter((i) => ids.has(i.videoId)), costUsd: out.costUsd, model: out.model };
+}
+
 // ---- 음성 -------------------------------------------------------------
 
 export async function synthesizeSpeech(input: { model: string; voice: string; text: string; speed?: number }): Promise<{ bytes: Buffer; mime: string; estUsd: number | null }> {

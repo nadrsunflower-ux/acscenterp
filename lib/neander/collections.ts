@@ -230,4 +230,6 @@ export const NEANDER_COL = {
   shortsFormats: "neander_shorts_formats",
   /** 주간 보고 (문서 id = 2026-W44) */
   shortsReports: "neander_shorts_reports",
+  /** AI 레이더 후보 — 매일 키워드로 훑은 반응 큰 쇼츠 (문서 id = yt_{영상 id} · 회사 공용). shorts/radar.ts */
+  shortsRadar: "neander_shorts_radar",
 } as const;

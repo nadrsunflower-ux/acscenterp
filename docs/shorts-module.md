@@ -48,6 +48,19 @@ AI 로 만드는 영상을 한 흐름으로 다룬다. 영상은 세 종류다.
 - 게시: 브랜드 영상의 점검 항목은 (우리 채널이면) 고지 2개 + **고객사 승인**(승인된 그 파일만 · 사람 확인으로 넘길 수 없음) + 금지 · 의심 표현 + 소스 출처(선택). 쿠팡 항목은 없다. 다른 고객사의 계정 · 고객사 계정에 쿠팡 영상은 막는다. 예약 · 게시된 뒤에는 「승인 취소」 불가.
 - 월간 보고 `/neander/shorts/clients/<id>/report?month=YYYY-MM` — 브라우저 인쇄 → PDF. 성과는 기록된 값만(출처 표시) · 「조회수는 계약상 약속이 아님」 · 다음 달 제안은 정찰 주간 보고에서.
 
+## AI 레이더 (소재 발굴 맨 위)
+
+매일 아침 cron(⑤)과 화면의 「지금 돌리기」 가 키워드로 YouTube 쇼츠를 훑어 「반응 큰 상품 후보」 를 모은다. 회사 공용 (`neander_shorts_radar`, 문서 id = `yt_<영상 id>`). 코드는 `lib/neander/shorts/radar.ts`(순수 계산) · `server/radar-run.ts`(실행) · `server/naver.ts` · `app/api/neander/shorts/radar` · `components/neander/shorts/radar/RadarPanel.tsx`.
+
+1. 검색어(기본 10개 — 살림 · 주방 · 수납 · 청소 · 다이소)마다 search.list 1회. 계수기는 소재 발굴과 같은 `ytsearch_<날짜>`(하루 90회).
+2. 쇼츠 길이(3분 이하) · 최소 조회(기본 1만)로 거르고, 채널 평소 조회수(최근 쇼츠 중앙값 — 정찰과 같은 산식, 채널 25곳까지) 대비 배수 · 하루 조회 속도(두 번 본 영상은 실제 증가) · 댓글 표본(20편까지)의 정보 요청 비율.
+3. 점수 0~100 = 배수 40 + 속도 40 + 정보 요청 20 (모르면 0).
+4. AI(기본 Gemini Flash)가 **영상을 보지 않고** 제목 · 설명 · 태그 · 댓글 글로 상품을 추정한다(8편씩 · 셋씩 함께 · 한 번에 64편까지 · 응답이 잘리면 반씩 다시). 「N가지 · BEST」 같은 모음 영상은 상품을 고르지 않는다. 하루 비용 상한(기본 1,000원, 1달러 = 1,450원 어림)에 닿으면 내일로 — 2026-11-02 실측 8편 약 $0.01.
+5. 네이버 데이터랩 검색어 트렌드(상품 묶음마다 1회 · 3일 안에 본 것은 다시 안 봄): 최근 2주 ÷ 그 전 6주 → 상승(1.3↑) · 유지 · 하락(0.75↓) · 「검색 적음」(데이터랩 기준 — 국내에 없다는 단정이 아님).
+6. 「소재로 저장」 은 그 사람의 소재(비공개)로 옮긴다 — 상품은 `identification.likely`(AI 추정) · 숫자는 API · 메모에 근거. 「제외」 는 회사 공용으로, 누가 뺐는지 남는다. 45일 넘게 다시 안 보인 후보는 지운다(저장한 것은 남김).
+
+설정(검색어 · 기간 · 최소 조회 · 검색 수 · AI 상한 · 자동 켜기)은 AI STUDIO 관리자만 바꾼다. 검증: `npm run shorts:verify-server` 14번 구간(YouTube · AI · 네이버 모의).
+
 ## 작업 큐
 
 Firestore `neander_shorts_jobs` + 임대(90초). 실행기 `tick()` 은 한 번에 시간 예산만큼만 돈다.
@@ -71,6 +84,7 @@ Firestore `neander_shorts_jobs` + 임대(90초). 실행기 `tick()` 은 한 번�
 | `NEANDER_SHORTS_TOKEN_KEY` | 권장 | 계정 토큰 암호화 키(32바이트 base64). 없으면 `NEANDER_MAIL_KEY` 에서 HKDF 로 끌어냄 |
 | `NEANDER_SHORTS_MEDIA_QUOTA_MB` | 선택 | 파일 저장 한도 (기본 500MB · Firestore 조각) |
 | `NEANDER_SHORTS_EMAILS` | 선택 | 사용자 제한 |
+| `NEANDER_SHORTS_NAVER_CLIENT_ID` · `_SECRET` | 선택 | AI 레이더의 국내 검색 추세 — NAVER API HUB(네이버 클라우드 콘솔) 검색어 트렌드의 Client ID · Secret. 개발자센터는 2026-07-31 부터 데이터랩 신규 신청을 받지 않는다 |
 
 OAuth 리디렉션 URI: `https://neander-erp.vercel.app/api/neander/shorts/oauth/callback` (로컬은 해당 주소의 같은 경로). 계정 준비 순서는 화면 「계정 · 연결」 에 있다.
 
@@ -87,9 +101,9 @@ OAuth 리디렉션 URI: `https://neander-erp.vercel.app/api/neander/shorts/oauth
 ## 검증
 
 ```bash
-npm run shorts:test            # 계산 · 규칙 24건 + 정찰 11건 + 외부 어댑터(모의 응답) 14건
+npm run shorts:test            # 계산 · 규칙 + 정찰 + 레이더 43건 + 외부 어댑터(모의 응답) 14건
 npm run shorts:verify-render   # Chrome 에서 실제 MP4 출력 · 코덱 · 자막 · 고지 띠 · 소리 · 취소 (로그인 불필요)
-npm run shorts:verify-server   # 실제 Firestore · 검증용 이메일 · 외부 호출은 모의 (실사용 작업이 대기 중이면 시작 안 함) — 사람별 분리 · 관리자 읽기 전용 · 링크 주인 확인 · 고객사 담당자 · 검토 링크 · 승인 파일만 게시 (131건)
+npm run shorts:verify-server   # 실제 Firestore · 검증용 이메일 · 외부 호출은 모의 (실사용 작업이 대기 중이면 시작 안 함) — 사람별 분리 · 관리자 읽기 전용 · 링크 주인 확인 · 고객사 담당자 · 검토 링크 · 승인 파일만 게시 · 일반 영상 · AI 레이더 (165건)
 node e2e/shorts-people-ui.mjs <BASE_URL> <토큰파일> <샷 폴더> <다른 사람 비공개 영상 제목>   # 내 채널 세트 · 사용자별 현황 · 읽기 전용
 node e2e/shorts-ui.mjs <BASE_URL> <토큰파일> <샘플 mp4> <샷 폴더>   # 로그인한 화면 흐름 (e2e:token)
 node e2e/shorts-clients-ui.mjs <BASE_URL> <토큰파일> <샘플 mp4> <샷 폴더>   # 고객사 → 영상 → 검토 링크(로그인 없는 창) → 승인 → 게시 점검 → 월간 보고 → 지우기 (32건)
