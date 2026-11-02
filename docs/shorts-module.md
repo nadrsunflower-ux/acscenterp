@@ -86,6 +86,17 @@ AI 로 만드는 영상을 한 흐름으로 다룬다. 영상은 세 종류다.
 - **영상 방식 「스토리 광고」**(2026-11-02 · 바비온 SBC-12 「공원 그랑프리」 같은 이야기형 광고): 재료 = 제품이 해결하는 문제(갈등) · 스토리 아이디어 · 등장인물 · 톤 · 그림체 · 엔드카드(적은 가격 · 문구만). 결과에 `script.story`(로그라인 · 캐치프레이즈 · 그림체 · 캐릭터 시트(영문 고정 묘사 lookPrompt) · 막 구조 · 엔드카드)와 장면마다 camera · sound · continuity 가 붙는다. 규칙(`server/ai.ts` STORY_RULES)에 실제 AI 영상 작업에서 겪은 함정을 넣었다 — 컷마다 lookPrompt 를 그대로 · 카메라는 고정이거나 하나("camera does not rotate") · 발 뒤집기 · 작은 물건 다루기 · 화면 글자 피하기 · 제품 모양은 사진(엔드카드는 image 컷) · 실존 인물 · 유명 밈 · 유행 음원 금지. 영상으로 옮기면 로그라인 · 등장인물 · 컷 메모 · 엔드카드가 영상 메모(notes)에 들어간다. 실측: 한 번 40~50초 · 약 35원(Gemini Flash).
 - 실측(2026-11-02 · Gemini 3.7 Flash · 사진 1장): 한 번 약 20초 · 약 16원. 검증: `shorts:test`(script-writer.test.ts · adapters writerTurn) · `shorts:verify-server` 16번(만들기 · 사진은 처음만 · 실패 보존 · 되돌리기 · 남의 대본 막기 · 영상으로 옮기기 · 지우기).
 
+## 영상 폴더 (2026-11-02)
+
+사용자 요청: smoat Q 「결과물」 의 파일 체계처럼 — 왼쪽에 폴더가 세로로, 고르면 오른쪽이 그 폴더의 영상으로 바뀐다.
+
+- 화면 `/neander/shorts/projects` = 회의록 · 메일과 같은 화면 높이 창. 왼쪽 폴더 칸(`components/neander/shorts/folders/FolderPanel.tsx`) · 오른쪽 그 폴더(하위 포함)의 영상 표. 맨 위 「전체 영상」 은 시스템 줄, 아래가 사용자 폴더(들여쓰기 · 하위 포함 개수). 고른 폴더는 주소 `?folder=` 와 브라우저(`neander.shorts.videoFolders` — 마지막 폴더 · 펼침)에 기억하고, 지워진 폴더면 전체로.
+- 「새 폴더」 는 한 곳 — 지금 고른 폴더 안에 만든다(자리를 버튼 아래에 적음). 폴더 줄 더보기(⋯) = 이 안에 새 폴더 · 이름 바꾸기 · 지우기. 지우면 하위 폴더도 함께, 안의 영상은 지우지 않고 폴더 밖으로.
+- 영상 옮기기: 표의 줄을 끌어 폴더 줄에 놓기(「전체 영상」 에 놓으면 폴더 밖으로 · 접힌 폴더에 잠시 머물면 펼침) 또는 제목 칸 끝 더보기(⋯) → 「폴더로 옮기기…」 · 「폴더 밖으로」. 「새 영상」 은 지금 폴더에 만든다. 단계 탭 · 종류 · 검색은 지금 폴더 안에서.
+- 데이터: `neander_shorts_folders`(name · parentId · createdBy · 시각) — **AI STUDIO 공용 나무 하나**(영상은 한 종류라 Q 처럼 유형마다 나누지 않음). 영상은 `ProjectDoc.folderId` 로 폴더 하나에. 나무 · 개수 · 이름 규칙은 `lib/neander/shorts/folders.ts`(부모가 없거나 고리가 생긴 폴더는 맨 위로 · 이름 40자 · 같은 자리 같은 이름 금지 · 6단까지).
+- 서버(`server/folders.ts`, mutate `folder.create · folder.rename · folder.delete · project.move`): 옮기기는 그 영상을 고칠 수 있는 사람만(남의 비공개가 섞이면 하나도 안 옮김). **옮길 때 updatedAt 을 바꾸지 않고**, `project.save` 는 folderId 를 이전 값 그대로 둔다 — 열어 둔 편집 화면이 충돌하거나 폴더를 되돌리지 않게. 개수는 보는 사람이 볼 수 있는 영상만.
+- 검증: `shorts:test`(folders.test.ts) · `shorts:verify-server` 17번(만들기 · 같은 이름 · 없는 위 폴더 · 옮기기 · updatedAt 그대로 · 예전 사본 저장 · 남의 비공개 · 이름 바꾸기 · 지우기 → 영상은 폴더 밖). 검증용 주소가 만든 폴더는 끝에 모두 지운다.
+
 ## 완성 파일 — 바로 올리기 · 게시 뒤 지우기 (2026-11-02)
 
 사용자 결정: 완성 파일은 수백 MB 라 **서버에 보관하지 않는다** — 게시가 끝나면 지우고 YouTube · Instagram 링크로 본다.

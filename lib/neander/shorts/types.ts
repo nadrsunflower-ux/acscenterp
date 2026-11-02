@@ -431,6 +431,8 @@ export interface ReviewState {
 
 export interface ProjectDoc extends Owned {
   kind: ProjectKind;
+  /** 영상 폴더 (folders.ts · 없으면 폴더 밖). 폴더 옮기기 전용 동작으로만 바뀐다 — 저장(project.save)은 이 값을 건드리지 않는다 */
+  folderId?: string | null;
   /** 브랜드 대행이면 고객사 · 그 달 계약분 · 고객사 제품 · 바탕 형식(정찰 카드) */
   clientId: string | null;
   /** 고객사 이름 (표시 · 고지 문구용 사본) */
@@ -492,6 +494,20 @@ export interface VersionDoc {
   note: string;
   data: unknown;
 }
+
+// ---- 영상 폴더 -----------------------------------------------------
+
+/** AI STUDIO 공용 폴더 나무 한 칸 (shorts/folders.ts) */
+export interface FolderDoc {
+  name: string;
+  /** 위 폴더 — 맨 위면 null */
+  parentId: string | null;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type FolderView = FolderDoc & { id: string };
 
 // ---- 파일 ---------------------------------------------------------
 

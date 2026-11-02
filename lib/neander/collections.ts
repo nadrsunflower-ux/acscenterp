@@ -199,6 +199,8 @@ export const NEANDER_COL = {
   shortsTrends: "neander_shorts_trends",
   /** 제작 프로젝트 — 소스 · 쿠팡 확인 · 대본 · 장면 · 게시 설정이 문서 안에 */
   shortsProjects: "neander_shorts_projects",
+  /** 영상 폴더 — AI STUDIO 공용 나무 하나 (영상은 ProjectDoc.folderId 로 한 폴더에). shorts/folders.ts */
+  shortsFolders: "neander_shorts_folders",
   /** 참고 자료 · 구성 분석 · 대본의 버전 기록 */
   shortsVersions: "neander_shorts_versions",
   /** 성공 공식 템플릿 */

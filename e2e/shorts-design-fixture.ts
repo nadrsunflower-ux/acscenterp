@@ -1348,6 +1348,7 @@ const data: ShortsData = {
   admin: false,
   scope: "mine",
   profiles: populated ? profiles : [],
+  folders: [],
   clients: populated ? clients : [],
   trends: populated ? byNewest(trends) : [],
   projects: populated ? byNewest(projects) : [],

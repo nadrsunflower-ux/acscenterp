@@ -6,6 +6,7 @@ import { listAccounts } from "@/lib/neander/shorts/server/accounts";
 import { TTS_MODELS, VIDEO_MODELS } from "@/lib/neander/shorts/server/ai";
 import { fail, json } from "@/lib/neander/shorts/server/http";
 import { listJobs } from "@/lib/neander/shorts/server/jobs";
+import { listFolders } from "@/lib/neander/shorts/server/folders";
 import { listPublications } from "@/lib/neander/shorts/server/publishing";
 import { integrationStatus } from "@/lib/neander/shorts/server/status";
 import { getWeights, listMetrics, listProjects, listTemplates, listTrends, readQuota } from "@/lib/neander/shorts/server/store";
@@ -23,7 +24,7 @@ export async function GET(req: Request) {
     const db = adminDb();
     const admin = isShortsAdmin(email);
     const all = admin && new URL(req.url).searchParams.get("scope") === "all";
-    const [trends, projects, templates, accounts, jobs, weights, status, ytUsed, profiles, clients] = await Promise.all([
+    const [trends, projects, templates, accounts, jobs, weights, status, ytUsed, profiles, clients, folders] = await Promise.all([
       listTrends(db, email, all),
       listProjects(db, email, all),
       listTemplates(db, email, all),
@@ -34,6 +35,7 @@ export async function GET(req: Request) {
       readQuota(db, `ytsearch_${kstDay()}`),
       listProfiles(db, email, all),
       listClients(db, email, all),
+      listFolders(db),
     ]);
     // 내 검색 키 (개인 → 회사) 와 그 키의 오늘 사용량
     const yk = await youtubeKeyFor(db, email);
@@ -46,6 +48,7 @@ export async function GET(req: Request) {
       scope: all ? "all" : "mine",
       profiles,
       clients,
+      folders,
       trends,
       projects,
       templates,

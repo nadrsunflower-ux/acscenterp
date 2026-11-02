@@ -6,6 +6,7 @@ import { createClientProject, deleteClient, getClient, saveClient } from "@/lib/
 import { recordByStaff, reopenReview, sendForReview } from "@/lib/neander/shorts/server/reviews";
 import { addManualInstagram, deleteAccount, updateAccount } from "@/lib/neander/shorts/server/accounts";
 import { fail, json } from "@/lib/neander/shorts/server/http";
+import { createFolder, deleteFolder, moveProjects, renameFolder } from "@/lib/neander/shorts/server/folders";
 import { cancelPublication, resolvePublication } from "@/lib/neander/shorts/server/publishing";
 import {
   addMetricSnapshot,
@@ -55,6 +56,17 @@ export async function POST(req: Request) {
       case "project.delete":
         await deleteProject(db, email, b.id);
         return json({ ok: true });
+      case "project.move":
+        return json({ moved: await moveProjects(db, email, b.ids, b.folderId) });
+
+      // ---- 영상 폴더 (AI STUDIO 공용 나무 · shorts/folders.ts)
+      case "folder.create":
+        return json({ folder: await createFolder(db, email, { name: b.name, parentId: b.parentId }) });
+      case "folder.rename":
+        await renameFolder(db, email, b.id, b.name);
+        return json({ ok: true });
+      case "folder.delete":
+        return json(await deleteFolder(db, email, b.id));
 
       // ---- 버전
       case "version.list":

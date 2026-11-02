@@ -42,6 +42,7 @@ import { DEFAULT_RADAR_SETTINGS, radarNoteState } from "@/lib/neander/shorts/rad
 import * as scoutAuto from "@/lib/neander/shorts/server/scout-auto-run";
 import * as scoutStore from "@/lib/neander/shorts/server/scout-store";
 import * as scriptWriter from "@/lib/neander/shorts/server/script-writer";
+import * as folders from "@/lib/neander/shorts/server/folders";
 import { setScoutAiFetch } from "@/lib/neander/shorts/server/scout-ai";
 import { DEFAULT_SCOUT_AUTO, type ScoutAutoSummary } from "@/lib/neander/shorts/scout-auto";
 import type { HitAnalysis } from "@/lib/neander/shorts/scout";
@@ -78,7 +79,7 @@ async function main() {
   const foreign = live.docs.filter((d) => ![A, B].includes((d.data() as JobDoc).owner));
   if (foreign.length) throw new Error(`실제 쇼츠 작업 ${foreign.length}건이 대기 중이라 검증을 시작하지 않습니다.`);
 
-  const created = { projects: [] as string[], trends: [] as string[], clients: [] as string[], watch: [] as string[], hits: [] as string[], formats: [] as string[] };
+  const created = { projects: [] as string[], trends: [] as string[], clients: [] as string[], watch: [] as string[], hits: [] as string[], formats: [] as string[], folders: [] as string[] };
   try {
     // ---- 1. 사람별 분리 ----
     const pid = await store.createProject(db, A, { product: "검증 선반", visibility: "private" });
@@ -997,8 +998,39 @@ async function main() {
     ok(!(await db.collection(NEANDER_COL.shortsScripts).doc(ws.id).get()).exists && (await db.collection(NEANDER_COL.shortsScripts).doc(ws.id).collection("photos").get()).size === 0, "지우기 — 세션과 사진 원본 모두");
     setAiFetch(null);
 
+    // ---- 17. 영상 폴더 (AI STUDIO 공용 나무 · 검증용 이름) ----
+    const tag = randomBytes(3).toString("hex");
+    const top = await folders.createFolder(db, A, { name: `검증 폴더 ${tag}` });
+    created.folders.push(top.id);
+    const sub = await folders.createFolder(db, B, { name: "하위", parentId: top.id });
+    created.folders.push(sub.id);
+    ok(sub.parentId === top.id && (await folders.listFolders(db)).some((f) => f.id === sub.id), "폴더 만들기 · 하위 폴더 (사용자 누구나)");
+    await rejects(folders.createFolder(db, A, { name: ` 하위 `, parentId: top.id }), /이미 있습니다/, "같은 자리에 같은 이름은 거절");
+    await rejects(folders.createFolder(db, A, { name: "고아", parentId: "noSuchFolder1" }), /위 폴더를 찾지 못했습니다/, "없는 폴더 안에는 못 만듦");
+    await rejects(folders.createFolder(db, A, { name: "a/b" }), /쓸 수 없습니다/, "이름 규칙 (슬래시)");
+    const beforeMove = await store.getProject(db, A, pid);
+    ok((await folders.moveProjects(db, A, [pid], sub.id)) === 1, "영상을 하위 폴더로 옮김");
+    const afterMove = await store.getProject(db, A, pid);
+    ok(afterMove.folderId === sub.id && afterMove.updatedAt === beforeMove.updatedAt, "옮겨도 updatedAt 은 그대로 (열어 둔 편집 화면이 충돌 안 남)", `${afterMove.folderId}`);
+    const savedStale = await store.saveProject(db, A, pid, { ...beforeMove, notes: `${beforeMove.notes} ` }, afterMove.updatedAt);
+    ok(savedStale.folderId === sub.id, "폴더를 모르는 예전 사본으로 저장해도 폴더가 그대로", `${savedStale.folderId}`);
+    await rejects(folders.moveProjects(db, A, [pid, pidB], top.id), /비공개 영상이라 옮길 수 없습니다/, "남의 비공개 영상이 섞이면 아무것도 안 옮김");
+    ok((await store.getProject(db, A, pid)).folderId === sub.id, "거절되면 내 영상도 그대로");
+    await rejects(folders.moveProjects(db, A, [pid], "noSuchFolder1"), /찾지 못했습니다/, "없는 폴더로는 못 옮김");
+    await rejects(folders.renameFolder(db, A, sub.id, "바꾼 이름").then(() => folders.createFolder(db, A, { name: "바꾼 이름", parentId: top.id })), /이미 있습니다/, "이름을 바꾼 뒤 그 이름은 같은 자리에서 다시 못 씀");
+    await folders.renameFolder(db, A, sub.id, "하위 2");
+    ok((await folders.listFolders(db)).find((f) => f.id === sub.id)?.name === "하위 2", "이름 바꾸기");
+    const del = await folders.deleteFolder(db, B, top.id);
+    ok(del.folders === 2 && del.videos === 1, "폴더 지우기 — 하위 폴더도 함께, 안의 영상 수를 알려 줌", JSON.stringify(del));
+    ok((await store.getProject(db, A, pid)).folderId === null, "지운 폴더의 영상은 폴더 밖으로 (영상은 그대로)");
+    ok(!(await folders.listFolders(db)).some((f) => f.id === top.id || f.id === sub.id), "지운 폴더가 목록에서 사라짐");
+    await folders.moveProjects(db, A, [pid], null);
+
     platforms.setPlatformFetch(null);
   } finally {
+    for (const id of created.folders) await db.collection(NEANDER_COL.shortsFolders).doc(id).delete();
+    // 도중에 실패해 목록에 못 넣은 폴더도 — 검증용 주소가 만든 것은 모두
+    for (const d of (await db.collection(NEANDER_COL.shortsFolders).where("createdBy", "in", [A, B]).get()).docs) await d.ref.delete();
     // ---- 정리 ----
     for (const v of ["vrfyRadar01", "vrfyRadar02", "vrfyRadar03", "vrfyRadar04", "vrfyRadar05", "vrfyRadar06"]) await db.collection(NEANDER_COL.shortsRadar).doc(`yt_${v}`).delete();
     for (const k of ["usage_verify_ytsearch_verify", "usage_verify_radarusd_verify", "verify_radar_lock", "verify_scout_auto_added", "verify_scout_auto_lock", `usage_verify_ytsearch_${new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10)}`]) await db.collection(NEANDER_COL.shortsSettings).doc(k).delete();

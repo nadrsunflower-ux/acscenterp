@@ -20,6 +20,7 @@ import { shortsGet } from "@/lib/neander/shorts/client";
 import type {
   AccountView,
   ClientView,
+  FolderView,
   IntegrationStatus,
   JobView,
   MetricSnapshotView,
@@ -40,6 +41,8 @@ export interface ShortsData {
   scope: "mine" | "all";
   profiles: ProfileView[];
   clients: ClientView[];
+  /** 영상 폴더 — AI STUDIO 공용 나무 (shorts/folders.ts) */
+  folders: FolderView[];
   trends: WithId<TrendDoc>[];
   projects: WithId<ProjectDoc>[];
   templates: WithId<TemplateDoc>[];

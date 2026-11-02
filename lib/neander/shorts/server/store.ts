@@ -654,6 +654,8 @@ export function sanitizeProject(input: unknown, prev: StoredProject, email: stri
     compliance,
     costs: [...prev.costs.filter((c) => c.auto), ...manualCosts].slice(-300),
     renderIds: prev.renderIds,
+    // 폴더는 「폴더로 옮기기」(folders.ts)로만 바뀐다 — 열어 둔 편집 화면의 저장이 되돌리지 않게
+    folderId: prev.folderId ?? null,
     sample: prev.sample,
   };
   return next;
