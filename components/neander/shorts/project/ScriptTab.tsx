@@ -17,6 +17,7 @@ import { mutate, shortsPost } from "@/lib/neander/shorts/client";
 import { BEAT_LABEL, CTA_LABEL, draftFromTemplate, emptyAnalysis, emptyBeat, fmtSec, newId, parseTimingNotes, scanClaims } from "@/lib/neander/shorts/model";
 import { FIN_AI_MODELS, DEFAULT_FIN_AI_MODEL } from "@/lib/neander/ai/models";
 import type { BeatKey, CtaType, FormulaAnalysis, ProjectDoc, TemplateDoc, VersionDoc } from "@/lib/neander/shorts/types";
+import { spaceOf } from "@/lib/neander/shorts/spaces";
 import { useShorts, type WithId } from "../ShortsProvider";
 import { fmtUsd, fmtWhen, useAction } from "../parts";
 import type { Draft } from "../useProjectDraft";
@@ -140,7 +141,7 @@ export function ScriptTab({ draft }: { draft: Draft }) {
             <Field label="적용할 성공 공식">
               <Select value={p.templateId ?? ""} onChange={(e) => update((x) => void (x.templateId = e.target.value || null))}>
                 <option value="">(공식 없음)</option>
-                {d.templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {d.templates.filter((t) => spaceOf(t) === spaceOf(p) || t.id === p.templateId).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </Select>
             </Field>
             <Field label="AI 모델">

@@ -1,4 +1,5 @@
 import { adminDb } from "@/lib/neander/server/admin";
+import { requestDb } from "@/lib/neander/shorts/server/space-db";
 import { isShortsAdmin, requireShortsUser } from "@/lib/neander/shorts/server/access";
 import { fail, json } from "@/lib/neander/shorts/server/http";
 import { youtubeKeyFor } from "@/lib/neander/shorts/server/profiles";
@@ -62,7 +63,7 @@ async function ytKey(db: Db, email: string, countSearch: boolean): Promise<strin
 export async function GET(req: Request) {
   try {
     const { email } = await requireShortsUser(req);
-    const db = adminDb();
+    const db = await requestDb(req, adminDb());
     const [channels, hits, formats, reports, settings, yk] = await Promise.all([
       listWatch(db),
       listHits(db),
@@ -95,7 +96,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const { email } = await requireShortsUser(req);
-    const db = adminDb();
+    const db = await requestDb(req, adminDb());
     const b = (await req.json()) as Record<string, unknown>;
     switch (b.action) {
       // ---- 감시 채널 ----

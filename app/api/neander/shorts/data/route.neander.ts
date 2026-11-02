@@ -8,6 +8,7 @@ import { fail, json } from "@/lib/neander/shorts/server/http";
 import { listJobs } from "@/lib/neander/shorts/server/jobs";
 import { listFolders } from "@/lib/neander/shorts/server/folders";
 import { listPublications } from "@/lib/neander/shorts/server/publishing";
+import { listSpaces } from "@/lib/neander/shorts/server/space-db";
 import { integrationStatus } from "@/lib/neander/shorts/server/status";
 import { getWeights, listMetrics, listProjects, listTemplates, listTrends, readQuota } from "@/lib/neander/shorts/server/store";
 import { YT_SEARCH_DAILY_LIMIT } from "@/lib/neander/shorts/server/youtube-data";
@@ -41,10 +42,12 @@ export async function GET(req: Request) {
     const yk = await youtubeKeyFor(db, email);
     const myYtUsed = yk.source === "personal" ? await readQuota(db, `ytsearch_${email}_${kstDay()}`) : ytUsed;
     const ids = projects.map((p) => p.id);
-    const [publications, metrics] = await Promise.all([listPublications(db, email, ids), listMetrics(db, email, ids)]);
+    const [publications, metrics, spaces] = await Promise.all([listPublications(db, email, ids), listMetrics(db, email, ids), listSpaces(db, true)]);
     return json({
       me: email,
       admin,
+      // AI STUDIO 프로젝트 — 자료는 모든 프로젝트 것을 보내고 화면이 고른 프로젝트로 거른다 (대시보드는 전체)
+      spaces,
       scope: all ? "all" : "mine",
       profiles,
       clients,

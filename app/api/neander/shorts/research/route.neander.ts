@@ -1,4 +1,5 @@
 import { adminDb } from "@/lib/neander/server/admin";
+import { requestDb } from "@/lib/neander/shorts/server/space-db";
 import { coupangProductId, countInfoRequests, emptyDomestic, emptyMetrics, INFO_REQUEST_KEYWORDS, isCoupangAffiliateUrl, measured, newId } from "@/lib/neander/shorts/model";
 import { requireShortsUser } from "@/lib/neander/shorts/server/access";
 import { coupangDeeplink, coupangSearch } from "@/lib/neander/shorts/server/coupang";
@@ -31,7 +32,7 @@ async function ytKey(db: ReturnType<typeof adminDb>, email: string, countSearch:
 export async function POST(req: Request) {
   try {
     const { email } = await requireShortsUser(req);
-    const db = adminDb();
+    const db = await requestDb(req, adminDb());
     const b = (await req.json()) as Record<string, unknown>;
     switch (b.action) {
       case "yt.search": {

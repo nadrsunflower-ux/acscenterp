@@ -13,6 +13,7 @@ import { shortsPost } from "@/lib/neander/shorts/client";
 import type { ExternalAccountStatus } from "@/lib/neander/shorts/external";
 import { PLATFORM_LABEL } from "@/lib/neander/shorts/model";
 import type { PublicationStatus, PublicationView } from "@/lib/neander/shorts/types";
+import { spaceOf } from "@/lib/neander/shorts/spaces";
 
 const ORDER: PublicationStatus[] = ["uncertain", "failed", "uploading", "processing", "queued", "scheduled", "published", "cancelled"];
 const TAB_LABEL: Record<PublicationStatus, string> = {
@@ -36,7 +37,9 @@ const tabLabel = (label: string, n: number) => (
 
 /** 밖에서 올린 게시물 자동 연결 — 계정별 마지막 확인 · 지금 확인 */
 function ExternalCard({ me, all, onSynced }: { me: string; all: boolean; onSynced: () => Promise<void> }) {
-  const { nameOf } = useShorts();
+  const { nameOf, data, space } = useShorts();
+  // 지금 프로젝트에 붙은 계정만 보여 준다 (확인은 내 모든 계정을 한 번에 — 영상은 계정의 프로젝트로 간다)
+  const hereIds = useMemo(() => new Set((data?.accounts ?? []).filter((a) => spaceOf(a) === space).map((a) => a.id)), [data, space]);
   const { busy, run } = useAction();
   const toast = useToast();
   const [rows, setRows] = useState<ExternalAccountStatus[] | null>(null);
@@ -47,6 +50,7 @@ function ExternalCard({ me, all, onSynced }: { me: string; all: boolean; onSynce
   useEffect(() => {
     void load();
   }, [load]);
+  const shown = rows ? rows.filter((r) => hereIds.has(r.accountId)) : null;
   const mine = (rows ?? []).filter((r) => r.owner === me);
   const sync = () =>
     void run("sync", async () => {
@@ -55,7 +59,7 @@ function ExternalCard({ me, all, onSynced }: { me: string; all: boolean; onSynce
       await onSynced();
       toast.success(r.imported ? `새로 올린 게시물 ${r.imported}건을 연결했습니다.` : "새로 연결할 게시물이 없습니다.");
     });
-  if (rows && !rows.length) return null;
+  if (shown && !shown.length && !mine.length) return null;
   return (
     <Card className="mb-4 space-y-3">
       <SectionHeader
@@ -69,11 +73,13 @@ function ExternalCard({ me, all, onSynced }: { me: string; all: boolean; onSynce
           )
         }
       />
-      {rows === null ? (
+      {shown === null ? (
         <p className="text-nd-body text-nd-fg-3">불러오는 중…</p>
+      ) : !shown.length ? (
+        <p className="text-nd-body text-nd-fg-3">이 프로젝트에 붙은 계정이 없습니다 — 「내 채널 · 연결」 에서 계정의 프로젝트를 고르세요. 「지금 확인」 은 내 모든 계정을 확인합니다.</p>
       ) : (
         <ul className="grid gap-2 sm:grid-cols-2">
-          {rows.map((r) => {
+          {shown.map((r) => {
             const Icon = r.platform === "youtube" ? SquarePlay : Camera;
             return (
               <li key={r.accountId} className="flex min-w-0 items-start gap-2.5 rounded-nd-md bg-nd-sunken px-3 py-2.5">
@@ -165,7 +171,7 @@ export default function PublishStatusPage() {
       .map((t) => ({ key: t.key, label: tabLabel(TAB_LABEL[t.key], t.n) })),
   ];
   // 게시할 수 있는 연결된 계정이 하나도 없을 때만 알린다 (실제 연결 상태 기준)
-  const noPublishAccount = !d.accounts.some((a) => a.canPublish && a.status === "connected");
+  const noPublishAccount = !sc.accounts.some((a) => a.canPublish && a.status === "connected");
 
   return (
     <PageShell>

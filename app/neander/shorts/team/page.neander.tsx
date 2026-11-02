@@ -17,6 +17,7 @@ import { useShorts } from "@/components/neander/shorts/ShortsProvider";
 import { Num, Unknown, fmtUsd } from "@/components/neander/shorts/parts";
 import { fmtPct, perfRates, projectCost, projectTotals, type PerfTotals } from "@/lib/neander/shorts/model";
 import type { AccountView } from "@/lib/neander/shorts/types";
+import { spaceOf } from "@/lib/neander/shorts/spaces";
 
 /** 영상별 합계를 더한다 — 지표마다 아는 값만 더하고, 아무 영상도 모르면 null(미확인) */
 function sumTotals(list: PerfTotals[]): PerfTotals {
@@ -30,7 +31,7 @@ function sumTotals(list: PerfTotals[]): PerfTotals {
 const KEY_LABEL = { none: ["키 없음", "neutral"], unverified: ["확인 전", "warning"], ok: ["확인됨", "success"], failed: ["확인 실패", "danger"] } as const;
 
 export default function TeamPage() {
-  const { data, viewer, setViewer, nameOf } = useShorts();
+  const { data, viewer, setViewer, nameOf, space } = useShorts();
   const { members } = useAppData();
   const d = data!;
   const router = useRouter();
@@ -49,13 +50,14 @@ export default function TeamPage() {
     }
     return [...emails]
       .map((email) => {
-        const projects = d.projects.filter((p) => p.owner === email && !p.sample);
+        // 지금 프로젝트의 것만 (대시보드가 전체)
+        const projects = d.projects.filter((p) => p.owner === email && !p.sample && spaceOf(p) === space);
         const ids = new Set(projects.map((p) => p.id));
         const pubs = d.publications.filter((x) => ids.has(x.projectId));
         // projectTotals 는 영상 한 편 단위다 — 게시에 안 묶인 쿠팡 기록은 플랫폼 열쇠 하나로 모이므로
         // 여러 편을 한꺼번에 넣으면 마지막 한 편만 남는다. 영상마다 합친 뒤 더한다 (성과 비교와 같은 방식)
         const totals = sumTotals(projects.map((p) => projectTotals(d.metrics.filter((m) => m.projectId === p.id))));
-        const accounts = d.accounts.filter((a) => a.owner === email);
+        const accounts = d.accounts.filter((a) => a.owner === email && spaceOf(a) === space);
         const profile = d.profiles.find((p) => p.owner === email);
         return {
           email,
@@ -72,7 +74,7 @@ export default function TeamPage() {
         };
       })
       .sort((a, b) => (a.email === d.me ? -1 : b.email === d.me ? 1 : nameOf(a.email).localeCompare(nameOf(b.email), "ko")));
-  }, [d, members, nameOf]);
+  }, [d, members, nameOf, space]);
 
   // 모르는 지표는 빼고 더한다 — 아무도 모르면 0 이 아니라 「미확인」
   const sum =(k: "views" | "infoRequests" | "clicks" | "orders" | "revenue") =>

@@ -7,6 +7,7 @@ import "server-only";
 //  영상 옮기기는 그 영상을 고칠 수 있는 사람만 (관리자라도 남의 비공개는 못 옮긴다).
 //  옮길 때 updatedAt 을 바꾸지 않는다 — 열어 둔 편집 화면의 저장이 「다른 곳에서 고쳤다」 로
 //  막히지 않게 (저장은 folderId 를 이전 값 그대로 둔다 · store.ts).
+//  폴더는 AI STUDIO 프로젝트마다 따로다 (spaceId · 감싼 db 면 그 프로젝트 폴더만) — 다른 프로젝트 영상은 넣지 않는다.
 // ============================================================
 
 import { randomBytes } from "node:crypto";
@@ -15,15 +16,19 @@ import { NEANDER_COL } from "@/lib/neander/collections";
 import { AccessError } from "@/lib/neander/server/auth";
 import { cleanFolderName, FOLDER_MAX_DEPTH, folderTree } from "../folders";
 import type { FolderDoc, FolderView, ProjectDoc } from "../types";
+import { spaceOf } from "../spaces";
 import { canEdit } from "./access";
+import { currentSpace, stampSpace } from "./space-db";
 
 const col = (db: Firestore) => db.collection(NEANDER_COL.shortsFolders);
 const projects = (db: Firestore) => db.collection(NEANDER_COL.shortsProjects);
 const isId = (v: unknown): v is string => typeof v === "string" && /^[\w-]{6,40}$/.test(v);
 
+/** 폴더 — 프로젝트로 감싼 db 면 그 프로젝트 것만, 아니면 전부 (대시보드) */
 export async function listFolders(db: Firestore): Promise<FolderView[]> {
   const snap = await col(db).get();
-  return snap.docs.map((d) => ({ ...(d.data() as FolderDoc), id: d.id }));
+  const space = currentSpace(db);
+  return snap.docs.map((d) => ({ ...(d.data() as FolderDoc), id: d.id })).filter((f) => !space || spaceOf(f) === space);
 }
 
 function assertUniqueName(siblings: readonly FolderView[], name: string, except?: string) {
@@ -42,7 +47,7 @@ export async function createFolder(db: Firestore, email: string, input: { name?:
   assertUniqueName(tree.children.get(parentId) ?? [], name);
   const now = Date.now();
   const id = randomBytes(9).toString("base64url");
-  const doc: FolderDoc = { name, parentId, createdBy: email, createdAt: now, updatedAt: now };
+  const doc: FolderDoc = { name, parentId, createdBy: email, createdAt: now, updatedAt: now, spaceId: stampSpace(db) };
   await col(db).doc(id).create(doc);
   return { ...doc, id };
 }
@@ -89,13 +94,15 @@ export async function moveProjects(db: Firestore, email: string, idsIn: unknown,
   const ids = Array.isArray(idsIn) ? [...new Set(idsIn.filter(isId))].slice(0, 200) : [];
   if (!ids.length) throw new Error("옮길 영상을 골라 주세요.");
   const folderId = folderIdIn == null || folderIdIn === "" ? null : String(folderIdIn);
-  if (folderId && !(await col(db).doc(folderId).get()).exists) throw new AccessError(404, "옮길 폴더를 찾지 못했습니다. 지워졌을 수 있습니다.");
+  const folder = folderId ? ((await col(db).doc(folderId).get()).data() as FolderDoc | undefined) : null;
+  if (folderId && !folder) throw new AccessError(404, "옮길 폴더를 찾지 못했습니다. 지워졌을 수 있습니다.");
   const refs = ids.map((id) => projects(db).doc(id));
   const snaps = await db.getAll(...refs);
   for (const s of snaps) {
     const p = s.data() as ProjectDoc | undefined;
     if (!p) throw new AccessError(404, "영상을 찾지 못했습니다. 지워졌을 수 있습니다.");
     if (!canEdit(p, email)) throw new AccessError(403, `「${p.title}」 은(는) 다른 사람의 비공개 영상이라 옮길 수 없습니다.`);
+    if (folder && spaceOf(folder) !== spaceOf(p)) throw new Error(`「${p.title}」 은(는) 다른 프로젝트의 영상이라 이 폴더에 넣을 수 없습니다.`);
   }
   const batch = db.batch();
   for (const s of snaps) if ((s.data() as ProjectDoc).folderId !== folderId) batch.update(s.ref, { folderId });

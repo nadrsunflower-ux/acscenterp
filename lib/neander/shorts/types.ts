@@ -40,6 +40,8 @@ export interface Owned {
   createdAt: number;
   updatedAt: number;
   updatedBy: string;
+  /** AI STUDIO 프로젝트(채널 단위 · spaces.ts) — 없으면 처음부터 있던 「살림설계사무소」. 만들 때만 찍는다 */
+  spaceId?: string;
 }
 
 // ---- 소재 · 트렌드 ------------------------------------------------
@@ -500,6 +502,8 @@ export interface VersionDoc {
 /** AI STUDIO 공용 폴더 나무 한 칸 (shorts/folders.ts) */
 export interface FolderDoc {
   name: string;
+  /** AI STUDIO 프로젝트 — 없으면 「살림설계사무소」 (spaces.ts) */
+  spaceId?: string;
   /** 위 폴더 — 맨 위면 null */
   parentId: string | null;
   createdBy: string;
@@ -618,6 +622,8 @@ export type AccountAuthMode = "google_oauth" | "facebook_login" | "manual_token"
 
 export interface AccountDoc {
   owner: string;
+  /** 이 계정으로 올리는 AI STUDIO 프로젝트 — 없으면 「살림설계사무소」 (spaces.ts) */
+  spaceId?: string;
   platform: PublishPlatform;
   authMode: AccountAuthMode;
   /** YouTube 채널 id · Instagram 프로페셔널 계정 id */

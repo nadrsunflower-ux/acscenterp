@@ -1,4 +1,5 @@
 import { adminDb } from "@/lib/neander/server/admin";
+import { requestDb } from "@/lib/neander/shorts/server/space-db";
 import { requireShortsUser } from "@/lib/neander/shorts/server/access";
 import { openrouterConfigured } from "@/lib/neander/shorts/server/ai";
 import { fail, json } from "@/lib/neander/shorts/server/http";
@@ -24,7 +25,7 @@ export const maxDuration = 120;
 export async function GET(req: Request) {
   try {
     const { email } = await requireShortsUser(req);
-    const db = adminDb();
+    const db = await requestDb(req, adminDb());
     const u = new URL(req.url);
     const id = u.searchParams.get("id");
     if (id && u.searchParams.has("photo")) return json({ dataUrl: await scriptSessionPhoto(db, email, id, u.searchParams.get("photo")) });
@@ -39,7 +40,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const { email } = await requireShortsUser(req);
-    const db = adminDb();
+    const db = await requestDb(req, adminDb());
     const b = (await req.json()) as Record<string, unknown>;
     switch (b.action) {
       case "create":

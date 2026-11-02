@@ -58,6 +58,8 @@ import type {
   Visibility,
 } from "../types";
 import { assertOwner, assertRead, canRead } from "./access";
+import { currentSpace, rootDb, stampSpace } from "./space-db";
+import { spaceOf } from "../spaces";
 
 // ---- 다듬기 도구 ------------------------------------------------------
 
@@ -196,11 +198,18 @@ export function sanitizeTrend(input: unknown, prev: TrendDoc | undefined, email:
   };
 }
 
+/** 프로젝트로 감싼 db 면 그 프로젝트 것만, 아니면 전부 (대시보드 · 전역 집계) */
+const inSpace = (db: Firestore) => {
+  const space = currentSpace(db);
+  return (d: { spaceId?: string | null }) => !space || spaceOf(d) === space;
+};
+
 export async function listTrends(db: Firestore, email: string, admin = false): Promise<(TrendDoc & { id: string })[]> {
   const snap = await trends(db).get();
   return snap.docs
     .map((d) => ({ ...(d.data() as TrendDoc), id: d.id }))
     .filter((t) => canRead(t, email, admin))
+    .filter(inSpace(db))
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
@@ -215,7 +224,7 @@ export async function saveTrend(db: Firestore, email: string, id: unknown, input
     return id;
   }
   const newId = newDocId();
-  await trends(db).doc(newId).set(sanitizeTrend(input, undefined, email));
+  await trends(db).doc(newId).set({ ...sanitizeTrend(input, undefined, email), spaceId: stampSpace(db) });
   return newId;
 }
 
@@ -266,6 +275,7 @@ export async function writeTrendFromApi(
       updatedAt: now,
       updatedBy: email,
       viewHistory: history.slice(-50),
+      spaceId: prev ? spaceOf(prev) : stampSpace(db),
     } satisfies TrendDoc);
   });
   return ref.id;
@@ -669,6 +679,7 @@ export async function listProjects(db: Firestore, email: string, admin = false):
       return { ...rest, id: d.id };
     })
     .filter((p) => canRead(p, email, admin))
+    .filter(inSpace(db))
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
@@ -703,6 +714,7 @@ export async function createProject(
     visibility: vis(input.visibility),
     kind: input.kind === "general" ? "general" : "coupang",
   });
+  p.spaceId = stampSpace(db);
   if (trendId) {
     const t = await getTrend(db, email, trendId);
     // 소재의 원본 영상을 첫 소스로 · 참고 자료로 옮긴다
@@ -886,6 +898,7 @@ export function sanitizeTemplate(input: unknown, prev: TemplateDoc | undefined, 
       basis: arr(origin.basis, 2).filter((b): b is "transcript" | "timing" => b === "transcript" || b === "timing"),
     },
     sample: prev?.sample ?? false,
+    ...(prev?.spaceId ? { spaceId: prev.spaceId } : {}),
   };
 }
 
@@ -894,6 +907,7 @@ export async function listTemplates(db: Firestore, email: string, admin = false)
   return snap.docs
     .map((d) => ({ ...(d.data() as TemplateDoc), id: d.id }))
     .filter((t) => canRead(t, email, admin))
+    .filter(inSpace(db))
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
@@ -908,7 +922,7 @@ export async function saveTemplate(db: Firestore, email: string, id: unknown, in
     return id;
   }
   const newId = newDocId();
-  await templates(db).doc(newId).set(sanitizeTemplate(input, undefined, email));
+  await templates(db).doc(newId).set({ ...sanitizeTemplate(input, undefined, email), spaceId: stampSpace(db) });
   return newId;
 }
 
@@ -920,7 +934,8 @@ export async function deleteTemplate(db: Firestore, email: string, id: unknown):
 
 // ---- 설정 (점수 가중치) ------------------------------------------------
 
-const settings = (db: Firestore) => db.collection(NEANDER_COL.shortsSettings);
+// 사람별 가중치 · YouTube 검색 같은 외부 한도는 프로젝트와 상관없는 전역 (space-db.ts)
+const settings = (db: Firestore) => rootDb(db).collection(NEANDER_COL.shortsSettings);
 
 export async function getWeights(db: Firestore, email: string): Promise<ScoreWeights> {
   const d = (await settings(db).doc(`user_${email}`).get()).data() as { weights?: ScoreWeights } | undefined;

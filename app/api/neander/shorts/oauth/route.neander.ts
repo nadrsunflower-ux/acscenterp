@@ -1,4 +1,5 @@
 import { adminDb } from "@/lib/neander/server/admin";
+import { requestDb } from "@/lib/neander/shorts/server/space-db";
 import { requireShortsUser } from "@/lib/neander/shorts/server/access";
 import { startOAuth } from "@/lib/neander/shorts/server/accounts";
 import { fail, json } from "@/lib/neander/shorts/server/http";
@@ -14,7 +15,7 @@ export async function POST(req: Request) {
     if (!platform) throw new Error("연결할 플랫폼을 골라 주세요.");
     const origin = new URL(req.url).origin;
     // clientId 가 있으면 그 고객사 소유 계정으로 연결한다 (담당자만)
-    return json({ url: await startOAuth(adminDb(), email, platform, origin, b.clientId) });
+    return json({ url: await startOAuth(await requestDb(req, adminDb()), email, platform, origin, b.clientId) });
   } catch (e) {
     return fail(e);
   }

@@ -88,6 +88,7 @@ import {
   youtubeVideoId,
   type BrowsePlatform,
 } from "@/lib/neander/shorts/model";
+import { spaceOf } from "@/lib/neander/shorts/spaces";
 import type { ScoreWeights, ShortsPlatform, TrendDoc, TrendMetricKey } from "@/lib/neander/shorts/types";
 
 interface YtItem {
@@ -112,7 +113,7 @@ const REGIONS = [
 ];
 
 export default function TrendsPage() {
-  const { data, refresh, nameOf } = useShorts();
+  const { data, refresh, nameOf, space } = useShorts();
   const d = data!;
   const sc = useScoped();
   const router = useRouter();
@@ -154,7 +155,8 @@ export default function TrendsPage() {
         text: `${PLATFORM_LABEL[platform]} 영상 주소가 아닌 것 같습니다 — 검색 · 탐색 화면 주소 말고, 영상을 연 화면의 주소나 「공유 → 링크 복사」 로 가져온 주소를 넣어 주세요.`,
       });
     }
-    const dup = d.trends.find((t) => t.url && videoKey(t.url) === key);
+    // 같은 프로젝트 안에서만 겹침을 본다 (다른 채널에서 저장한 소재는 따로)
+    const dup = d.trends.find((t) => t.url && videoKey(t.url) === key && spaceOf(t) === space);
     if (dup) {
       setLinkNote({ tone: "info", text: `이미 저장한 소재입니다 — 「${dup.title || dup.product || dup.url}」 을 열었습니다.` });
       setEditing(dup);

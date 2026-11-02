@@ -100,7 +100,8 @@ function ProjectsInner() {
   const toast = useToast();
   const ask = useConfirm();
 
-  const tree = useMemo(() => folderTree(d.folders ?? []), [d.folders]);
+  // 폴더도 프로젝트마다 따로 (useScoped)
+  const tree = useMemo(() => folderTree(sc.folders), [sc.folders]);
   const [memory, setMemory] = useState<Memory>({ last: null, expanded: [] });
   const [memoryReady, setMemoryReady] = useState(false);
   useEffect(() => {
@@ -549,7 +550,9 @@ function VideoRow({
 
 function NewProjectDialog({ folderName, onClose, onCreated }: { folderName: string | null; onClose: () => void; onCreated: (id: string) => Promise<void> }) {
   const { busy, run } = useAction();
-  const [f, setF] = useState({ kind: "coupang", title: "", product: "", category: "", visibility: "private" });
+  // 새 영상 기본 종류는 지금 프로젝트의 설정에서
+  const { currentSpace } = useShorts();
+  const [f, setF] = useState<{ kind: string; title: string; product: string; category: string; visibility: string }>({ kind: currentSpace?.defaultKind ?? "coupang", title: "", product: "", category: "", visibility: "private" });
   return (
     <Dialog
       open

@@ -49,6 +49,11 @@ export interface ScoutAutoSettings {
   /** 하루에 한국 확인할 카드 수 (카드 하나에 국내 검색 1회) */
   koreaPerDay: number;
   narrate: boolean;
+  /**
+   * 나라마다 해외 채널 찾기 검색어 — 비어 있으면 「살림설계사무소」 는 AUTO_COUNTRY_SEARCH 의 살림 검색어,
+   * 다른 AI STUDIO 프로젝트는 그 나라를 건너뛴다 (주제가 달라서)
+   */
+  queries?: Partial<Record<AutoCountry, string[]>>;
   updatedAt: number;
   updatedBy: string;
 }
@@ -89,12 +94,16 @@ export interface ScoutAutoSummary {
 /** 자동으로 넣은 감시 채널 표시 (주제 칸) */
 export const AUTO_TOPIC = "자동 추가";
 
-/** 날마다 검색어를 돌린다 — 같은 날 다시 돌리면 같은 검색어 */
-export function pickAutoQuery(country: AutoCountry, day: string): string {
-  const qs = AUTO_COUNTRY_SEARCH[country].queries;
+/** 날마다 검색어를 돌린다 — 같은 날 다시 돌리면 같은 검색어. custom 이 있으면 그것에서 */
+export function pickAutoQuery(country: AutoCountry, day: string, custom?: readonly string[]): string {
+  const qs = custom?.length ? custom : AUTO_COUNTRY_SEARCH[country].queries;
   const n = Math.floor(Date.parse(`${day}T00:00:00Z`) / 86_400_000);
   return qs[(Number.isFinite(n) ? n : 0) % qs.length];
 }
+
+/** 검색어 칸(쉼표 · 줄바꿈) → 목록 */
+export const parseAutoQueries = (v: unknown): string[] =>
+  [...new Set((Array.isArray(v) ? v.map(String) : String(v ?? "").split(/[,\n]/)).map((q) => q.replace(/\s+/g, " ").trim().slice(0, 60)).filter(Boolean))].slice(0, 12);
 
 /** 국내 표본에서 같은 형식으로 고른 수 → 상태. 0 은 「표본에 없음」 일 뿐 국내에 없다는 단정이 아니다 */
 export const koreaStatusFromMatches = (n: number): KoreaStatus => (n <= 0 ? "none_in_sample" : n >= 3 ? "spread" : "some");
@@ -127,6 +136,10 @@ export function sanitizeScoutAuto(input: unknown, prev: ScoutAutoSettings, by: s
     koreaCheck: bool(r.koreaCheck, prev.koreaCheck),
     koreaPerDay: Math.round(num(r.koreaPerDay, 0, 6, prev.koreaPerDay)),
     narrate: bool(r.narrate, prev.narrate),
+    queries:
+      r.queries && typeof r.queries === "object"
+        ? Object.fromEntries(AUTO_COUNTRIES.map((c) => [c, parseAutoQueries((r.queries as Record<string, unknown>)[c])]).filter(([, q]) => (q as string[]).length))
+        : (prev.queries ?? {}),
     updatedAt: now,
     updatedBy: by,
   };

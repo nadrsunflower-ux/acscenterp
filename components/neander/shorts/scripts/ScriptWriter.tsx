@@ -378,7 +378,7 @@ function PhotoPicker({ photos, setPhotos, room }: { photos: PhotoDraft[]; setPho
 
 /** prefill — 트렌드 노트의 「대본으로」 처럼 다른 화면이 주소로 넘긴 제품 이름 · 정보 · 방식 */
 function NewScript({ onCreated, prefill }: { onCreated: (r: TurnResult) => void; prefill?: { product: string; info: string; style: WriterStyle } }) {
-  const { data } = useShorts();
+  const { data, currentSpace } = useShorts();
   const clients = data?.clients ?? [];
   const { busy, run } = useAction();
   const [model, setModel] = useModel();
@@ -389,11 +389,12 @@ function NewScript({ onCreated, prefill }: { onCreated: (r: TurnResult) => void;
     kind: "coupang" as WriterKind,
     clientId: "",
     cta: "",
-    targetSec: prefill?.style === "story" ? 45 : 30,
+    targetSec: (prefill?.style ?? currentSpace?.writerStyle) === "story" ? 45 : 30,
     ref: "auto",
     message: "",
   });
-  const [style, setStyle] = useState<WriterStyle>(prefill?.style ?? "intro");
+  // 기본 방식은 지금 프로젝트의 설정 (AI 생성 채널이면 스토리 광고)
+  const [style, setStyle] = useState<WriterStyle>(prefill?.style ?? currentSpace?.writerStyle ?? "intro");
   const [story, setStory] = useState({ problem: "", idea: "", characters: "", tone: STORY_TONES[0] as string, look: STORY_LOOKS[0] as string, endCard: "" });
   const [photos, setPhotos] = useState<PhotoDraft[]>([]);
   useEffect(() => {

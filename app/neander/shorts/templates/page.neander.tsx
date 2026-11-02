@@ -42,7 +42,8 @@ export default function TemplatesPage() {
   const { busy, run } = useAction();
   const [edit, setEdit] = useState<WithId<TemplateDoc> | null>(null);
   // 공식별 실제 성과 — 이 공식을 쓴 프로젝트들의 정보 요청률 · 클릭률
-  const totals = d.projects.map((p) => ({ project: p, totals: projectTotals(d.metrics.filter((m) => m.projectId === p.id)), templateName: null }));
+  // 지금 프로젝트의 영상만 (공식도 프로젝트마다 따로)
+  const totals = sc.projects.map((p) => ({ project: p, totals: projectTotals(sc.metrics.filter((m) => m.projectId === p.id)), templateName: null }));
   const perf = new Map(compareBy("template", totals).map((r) => [r.key, r]));
   // compareBy 는 모르는 값을 0 으로 더한다 — 그 공식의 영상 중 하나라도 그 지표를 아는지 따로 본다 (전부 모르면 「미확인」)
   const known = new Map<string, Known>();
@@ -51,7 +52,7 @@ export default function TemplatesPage() {
     const k = known.get(p.templateId) ?? { views: false, infoRequests: false, clicks: false };
     known.set(p.templateId, { views: k.views || x.views !== null, infoRequests: k.infoRequests || x.infoRequests !== null, clicks: k.clicks || x.clicks !== null });
   }
-  const projectName = new Map(d.projects.map((p) => [p.id, p.title || p.product || "(제목 없음)"]));
+  const projectName = new Map(sc.projects.map((p) => [p.id, p.title || p.product || "(제목 없음)"]));
 
   return (
     <PageShell>

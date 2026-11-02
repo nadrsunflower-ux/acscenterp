@@ -33,6 +33,8 @@ import {
   META_SCOPES,
 } from "./platforms";
 import { openTokens, sealTokens } from "./secret";
+import { DEFAULT_SPACE_ID, isSpaceId, spaceOf } from "../spaces";
+import { currentSpace, getSpace, stampSpace } from "./space-db";
 
 const col = (db: Firestore) => db.collection(NEANDER_COL.shortsAccounts);
 const oauthCol = (db: Firestore) => db.collection(NEANDER_COL.shortsOAuth);
@@ -57,7 +59,8 @@ export async function listAccounts(db: Firestore, email: string, admin = false):
         ])
       ).flatMap((s) => s.docs);
   const seen = new Map<string, AccountView>();
-  for (const d of docs) seen.set(d.id, toAccountView(d.id, d.data() as AccountDoc, email));
+  const space = currentSpace(db);
+  for (const d of docs) if (!space || spaceOf(d.data() as AccountDoc) === space) seen.set(d.id, toAccountView(d.id, d.data() as AccountDoc, email));
   return [...seen.values()].sort((a, b) => a.platform.localeCompare(b.platform) || a.externalName.localeCompare(b.externalName));
 }
 
@@ -109,7 +112,8 @@ export async function startOAuth(db: Firestore, email: string, platform: Publish
   const state = randomBytes(24).toString("base64url");
   const redirectUri = callbackUrl(origin);
   const url = platform === "youtube" ? googleAuthUrl(redirectUri, state) : metaAuthUrl(redirectUri, state);
-  await oauthCol(db).doc(state).set({ owner: email, platform, redirectUri, clientId: client?.id ?? null, expiresAt: Date.now() + 10 * 60_000 });
+  // 연결을 시작한 화면의 프로젝트 — 새 계정은 그 프로젝트에 붙는다 (다시 연결한 계정은 원래 프로젝트 그대로)
+  await oauthCol(db).doc(state).set({ owner: email, platform, redirectUri, clientId: client?.id ?? null, spaceId: stampSpace(db), expiresAt: Date.now() + 10 * 60_000 });
   return url;
 }
 
@@ -120,7 +124,7 @@ const clientAccountId = (platform: PublishPlatform, externalId: string, clientId
 export async function finishOAuth(db: Firestore, state: string, code: string): Promise<{ owner: string; platform: PublishPlatform; created: number }> {
   if (!/^[\w-]{20,60}$/.test(state)) throw new Error("연결 요청이 올바르지 않습니다.");
   const ref = oauthCol(db).doc(state);
-  const s = (await ref.get()).data() as { owner: string; platform: PublishPlatform; redirectUri: string; clientId?: string | null; expiresAt: number } | undefined;
+  const s = (await ref.get()).data() as { owner: string; platform: PublishPlatform; redirectUri: string; clientId?: string | null; spaceId?: string; expiresAt: number } | undefined;
   await ref.delete().catch(() => undefined);
   if (!s || s.expiresAt < Date.now()) throw new Error("연결 요청이 만료됐습니다. ERP 에서 다시 시작해 주세요.");
   const allow = shortsAllowlist();
@@ -151,6 +155,7 @@ export async function finishOAuth(db: Firestore, state: string, code: string): P
         coupangChannel: prev?.coupangChannel ?? null,
         coupangSubId: prev?.coupangSubId ?? null,
         ...clientFields,
+        spaceId: prev ? spaceOf(prev) : s.spaceId || DEFAULT_SPACE_ID,
         createdAt: prev?.createdAt ?? now,
         updatedAt: now,
       };
@@ -179,6 +184,7 @@ export async function finishOAuth(db: Firestore, state: string, code: string): P
         coupangChannel: prev?.coupangChannel ?? null,
         coupangSubId: prev?.coupangSubId ?? null,
         ...clientFields,
+        spaceId: prev ? spaceOf(prev) : s.spaceId || DEFAULT_SPACE_ID,
         createdAt: prev?.createdAt ?? now,
         updatedAt: now,
       };
@@ -215,18 +221,19 @@ export async function addManualInstagram(db: Firestore, email: string, input: { 
     coupangSubId: prev?.coupangSubId ?? null,
     clientId: client?.id ?? null,
     clientMembers: client?.members ?? [],
+    spaceId: prev ? spaceOf(prev) : stampSpace(db),
     createdAt: prev?.createdAt ?? now,
     updatedAt: now,
   } satisfies AccountDoc);
   return id;
 }
 
-/** 소유자만 — 공유 대상 · 쿠팡 활동 채널 등록 확인 기록 */
+/** 소유자만 — 공유 대상 · 쿠팡 활동 채널 등록 확인 기록 · 어느 프로젝트의 계정인가 */
 export async function updateAccount(
   db: Firestore,
   email: string,
   id: unknown,
-  patch: { sharedWith?: unknown; coupangChannel?: unknown; coupangSubId?: unknown },
+  patch: { sharedWith?: unknown; coupangChannel?: unknown; coupangSubId?: unknown; spaceId?: unknown },
 ): Promise<AccountView> {
   if (!isId(id)) throw new Error("계정 id 가 올바르지 않습니다.");
   const ref = col(db).doc(id);
@@ -253,6 +260,10 @@ export async function updateAccount(
   if (patch.coupangChannel !== undefined) {
     const c = patch.coupangChannel as { registered?: unknown; url?: unknown } | null;
     next.coupangChannel = c && c.registered === true ? { registered: true, by: email, at: Date.now(), url: String(c.url ?? "").slice(0, 300) } : null;
+  }
+  if (patch.spaceId !== undefined) {
+    if (!isSpaceId(patch.spaceId) || !(await getSpace(db, patch.spaceId))) throw new Error("옮길 프로젝트를 찾지 못했습니다.");
+    next.spaceId = patch.spaceId;
   }
   await ref.set(next);
   return toAccountView(id, next, email);

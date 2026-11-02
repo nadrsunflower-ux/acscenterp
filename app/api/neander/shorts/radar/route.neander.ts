@@ -1,4 +1,5 @@
 import { adminDb } from "@/lib/neander/server/admin";
+import { requestDb } from "@/lib/neander/shorts/server/space-db";
 import { AccessError } from "@/lib/neander/server/auth";
 import { isShortsAdmin, requireShortsUser } from "@/lib/neander/shorts/server/access";
 import { openrouterConfigured } from "@/lib/neander/shorts/server/ai";
@@ -30,7 +31,7 @@ export const maxDuration = 120;
 export async function GET(req: Request) {
   try {
     const { email } = await requireShortsUser(req);
-    const db = adminDb();
+    const db = await requestDb(req, adminDb());
     // 댓글 원문 — ?comments=<후보 id>&order=relevance|time&page=<다음 쪽>
     const u = new URL(req.url);
     if (u.searchParams.has("comments")) {
@@ -55,7 +56,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const { email } = await requireShortsUser(req);
-    const db = adminDb();
+    const db = await requestDb(req, adminDb());
     const b = (await req.json()) as Record<string, unknown>;
     switch (b.action) {
       case "run":

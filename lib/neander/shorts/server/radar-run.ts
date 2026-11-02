@@ -38,6 +38,8 @@ import { computeBaseline, isShortLike, multipleOf } from "../scout";
 import type { TrendDoc } from "../types";
 import { openrouterConfigured, radarIdentify, type RadarIdentifyItem } from "./ai";
 import { naverConfig, naverWeeklySeries } from "./naver";
+import { DEFAULT_SPACE_ID } from "../spaces";
+import { spaceNiche, stampSpace } from "./space-db";
 import { getTrend, takeQuota, writeTrendFromApi } from "./store";
 import { YT_SEARCH_DAILY_LIMIT, youtubeApiKey, youtubeCommentSample, youtubeComments, youtubeRecentUploads, youtubeSearch, youtubeVideos, type YoutubeComment, type YoutubeSearchItem } from "./youtube-data";
 
@@ -64,7 +66,9 @@ const KEEP_DAYS = 45;
 
 export async function getRadarSettings(db: Firestore): Promise<RadarSettings> {
   const d = (await settingsCol(db).doc("radar").get()).data() as Partial<RadarSettings> | undefined;
-  return { ...DEFAULT_RADAR_SETTINGS, ...(d ?? {}) };
+  // 기본 검색어는 살림 주제 — 새 AI STUDIO 프로젝트는 빈 검색어로 시작
+  const fresh = !d && stampSpace(db) !== DEFAULT_SPACE_ID ? { keywords: [] } : {};
+  return { ...DEFAULT_RADAR_SETTINGS, ...fresh, ...(d ?? {}) };
 }
 
 export async function saveRadarSettings(db: Firestore, by: string, input: unknown): Promise<RadarSettings> {
@@ -199,9 +203,10 @@ export async function reanalyzeRadar(
   const [v] = key ? await youtubeVideos([r.videoId], key).catch(() => []) : [];
   const comments = key && (r.comments ?? 0) > 0 ? await youtubeCommentSample(r.videoId, 50, key).catch(() => []) : [];
   const notes = r.notes ?? [];
-  const out = await radarIdentify([
-    { videoId: r.videoId, title: v?.title || r.title, channel: r.channel, description: v?.description ?? "", tags: v?.tags ?? [], comments, notes: notes.map((n) => n.text), filmed: r.filmed?.value ?? null },
-  ]);
+  const out = await radarIdentify(
+    [{ videoId: r.videoId, title: v?.title || r.title, channel: r.channel, description: v?.description ?? "", tags: v?.tags ?? [], comments, notes: notes.map((n) => n.text), filmed: r.filmed?.value ?? null }],
+    await spaceNiche(db),
+  );
   await addRadarSpend(db, spendKey, out.costUsd);
   const it = out.items[0];
   if (!it) throw new Error("AI 가 답을 주지 않았습니다 — 잠시 뒤 다시 해 주세요.");
@@ -463,6 +468,7 @@ export async function runRadar(db: Firestore, o: RadarRunOptions): Promise<Radar
     for (let i = 0; i < missing.length; i += 50) {
       for (const v of await youtubeVideos(missing.slice(i, i + 50), key).catch(() => [])) vids.set(v.id, v);
     }
+    const niche = await spaceNiche(db);
     const identify = async (batch: RadarDoc[]): Promise<{ items: Awaited<ReturnType<typeof radarIdentify>>["items"]; costUsd: number; model: string; calls: number }> => {
       try {
         const r = await radarIdentify(
@@ -476,6 +482,7 @@ export async function runRadar(db: Firestore, o: RadarRunOptions): Promise<Radar
             notes: (d.notes ?? []).map((n) => n.text),
             filmed: d.filmed?.value ?? null,
           })),
+          niche,
         );
         return { ...r, calls: 1 };
       } catch (e) {

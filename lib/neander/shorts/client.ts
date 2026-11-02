@@ -9,7 +9,15 @@
 // ============================================================
 
 import { getNeanderAuth } from "@/lib/neander/firebase";
+import { SPACE_HEADER } from "./spaces";
 import type { MediaKind, MediaView } from "./types";
+
+/** 지금 고른 프로젝트 — ShortsProvider 가 정하고, 모든 요청 머리글에 붙인다 (서버 space-db.ts) */
+let currentSpace = "";
+export const setShortsSpace = (id: string) => {
+  currentSpace = id;
+};
+const spaceHeader = (): Record<string, string> => (currentSpace ? { [SPACE_HEADER]: currentSpace } : {});
 
 async function token(): Promise<string> {
   const user = getNeanderAuth().currentUser;
@@ -37,7 +45,7 @@ async function readError(res: Response): Promise<ShortsApiError> {
 }
 
 export async function shortsGet<T>(path: string): Promise<T> {
-  const res = await fetch(`/api/neander/shorts/${path}`, { headers: { Authorization: `Bearer ${await token()}` }, cache: "no-store" });
+  const res = await fetch(`/api/neander/shorts/${path}`, { headers: { Authorization: `Bearer ${await token()}`, ...spaceHeader() }, cache: "no-store" });
   if (!res.ok) throw await readError(res);
   return (await res.json()) as T;
 }
@@ -45,7 +53,7 @@ export async function shortsGet<T>(path: string): Promise<T> {
 export async function shortsPost<T>(path: string, body: object): Promise<T> {
   const res = await fetch(`/api/neander/shorts/${path}`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${await token()}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${await token()}`, "Content-Type": "application/json", ...spaceHeader() },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw await readError(res);

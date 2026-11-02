@@ -29,6 +29,8 @@ import type { AccountDoc, ProjectDoc, PublicationDoc, PublishPlatform } from "..
 import { accountTokens } from "./accounts";
 import { syncPublicationMetrics } from "./metrics";
 import { instagramRecentMedia, youtubeChannelUploads } from "./platforms";
+import { DEFAULT_SPACE_ID, spaceOf } from "../spaces";
+import { rootDb, spaceDb } from "./space-db";
 import { createProject, deleteProject, getProject, patchProject } from "./store";
 
 const pubsCol = (db: Firestore) => db.collection(NEANDER_COL.shortsPublications);
@@ -55,18 +57,26 @@ export interface ExternalSyncResult {
   publicationIds: string[];
 }
 
-/** 이 사람(소유자)의 다른 플랫폼 게시 중 짝이 될 수 있는 것 — 그 영상에 이 플랫폼 게시가 아직 없을 때만 */
-async function pairCandidates(db: Firestore, owner: string, platform: PublishPlatform): Promise<PairCandidate[]> {
+/**
+ * 이 사람(소유자)의 다른 플랫폼 게시 중 짝이 될 수 있는 것 — 그 영상에 이 플랫폼 게시가 아직 없고,
+ * 같은 AI STUDIO 프로젝트의 영상일 때만 (다른 채널의 영상과 묶지 않는다)
+ */
+async function pairCandidates(db: Firestore, owner: string, platform: PublishPlatform, space: string): Promise<PairCandidate[]> {
   const snap = await pubsCol(db).where("owner", "==", owner).get();
   const pubs = snap.docs.map((d) => ({ id: d.id, p: d.data() as PublicationDoc }));
   const hasThis = new Set(pubs.filter((x) => x.p.platform === platform && !["failed", "cancelled"].includes(x.p.status)).map((x) => x.p.projectId));
-  return pubs
-    .filter((x) => x.p.platform !== platform && x.p.status === "published" && x.p.result && !hasThis.has(x.p.projectId))
+  const open = pubs.filter((x) => x.p.platform !== platform && x.p.status === "published" && x.p.result && !hasThis.has(x.p.projectId));
+  const ids = [...new Set(open.map((x) => x.p.projectId))];
+  const projSpace = new Map<string, string>();
+  if (ids.length) for (const d of await db.getAll(...ids.map((id) => db.collection(NEANDER_COL.shortsProjects).doc(id)))) if (d.exists) projSpace.set(d.id, spaceOf(d.data() as ProjectDoc));
+  return open
+    .filter((x) => projSpace.get(x.p.projectId) === space)
     .map((x) => ({ publicationId: x.id, projectId: x.p.projectId, platform: x.p.platform, at: x.p.result!.at, text: `${x.p.meta?.title ?? ""}\n${x.p.meta?.caption ?? ""}` }));
 }
 
-async function newExternalProject(db: Firestore, owner: string, by: string, platform: PublishPlatform, post: Pick<ExternalPost, "title" | "caption" | "publishedAt" | "url">, accountName: string): Promise<string> {
-  const id = await createProject(db, owner, {
+async function newExternalProject(db: Firestore, owner: string, by: string, platform: PublishPlatform, post: Pick<ExternalPost, "title" | "caption" | "publishedAt" | "url">, accountName: string, space: string): Promise<string> {
+  // 계정이 붙은 프로젝트의 영상으로 만든다
+  const id = await createProject(spaceDb(db, space), owner, {
     title: externalProjectTitle(platform, post),
     kind: "general",
     notes: `밖에서 올린 게시물을 찾아 자동으로 만든 영상입니다.\n${PLATFORM_LABEL[platform]} · ${accountName}${post.url ? ` · ${post.url}` : ""}`,
@@ -103,10 +113,10 @@ async function readAccount(db: Firestore, id: string, a: AccountDoc, o: External
 /** 붙이기 하나 — 같은 영상의 다른 플랫폼 게시가 있으면 거기에, 없으면 새 영상 */
 async function importPost(db: Firestore, run: AccountRun, post: ExternalPost, pending: PairCandidate[], o: ExternalSyncOptions, now: number, out: ExternalSyncResult) {
   const { id, a } = run;
-  const picked = pickPartner(a.platform, post, [...(await pairCandidates(db, a.owner, a.platform)), ...pending]);
+  const picked = pickPartner(a.platform, post, [...(await pairCandidates(db, a.owner, a.platform, spaceOf(a))), ...pending]);
   // 짝이 아직 붙이지 않은 게시물이면 이것이 영상을 만들고, 그쪽이 차례가 오면 여기에 붙는다
   const partner = picked && !picked.candidate.pending ? picked : null;
-  const projectId = partner ? partner.candidate.projectId : await newExternalProject(db, a.owner, o.by, a.platform, post, a.externalName);
+  const projectId = partner ? partner.candidate.projectId : await newExternalProject(db, a.owner, o.by, a.platform, post, a.externalName, spaceOf(a));
   const pubId = externalPublicationId(id, post.externalId);
   const doc: PublicationDoc = {
     owner: a.owner,
@@ -176,7 +186,9 @@ async function importPost(db: Firestore, run: AccountRun, post: ExternalPost, pe
  * 모든 계정의 새 게시물을 **올린 시각 순서로** 붙인다 — 같은 영상을 두 플랫폼에 올렸을 때
  * 먼저 올린 쪽이 영상을 만들고 나중 것이 거기에 붙는다 (계정을 읽는 순서와 상관없이).
  */
-export async function syncExternalPosts(db: Firestore, o: ExternalSyncOptions): Promise<ExternalSyncResult> {
+export async function syncExternalPosts(dbIn: Firestore, o: ExternalSyncOptions): Promise<ExternalSyncResult> {
+  // 계정 · 게시 · 장부는 프로젝트와 상관없이 하나 — 새 영상만 계정의 프로젝트에 만든다
+  const db = rootDb(dbIn);
   const now = o.now ?? Date.now();
   const snap = o.owner ? await db.collection(NEANDER_COL.shortsAccounts).where("owner", "==", o.owner).get() : await db.collection(NEANDER_COL.shortsAccounts).get();
   const out: ExternalSyncResult = { accounts: [], imported: 0, publicationIds: [] };
@@ -207,7 +219,7 @@ export async function syncExternalPosts(db: Firestore, o: ExternalSyncOptions): 
     // 같은 사람의 · 아직 차례가 안 온 다른 플랫폼 게시물 (올린 시각 순이라 뒤에 있는 것)
     const pending: PairCandidate[] = queue
       .slice(i + 1)
-      .filter((q) => q.run.a.owner === run.a.owner && q.run.a.platform !== run.a.platform)
+      .filter((q) => q.run.a.owner === run.a.owner && q.run.a.platform !== run.a.platform && spaceOf(q.run.a) === spaceOf(run.a))
       .map((q) => ({ publicationId: "", projectId: "", platform: q.run.a.platform, at: q.post.publishedAt, text: `${q.post.title}\n${q.post.caption}`, pending: true }));
     await importPost(db, run, post, pending, o, now, out);
   }
@@ -224,7 +236,8 @@ export async function syncExternalPosts(db: Firestore, o: ExternalSyncOptions): 
 }
 
 /** 게시 현황 위 상태 — 내가 연결한 계정마다 (관리자는 모든 계정) */
-export async function externalStatus(db: Firestore, email: string, all = false, prefix = ""): Promise<ExternalAccountStatus[]> {
+export async function externalStatus(dbIn: Firestore, email: string, all = false, prefix = ""): Promise<ExternalAccountStatus[]> {
+  const db = rootDb(dbIn);
   const snap = all ? await db.collection(NEANDER_COL.shortsAccounts).get() : await db.collection(NEANDER_COL.shortsAccounts).where("owner", "==", email).get();
   const out: ExternalAccountStatus[] = [];
   for (const d of snap.docs) {
@@ -251,7 +264,8 @@ export async function externalStatus(db: Firestore, email: string, all = false, 
  * 밖에서 올린 게시를 다른 영상으로 옮기기 (자동으로 잘못 붙었을 때 · ERP 에서 기획한 영상에 붙일 때).
  * projectId = "new" 면 새 영상으로 떼어 낸다. 성과 기록도 함께 옮기고, 자동으로 만든 빈 영상은 지운다.
  */
-export async function attachExternal(db: Firestore, email: string, input: { publicationId?: unknown; projectId?: unknown }): Promise<{ projectId: string }> {
+export async function attachExternal(dbIn: Firestore, email: string, input: { publicationId?: unknown; projectId?: unknown }): Promise<{ projectId: string }> {
+  const db = rootDb(dbIn);
   const pid = typeof input.publicationId === "string" && /^[\w-]{6,160}$/.test(input.publicationId) ? input.publicationId : "";
   if (!pid) throw new Error("게시 기록 id 가 올바르지 않습니다.");
   const ref = pubsCol(db).doc(pid);
@@ -264,7 +278,8 @@ export async function attachExternal(db: Firestore, email: string, input: { publ
   let target: string;
   if (input.projectId === "new") {
     const acc = (await db.collection(NEANDER_COL.shortsAccounts).doc(p.accountId).get()).data() as AccountDoc | undefined;
-    target = await newExternalProject(db, email, email, p.platform, { title: p.meta.title, caption: p.meta.caption, publishedAt: p.result?.at ?? now, url: p.result?.url ?? "" }, acc?.externalName ?? "");
+    const fromProject = (await db.collection(NEANDER_COL.shortsProjects).doc(from).get()).data() as ProjectDoc | undefined;
+    target = await newExternalProject(db, email, email, p.platform, { title: p.meta.title, caption: p.meta.caption, publishedAt: p.result?.at ?? now, url: p.result?.url ?? "" }, acc?.externalName ?? "", fromProject ? spaceOf(fromProject) : acc ? spaceOf(acc) : DEFAULT_SPACE_ID);
   } else {
     const t = await getProject(db, email, input.projectId);
     if (t.owner !== email) throw new AccessError(403, "내 영상에만 붙일 수 있습니다.");

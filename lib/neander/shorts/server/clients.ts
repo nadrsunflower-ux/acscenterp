@@ -17,6 +17,7 @@ import { NEANDER_COL } from "@/lib/neander/collections";
 import { currentMonth, emptyProject, httpUrl, newId } from "../model";
 import type { FormatDoc } from "../scout";
 import type { ClientDoc, ClientProduct, ClientView, ProjectDoc } from "../types";
+import { stampSpace } from "./space-db";
 
 const col = (db: Firestore) => db.collection(NEANDER_COL.shortsClients);
 const isId = (v: unknown): v is string => typeof v === "string" && /^[\w-]{6,60}$/.test(v);
@@ -221,6 +222,6 @@ export async function createClientProject(
       : null,
   };
   const id = randomBytes(12).toString("base64url");
-  await db.collection(NEANDER_COL.shortsProjects).doc(id).set(doc);
+  await db.collection(NEANDER_COL.shortsProjects).doc(id).set({ ...doc, spaceId: stampSpace(db) });
   return id;
 }

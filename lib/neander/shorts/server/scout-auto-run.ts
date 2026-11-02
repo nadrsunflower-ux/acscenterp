@@ -32,6 +32,8 @@ import { listRadar } from "./radar-run";
 import { clusterFormats, judgeKoreaSample } from "./scout-ai";
 import { autoAnalyze, buildWeeklyReport, narrateWeeklyReport, scanDue } from "./scout-run";
 import { addWatch, assignHit, getScoutSettings, listFormats, listHits, listWatch, patchFormatKorea, saveFormat, watchIdOf } from "./scout-store";
+import { DEFAULT_SPACE_ID } from "../spaces";
+import { spaceNiche, stampSpace } from "./space-db";
 import { takeQuota } from "./store";
 import { YT_SEARCH_DAILY_LIMIT, youtubeApiKey, youtubeChannels, youtubeDiscoverChannels, youtubeRecentUploads, youtubeSearch, youtubeVideos } from "./youtube-data";
 
@@ -42,7 +44,9 @@ const AUTO = "company";
 
 export async function getScoutAuto(db: Firestore): Promise<ScoutAutoSettings> {
   const d = (await settingsCol(db).doc("scout_auto").get()).data() as Partial<ScoutAutoSettings> | undefined;
-  return { ...DEFAULT_SCOUT_AUTO, ...(d ?? {}) };
+  // 새 AI STUDIO 프로젝트는 해외 검색어가 없으니 해외 찾기 없이 시작 (설정에서 나라 · 검색어를 넣는다)
+  const fresh = !d && stampSpace(db) !== DEFAULT_SPACE_ID ? { countries: [] } : {};
+  return { ...DEFAULT_SCOUT_AUTO, ...fresh, ...(d ?? {}) };
 }
 
 export async function saveScoutAuto(db: Firestore, by: string, input: unknown): Promise<ScoutAutoSettings> {
@@ -99,6 +103,8 @@ export async function autoFillWatch(db: Firestore, s: ScoutAutoSettings, o: Scou
   const autoCount = (c: string) => watch.filter((w) => w.country === c && isAuto(w) && w.active).length;
   const scout = await getScoutSettings(db);
   const newly: string[] = [];
+  // 자동 추가 채널의 주제 꼬리표 — 살림설계사무소는 「살림」, 다른 프로젝트는 그 이름
+  const topicName = (await spaceNiche(db))?.name ?? "살림";
 
   const add = async (country: string, channelId: string, why: string, language: string, topic: string) => {
     const [info] = await youtubeChannels([channelId], o.key);
@@ -124,7 +130,7 @@ export async function autoFillWatch(db: Firestore, s: ScoutAutoSettings, o: Scou
     for (const d of [...best.values()].sort((a, b) => (b.multiple ?? 0) - (a.multiple ?? 0))) {
       if (room <= 0 || Date.now() > o.deadline - 60_000) break;
       if (watched.has(d.channelId) || everAdded.has(d.channelId)) continue;
-      if (await add("KR", d.channelId, `AI 레이더 「${d.title.slice(0, 40)}」 채널 평소의 ${d.multiple}배`, "ko", d.ai?.category && d.ai.category !== "기타" ? d.ai.category : "살림")) room--;
+      if (await add("KR", d.channelId, `AI 레이더 「${d.title.slice(0, 40)}」 채널 평소의 ${d.multiple}배`, "ko", d.ai?.category && d.ai.category !== "기타" ? d.ai.category : topicName)) room--;
     }
   }
 
@@ -142,7 +148,13 @@ export async function autoFillWatch(db: Firestore, s: ScoutAutoSettings, o: Scou
       break;
     }
     const cfg = AUTO_COUNTRY_SEARCH[c];
-    const query = pickAutoQuery(c, day);
+    const custom = s.queries?.[c] ?? [];
+    // 기본 검색어는 살림 주제 — 다른 프로젝트는 그 프로젝트의 검색어가 있을 때만
+    if (!custom.length && stampSpace(db) !== DEFAULT_SPACE_ID) {
+      sum.notes.push(`${cfg.label}: 이 프로젝트의 검색어가 없어 건너뜀 (자동화 설정에서 넣기)`);
+      continue;
+    }
+    const query = pickAutoQuery(c, day, custom);
     sum.searches++;
     let groups: Awaited<ReturnType<typeof youtubeDiscoverChannels>> = [];
     try {
@@ -161,7 +173,7 @@ export async function autoFillWatch(db: Firestore, s: ScoutAutoSettings, o: Scou
       const base = await baselineOf(ch, o.key, now).catch(() => null);
       const m = multipleOf(top.views, base);
       if (m === null || m < s.minMultiple) continue;
-      await addWatch(db, AUTO, g.channel, { country: c, language: cfg.lang, topics: [AUTO_TOPIC, "살림"], note: `자동 추가 ${day} — ${cfg.label} 검색 「${query}」 · 「${top.title.slice(0, 40)}」 평소의 ${m}배` });
+      await addWatch(db, AUTO, g.channel, { country: c, language: cfg.lang, topics: [AUTO_TOPIC, topicName], note: `자동 추가 ${day} — ${cfg.label} 검색 「${query}」 · 「${top.title.slice(0, 40)}」 평소의 ${m}배` });
       watched.add(ch);
       newly.push(ch);
       sum.added.push({ country: c, title: g.channel.title, why: `「${query}」 · 평소의 ${m}배` });

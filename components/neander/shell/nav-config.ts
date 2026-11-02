@@ -49,6 +49,7 @@ import {
   TrendingUp,
   Users,
   Wallet,
+  FolderKanban,
 } from "lucide-react";
 
 /** 사이드바 배지 키 — 값은 ShellContext.badges 에서 온다 */
@@ -212,7 +213,11 @@ export const SALES_NAV: NavGroup[] = [
 export const SHORTS_NAV: NavGroup[] = [
   {
     label: "AI STUDIO",
-    items: [{ href: "/neander/shorts", label: "대시보드", icon: LayoutDashboard, exact: true }],
+    items: [
+      { href: "/neander/shorts", label: "대시보드", icon: LayoutDashboard, exact: true },
+      // 채널 하나 = 프로젝트 (살림설계사무소 · AI 쿠팡 채널 …) — 위 툴바에서 고르면 아래 메뉴가 그 프로젝트 것으로
+      { href: "/neander/shorts/spaces", label: "프로젝트", icon: FolderKanban },
+    ],
   },
   {
     label: "기획",

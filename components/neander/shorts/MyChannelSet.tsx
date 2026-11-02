@@ -16,6 +16,7 @@ import { Badge, Button, Card, Checkbox, Field, FieldAction, FormRow, InlineNotic
 import { mutate, shortsPost } from "@/lib/neander/shorts/client";
 import { PLATFORM_LABEL } from "@/lib/neander/shorts/model";
 import type { AccountView, ProfileView } from "@/lib/neander/shorts/types";
+import { DEFAULT_SPACE_ID, spaceOf, type SpaceView } from "@/lib/neander/shorts/spaces";
 import { useShorts } from "./ShortsProvider";
 import { fmtWhen, useAction } from "./parts";
 
@@ -34,10 +35,11 @@ function publishState(accounts: AccountView[]): { label: string; tone: Tone } {
 }
 
 export function MyChannelSet({ onManualInstagram }: { onManualInstagram: () => void }) {
-  const { data, refresh, nameOf } = useShorts();
+  const { data, refresh, nameOf, currentSpace } = useShorts();
   const d = data!;
   const { busy, run } = useAction();
   const s = d.status;
+  const spaceName = (id: string) => d.spaces.find((x) => x.id === id)?.name ?? "?";
   const profile = d.profiles.find((x) => x.owner === d.me);
   const mine = d.accounts.filter((a) => a.mine);
   const shared = d.accounts.filter((a) => !a.mine && a.canPublish);
@@ -64,6 +66,9 @@ export function MyChannelSet({ onManualInstagram }: { onManualInstagram: () => v
     <section className="mb-10 space-y-8">
       <div>
         <SectionHeader size="lg" title={`내 채널 세트 — ${nameOf(d.me)}`} hint="토큰 · 키는 서버에서 암호화 — 화면에는 끝 4자리와 상태만 옵니다" />
+        <InlineNotice tone="info" className="mb-3">
+          새로 연결하는 계정은 지금 프로젝트 <b>「{currentSpace?.name ?? spaceName(DEFAULT_SPACE_ID)}」</b> 에 붙습니다 — 다른 채널이면 위 툴바에서 프로젝트를 먼저 고르세요. 연결한 뒤에도 아래 표의 「프로젝트」 에서 옮길 수 있습니다.
+        </InlineNotice>
         <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
           <ConnCard
             icon={SquarePlay}
@@ -127,6 +132,7 @@ export function MyChannelSet({ onManualInstagram }: { onManualInstagram: () => v
                 <thead>
                   <tr>
                     <Th>계정</Th>
+                    <Th>프로젝트</Th>
                     <Th>상태</Th>
                     <Th>쿠팡 채널 아이디</Th>
                     <Th>쿠팡 활동 채널 등록</Th>
@@ -135,7 +141,7 @@ export function MyChannelSet({ onManualInstagram }: { onManualInstagram: () => v
                   </tr>
                 </thead>
                 <tbody>
-                  {mine.map((a) => <AccountRow key={a.id} a={a} profile={profile} onChanged={refresh} />)}
+                  {mine.map((a) => <AccountRow key={a.id} a={a} profile={profile} spaces={d.spaces.filter((x) => !x.archived || x.id === spaceOf(a))} onChanged={refresh} />)}
                 </tbody>
               </Table>
             </TableScroll>
@@ -188,7 +194,7 @@ function ConnCard({
   );
 }
 
-function AccountRow({ a, profile, onChanged }: { a: AccountView; profile: ProfileView | undefined; onChanged: () => Promise<void> }) {
+function AccountRow({ a, profile, spaces, onChanged }: { a: AccountView; profile: ProfileView | undefined; spaces: SpaceView[]; onChanged: () => Promise<void> }) {
   const ask = useConfirm();
   const { busy, run } = useAction();
   const [share, setShare] = useState(a.sharedWith.join(", "));
@@ -199,6 +205,12 @@ function AccountRow({ a, profile, onChanged }: { a: AccountView; profile: Profil
       <Td className="align-top">
         <span className="font-medium">{PLATFORM_LABEL[a.platform]} · {a.externalName}</span>
         <div className="text-[13px] text-nd-fg-3">{a.authMode === "google_oauth" ? "Google OAuth" : a.authMode === "facebook_login" ? "Facebook 로그인" : "토큰 직접 입력"} · {fmtWhen(a.createdAt)} 연결</div>
+      </Td>
+      <Td className="align-top">
+        {/* 이 계정으로 올리는 AI STUDIO 프로젝트 — 밖에서 올린 게시물도 이 프로젝트의 영상으로 붙는다 */}
+        <Select size="sm" aria-label={`${a.externalName} 프로젝트`} value={spaceOf(a)} disabled={busy === "space" || !!a.clientId} onChange={(e) => void run("space", async () => { await mutate("account.update", { id: a.id, spaceId: e.target.value }); await onChanged(); }, "계정을 옮겼습니다 — 이 계정의 게시 · 채널 숫자가 그 프로젝트에 모입니다.")}>
+          {spaces.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+        </Select>
       </Td>
       <Td className="align-top whitespace-nowrap">{a.status === "connected" ? <Badge size="lg" tone="success">연결됨</Badge> : <Badge size="lg" tone="danger">다시 연결 필요</Badge>}</Td>
       <Td className="align-top">

@@ -28,6 +28,7 @@ import {
   timelineSec,
 } from "../lib/neander/shorts/model";
 import { DEFAULT_SCOUT_SETTINGS } from "../lib/neander/shorts/scout";
+import { DEFAULT_SPACE, DEFAULT_SPACE_ID } from "../lib/neander/shorts/spaces";
 import type { FormatDoc, HitAnalysis, HitDoc, ReportFormatLine, ScoutReportDoc, WatchChannelDoc } from "../lib/neander/shorts/scout";
 import type {
   BeatKey,
@@ -1349,6 +1350,7 @@ const data: ShortsData = {
   scope: "mine",
   profiles: populated ? profiles : [],
   folders: [],
+  spaces: [{ ...DEFAULT_SPACE, id: DEFAULT_SPACE_ID }],
   clients: populated ? clients : [],
   trends: populated ? byNewest(trends) : [],
   projects: populated ? byNewest(projects) : [],

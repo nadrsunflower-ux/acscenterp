@@ -7,6 +7,7 @@ import { syncExternalPosts } from "@/lib/neander/shorts/server/external";
 import { syncCoupangReports, syncPublicationMetrics } from "@/lib/neander/shorts/server/metrics";
 import { tick } from "@/lib/neander/shorts/server/runner";
 import { runRadar } from "@/lib/neander/shorts/server/radar-run";
+import { forEachSpace } from "@/lib/neander/shorts/server/space-db";
 import { youtubeApiKey } from "@/lib/neander/shorts/server/youtube-data";
 import type { ProfileDoc, PublicationDoc } from "@/lib/neander/shorts/types";
 
@@ -20,6 +21,7 @@ import type { ProfileDoc, PublicationDoc } from "@/lib/neander/shorts/types";
 //       공식 API 로 다시 읽기 (최근 것부터 최대 20건)
 //    ④ 사람마다 자기 쿠팡 키로 자기 리포트 (키를 확인한 사람만 · 막힌 키는 건너뜀)
 //    ⑤ AI 레이더 — 키워드 검색 → 반응 큰 쇼츠 후보 · AI 상품 추정(하루 비용 상한) · 네이버 국내 검색 추세
+//       (AI STUDIO 프로젝트마다 따로 — 검색어 · 후보 · 비용 상한이 프로젝트별, YouTube 검색 한도는 공용)
 //  바이럴 형식 정찰(채널 채우기 · 훑기 · 분석 · 묶기 · 한국 확인 · 보고)은 따로 cron-scout(07:00 KST)가 돈다
 //  — 한 cron 의 5분 안에서 레이더와 시간을 다투지 않게.
 //
@@ -78,8 +80,9 @@ export async function GET(req: Request) {
     coupang[p.owner] = await syncCoupangReports(db, p.owner).then((r) => `${r.projects}개 영상`, (e) => (e instanceof Error ? e.message.slice(0, 80) : "실패"));
   }
   out.coupangReports = coupang;
+  // AI 레이더 — AI STUDIO 프로젝트마다 그 프로젝트의 검색어 · 비용 상한으로 (남은 시간을 나눠)
   out.radar = youtubeApiKey()
-    ? await runRadar(db, { by: "company", deadline: started + 285_000 }).catch((e) => (e instanceof Error ? e.message : "레이더 실패"))
+    ? await forEachSpace(db, started + 285_000, (sdb, _s, deadline) => runRadar(sdb, { by: "company", deadline }))
     : "회사 YouTube 키가 없어 건너뜀";
   return NextResponse.json(out);
 }

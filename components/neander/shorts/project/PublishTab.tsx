@@ -17,6 +17,7 @@ import { Badge, Button, Card, Checkbox, Dialog, EmptyState, Field, FieldAction, 
 import { mutate, notePendingJobs, shortsPost } from "@/lib/neander/shorts/client";
 import { CAPTION_LIMIT, DISCLOSURE, INSTAGRAM_MAX_BYTES, PLATFORM_LABEL, PUBLICATION_LABEL, TITLE_LIMIT, buildCaption, captionLength, complianceBlockers, complianceItemsFor, disclosureLine, hashtagLine } from "@/lib/neander/shorts/model";
 import type { AccountView, ComplianceCheck, ComplianceKey, MediaView, PublicationView, PublishPlatform } from "@/lib/neander/shorts/types";
+import { spaceOf } from "@/lib/neander/shorts/spaces";
 import { useShorts } from "../ShortsProvider";
 import { ConnBadge, PubBadge, fmtWhen, useAction } from "../parts";
 import { MediaUpload, useBlobUrl, useProjectMedia } from "../media";
@@ -47,7 +48,8 @@ export function PublishTab({ draft }: { draft: Draft }) {
   const purgedRenders = allRenders.filter((m) => m.purged);
   const storage = d.status.storage;
   // 브랜드 영상: 그 고객사 계정 + 우리 채널 · 쿠팡 영상: 고객사 계정은 빼고
-  const accounts = d.accounts.filter((a) => a.canPublish && (p.kind === "brand" ? !a.clientId || a.clientId === p.clientId : !a.clientId));
+  // 이 영상의 프로젝트에 붙은 계정만 — 고객사 영상은 그 고객사 계정(프로젝트와 상관없이)도
+  const accounts = d.accounts.filter((a) => a.canPublish && (p.kind === "brand" ? a.clientId === p.clientId || (!a.clientId && spaceOf(a) === spaceOf(p)) : !a.clientId && spaceOf(a) === spaceOf(p)));
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
   const [renderId, setRenderId] = useState(renders[0]?.id ?? "");
   const [prep, setPrep] = useState<Prepared | null>(null);

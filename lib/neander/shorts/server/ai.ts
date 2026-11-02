@@ -406,7 +406,14 @@ export type RadarIdentifyItem = {
   caution: string;
 };
 
-export async function radarIdentify(videos: RadarVideoInput[]): Promise<{ items: RadarIdentifyItem[]; costUsd: number; model: string }> {
+/** AI STUDIO 프로젝트(채널)의 주제 — 「살림설계사무소」 밖의 프로젝트에서 AI 가 무엇을 찾는지 (space-db.spaceNiche) */
+export interface ChannelNiche {
+  name: string;
+  description: string;
+}
+const nicheLine = (n: ChannelNiche) => `「${n.name}」${n.description ? `(${n.description.replace(/\s+/g, " ").slice(0, 300)})` : ""}`;
+
+export async function radarIdentify(videos: RadarVideoInput[], niche?: ChannelNiche | null): Promise<{ items: RadarIdentifyItem[]; costUsd: number; model: string }> {
   const list = videos.slice(0, 10);
   if (!list.length) return { items: [], costUsd: 0, model: shortsTextModel(null) };
   const s = { type: "string" };
@@ -439,10 +446,16 @@ export async function radarIdentify(videos: RadarVideoInput[]): Promise<{ items:
       },
     },
   };
-  const system = `너는 한국 살림·생활용품 쇼츠에서 「무슨 상품이 반응을 얻었나」 를 정리한다. 영상마다 한 줄씩 돌려준다.
+  const head = niche
+    ? `너는 한국 쇼츠 채널 ${nicheLine(niche)} 을 위해 유튜브 쇼츠에서 「무슨 상품이 반응을 얻었나」 를 정리한다. 영상마다 한 줄씩 돌려준다.`
+    : "너는 한국 살림·생활용품 쇼츠에서 「무슨 상품이 반응을 얻었나」 를 정리한다. 영상마다 한 줄씩 돌려준다.";
+  const relevantLine = niche
+    ? "- relevant: 이 채널 주제(위 괄호)에 맞는 상품을 보여 주는 영상이면 true. 상품이 없거나(먹방 · 연예 · 뉴스) 주제와 먼 영상이면 false.\n- category: 살림 · 주방 · 수납 · 청소 · 다이소 중 딱 맞는 것이 없으면 「기타」."
+    : "- relevant: 살림 · 주방 · 수납 · 청소 · 세탁 · 욕실 · 생활용품 · 다이소 상품을 보여 주는 영상이면 true. 먹방 · 요리 레시피만 · 연예 · 뉴스 · 차량 · 뷰티 · 패션이면 false.";
+  const system = `${head}
 ${RULES}
 - 너는 영상을 보지 않았다. 제목 · 설명 · 태그 · 댓글 표본 글만 근거로 추정한다. 글에 상품이 분명하지 않으면 product 를 "" 로, confidence 를 unclear 로 둔다.
-- relevant: 살림 · 주방 · 수납 · 청소 · 세탁 · 욕실 · 생활용품 · 다이소 상품을 보여 주는 영상이면 true. 먹방 · 요리 레시피만 · 연예 · 뉴스 · 차량 · 뷰티 · 패션이면 false.
+${relevantLine}
 - product: 일반 명칭(예: 「자석 양치컵」 「접이식 건조대」). 브랜드 · 모델명은 글에 분명히 적혀 있을 때만.
 - 제목 · 설명이 「N가지」 「BEST」 「모음」 「추천템들」 처럼 여러 상품을 모은 영상이면 하나를 골라 대표로 삼지 않는다. product 와 productKey 를 "" 로, confidence 를 unclear 로, evidence 를 「여러 상품 모음 영상」 으로 둔다 (설명에 상품 목록이 있어도 마찬가지).
 - productKey: 같은 상품을 묶는 짧은 일반 명사구(2~4 낱말, 브랜드 · 수식어 없이).
@@ -767,7 +780,7 @@ export interface BriefAiItem {
   refId: string;
 }
 
-export async function marketBriefAI(input: BriefInput, model?: unknown): Promise<{ headline: string; summary: string[]; items: BriefAiItem[]; costUsd: number; model: string }> {
+export async function marketBriefAI(input: BriefInput, model?: unknown, niche?: ChannelNiche | null): Promise<{ headline: string; summary: string[]; items: BriefAiItem[]; costUsd: number; model: string }> {
   const s = { type: "string" };
   const schema = {
     type: "object",
@@ -795,8 +808,8 @@ export async function marketBriefAI(input: BriefInput, model?: unknown): Promise
       },
     },
   };
-  const system = `너는 AI STUDIO(주식회사 네안데르)의 살림 · 생활용품 숏폼 채널 시장 조사 담당이다. 매일 아침 아래 자료에서 사람이 꼭 봐야 할 「특기할 만한 것」 을 고른다.
-- 자료(JSON)는 레이더 후보(유튜브에서 반응 큰 살림템 쇼츠) · 상품별 국내 검색 추세 · 바이럴 형식의 새로 터진 영상과 형식 카드 · 네이버 검색어 묶음 추세 · 감시 채널과 내 채널의 숫자 변화다.
+  const system = `너는 AI STUDIO(주식회사 네안데르)의 ${niche ? `${nicheLine(niche)} 숏폼 채널` : "살림 · 생활용품 숏폼 채널"} 시장 조사 담당이다. 매일 아침 아래 자료에서 사람이 꼭 봐야 할 「특기할 만한 것」 을 고른다.
+- 자료(JSON)는 레이더 후보(유튜브에서 반응 큰 ${niche ? "이 채널 주제의" : "살림템"} 쇼츠) · 상품별 국내 검색 추세 · 바이럴 형식의 새로 터진 영상과 형식 카드 · 네이버 검색어 묶음 추세 · 감시 채널과 내 채널의 숫자 변화다.
 - items 는 4~8개. 서로 다른 종류를 섞되 정말 눈에 띄는 것만 (같은 상품을 두 번 고르지 않는다).
 - why 는 왜 지금 볼 만한지 한 줄, numbers 는 자료에 있는 숫자만 그대로 (예: 「평소의 12배 · 국내 검색 ×1.8」). 자료에 없는 숫자 · 사실 · 판매량을 지어내지 않는다.
 - action 은 이 회사가 바로 해 볼 일 한 줄 (예: 「대본 작성기로 스토리 광고 기획」 「감시 채널로 지켜보기」 「소재로 저장해 쿠팡 상품 찾기」).

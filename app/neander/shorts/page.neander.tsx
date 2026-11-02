@@ -6,15 +6,18 @@
 //  「지금 무엇을 해야 하나」 가 먼저다: 결과 확인이 필요한 게시 · 검토할 AI 장면 ·
 //  끊긴 출력. 그다음 단계별 영상 수와 최근 영상, 연결 상태.
 //  숫자는 전부 실제 기록에서 센다 — 예시 수치를 보여 주지 않는다.
+//  AI STUDIO 프로젝트(채널)를 모두 본다 — 다른 화면은 위 툴바의 「프로젝트」 로 거른다.
 // ============================================================
 
 import Link from "next/link";
 import { useMemo, type ReactNode } from "react";
-import { CalendarClock, CircleAlert, Clapperboard, Plug, Radar } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { CalendarClock, CircleAlert, Clapperboard, FolderKanban, Plug, Radar } from "lucide-react";
 import { Badge, Button, Card, EmptyState, InlineNotice, KpiItem, KpiStrip, PageHeader, PageShell, SectionHeader, Table, TableScroll, Td, Th, Tr, cn, type Tone } from "@/components/neander/ui";
 import { useScoped, useShorts } from "@/components/neander/shorts/ShortsProvider";
 import { ConnBadge, JobBadge, KindTile, PubBadge, StageBadge, fmtWhen } from "@/components/neander/shorts/parts";
-import { PLATFORM_LABEL, STAGE_LABEL } from "@/lib/neander/shorts/model";
+import { PLATFORM_LABEL, STAGE_LABEL, projectTotals } from "@/lib/neander/shorts/model";
+import { PRODUCTION_LABEL, spaceOf } from "@/lib/neander/shorts/spaces";
 import type { AccountView, ProjectStage, PublishPlatform } from "@/lib/neander/shorts/types";
 
 const FLOW: ProjectStage[] = ["research", "sourcing", "matching", "scripting", "editing", "ready", "published"];
@@ -22,9 +25,35 @@ const MODE_LABEL = { remix: "기존 영상 재편집", hybrid: "소스 + AI 장�
 const KEY_STATUS = { none: ["키 없음", "neutral"], unverified: ["넣음 · 확인 전", "warning"], ok: ["확인됨", "success"], failed: ["확인 실패", "danger"] } as const;
 
 export default function ShortsDashboard() {
-  const { data, viewer, nameOf } = useShorts();
+  const { data, viewer, nameOf, space, setSpace } = useShorts();
   const d = data!;
-  const sc = useScoped();
+  // 대시보드만 모든 프로젝트
+  const sc = useScoped({ allSpaces: true });
+  const router = useRouter();
+  const spaceName = useMemo(() => new Map(d.spaces.map((x) => [x.id, x.name])), [d.spaces]);
+  // 프로젝트별 한눈에 — 영상 · 게시 · 조회(출처별 마지막 기록 합) · 확인할 일
+  const bySpace = useMemo(
+    () =>
+      d.spaces
+        .filter((x) => !x.archived)
+        .map((x) => {
+          const ps = sc.projects.filter((p) => spaceOf(p) === x.id && !p.sample);
+          const ids = new Set(ps.map((p) => p.id));
+          const pubs = sc.publications.filter((p) => ids.has(p.projectId));
+          const views = ps.map((p) => projectTotals(sc.metrics.filter((m) => m.projectId === p.id)).views).filter((v): v is number => v !== null);
+          const review = ps.reduce((n, p) => n + p.scenes.filter((sc2) => sc2.kind === "ai" && sc2.ai?.status === "review").length, 0);
+          return {
+            space: x,
+            videos: ps.length,
+            inProgress: ps.filter((p) => p.stage !== "published" && p.stage !== "archived").length,
+            published: pubs.filter((p) => p.status === "published").length,
+            views: views.length ? views.reduce((a, b) => a + b, 0) : null,
+            attention: pubs.filter((p) => p.status === "uncertain" || p.status === "failed").length + review,
+            accounts: d.accounts.filter((a) => !a.clientId && spaceOf(a) === x.id).length,
+          };
+        }),
+    [d.spaces, d.accounts, sc],
+  );
   const projectById = useMemo(() => new Map(sc.projects.map((p) => [p.id, p])), [sc.projects]);
   const accountById = useMemo(() => new Map(d.accounts.map((a) => [a.id, a])), [d.accounts]);
   const whose = viewer === "mine" ? "내" : viewer === "visible" ? (d.admin ? "모든 사용자의" : "볼 수 있는") : `${nameOf(viewer)} 님의`;
@@ -66,7 +95,7 @@ export default function ShortsDashboard() {
     <PageShell>
       <PageHeader
         title="AI STUDIO"
-        description={`${whose} 영상 — 쿠팡 제휴 영상과 고객사(브랜드) 영상을 한 곳에서: 기획 → 소스 · 대본 → 편집 · 출력 → 검토 · 게시 → 성과. 누구의 것을 볼지는 위쪽 「보기」 에서 고릅니다.`}
+        description={`${whose} 영상 — 모든 프로젝트(채널)를 한 곳에서: 기획 → 소스 · 대본 → 편집 · 출력 → 검토 · 게시 → 성과. 기획 · 영상 화면은 위쪽 「프로젝트」 로, 누구의 것은 「보기」 로 고릅니다.`}
         actions={
           <>
             <Link href="/neander/shorts/trends"><Button variant="secondary" icon={Radar}>소재 발굴</Button></Link>
@@ -74,6 +103,43 @@ export default function ShortsDashboard() {
           </>
         }
       />
+
+      <section className="mb-8">
+        <SectionHeader size="lg" title="프로젝트별" hint="채널 하나 = 프로젝트 · 누르면 그 프로젝트로" action={<Link href="/neander/shorts/spaces" className="text-[13px] font-medium text-nd-accent hover:underline">프로젝트 관리</Link>} />
+        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr))]">
+          {bySpace.map((r) => (
+            <button
+              key={r.space.id}
+              type="button"
+              onClick={() => {
+                setSpace(r.space.id);
+                router.push("/neander/shorts/projects");
+              }}
+              className={cn("rounded-nd-lg border bg-nd-content p-4 text-left transition-colors hover:bg-nd-sunken", r.space.id === space ? "border-nd-accent/50 ring-1 ring-nd-accent/30" : "border-nd-border")}
+            >
+              <div className="flex items-center gap-2">
+                <FolderKanban size={18} aria-hidden className="shrink-0 text-nd-accent" />
+                <span className="truncate text-[16px] font-semibold">{r.space.name}</span>
+                <span className="ml-auto shrink-0 text-[13px] text-nd-fg-3">{PRODUCTION_LABEL[r.space.production]}</span>
+              </div>
+              <dl className="mt-3 grid grid-cols-4 gap-2">
+                {[
+                  ["영상", r.videos, `만드는 중 ${r.inProgress}`],
+                  ["게시", r.published, `계정 ${r.accounts}`],
+                  ["조회", r.views, "최근 기록 합"],
+                  ["확인할 일", r.attention, ""],
+                ].map(([label, v, hint]) => (
+                  <div key={String(label)} className="min-w-0">
+                    <dt className="text-[13px] text-nd-fg-3">{label}</dt>
+                    <dd className={cn("nd-num text-[18px] font-semibold", label === "확인할 일" && Number(v) > 0 && "text-nd-danger-text")}>{v === null ? "—" : Number(v).toLocaleString("ko-KR")}</dd>
+                    {hint && <dd className="truncate text-[13px] text-nd-fg-3" title={String(hint)}>{hint}</dd>}
+                  </div>
+                ))}
+              </dl>
+            </button>
+          ))}
+        </div>
+      </section>
 
       <KpiStrip columns={6} className="mb-8">
         {FLOW.slice(0, 6).map((st) => {
@@ -137,7 +203,7 @@ export default function ShortsDashboard() {
                             <div className="min-w-0">
                               <Link href={`/neander/shorts/projects/${p.id}`} className="block truncate font-medium hover:underline" title={p.title}>{p.title}</Link>
                               <p className="truncate text-[13px] text-nd-fg-3">
-                                {p.kind === "brand" ? p.clientName || "고객사" : p.product || "상품 미정"}
+                                {spaceName.get(spaceOf(p)) ?? "?"} · {p.kind === "brand" ? p.clientName || "고객사" : p.product || (p.kind === "general" ? "일반 영상" : "상품 미정")}
                                 {p.visibility === "team" ? " · 팀" : ""}
                               </p>
                             </div>

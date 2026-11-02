@@ -16,6 +16,7 @@ import { Badge, Button, Card, EmptyState, Field, FieldAction, FormRow, IconButto
 import { shortsPost } from "@/lib/neander/shorts/client";
 import { confirmedCandidate, coupangProductId, coupangSearchUrl, isCoupangAffiliateUrl, isCoupangProductUrl, matchChecksSummary, newId } from "@/lib/neander/shorts/model";
 import type { CoupangCandidate, MatchCheckKey, ProjectDoc } from "@/lib/neander/shorts/types";
+import { spaceOf } from "@/lib/neander/shorts/spaces";
 import { useShorts, type WithId } from "../ShortsProvider";
 import { Num, fmtWhen, useAction } from "../parts";
 import type { Draft } from "../useProjectDraft";
@@ -290,7 +291,8 @@ function AffiliateSection({ draft }: { draft: Draft }) {
   const confirmed = confirmedCandidate(p);
   const aff = p.coupang.affiliate;
   const myProfile = d.profiles.find((x) => x.owner === d.me);
-  const accounts = d.accounts.filter((a) => a.canPublish);
+  // 이 영상의 프로젝트에 붙은 계정만 (다른 채널 계정에 링크를 붙이지 않게)
+  const accounts = d.accounts.filter((a) => a.canPublish && spaceOf(a) === spaceOf(p));
   const [accountId, setAccountId] = useState(aff?.accountId ?? accounts.find((a) => a.mine)?.id ?? "");
   const target = accounts.find((a) => a.id === accountId) ?? null;
   const linkOwner = target?.owner ?? d.me;

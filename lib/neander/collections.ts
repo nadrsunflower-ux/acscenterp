@@ -201,6 +201,11 @@ export const NEANDER_COL = {
   shortsProjects: "neander_shorts_projects",
   /** 영상 폴더 — AI STUDIO 공용 나무 하나 (영상은 ProjectDoc.folderId 로 한 폴더에). shorts/folders.ts */
   shortsFolders: "neander_shorts_folders",
+  /**
+   * AI STUDIO 프로젝트(채널 단위) — shorts/spaces.ts. 기본 「살림설계사무소」(salim) 밖의 프로젝트는
+   * 분석 컬렉션(레이더 · 정찰 · 시장 · 노트 · 대본 · 설정)을 `<이름>__<프로젝트 id>` 로 따로 쓴다 (server/space-db.ts)
+   */
+  shortsSpaces: "neander_shorts_spaces",
   /** 참고 자료 · 구성 분석 · 대본의 버전 기록 */
   shortsVersions: "neander_shorts_versions",
   /** 성공 공식 템플릿 */

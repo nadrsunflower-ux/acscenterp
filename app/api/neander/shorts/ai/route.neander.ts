@@ -1,4 +1,5 @@
 import { adminDb } from "@/lib/neander/server/admin";
+import { requestDb } from "@/lib/neander/shorts/server/space-db";
 import { newId } from "@/lib/neander/shorts/model";
 import { requireShortsUser } from "@/lib/neander/shorts/server/access";
 import { analyzeReference, chineseTerms, generateScript } from "@/lib/neander/shorts/server/ai";
@@ -26,7 +27,7 @@ const cost = (kind: CostEntry["kind"], usd: number, note: string, by: string): C
 export async function POST(req: Request) {
   try {
     const { email } = await requireShortsUser(req);
-    const db = adminDb();
+    const db = await requestDb(req, adminDb());
     const b = (await req.json()) as Record<string, unknown>;
     const p = await getProject(db, email, b.projectId);
 

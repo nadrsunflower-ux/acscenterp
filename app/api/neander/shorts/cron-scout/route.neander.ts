@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { adminDb } from "@/lib/neander/server/admin";
 import { runScoutAuto } from "@/lib/neander/shorts/server/scout-auto-run";
+import { forEachSpace } from "@/lib/neander/shorts/server/space-db";
 
 // ============================================================
 //  바이럴 형식 정찰 주기 실행 — 매일 07:00 KST (vercel.json · Authorization: Bearer <CRON_SECRET>)
@@ -26,6 +27,7 @@ export async function GET(req: Request) {
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
   if (!token || !safeEqual(token, expected)) return NextResponse.json({ error: "주기 실행 토큰이 올바르지 않습니다." }, { status: 401 });
   const started = Date.now();
-  const summary = await runScoutAuto(adminDb(), { by: "company", deadline: started + 285_000 }).catch((e) => ({ error: e instanceof Error ? e.message : "정찰 자동화 실패" }));
+  // AI STUDIO 프로젝트마다 그 프로젝트의 감시 채널 · 형식 카드 · 설정으로 (남은 시간을 나눠)
+  const summary = await forEachSpace(adminDb(), started + 285_000, (sdb, _s, deadline) => runScoutAuto(sdb, { by: "company", deadline }));
   return NextResponse.json(summary);
 }

@@ -25,6 +25,7 @@ import { coupangClicks, coupangOrders } from "./coupang";
 import { coupangOf, noteCoupangResult } from "./profiles";
 import { instagramComments, instagramInsights, youtubeVideoStats } from "./platforms";
 import { getProject, listProjects } from "./store";
+import { rootDb } from "./space-db";
 import { youtubeCommentSample } from "./youtube-data";
 import { youtubeKeyFor } from "./profiles";
 
@@ -95,7 +96,8 @@ const ymd = (t: number) => new Date(t + 9 * 3600_000).toISOString().slice(0, 10)
 export async function syncCoupangReports(db: Firestore, email: string): Promise<{ projects: number; note: string }> {
   const { creds } = await coupangOf(db, email);
   // 내 파트너스 링크가 붙은 쿠팡 영상만 (링크 주인이 기록되기 전 영상은 소유자로 본다 · 일반 · 고객사 영상은 제외)
-  const mine = (await listProjects(db, email)).filter((p) => !p.sample && (p.kind ?? "coupang") === "coupang" && (p.coupang.affiliate?.coupangOwner ?? p.owner) === email);
+  // 쿠팡 실적은 사람 단위 — 모든 프로젝트의 내 영상에서 (프로젝트로 감싼 db 여도)
+  const mine = (await listProjects(rootDb(db), email)).filter((p) => !p.sample && (p.kind ?? "coupang") === "coupang" && (p.coupang.affiliate?.coupangOwner ?? p.owner) === email);
   const byProduct = new Map<string, (ProjectDoc & { id: string })[]>();
   for (const p of mine) {
     const c = confirmedCandidate(p);

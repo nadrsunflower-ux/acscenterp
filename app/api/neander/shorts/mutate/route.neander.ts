@@ -1,4 +1,5 @@
 import { adminDb } from "@/lib/neander/server/admin";
+import { createSpace, requestDb, updateSpace } from "@/lib/neander/shorts/server/space-db";
 import { analysisToTemplate } from "@/lib/neander/shorts/model";
 import { isShortsAdmin, requireShortsUser } from "@/lib/neander/shorts/server/access";
 import { deleteCoupangKeys, saveCoupangKeys, saveProfileMeta, saveYoutubeKey, verifyCoupang } from "@/lib/neander/shorts/server/profiles";
@@ -33,9 +34,15 @@ type Body = Record<string, unknown> & { action?: string };
 export async function POST(req: Request) {
   try {
     const { email } = await requireShortsUser(req);
-    const db = adminDb();
+    const db = await requestDb(req, adminDb());
     const b = (await req.json()) as Body;
     switch (b.action) {
+      // ---- AI STUDIO 프로젝트 (채널 단위 · 팀 공용 — 보관은 관리자만)
+      case "space.create":
+        return json({ space: await createSpace(db, email, b.space) });
+      case "space.update":
+        return json({ space: await updateSpace(db, email, b.id, b.space, isShortsAdmin(email)) });
+
       // ---- 소재
       case "trend.save":
         return json({ id: await saveTrend(db, email, b.id, b.trend) });

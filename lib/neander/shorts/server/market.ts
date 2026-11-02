@@ -33,6 +33,7 @@ import {
   type TrendRange,
 } from "../market";
 import { NAVER_LABEL, USD_KRW, normalizeProductKey, type RadarDoc } from "../radar";
+import { DEFAULT_SPACE_ID, spaceOf } from "../spaces";
 import type { AccountDoc } from "../types";
 import { marketBriefAI, openrouterConfigured } from "./ai";
 import { accountTokens } from "./accounts";
@@ -40,6 +41,7 @@ import { naverConfig, naverTrend } from "./naver";
 import { GRAPH_VERSION } from "./platforms";
 import { kstDay, listRadar } from "./radar-run";
 import { listFormats, listHits, listWatch } from "./scout-store";
+import { spaceNiche, stampSpace } from "./space-db";
 import { youtubeApiKey, youtubeChannelStats } from "./youtube-data";
 
 type WithId<T> = T & { id: string };
@@ -65,7 +67,9 @@ export interface MarketRunOptions {
 
 export async function getMarketSettings(db: Firestore, prefix = ""): Promise<MarketSettings> {
   const d = (await settingsCol(db).doc(`${prefix}market`).get()).data() as Partial<MarketSettings> | undefined;
-  return d ? { ...DEFAULT_MARKET_SETTINGS, ...d } : DEFAULT_MARKET_SETTINGS;
+  if (d) return { ...DEFAULT_MARKET_SETTINGS, ...d };
+  // 기본 검색어 묶음은 살림 주제 — 새 AI STUDIO 프로젝트는 빈 묶음으로 시작
+  return stampSpace(db) !== DEFAULT_SPACE_ID ? { ...DEFAULT_MARKET_SETTINGS, groups: [] } : DEFAULT_MARKET_SETTINGS;
 }
 
 export async function saveMarketSettings(db: Firestore, by: string, input: unknown, prefix = ""): Promise<MarketSettings> {
@@ -194,7 +198,8 @@ export async function snapshotChannels(db: Firestore, o: MarketRunOptions, notes
   const accSnap = await db.collection(NEANDER_COL.shortsAccounts).get();
   const accounts = accSnap.docs
     .map((d) => ({ ...(d.data() as AccountDoc), id: d.id }))
-    .filter((a) => a.status === "connected" && (!o.onlyAccounts || o.onlyAccounts.includes(a.id)));
+    // 이 프로젝트에 붙은 내 채널만 (고객사 계정 제외)
+    .filter((a) => a.status === "connected" && !a.clientId && spaceOf(a) === stampSpace(db) && (!o.onlyAccounts || o.onlyAccounts.includes(a.id)));
   const myYt = accounts.filter((a) => a.platform === "youtube");
   const key = youtubeApiKey();
   const ytIds = [...new Set([...watch.map((w) => w.channelId), ...myYt.map((a) => a.externalId)])];
@@ -389,7 +394,11 @@ export async function runMarketBrief(db: Firestore, o: MarketRunOptions, notes: 
   if ((await readSpendUsd(db, spendKey)) * USD_KRW >= s.briefBudgetKrw) throw new Error(`오늘 브리핑 AI 상한(${s.briefBudgetKrw.toLocaleString("ko-KR")}원)에 닿았습니다 — 내일 다시 하거나 설정에서 올려 주세요.`);
   const [radar, hits, formats, groupSeries, channels] = await Promise.all([listRadar(db, 7), listHits(db), listFormats(db), getGroupSeries(db, prefix), listChannelStats(db, prefix)]);
   const input = buildBriefInput({ day, now, radar, hits, formats, groupSeries, channels });
-  const ai = await marketBriefAI(input);
+  // 새 프로젝트처럼 볼 자료가 하나도 없으면 AI 를 부르지 않는다 (돈만 들고 빈 브리핑)
+  if (!input.radar.length && !input.productTrends.length && !input.hits.length && !input.formats.length && !input.groups.length && !input.channels.length) {
+    throw new Error("아직 볼 자료가 없어 브리핑을 쓰지 않았습니다 — 검색어 묶음 · 레이더 검색어 · 감시 채널을 먼저 채워 주세요.");
+  }
+  const ai = await marketBriefAI(input, undefined, await spaceNiche(db));
   await addSpend(db, spendKey, ai.costUsd);
   const hitUrl = new Map(hits.map((h) => [h.id, h.url]));
   const items: MarketBriefItem[] = ai.items
