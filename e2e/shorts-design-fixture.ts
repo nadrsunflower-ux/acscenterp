@@ -1310,7 +1310,7 @@ const status: ShortsData["status"] = {
   tokenKey: { configured: true, missing: [] },
   cron: { configured: true },
   companyCoupang: { configured: false },
-  storage: { driver: "firestore-chunks", quotaMb: 500, usedMb: 186 },
+  storage: { driver: "firestore-chunks", quotaMb: 500, usedMb: 186, bucket: { ready: false, quotaMb: 5000, usedMb: 0 }, renderMaxMb: 60 },
   allowlist: { restricted: false },
 };
 

@@ -22,7 +22,7 @@ interface Info {
   latest: boolean;
   decision: "pending" | "approved" | "revision" | "withdrawn";
   feedback: string;
-  media: { size: number; type: string; duration: number | null; parts: number };
+  media: { size: number; type: string; duration: number | null; parts: number; url?: string | null; purged?: boolean };
   revisionLimit: number;
   revisionsUsed: number;
   history: { n: number; decision: string; feedback: string; decidedAt: number | null }[];
@@ -71,6 +71,13 @@ export default function ReviewPage() {
       if (!res.ok) throw new LoadError(await readErr(res), res.status);
       const i = ((await res.json()) as { review: Info }).review;
       setInfo(i);
+      if (i.media.purged) throw new LoadError("게시가 끝나 검토용 영상 파일을 정리했습니다. 게시된 영상으로 확인해 주세요.", 0);
+      // 저장소에 있는 큰 파일 — 만료되는 주소로 바로 재생한다 (조각으로 받지 않는다)
+      if (i.media.url) {
+        setLoaded(1);
+        setVideo(i.media.url);
+        return;
+      }
       const chunks: ArrayBuffer[] = [];
       for (let from = 0; from < i.media.parts; from += 5) {
         const r = await fetch(`/api/neander/shorts/review?token=${encodeURIComponent(token)}&from=${from}&count=5`, { cache: "no-store" });

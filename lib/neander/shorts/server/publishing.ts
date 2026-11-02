@@ -17,6 +17,11 @@ import "server-only";
 //
 //  게시 직전에 서버가 정책 확인을 **다시** 계산한다 (브라우저가 보낸 결과를 믿지 않는다).
 //  사람의 확인(user)은 프로젝트에 적힌 것을 쓰고, 둘을 원장에 함께 남긴다.
+//
+//  YouTube 는 48MB 씩 나눠 보낸다 (yt_session → yt_chunk 반복). 조각마다 먼저 세션에
+//  「어디까지 받았나」 를 묻고 거기서부터 보내므로, 끊겨도 이어 가고 마지막 응답을
+//  놓쳐도 다음 물음에 영상 id 가 온다. Instagram 은 버킷 파일이면 서명 URL 을 넘긴다.
+//  게시가 끝나면 그 완성 파일의 게시가 모두 끝났는지 보고 내용을 지운다 (media.ts).
 // ============================================================
 
 import type { Firestore } from "firebase-admin/firestore";
@@ -28,6 +33,7 @@ import {
   captionLength,
   complianceBlockers,
   complianceItemsFor,
+  INSTAGRAM_MAX_BYTES,
   publicationKey,
   systemChecks,
   TITLE_LIMIT,
@@ -35,7 +41,7 @@ import {
 import type { ComplianceCheck, ComplianceKey, JobDoc, MediaDoc, ProjectDoc, PublicationDoc, PublicationView, PublishPlatform } from "../types";
 import { accountTokens, getAccountForPublish, markNeedsReauth, toAccountView } from "./accounts";
 import { enqueue, newJob, persist } from "./jobs";
-import { readWhole } from "./media";
+import { publishUrl, purgeAfterPublish, readBytes, readWhole } from "./media";
 import {
   instagramContainerStatus,
   instagramCreateContainer,
@@ -44,7 +50,11 @@ import {
   instagramPublishingLimit,
   instagramUploadBytes,
   PublishingError,
-  uploadYouTube,
+  YT_CHUNK_BYTES,
+  YT_RETRY,
+  youtubePutChunk,
+  youtubeStartSession,
+  youtubeUploadStatus,
 } from "./platforms";
 import { getProject, patchProject } from "./store";
 import { getClientDoc } from "./clients";
@@ -62,12 +72,28 @@ export async function listPublications(db: Firestore, email: string, projectIds:
   return out.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-async function renderOf(db: Firestore, project: ProjectDoc & { id: string }, renderId: unknown): Promise<MediaDoc & { id: string }> {
+async function renderOf(db: Firestore, project: ProjectDoc & { id: string }, renderId: unknown, platform?: PublishPlatform, accountId?: string): Promise<MediaDoc & { id: string }> {
   if (!isId(renderId) || !project.renderIds.includes(renderId)) throw new Error("이 영상에서 출력한 완성 파일을 골라 주세요.");
   const d = (await db.collection(NEANDER_COL.shortsMedia).doc(renderId).get()).data() as MediaDoc | undefined;
   if (!d || !d.complete || d.kind !== "render") throw new Error("완성 파일을 찾지 못했습니다.");
+  if (d.purged) {
+    // 같은 계정에 이미 올린 것이면 그 말을 먼저 한다 (중복 게시 안내와 같게)
+    const prev = platform && accountId ? ((await col(db).doc(publicationKey(accountId, renderId, platform)).get()).data() as PublicationDoc | undefined) : undefined;
+    if (prev?.status === "published") throw new AccessError(409, "이 완성 파일은 이미 이 계정에 게시됐습니다 (게시가 끝나 파일도 지웠습니다).");
+    throw new Error("게시가 끝나 내용을 지운 완성 파일입니다. 다른 채널에 올리려면 완성 파일을 다시 올려 주세요.");
+  }
   return { ...d, id: renderId };
 }
+
+/** 실행기가 보낼 파일 — 그 사이 지워졌으면 확실한 실패 */
+async function sendable(db: Firestore, renderId: string): Promise<MediaDoc> {
+  const d = (await db.collection(NEANDER_COL.shortsMedia).doc(renderId).get()).data() as MediaDoc | undefined;
+  if (!d || !d.complete) throw new PublishingError("RENDER_GONE", "완성 파일이 지워져 보낼 수 없습니다.", 410);
+  if (d.purged) throw new PublishingError("RENDER_GONE", "완성 파일의 내용을 이미 지워 보낼 수 없습니다.", 410);
+  return d;
+}
+
+const mbOf = (n: number) => `${(n / 1024 / 1024).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)}MB`;
 
 export interface PrepareResult {
   platform: PublishPlatform;
@@ -85,7 +111,7 @@ export interface PrepareResult {
 export async function preparePublish(db: Firestore, email: string, input: { projectId?: unknown; accountId?: unknown; renderId?: unknown }): Promise<PrepareResult> {
   const project = await getProject(db, email, input.projectId);
   const account = await getAccountForPublish(db, email, input.accountId);
-  const render = await renderOf(db, project, input.renderId);
+  const render = await renderOf(db, project, input.renderId, account.platform, account.id);
   const platform = account.platform;
   // 브랜드 영상: 고객사 자기 계정이면 자기 광고(고지 불필요), 아니면 우리 채널의 대가 받은 광고
   const ownBrandAccount = project.kind === "brand" && !!account.clientId && account.clientId === project.clientId;
@@ -119,6 +145,9 @@ export async function preparePublish(db: Firestore, email: string, input: { proj
   if (account.status !== "connected") problems.push("계정 연결이 만료됐습니다. 계정 화면에서 다시 연결해 주세요.");
   if (platform === "instagram" && (render.type !== "video/mp4" || render.codecs?.video !== "avc" || render.codecs?.audio !== "aac")) {
     problems.push("Instagram 에는 H.264/AAC MP4 완성 파일이 필요합니다. 이 파일은 그 형식으로 확인되지 않았습니다.");
+  }
+  if (platform === "instagram" && render.size > INSTAGRAM_MAX_BYTES) {
+    problems.push(`Instagram 은 릴스 한 편 ${mbOf(INSTAGRAM_MAX_BYTES)} 까지 받습니다 (이 파일 ${mbOf(render.size)}). YouTube 에만 올리거나 용량을 줄여 다시 올려 주세요.`);
   }
   const existingSnap = await col(db).doc(publicationKey(account.id, render.id, platform)).get();
   const existing = existingSnap.exists ? ({ ...(existingSnap.data() as PublicationDoc), id: existingSnap.id } as PublicationView) : null;
@@ -217,6 +246,8 @@ export async function cancelPublication(db: Firestore, email: string, id: unknow
     updatedAt: Date.now(),
     history: [...p.history, { at: Date.now(), status: "cancelled", msg: "보내기 전에 취소", by: email }].slice(-40),
   });
+  // 다른 채널은 이미 게시됐고 이것만 남아 있었다면 이제 파일을 지운다
+  await purgeAfterPublish(db, p.renderId).catch(() => false);
 }
 
 /** 결과가 불확실한 게시를 사람이 확인해 기록한다 */
@@ -252,6 +283,7 @@ export async function resolvePublication(
     await patchProject(db, p.projectId, email, (pr) => {
       pr.stage = "published";
     });
+    await purgeAfterPublish(db, p.renderId).catch(() => false);
   } else if (input.outcome === "not_published") {
     await ref.update({
       status: "failed",
@@ -312,31 +344,87 @@ export async function runPublishStep(db: Firestore, jobId: string, workerId: str
         }
       }
       await setPub(db, pubId, { status: "uploading" }, "전송 시작");
-      return { patch: { step: pub.platform === "youtube" ? "yt_upload" : "ig_container", stepState: "idle", progress: { pct: 10, message: "전송 준비 완료" }, logMsg: "점검 통과" }, continue: true };
+      return { patch: { step: pub.platform === "youtube" ? "yt_session" : "ig_container", stepState: "idle", progress: { pct: 10, message: "전송 준비 완료" }, logMsg: "점검 통과" }, continue: true };
     }
 
-    if (job.step === "yt_upload") {
-      const { doc, bytes } = await readWhole(db, pub.renderId);
-      await writing("YouTube 업로드 시작 (되돌릴 수 없는 쓰기)");
-      const r = await uploadYouTube(accessToken, {
-        bytes,
-        mime: doc.type,
+    // yt_upload 는 예전 이름 (한 번에 보내던 때) — 남은 작업은 새 길로
+    if (job.step === "yt_session" || job.step === "yt_upload") {
+      const m = await sendable(db, pub.renderId);
+      const session = await youtubeStartSession(accessToken, {
+        mime: m.type,
+        size: m.size,
         title: pub.meta.title,
         description: pub.meta.caption,
         privacy: pub.meta.privacy,
         madeForKids: pub.meta.madeForKids,
         containsSyntheticMedia: pub.meta.synthetic,
       });
-      await setPub(db, pubId, { status: "published", result: { externalId: r.id, url: r.url, at: Date.now(), by: "api" }, error: null }, `YouTube 업로드 완료 (${r.uploadStatus} · ${r.privacyStatus}). 처리 상태는 YouTube Studio 에서 확인`);
-      await patchProject(db, pub.projectId, "실행기", (p) => {
-        p.stage = "published";
-      });
-      return { patch: { status: "succeeded", stepState: "idle", result: { externalId: r.id, url: r.url }, progress: { pct: 100, message: "게시됨" }, logMsg: `YouTube 영상 ${r.id}` }, continue: false };
+      return {
+        patch: {
+          step: "yt_chunk",
+          stepState: "idle",
+          state: { ...job.state, ytSession: session, ytErrors: 0 },
+          progress: { pct: 12, message: "YouTube 로 보내는 중 0%" },
+          logMsg: `YouTube 업로드 세션 열림 (${mbOf(m.size)} · ${Math.max(1, Math.ceil(m.size / YT_CHUNK_BYTES))}번에 나눠 보냄)`,
+        },
+        continue: true,
+      };
+    }
+
+    if (job.step === "yt_chunk") {
+      const m = await sendable(db, pub.renderId);
+      const session = String(job.state.ytSession ?? "");
+      const errors = Number(job.state.ytErrors) || 0;
+      try {
+        // 늘 먼저 묻는다 — 지난 실행이 어디까지 보냈는지는 우리 기록보다 YouTube 가 정확하다
+        let st = await youtubeUploadStatus(accessToken, session, m.size);
+        if (!st.done) {
+          const bytes = await readBytes(db, pub.renderId, m, st.offset, st.offset + YT_CHUNK_BYTES);
+          st = await youtubePutChunk(accessToken, session, st.offset, bytes, m.size, m.type);
+        }
+        if (st.done) {
+          await setPub(db, pubId, { status: "published", result: { externalId: st.id, url: st.url, at: Date.now(), by: "api" }, error: null }, `YouTube 업로드 완료 (${st.uploadStatus} · ${st.privacyStatus}). 처리 상태는 YouTube Studio 에서 확인`);
+          await patchProject(db, pub.projectId, "실행기", (p) => {
+            p.stage = "published";
+          });
+          const purged = await purgeAfterPublish(db, pub.renderId).catch(() => false);
+          return {
+            patch: { status: "succeeded", stepState: "idle", result: { externalId: st.id, url: st.url }, progress: { pct: 100, message: "게시됨" }, logMsg: `YouTube 영상 ${st.id}${purged ? " · 게시가 다 끝나 완성 파일을 지웠습니다" : ""}` },
+            continue: false,
+          };
+        }
+        const pct = Math.round((st.offset / m.size) * 100);
+        return { patch: { state: { ...job.state, ytErrors: 0 }, progress: { pct: 12 + Math.round(pct * 0.85), message: `YouTube 로 보내는 중 ${pct}%` }, logMsg: `${mbOf(st.offset)} / ${mbOf(m.size)} 보냄` }, continue: true };
+      } catch (e) {
+        // 확실한 거절(세션 만료 · 권한 · 영상 거절 · 결과 불명)이 아니면 잠시 뒤 다시 묻는다 — 두 번 올라가지 않는다
+        const retry = !(e instanceof PublishingError) || e.code === YT_RETRY;
+        if (!retry) throw e;
+        if (errors >= 8) {
+          const message = "YouTube 에 계속 연결되지 않아 끝까지 갔는지 알 수 없습니다. YouTube Studio 에서 확인한 뒤 결과를 기록해 주세요.";
+          await setPub(db, pubId, { status: "uncertain", error: { code: "YOUTUBE_UNREACHABLE", message } }, message);
+          return { patch: { status: "uncertain", stepState: "idle", error: { code: "YOUTUBE_UNREACHABLE", message }, logMsg: message }, continue: false };
+        }
+        const wait = Math.min(300_000, 20_000 * 2 ** errors);
+        return {
+          patch: { status: "waiting", stepState: "idle", runAt: Date.now() + wait, state: { ...job.state, ytErrors: errors + 1 }, logMsg: `${e instanceof Error ? e.message : "전송 오류"} — ${Math.round(wait / 1000)}초 뒤 받은 곳부터 이어 보냄` },
+          continue: false,
+        };
+      }
     }
 
     if (job.step === "ig_container") {
+      const m = await sendable(db, pub.renderId);
+      // 버킷 파일 — Meta 가 서명 URL 에서 직접 가져간다 (rupload 를 거치지 않아 큰 파일도 서버 시간에 안 걸린다)
+      const videoUrl = await publishUrl(m);
       await writing("Instagram 컨테이너 만들기 (쓰기)");
-      const c = await instagramCreateContainer(accessToken, account.externalId, { caption: pub.meta.caption, isAiGenerated: pub.meta.synthetic });
+      const c = await instagramCreateContainer(accessToken, account.externalId, { caption: pub.meta.caption, isAiGenerated: pub.meta.synthetic, ...(videoUrl ? { videoUrl } : {}) });
+      if (videoUrl) {
+        await setPub(db, pubId, { status: "processing" }, "Instagram 이 저장소에서 파일을 가져가는 중");
+        return {
+          patch: { step: "ig_wait", stepState: "idle", status: "waiting", state: { ...job.state, containerId: c.containerId }, runAt: Date.now() + 30_000, progress: { pct: 50, message: "Instagram 처리 중" }, logMsg: `컨테이너 ${c.containerId} (Instagram 이 주소로 가져감)` },
+          continue: false,
+        };
+      }
       return { patch: { step: "ig_upload", stepState: "idle", state: { ...job.state, containerId: c.containerId, uploadUri: c.uploadUri }, progress: { pct: 25, message: "파일 전송 준비" }, logMsg: `컨테이너 ${c.containerId}` }, continue: true };
     }
 
@@ -372,7 +460,8 @@ export async function runPublishStep(db: Firestore, jobId: string, workerId: str
       await patchProject(db, pub.projectId, "실행기", (p) => {
         p.stage = "published";
       });
-      return { patch: { status: "succeeded", stepState: "idle", result: { externalId: r.id, url }, progress: { pct: 100, message: "게시됨" }, logMsg: `Instagram 미디어 ${r.id}` }, continue: false };
+      const purged = await purgeAfterPublish(db, pub.renderId).catch(() => false);
+      return { patch: { status: "succeeded", stepState: "idle", result: { externalId: r.id, url }, progress: { pct: 100, message: "게시됨" }, logMsg: `Instagram 미디어 ${r.id}${purged ? " · 게시가 다 끝나 완성 파일을 지웠습니다" : ""}` }, continue: false };
     }
 
     return { patch: { status: "failed", error: { code: "UNKNOWN_STEP", message: `알 수 없는 단계 ${job.step}` } }, continue: false };

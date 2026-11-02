@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { adminDb } from "@/lib/neander/server/admin";
 import { NEANDER_COL } from "@/lib/neander/collections";
-import { sweepStaleMedia } from "@/lib/neander/shorts/server/media";
+import { sweepExpiredRenders, sweepStaleMedia } from "@/lib/neander/shorts/server/media";
 import { syncCoupangReports, syncPublicationMetrics } from "@/lib/neander/shorts/server/metrics";
 import { tick } from "@/lib/neander/shorts/server/runner";
 import { runRadar } from "@/lib/neander/shorts/server/radar-run";
@@ -14,7 +14,7 @@ import type { ProfileDoc, PublicationDoc } from "@/lib/neander/shorts/types";
 // ------------------------------------------------------------
 //  Vercel Cron 이 부른다 (vercel.json). Authorization: Bearer <CRON_SECRET>.
 //    ① 실행기 — 때가 된 예약 게시 · AI 생성 확인 (예산 4분)
-//    ② 끊긴 업로드 조각 치우기
+//    ② 끊긴 업로드 조각 치우기 · 완성 파일 정리 (게시가 끝났거나 7일 넘게 안 올린 것 — 기록만 남김)
 //    ③ 최근 30일 게시물의 성과를 공식 API 로 다시 읽기 (최대 20건)
 //    ④ 사람마다 자기 쿠팡 키로 자기 리포트 (키를 확인한 사람만 · 막힌 키는 건너뜀)
 //    ⑤ AI 레이더 — 키워드 검색 → 반응 큰 쇼츠 후보 · AI 상품 추정(하루 비용 상한) · 네이버 국내 검색 추세
@@ -50,6 +50,8 @@ export async function GET(req: Request) {
     out.runnerError = e instanceof Error ? e.message : String(e);
   }
   out.sweptUploads = await sweepStaleMedia(db).catch(() => 0);
+  // 완성 파일은 쌓아 두지 않는다 — 게시가 끝났거나 7일 넘게 안 올린 것의 내용을 지운다 (기록은 남김)
+  out.purgedRenders = await sweepExpiredRenders(db).catch(() => 0);
   const since = Date.now() - 30 * 86_400_000;
   const pubs = await db.collection(NEANDER_COL.shortsPublications).where("status", "==", "published").get();
   const recent = pubs.docs.map((d) => ({ id: d.id, p: d.data() as PublicationDoc })).filter((x) => (x.p.result?.at ?? 0) >= since).slice(0, 20);

@@ -1187,6 +1187,59 @@ export const PUBLICATION_LABEL: Record<PublicationView["status"], string> = {
   cancelled: "취소됨",
 };
 
+// ---- 완성 파일 보관 (게시 뒤 지우기) ---------------------------------------
+//  완성 파일은 수백 MB 라 서버에 쌓아 두지 않는다. 게시가 다 끝나면 지우고
+//  게시물 링크로 본다. 아무 데도 안 올린 파일도 7일 뒤 정리한다.
+
+/** Instagram API 릴스 한 편 상한 (Meta Reels 규격 · 2026-11-02 확인) */
+export const INSTAGRAM_MAX_BYTES = 300 * 1024 * 1024;
+
+/** 아무 데도 올리지 않은 완성 파일을 남겨 두는 기간 */
+export const RENDER_KEEP_MS = 7 * 86_400_000;
+
+/** 보내는 중이거나 보낼 예정 — 이 게시가 있으면 파일을 지우면 안 된다 */
+const PUB_IN_FLIGHT: readonly PublicationView["status"][] = ["scheduled", "queued", "uploading", "processing"];
+
+/** 일부 채널에만 올렸을 때 다른 채널에 마저 올릴 시간 */
+export const PUBLISHED_GRACE_MS = 24 * 3600_000;
+
+/**
+ * 게시가 끝났나 — 하나 이상 게시됐고, 나머지는 모두 게시됨 · 취소.
+ * 실패 · 결과 확인 필요가 있으면 남긴다 (다시 시도할 때 파일이 있어야 한다).
+ */
+export function canPurgeAfterPublish(statuses: PublicationView["status"][]): boolean {
+  return statuses.includes("published") && statuses.every((s) => s === "published" || s === "cancelled");
+}
+
+/**
+ * 완성 파일을 지울 때인가 (게시 뒤).
+ *  · 이 영상을 올릴 수 있는 채널(연결된 계정의 플랫폼)에 모두 올렸으면 → 바로
+ *  · 일부만 올렸으면 → 마지막 게시 하루 뒤 (YouTube 에 올리고 Instagram 에 마저 올릴 시간)
+ *  · 보내는 중 · 예약 · 실패 · 결과 확인 필요가 있으면 → 아직
+ */
+export function shouldPurgeRender(input: {
+  pubs: { status: PublicationView["status"]; platform: PublicationView["platform"]; at: number | null }[];
+  platforms: PublicationView["platform"][];
+  now: number;
+}): boolean {
+  if (!canPurgeAfterPublish(input.pubs.map((x) => x.status))) return false;
+  const published = input.pubs.filter((x) => x.status === "published");
+  const done = new Set(published.map((x) => x.platform));
+  if (input.platforms.every((pf) => done.has(pf))) return true;
+  const last = Math.max(...published.map((x) => x.at ?? 0));
+  return input.now - last >= PUBLISHED_GRACE_MS;
+}
+
+/**
+ * 오래된 완성 파일 정리 — 7일이 지났고, 보내는 중 · 예약된 게시가 없고,
+ * 고객사가 검토 중이거나 승인한 파일이 아닐 때 (승인한 그 파일만 게시할 수 있으므로).
+ */
+export function canExpireRender(input: { createdAt: number; statuses: PublicationView["status"][]; inReview: boolean; now: number }): boolean {
+  if (input.now - input.createdAt < RENDER_KEEP_MS) return false;
+  if (input.inReview) return false;
+  return !input.statuses.some((s) => PUB_IN_FLIGHT.includes(s));
+}
+
 // ---- 성과 비교 ------------------------------------------------------
 
 export type PerfTotals = Record<PerfMetricKey, number | null> & { sources: Set<string> };
@@ -1362,7 +1415,7 @@ export function emptyProject(
     subtitles: { cues: [], edited: false },
     output: { width: 720, height: 1280, fps: 30, sourceVolume: 0.25, disclosureOverlay: true },
     virtualHuman: false,
-    publish: { title: "", description: "", hashtags: [], privacy: "private", madeForKids: false, synthetic: null },
+    publish: { title: "", description: "", hashtags: [], privacy: "private", madeForKids: false, synthetic: null, keepFiles: false },
     cta: { type: "comment_keyword", keyword: "", wording: "", atSec: null },
     compliance: {},
     costs: [],

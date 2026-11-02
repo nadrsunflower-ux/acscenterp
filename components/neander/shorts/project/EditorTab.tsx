@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowDown, ArrowUp, Captions, CheckCircle2, Download, Film, ImageIcon, Mic, Plus, Square, Trash2, Type, Video, WandSparkles, XCircle } from "lucide-react";
 import { Badge, Button, Card, Checkbox, Divider, Field, FieldAction, FormRow, InlineNotice, Input, NumberInput, SectionHeader, Select, Switch, Table, TableScroll, Td, Textarea, Th, type Tone, useConfirm, useToast } from "@/components/neander/ui";
 import { JOBS_EVENT } from "../ShortsRunner";
-import { deleteMedia, downloadBlob, loadMedia, notePendingJobs, safeFileName, shortsGet, shortsPost, uploadMedia } from "@/lib/neander/shorts/client";
+import { deleteMedia, downloadBlob, downloadMedia, loadMedia, notePendingJobs, safeFileName, shortsGet, shortsPost, uploadMedia } from "@/lib/neander/shorts/client";
 import { fitScenesToCues, fmtSec, narrationLength, newId, overlayFor, renderBlockers, scriptHash, scriptText, timeSubtitles, timelineSec, toSrt, unlinkedLines } from "@/lib/neander/shorts/model";
 import { canRenderMp4, effectiveCues, probeMedia, renderProject, specHash } from "@/lib/neander/shorts/render";
 import type { AiSceneStatus, JobView, MediaView, ProductionMode, ProjectDoc, Scene, SceneKind } from "@/lib/neander/shorts/types";
@@ -715,7 +715,7 @@ function OutputPanel({ draft, media, blockers, onMediaChanged }: { draft: Draft;
 
 function RenderRow({ r, title, onDelete }: { r: MediaView; title: string; onDelete: () => Promise<void> }) {
   const [show, setShow] = useState(false);
-  const { url } = useBlobUrl(show ? r.id : null);
+  const { url } = useBlobUrl(show && !r.purged ? r.id : null);
   const { busy, run } = useAction();
   return (
     <li className="px-3 py-2.5">
@@ -727,12 +727,23 @@ function RenderRow({ r, title, onDelete }: { r: MediaView; title: string; onDele
             {fmtWhen(r.createdAt)} · {fmtSec(r.duration)}{r.width && r.height ? ` · ${r.width}×${r.height}` : ""} · {(r.size / 1024 / 1024).toFixed(1)}MB
           </p>
         </div>
-        <Badge tone={r.codecs?.video === "avc" && r.codecs?.audio === "aac" ? "success" : "warning"}>{r.codecs ? `${r.codecs.video ?? "?"}/${r.codecs.audio ?? "?"}` : "코덱 미확인"}</Badge>
-        <Badge tone={r.overlay?.disclosure ? "success" : "warning"}>{r.overlay?.disclosure ? "영상 안 고지 있음" : "영상 안 고지 없음"}</Badge>
+        {r.direct && <Badge tone="info">직접 올림</Badge>}
+        {r.purged ? (
+          <Badge>{r.purged.reason === "published" ? "게시 뒤 파일 지움" : "오래 안 써서 파일 지움"}</Badge>
+        ) : (
+          <>
+            <Badge tone={r.codecs?.video === "avc" && r.codecs?.audio === "aac" ? "success" : "warning"}>{r.codecs ? `${r.codecs.video ?? "?"}/${r.codecs.audio ?? "?"}` : "코덱 미확인"}</Badge>
+            <Badge tone={r.overlay?.disclosure ? "success" : "warning"}>{r.overlay?.disclosure ? "영상 안 고지 있음" : "영상 안 고지 없음"}</Badge>
+          </>
+        )}
         <span className="flex gap-1">
-          <Button size="sm" variant="ghost" onClick={() => setShow((v) => !v)}>{show ? "닫기" : "보기"}</Button>
-          <Button size="sm" variant="secondary" icon={Download} disabled={busy === "d"} onClick={() => void run("d", async () => downloadBlob(await loadMedia(r.id), `${safeFileName(title)}.mp4`))}>MP4</Button>
-          <Button size="sm" variant="ghost" icon={Trash2} aria-label="지우기" onClick={() => void onDelete()} />
+          {!r.purged && (
+            <>
+              <Button size="sm" variant="ghost" onClick={() => setShow((v) => !v)}>{show ? "닫기" : "보기"}</Button>
+              <Button size="sm" variant="secondary" icon={Download} disabled={busy === "d"} onClick={() => void run("d", async () => downloadMedia(r, `${safeFileName(title)}.mp4`))}>MP4</Button>
+            </>
+          )}
+          <Button size="sm" variant="ghost" icon={Trash2} aria-label={r.purged ? "기록 지우기" : "지우기"} onClick={() => void onDelete()} />
         </span>
       </div>
       {show && url && <video src={url} controls playsInline className="mt-2 aspect-[9/16] w-full max-w-[220px] rounded bg-black" />}

@@ -648,6 +648,7 @@ export function sanitizeProject(input: unknown, prev: StoredProject, email: stri
       privacy: oneOf(pub.privacy, ["private", "unlisted", "public"] as const, "private"),
       madeForKids: pub.madeForKids === true,
       synthetic: pub.synthetic === true ? true : pub.synthetic === false ? false : null,
+      keepFiles: pub.keepFiles === true,
     },
     cta: ctaOf(rec(r.cta)),
     compliance,

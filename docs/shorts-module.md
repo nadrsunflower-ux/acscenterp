@@ -85,13 +85,31 @@ AI 로 만드는 영상을 한 흐름으로 다룬다. 영상은 세 종류다.
 - 「이 대본으로 영상 만들기」 → 영상(프로젝트) 하나: 장면 · 대본 줄 · 게시 제목/설명/해시태그 · CTA · 확인된 사실 · 단계 「대본」. **제품 사진 장면은 영상 쪽에 파일이 없어 빈 장면(이름에 사진 번호)** — 사진을 영상에 다시 올려야 한다. 두 번 눌러도 같은 영상.
 - 실측(2026-11-02 · Gemini 3.7 Flash · 사진 1장): 한 번 약 20초 · 약 16원. 검증: `shorts:test`(script-writer.test.ts · adapters writerTurn) · `shorts:verify-server` 16번(만들기 · 사진은 처음만 · 실패 보존 · 되돌리기 · 남의 대본 막기 · 영상으로 옮기기 · 지우기).
 
+## 완성 파일 — 바로 올리기 · 게시 뒤 지우기 (2026-11-02)
+
+사용자 결정: 완성 파일은 수백 MB 라 **서버에 보관하지 않는다** — 게시가 끝나면 지우고 YouTube · Instagram 링크로 본다.
+
+- **다 만든 영상 바로 올리기**: 게시 탭 「완성 파일」 카드의 「다 만든 영상 올리기 (MP4)」. 다른 도구로 만든 MP4 · MOV 를 출력기 없이 완성 파일로 올린다(`direct`). 브라우저가 코덱 · 길이 · 해상도를 읽어 함께 보낸다(게시 점검의 H.264/AAC 확인). 다 오르면 서버가 영상의 `renderIds` 에 넣는다(`completeMedia`).
+- **저장 위치**: 완성 파일은 Firebase Storage 버킷이 켜져 있으면 버킷(`server/bucket.ts` · `neander_shorts/media/{id}` · 하나 **500MB** · 버킷 전체 `NEANDER_SHORTS_BUCKET_QUOTA_MB` 기본 5GB), 아니면 예전처럼 Firestore 조각(하나 60MB). 버킷 존재는 서버가 확인해 기억한다(있으면 10분 · 없으면 2분) — **버킷을 켜면 코드 수정 없이 바뀐다.** 2026-11-02 기준 버킷 없음.
+  - 버킷 올리기: 서버가 재개형 업로드 세션을 열고(origin 지정 → CORS) 브라우저가 세션 주소로 바로 PUT. 끊기면 `media` 「status」 로 받은 곳을 물어 이어 보낸다(5번). 보기 · 받기 · 고객 검토 링크는 1시간 서명 URL. `storage.rules` 의 `neander_shorts` 는 닫혀 있다(서버만).
+- **게시**: YouTube 는 48MB 씩 나눠 보낸다(`yt_session` → `yt_chunk` 반복). 조각마다 먼저 세션에 「어디까지 받았나」 를 묻기 때문에 끊겨도 이어 가고, 마지막 응답을 놓쳐도 다음 물음에 영상 id 가 온다 — 끊김은 이제 `uncertain` 이 아니라 잠시 뒤 다시(8번 넘게 연결이 안 되면 그때 `uncertain`). Instagram 은 버킷 파일이면 서명 URL(6시간)을 `video_url` 로 넘겨 Meta 가 가져가고, 조각 파일이면 예전대로 rupload. Instagram API 는 릴스 한 편 **300MB** 까지라 넘으면 게시 점검이 막는다.
+- **지우는 때** (`model.ts` `shouldPurgeRender` · `canExpireRender` → `media.ts` `purgeAfterPublish` · `tidyRender`):
+  - 이 영상을 올릴 수 있는 채널(올린 사람 · 게시한 사람이 쓸 수 있는 계정의 플랫폼)에 **모두 게시됐으면 바로**.
+  - 한쪽에만 올렸으면 **마지막 게시 하루 뒤**(다른 쪽에 마저 올릴 시간) — 매일 cron 이 본다.
+  - 실패 · 결과 확인 필요 · 보내는 중 · 예약이 남으면 지우지 않는다.
+  - 아무 데도 안 올린 완성 파일은 **7일 뒤**. 고객사가 검토 중이거나 승인한 파일은 남긴다(승인한 그 파일만 게시할 수 있으므로).
+  - 영상 설정 「게시가 끝나도 완성 파일 남기기」(`publish.keepFiles`)를 켜면 둘 다 안 한다.
+- 지울 때는 내용(조각 · 버킷 객체)만 지우고 문서는 남긴다 — `purged{at, reason, by}` · 이름 · 크기 · 길이. 게시 기록이 이 id 를 계속 가리키고, 화면은 「게시 뒤 지운 파일 · 링크」 로 보여 준다. 다시 게시하려 하면 같은 계정이면 「이미 게시됨」, 아니면 「다시 올려 주세요」.
+- 한도 계산은 색인 없이 필드 하나씩 합한다: `size` 전체 − `purgedSize`(지운 조각 파일) − `bucketBytes`(버킷에 쥔 것) = Firestore 조각으로 쥔 양. 두 필드를 한 집계에 넣거나 조건을 붙이면 복합 색인이 필요하다(권한 없음).
+- 검증: `shorts:test`(publish-files.test.ts — 나눠 보내기 · 끊김 · 세션 만료 · id 없음 · 조각 크기 · video_url · 지우는 때) · `shorts:verify-server` 7 · 8 · 8-1번(재개형 모의 YouTube · 한쪽만 올리면 남김 · 둘 다 올리면 지움 · 하루 뒤 · 7일 · 파일 남기기 · 바이트 구간 읽기 · 바로 올리기). **버킷 경로는 버킷이 없어 실제로 돌려 보지 못했다** — 켠 뒤 큰 파일 한 편으로 올리기 → YouTube 비공개 게시 → 지워지는지 확인할 것.
+
 ## 작업 큐
 
 Firestore `neander_shorts_jobs` + 임대(90초). 실행기 `tick()` 은 한 번에 시간 예산만큼만 돈다.
 
 - 부르는 곳: 열린 ERP 화면(`ShortsRunner` — 쇼츠 화면이거나 이 브라우저가 작업을 만들었을 때만), Vercel Cron(매일 06:30 KST), 화면의 「지금 실행」.
 - 임대가 끝난 running 작업: 브라우저 출력 → `interrupted`, 서버 · 쓰기 도중 → `uncertain`(자동 재시도 금지), 서버 · 읽기 → 다시 `queued`.
-- 종류: `ai_video`(submit → poll → download), `tts`(줄마다), `publish`(YouTube 업로드 / Instagram 컨테이너 → rupload → 처리 대기 → 게시), `render`(브라우저 실행 · 서버는 진행 · 결과만 기록).
+- 종류: `ai_video`(submit → poll → download), `tts`(줄마다), `publish`(YouTube 세션 → 48MB 조각 반복 / Instagram 컨테이너 → rupload 또는 video_url → 처리 대기 → 게시), `render`(브라우저 실행 · 서버는 진행 · 결과만 기록).
 - 게시 원장 문서 id = `publicationKey(계정, 완성 파일, 플랫폼)` 를 `create()` 로 잡아 중복을 막는다.
 
 ## 환경변수
@@ -107,6 +125,7 @@ Firestore `neander_shorts_jobs` + 임대(90초). 실행기 `tick()` 은 한 번�
 | `NEANDER_SHORTS_ADMIN_EMAILS` | 권장 | 사용자별 현황 · 몰아보기를 볼 사람 (없으면 부트스트랩 관리자) |
 | `NEANDER_SHORTS_TOKEN_KEY` | 권장 | 계정 토큰 암호화 키(32바이트 base64). 없으면 `NEANDER_MAIL_KEY` 에서 HKDF 로 끌어냄 |
 | `NEANDER_SHORTS_MEDIA_QUOTA_MB` | 선택 | 파일 저장 한도 (기본 500MB · Firestore 조각) |
+| `NEANDER_SHORTS_BUCKET` · `NEANDER_SHORTS_BUCKET_QUOTA_MB` | 선택 | 완성 파일 버킷 이름(없으면 `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`) · 게시 전 잠깐 쥐는 양 한도(기본 5GB) |
 | `NEANDER_SHORTS_EMAILS` | 선택 | 사용자 제한 |
 | `NEANDER_SHORTS_NAVER_CLIENT_ID` · `_SECRET` | 선택 | AI 레이더의 국내 검색 추세 — NAVER API HUB(네이버 클라우드 콘솔) 검색어 트렌드의 Client ID · Secret. 개발자센터는 2026-07-31 부터 데이터랩 신규 신청을 받지 않는다 |
 

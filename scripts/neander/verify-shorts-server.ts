@@ -213,16 +213,38 @@ async function main() {
     cur = await store.getProject(db, A, pid);
     cur = await store.saveProject(db, A, pid, { ...cur, compliance: { ...cur.compliance, dmConsent: { system: null, user: { ok: true } } } }, cur.updatedAt);
 
+    // 모의 YouTube — 실제처럼 재개형 세션: 「bytes */N」 물음에는 받은 만큼(308 Range), 다 받으면 영상
     const calls: string[] = [];
-    let mode: "ok" | "drop" = "ok";
+    let mode: "ok" | "drop" | "noid" = "ok";
+    let received = 0;
+    let dataPuts = 0;
+    // Instagram 계정이 미리 있으면 YouTube 에만 올린 파일은 지우지 않는다 (마저 올릴 수 있게)
+    const igId = accounts.accountId("instagram", "17841499999999999", A);
+    await db.collection(NEANDER_COL.shortsAccounts).doc(igId).set({ ...acc, platform: "instagram", authMode: "facebook_login", externalId: "17841499999999999", externalName: "@verify", sealed: secret.sealTokens({ pageToken: "pt" }, igId) });
     platforms.setPlatformFetch((async (input: RequestInfo | URL, init: RequestInit = {}) => {
       const url = String(input);
       calls.push(`${init.method ?? "GET"} ${url.split("?")[0]}`);
       if (url.startsWith("https://oauth2.googleapis.com/token")) return new Response(JSON.stringify({ access_token: "at" }), { status: 200 });
-      if (url.includes("uploadType=resumable")) return new Response(null, { status: 200, headers: { Location: "https://www.googleapis.com/upload/youtube/v3/videos?upload_id=v" } });
+      if (url.includes("uploadType=resumable")) {
+        received = 0;
+        return new Response(null, { status: 200, headers: { Location: "https://www.googleapis.com/upload/youtube/v3/videos?upload_id=v" } });
+      }
       if (init.method === "PUT") {
-        if (mode === "drop") throw new Error("connection reset");
-        return new Response(JSON.stringify({ id: "verifyVid01", status: { uploadStatus: "uploaded", privacyStatus: "private" } }), { status: 201 });
+        const range = String((init.headers as Record<string, string>)["Content-Range"] ?? "");
+        const total = Number(range.split("/")[1]);
+        const done = () =>
+          mode === "noid"
+            ? new Response(JSON.stringify({ status: {} }), { status: 201 })
+            : new Response(JSON.stringify({ id: "verifyVid01", status: { uploadStatus: "uploaded", privacyStatus: "private" } }), { status: 201 });
+        if (range.startsWith("bytes */")) return received >= total ? done() : new Response(null, { status: 308, headers: received ? { Range: `bytes=0-${received - 1}` } : {} });
+        dataPuts++;
+        if (mode === "drop") {
+          mode = "ok"; // 한 번만 끊긴다
+          throw new Error("connection reset");
+        }
+        const end = Number(range.slice(6).split("/")[0].split("-")[1]);
+        received = end + 1;
+        return received >= total ? done() : new Response(null, { status: 308, headers: { Range: `bytes=0-${end}` } });
       }
       return new Response("{}", { status: 404 });
     }) as typeof fetch);
@@ -236,24 +258,40 @@ async function main() {
       console.log("  ↳ 원장 오류:", pub1.error, "\n  ↳ 작업 기록:", jd.log.map((l) => l.msg).join(" | "), "\n  ↳ 호출:", calls.join(" , "));
     }
     ok(pub1.status === "published" && pub1.result?.externalId === "verifyVid01" && pub1.result.by === "api", "실행기가 업로드 → 게시됨 (실제 id 를 받았을 때만)", pub1.status);
-    ok(calls.filter((c) => c.startsWith("PUT")).length === 1, "영상 바이트는 한 번만 보냄");
+    ok(dataPuts === 1, "영상 바이트는 한 번만 보냄", `${dataPuts}번`);
     await rejects(pubs.createPublication(db, A, { projectId: pid, accountId: accId, renderId: r1 }), /이미 이 계정에 게시/, "게시된 파일을 같은 계정에 다시 게시하면 거절");
+    ok(!((await db.collection(NEANDER_COL.shortsMedia).doc(r1).get()).data() as { purged?: unknown }).purged, "YouTube 에만 올리고 Instagram 이 연결돼 있으면 파일을 남김 (마저 올릴 수 있게)");
 
-    // 불확실한 결과
+    // 전송 중 끊김 — 다시 물어 받은 곳부터 이어 보낸다 (두 번 올라가지 않는다)
     const r2 = await mkRender();
     mode = "drop";
     const c2 = await pubs.createPublication(db, A, { projectId: pid, accountId: accId, renderId: r2 });
-    const putsBefore = calls.filter((c) => c.startsWith("PUT")).length;
+    await runner.tick(db, { budgetMs: 30_000 });
+    let pub2 = (await db.collection(NEANDER_COL.shortsPublications).doc(c2.publicationId).get()).data() as PublicationDoc;
+    const job2 = (await db.collection(NEANDER_COL.shortsJobs).doc(c2.jobId).get()).data() as JobDoc;
+    ok(pub2.status === "uploading" && job2.status === "waiting", "전송 중 연결이 끊기면 잠시 뒤 다시 (uncertain 아님)", `${pub2.status} · 작업 ${job2.status}`);
+    await db.collection(NEANDER_COL.shortsJobs).doc(c2.jobId).update({ runAt: Date.now() - 1000 });
+    const putsBefore = dataPuts;
+    await runner.tick(db, { budgetMs: 30_000 });
+    pub2 = (await db.collection(NEANDER_COL.shortsPublications).doc(c2.publicationId).get()).data() as PublicationDoc;
+    ok(pub2.status === "published" && dataPuts === putsBefore + 1, "끊긴 업로드는 세션에 물어 이어 보내 게시됨", `${pub2.status} · 바이트 전송 ${dataPuts - putsBefore}번`);
+
+    // 불확실한 결과 — 다 받았다는데 영상 id 가 없다
+    const r2b = await mkRender();
+    mode = "noid";
+    const c2b = await pubs.createPublication(db, A, { projectId: pid, accountId: accId, renderId: r2b });
     await runner.tick(db, { budgetMs: 30_000 });
     await runner.tick(db, { budgetMs: 30_000 });
-    const pub2 = (await db.collection(NEANDER_COL.shortsPublications).doc(c2.publicationId).get()).data() as PublicationDoc;
-    ok(pub2.status === "uncertain", "전송 중 연결이 끊기면 uncertain", pub2.status);
-    ok(calls.filter((c) => c.startsWith("PUT")).length === putsBefore + 1, "불확실한 업로드는 실행기가 다시 보내지 않음");
-    await rejects(pubs.createPublication(db, A, { projectId: pid, accountId: accId, renderId: r2 }), /불확실/, "불확실한 게시가 있으면 같은 요청 거절");
-    await pubs.resolvePublication(db, A, c2.publicationId, { outcome: "not_published" });
+    const pub2b = (await db.collection(NEANDER_COL.shortsPublications).doc(c2b.publicationId).get()).data() as PublicationDoc;
+    ok(pub2b.status === "uncertain", "다 보냈는데 영상 id 가 없으면 uncertain", pub2b.status);
+    const putsAfterUncertain = dataPuts;
+    await runner.tick(db, { budgetMs: 30_000 });
+    ok(dataPuts === putsAfterUncertain, "불확실한 업로드는 실행기가 다시 보내지 않음");
+    await rejects(pubs.createPublication(db, A, { projectId: pid, accountId: accId, renderId: r2b }), /불확실/, "불확실한 게시가 있으면 같은 요청 거절");
+    await pubs.resolvePublication(db, A, c2b.publicationId, { outcome: "not_published" });
     mode = "ok";
-    const c3 = await pubs.createPublication(db, A, { projectId: pid, accountId: accId, renderId: r2 });
-    ok(c3.publicationId === c2.publicationId, "사람이 「게시 안 됨」 을 확인하면 같은 원장에서 다시 시도");
+    const c3 = await pubs.createPublication(db, A, { projectId: pid, accountId: accId, renderId: r2b });
+    ok(c3.publicationId === c2b.publicationId, "사람이 「게시 안 됨」 을 확인하면 같은 원장에서 다시 시도");
     await pubs.cancelPublication(db, A, c3.publicationId);
     const pub3 = (await db.collection(NEANDER_COL.shortsPublications).doc(c3.publicationId).get()).data() as PublicationDoc;
     ok(pub3.status === "cancelled" && pub3.attempts === 2, "보내기 전 취소", `${pub3.status} · 시도 ${pub3.attempts}`);
@@ -271,8 +309,6 @@ async function main() {
     ok(pub4.status === "published", "예약 시각이 지나면 실행기가 게시", pub4.status);
 
     // ---- 8. Instagram 처리 대기 → 게시 ----
-    const igId = accounts.accountId("instagram", "17841499999999999", A);
-    await db.collection(NEANDER_COL.shortsAccounts).doc(igId).set({ ...acc, platform: "instagram", authMode: "facebook_login", externalId: "17841499999999999", externalName: "@verify", sealed: secret.sealTokens({ pageToken: "pt" }, igId) });
     let igStatus = "IN_PROGRESS";
     platforms.setPlatformFetch((async (input: RequestInfo | URL, init: RequestInit = {}) => {
       const url = String(input);
@@ -297,6 +333,48 @@ async function main() {
     ok(pub5.status === "published" && pub5.result?.url === "https://www.instagram.com/reel/V/", "처리 완료 뒤 게시 · 주소 보관", pub5.status);
     ok(calls.filter((c) => c.endsWith("/media_publish")).length === 1, "media_publish 는 한 번만");
 
+    // ---- 8-1. 게시 뒤 완성 파일 지우기 ----
+    const r1Doc = (await db.collection(NEANDER_COL.shortsMedia).doc(r1).get()).data() as { purged?: { reason: string }; size: number; name: string } | undefined;
+    ok(r1Doc?.purged?.reason === "published" && r1Doc.name === "out.mp4", "YouTube · Instagram 에 다 올리자 내용을 지우고 기록(이름 · 크기)은 남김", JSON.stringify(r1Doc?.purged));
+    ok((await db.collection(NEANDER_COL.shortsMedia).doc(r1).collection("parts").count().get()).data().count === 0, "지운 파일의 조각이 실제로 없어짐");
+    await rejects(media.readParts(db, A, r1, 0, 1), /게시가 끝나/, "지운 파일은 받을 수 없고 링크로 보라고 안내");
+    ok((await media.listProjectMedia(db, pid, A)).some((m) => m.id === r1 && m.purged), "목록에는 「지움」 기록으로 남음 (게시 기록이 이 id 를 가리킴)");
+    await rejects(pubs.createPublication(db, A, { projectId: pid, accountId: accId, renderId: r1 }), /이미 이 계정에 게시/, "지운 파일을 같은 계정에 다시 게시하면 「이미 게시」 로 거절");
+    // r3(예약 게시 · YouTube 만) — 하루가 지나면 정리 · 「파일 남기기」 를 켜면 안 지움
+    const dayLater = Date.now() + 25 * 3600_000;
+    let pDoc = await store.getProject(db, A, pid);
+    pDoc = await store.saveProject(db, A, pid, { ...pDoc, publish: { ...pDoc.publish, keepFiles: true } }, pDoc.updatedAt);
+    ok((await media.tidyRender(db, r3, dayLater)) === null, "「게시가 끝나도 파일 남기기」 를 켜면 정리하지 않음");
+    pDoc = await store.saveProject(db, A, pid, { ...pDoc, publish: { ...pDoc.publish, keepFiles: false } }, pDoc.updatedAt);
+    ok((await media.tidyRender(db, r3, Date.now())) === null, "한쪽(YouTube)에만 올린 파일은 하루 동안 남김");
+    const heldBefore = await media.heldBytes(db);
+    ok((await media.tidyRender(db, r3, dayLater)) === "published", "하루가 지나면 정리");
+    ok((await media.heldBytes(db)).firestore === heldBefore.firestore - 4000, "지운 크기만큼 저장 한도가 돌아옴", `${heldBefore.firestore} → ${(await media.heldBytes(db)).firestore}`);
+    // 아무 데도 안 올린 파일 — 7일
+    const r6 = await mkRender();
+    ok((await media.tidyRender(db, r6, Date.now() + 6 * 86_400_000)) === null, "안 올린 파일은 7일 동안 남김");
+    ok((await media.tidyRender(db, r6, Date.now() + 8 * 86_400_000)) === "expired", "7일이 지나면 정리 (expired)");
+    // 조각 파일에서 바이트 구간 읽기 (YouTube 나눠 보내기가 쓰는 길)
+    const bigBuf = randomBytes(2_000_000);
+    const big = await media.saveBytes(db, A, { projectId: pid, kind: "render", name: "big.mp4", type: "video/mp4", duration: 6, width: 720, height: 1280, origin: null, codecs: { video: "avc", audio: "aac" }, overlay: null }, bigBuf);
+    const bigDoc = (await db.collection(NEANDER_COL.shortsMedia).doc(big.id).get()).data() as Parameters<typeof media.readBytes>[2];
+    ok((await media.readBytes(db, big.id, bigDoc, 1000, 1_700_000)).equals(bigBuf.subarray(1000, 1_700_000)), "조각 경계를 넘는 바이트 구간을 정확히 읽음");
+    ok((await media.readBytes(db, big.id, bigDoc, 1_999_000, 9_999_999)).equals(bigBuf.subarray(1_999_000)), "끝을 넘는 구간은 파일 끝까지");
+    await rejects(
+      media.createMedia(db, A, { projectId: pid, kind: "render", direct: true, name: "big.mp4", type: "video/mp4", size: 61 * 1024 * 1024 }),
+      /Firebase Storage 를 켜면 500MB/,
+      "버킷이 없으면 완성 파일도 60MB 까지 (켜면 500MB 라고 안내)",
+    );
+    await rejects(media.createMedia(db, A, { projectId: pid, kind: "render", direct: true, name: "x.webm", type: "video/webm", size: 10 }), /MP4/, "직접 올리는 완성 파일은 MP4 · MOV 만");
+    // 직접 올린 완성 파일 — 다 오르면 영상의 완성 파일 목록에 들어감
+    const dBuf = randomBytes(1500);
+    const dm = await media.createMedia(db, A, { projectId: pid, kind: "render", direct: true, name: "made-elsewhere.mp4", type: "video/mp4", size: dBuf.length, codecs: { video: "avc", audio: "aac" } });
+    ok(dm.store === "firestore" && !dm.uploadUrl, "버킷이 없으면 조각으로", dm.store);
+    await media.putPart(db, A, dm.id, 0, dBuf);
+    const dView = await media.completeMedia(db, A, dm.id);
+    ok(dView.direct === true && (await store.getProject(db, A, pid)).renderIds.includes(dm.id), "직접 올린 파일이 영상의 완성 파일이 됨");
+    ok(!("uploadSession" in dView) && !("object" in dView), "화면용 파일 정보에 세션 주소 · 객체 경로가 없음");
+
     // ---- 9. 사람별 채널 세트 · 관리자 몰아보기 ----
     const viewA = await profiles.saveCoupangKeys(db, A, { accessKey: "verify-access-AAAA1234", secretKey: "verify-secret-SSSS9999", afCode: "AF0000001" });
     ok(viewA.coupang.configured && viewA.coupang.keyHint === "…1234" && viewA.coupang.status === "unverified", "내 쿠팡 키 저장 → 끝 4자리 · 확인 전");
@@ -309,7 +387,7 @@ async function main() {
     ok((await store.getProject(db, B, pid, true)).id === pid, "관리자 몰아보기: 남의 비공개 프로젝트를 읽음");
     const curA = await store.getProject(db, A, pid);
     await rejects(store.saveProject(db, B, pid, { ...curA, title: "관리자가 고침" }, curA.updatedAt), /비공개/, "관리자라도 남의 비공개 프로젝트는 고치지 못함");
-    ok((await media.readParts(db, B, r1, 0, 1, true)).length > 0, "관리자 몰아보기: 남의 완성 영상을 받아 봄");
+    ok((await media.readParts(db, B, r2, 0, 1, true)).length > 0, "관리자 몰아보기: 남의 완성 영상을 받아 봄");
     await rejects(profiles.coupangOf(db, B), /쿠팡 파트너스 키를 아직 넣지 않았습니다/, "키 없는 사람의 링크는 만들 수 없음 (회사 키로 대신하지 않음)");
     ok((await profiles.coupangOf(db, A)).creds.secretKey === "verify-secret-SSSS9999", "계정 주인의 키를 서버 안에서만 꺼냄");
 
@@ -477,7 +555,7 @@ async function main() {
     ok(!ourPrep.caption.includes(DISCLOSURE), "브랜드 영상에는 쿠팡 파트너스 문구가 붙지 않음");
     const otherPrep = await pubs.preparePublish(db, A, { projectId: bp, accountId: otherAccId, renderId: br1 });
     ok(otherPrep.problems.some((x) => /다른 고객사의 계정/.test(x)), "다른 고객사의 계정에는 게시 못 함");
-    const coupangOnClient = await pubs.preparePublish(db, A, { projectId: pid, accountId: clientAccId, renderId: r1 });
+    const coupangOnClient = await pubs.preparePublish(db, A, { projectId: pid, accountId: clientAccId, renderId: r2 });
     ok(coupangOnClient.problems.some((x) => /쿠팡 제휴 영상을 올리지 않습니다/.test(x)), "고객사 계정에는 쿠팡 제휴 영상을 못 올림");
 
     bpDoc = await store.getProject(db, A, bp);

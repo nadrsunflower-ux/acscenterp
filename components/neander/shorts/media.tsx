@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Film, ImageIcon, Upload, type LucideIcon } from "lucide-react";
 import { DropZone, cn, useToast } from "@/components/neander/ui";
-import { listClientMedia, listProjectMedia, loadMedia, uploadMedia } from "@/lib/neander/shorts/client";
+import { listClientMedia, listProjectMedia, mediaSource, uploadMedia } from "@/lib/neander/shorts/client";
 import { probeMedia } from "@/lib/neander/shorts/render";
 import type { MediaKind, MediaView } from "@/lib/neander/shorts/types";
 
@@ -41,19 +41,27 @@ export function useClientMedia(clientId: string) {
   return { media, refresh };
 }
 
-/** 파일 → 미리보기 주소 (브라우저 사본이 있으면 바로) */
+/**
+ * 파일 → 미리보기 주소 (브라우저 사본이 있으면 바로 · 저장소 파일은 서명 URL).
+ * purged — 게시가 끝나(또는 오래 안 써서) 내용을 지운 파일. 오류가 아니라 「게시물 링크로 보기」 다.
+ */
 export function useBlobUrl(id: string | null | undefined) {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [purged, setPurged] = useState<"published" | "expired" | null>(null);
   useEffect(() => {
-    if (!id) return setUrl(null);
+    setUrl(null);
+    setError(null);
+    setPurged(null);
+    if (!id) return;
     let alive = true;
     let made: string | null = null;
-    loadMedia(id)
-      .then((b) => {
+    mediaSource(id)
+      .then((src) => {
+        if (src.kind === "purged") return alive && setPurged(src.reason);
+        if (src.revoke) made = src.url;
         if (!alive) return;
-        made = URL.createObjectURL(b);
-        setUrl(made);
+        setUrl(src.url);
       })
       .catch((e) => alive && setError(e instanceof Error ? e.message : "파일을 받지 못했습니다."));
     return () => {
@@ -61,7 +69,7 @@ export function useBlobUrl(id: string | null | undefined) {
       if (made) URL.revokeObjectURL(made);
     };
   }, [id]);
-  return { url, error };
+  return { url, error, purged };
 }
 
 const ACCEPT: Record<string, string> = {
@@ -71,6 +79,7 @@ const ACCEPT: Record<string, string> = {
   audio: "audio/*",
   recording: "audio/*",
   voice: "audio/*",
+  render: "video/mp4,video/quicktime",
 };
 
 export function MediaUpload({
@@ -81,6 +90,7 @@ export function MediaUpload({
   hint,
   multiple = true,
   compact,
+  direct,
   onUploaded,
 }: {
   projectId: string;
@@ -91,6 +101,8 @@ export function MediaUpload({
   hint?: string;
   multiple?: boolean;
   compact?: boolean;
+  /** 다 만든 영상 바로 올리기 (kind=render) — 코덱을 읽어 게시 점검에 넘긴다 */
+  direct?: boolean;
   onUploaded: (m: MediaView[]) => void;
 }) {
   const toast = useToast();
@@ -99,11 +111,21 @@ export function MediaUpload({
     const done: MediaView[] = [];
     for (const [i, f] of files.entries()) {
       try {
-        const probe = f.type.startsWith("video/") || f.type.startsWith("audio/") ? await probeMedia(f) : { duration: null, width: null, height: null };
+        const probe = f.type.startsWith("video/") || f.type.startsWith("audio/") ? await probeMedia(f) : { duration: null, width: null, height: null, video: null, audio: null };
         if (f.type.startsWith("video/") && probe.duration === null) throw new Error(`「${f.name}」 을(를) 읽지 못했습니다. MP4(H.264) 로 바꿔 올려 주세요.`);
         const m = await uploadMedia(
           f,
-          { projectId, clientId, kind, name: f.name, type: f.type || "application/octet-stream", duration: probe.duration, width: probe.width, height: probe.height },
+          {
+            projectId,
+            clientId,
+            kind,
+            name: f.name,
+            type: f.type || "application/octet-stream",
+            duration: probe.duration,
+            width: probe.width,
+            height: probe.height,
+            ...(direct ? { direct: true, codecs: { video: probe.video, audio: probe.audio } } : {}),
+          },
           (p) => setBusy(`${i + 1}/${files.length} · ${Math.round(p * 100)}%`),
         );
         done.push(m);

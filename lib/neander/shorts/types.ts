@@ -350,6 +350,8 @@ export interface PublishSettings {
   madeForKids: boolean;
   /** 실제처럼 보이는 AI 합성 장면 포함 여부 — null 은 아직 안 정함 (게시 전에 정해야 한다) */
   synthetic: boolean | null;
+  /** 게시가 끝나도 완성 파일을 남긴다 — 기본(false)은 다 올라가면 지우고 게시물 링크로 본다 */
+  keepFiles?: boolean;
 }
 
 /** 확인 하나 — 프로그램이 본 것과 사람이 확인한 것을 따로 남긴다 */
@@ -517,9 +519,23 @@ export interface MediaDoc {
   codecs: { video: string | null; audio: string | null } | null;
   /** 출력 파일에 영상 안 고지 띠를 넣었는가 (출력기가 기록) */
   overlay: { disclosure: boolean; text: string } | null;
+  /** 어디에 있나 — 없거나 "firestore" 면 parts 조각, "bucket" 이면 Storage 객체 (bucket.ts) */
+  store?: "firestore" | "bucket";
+  /** Storage 객체 경로 (store=bucket) */
+  object?: string | null;
+  /** 올리는 중인 Storage 재개형 세션 주소 — 서버만 쓴다 (화면에 안 내보냄) */
+  uploadSession?: string | null;
+  /** 다른 도구로 다 만든 영상을 바로 올렸다 (출력기를 거치지 않음) */
+  direct?: boolean;
+  /** 내용을 지웠다 — 기록(이름 · 크기 · 길이)만 남는다. 게시가 끝났거나 오래 안 쓰여서 */
+  purged?: { at: number; reason: "published" | "expired"; by: string } | null;
+  /** 지운 Firestore 조각 파일의 크기 — 한도 계산에서 뺀다 (size 는 기록으로 남긴다) */
+  purgedSize?: number;
+  /** 버킷에 쥐고 있는 크기 (지우면 0) — 버킷 한도 계산용 */
+  bucketBytes?: number;
 }
 
-export type MediaView = Omit<MediaDoc, "parts" | "complete"> & { id: string };
+export type MediaView = Omit<MediaDoc, "parts" | "complete" | "object" | "uploadSession" | "purgedSize" | "bucketBytes"> & { id: string };
 
 // ---- 작업 큐 ------------------------------------------------------
 
@@ -728,7 +744,15 @@ export interface IntegrationStatus {
   cron: { configured: boolean };
   /** 회사 공용 쿠팡 키(서버 환경변수) — 검색에만 대신 쓴다. 딥링크 · 리포트는 각자의 키로만 */
   companyCoupang: { configured: boolean };
-  storage: { driver: "firestore-chunks"; quotaMb: number; usedMb: number };
+  storage: {
+    driver: "firestore-chunks";
+    quotaMb: number;
+    usedMb: number;
+    /** Firebase Storage 버킷이 켜졌나 — 켜졌으면 완성 파일은 거기에 (게시 뒤 지움) */
+    bucket: { ready: boolean; quotaMb: number; usedMb: number };
+    /** 완성 파일 하나 상한 (버킷이면 500MB, 아니면 Firestore 조각 60MB) */
+    renderMaxMb: number;
+  };
   allowlist: { restricted: boolean };
 }
 

@@ -8,7 +8,8 @@ import type { IntegrationStatus } from "../types";
 import { shortsAllowlist } from "./access";
 import { openrouterConfigured } from "./ai";
 import { coupangConfig } from "./coupang";
-import { quotaBytes, usedBytes } from "./media";
+import { bucketReady } from "./bucket";
+import { bucketQuotaBytes, heldBytes, MAX_BUCKET_FILE_BYTES, MAX_FILE_BYTES, quotaBytes } from "./media";
 import { googleConfig, metaConfig } from "./platforms";
 import { tokenKeyConfigured } from "./secret";
 import { youtubeApiKey } from "./youtube-data";
@@ -17,7 +18,8 @@ export async function integrationStatus(db: Firestore): Promise<IntegrationStatu
   const g = googleConfig();
   const m = metaConfig();
   const c = coupangConfig();
-  const used = await usedBytes(db).catch(() => 0);
+  const [held, bucket] = await Promise.all([heldBytes(db).catch(() => ({ firestore: 0, bucket: 0 })), bucketReady()]);
+  const mb1 = (n: number) => Math.round((n / 1024 / 1024) * 10) / 10;
   return {
     openrouter: { configured: openrouterConfigured() },
     youtubeSearch: { configured: !!youtubeApiKey(), missing: youtubeApiKey() ? [] : ["NEANDER_SHORTS_YOUTUBE_API_KEY"] },
@@ -27,7 +29,13 @@ export async function integrationStatus(db: Firestore): Promise<IntegrationStatu
     tokenKey: tokenKeyConfigured(),
     cron: { configured: !!process.env.CRON_SECRET?.trim() },
     companyCoupang: { configured: c.configured },
-    storage: { driver: "firestore-chunks", quotaMb: Math.round(quotaBytes() / 1024 / 1024), usedMb: Math.round((used / 1024 / 1024) * 10) / 10 },
+    storage: {
+      driver: "firestore-chunks",
+      quotaMb: Math.round(quotaBytes() / 1024 / 1024),
+      usedMb: mb1(held.firestore),
+      bucket: { ready: bucket, quotaMb: Math.round(bucketQuotaBytes() / 1024 / 1024), usedMb: mb1(held.bucket) },
+      renderMaxMb: Math.round((bucket ? MAX_BUCKET_FILE_BYTES : MAX_FILE_BYTES) / 1024 / 1024),
+    },
     allowlist: { restricted: shortsAllowlist().length > 0 },
   };
 }

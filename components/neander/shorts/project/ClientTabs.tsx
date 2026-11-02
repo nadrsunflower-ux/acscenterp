@@ -181,12 +181,14 @@ function renderMeta(r: MediaView) {
 
 /** 고객에게 보낼(보낸) 완성 파일 — 9:16 으로 재생. 파일이 없으면 아이콘 상자 */
 function RenderPlayer({ media, loading }: { media: MediaView | null; loading: boolean }) {
-  const { url, error } = useBlobUrl(media?.id ?? null);
+  const { url, error, purged } = useBlobUrl(media?.id ?? null);
   if (media && url && !error) return <video src={url} controls playsInline className="aspect-[9/16] w-full rounded-nd-md bg-black" aria-label={media.name} />;
   return (
     <div className="flex aspect-[9/16] w-full flex-col items-center justify-center gap-1.5 rounded-nd-md bg-nd-sunken px-3 text-center text-nd-fg-3">
       <Film size={22} aria-hidden />
-      <span className="text-[13px]">{!media ? (loading ? "불러오는 중" : "완성 파일 없음") : error ? "파일을 받지 못했습니다" : "불러오는 중"}</span>
+      <span className="text-[13px]">
+        {!media ? (loading ? "불러오는 중" : "완성 파일 없음") : purged ? (purged === "published" ? "게시가 끝나 파일을 지웠습니다 — 「게시」 탭의 링크로 보세요" : "오래 쓰지 않아 파일을 지웠습니다") : error ? "파일을 받지 못했습니다" : "불러오는 중"}
+      </span>
     </div>
   );
 }
@@ -198,7 +200,8 @@ export function ReviewTab({ draft }: { draft: Draft }) {
   const { busy, run } = useAction();
   const client = data!.clients.find((c) => c.id === p.clientId);
   const { media, loading } = useProjectMedia(p.id);
-  const renders = media.filter((m) => m.kind === "render" && p.renderIds.includes(m.id)).sort((a, b) => b.createdAt - a.createdAt);
+  // 게시 뒤 내용을 지운 파일은 다시 보낼 수 없다
+  const renders = media.filter((m) => m.kind === "render" && !m.purged && p.renderIds.includes(m.id)).sort((a, b) => b.createdAt - a.createdAt);
   const [renderId, setRenderId] = useState(renders[0]?.id ?? "");
   const [link, setLink] = useState<string | null>(null);
   const [rec, setRec] = useState({ decision: "approved", feedback: "", decidedBy: client?.contactName ?? "" });

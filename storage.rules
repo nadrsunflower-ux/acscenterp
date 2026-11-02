@@ -35,12 +35,20 @@ service firebase.storage {
       allow read, write: if false;
     }
 
+    // AI STUDIO 완성 파일(게시 전 잠깐 두는 영상): 재무 첨부와 같다 — 서버만.
+    // 브라우저는 서버가 연 업로드 세션 주소와 만료되는 서명 URL 만 쓴다
+    // (lib/neander/shorts/server/bucket.ts).
+    match /neander_shorts/{allPaths=**} {
+      allow read, write: if false;
+    }
+
     // 그 외 경로(매장 상품/프로모션 이미지 등): 기존 공개 동작 보존.
-    // 단 neander_chat / neander_dev / neander_fin 폴더는 위 규칙에서만 처리.
+    // 단 neander_chat / neander_dev / neander_fin / neander_shorts 폴더는 위 규칙에서만 처리.
     match /{folder}/{allPaths=**} {
       allow read, write: if folder != 'neander_chat'
         && folder != 'neander_dev'
-        && folder != 'neander_fin';
+        && folder != 'neander_fin'
+        && folder != 'neander_shorts';
     }
   }
 }

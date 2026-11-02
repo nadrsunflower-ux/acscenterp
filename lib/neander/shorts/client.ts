@@ -75,11 +75,70 @@ export interface UploadMeta {
   height?: number | null;
   codecs?: { video: string | null; audio: string | null } | null;
   overlay?: { disclosure: boolean; text: string } | null;
+  /** 다른 도구로 다 만든 영상을 바로 올린다 (kind=render) — 다 오르면 영상의 완성 파일이 된다 */
+  direct?: boolean;
 }
 
-/** 768KB 조각으로 올린다 (동시에 3개). 다 오르면 서버가 조각 수를 세어 확정한다 */
+interface Created {
+  id: string;
+  partBytes: number;
+  parts: number;
+  store: "firestore" | "bucket";
+  uploadUrl?: string;
+}
+
+/** 버킷 세션 주소로 from 바이트부터 끝까지 한 번에 보낸다 (진행률은 XHR 로) */
+function putToBucket(url: string, blob: Blob, from: number, onBytes: (sent: number) => void, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    if (from > 0) xhr.setRequestHeader("Content-Range", `bytes ${from}-${blob.size - 1}/${blob.size}`);
+    xhr.upload.onprogress = (e) => onBytes(from + e.loaded);
+    xhr.onload = () => (xhr.status === 200 || xhr.status === 201 ? resolve() : reject(new Error(`저장소가 파일을 받지 않았습니다 (HTTP ${xhr.status}).`)));
+    xhr.onerror = () => reject(new Error("올리는 도중 연결이 끊겼습니다."));
+    xhr.onabort = () => reject(new DOMException("올리기를 멈췄습니다.", "AbortError"));
+    signal?.addEventListener("abort", () => xhr.abort(), { once: true });
+    xhr.send(from > 0 ? blob.slice(from) : blob);
+  });
+}
+
+/**
+ * 저장소(버킷)로 바로 — 끊기면 서버에 「어디까지 받았나」 를 물어 그 자리부터 이어 보낸다 (5번까지).
+ * 브라우저 사본은 남기지 않는다 (수백 MB · 게시가 끝나면 서버에서도 지운다).
+ */
+async function uploadToBucket(blob: Blob, created: Created, onProgress?: (p: number) => void, signal?: AbortSignal) {
+  let from = 0;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await putToBucket(created.uploadUrl!, blob, from, (sent) => onProgress?.(Math.min(0.99, sent / blob.size)), signal);
+      return;
+    } catch (e) {
+      if (signal?.aborted || (e instanceof DOMException && e.name === "AbortError") || attempt >= 4) throw e;
+      await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+      const st = await shortsPost<{ offset: number; complete: boolean }>("media", { action: "status", id: created.id });
+      if (st.complete) return;
+      from = st.offset;
+    }
+  }
+}
+
+/**
+ * 올리기. 서버가 저장 방식을 정한다 — 완성 파일은 버킷(켜져 있으면), 나머지는 768KB 조각(동시에 3개).
+ * 다 오르면 서버가 크기 · 조각 수를 확인해 확정한다.
+ */
 export async function uploadMedia(blob: Blob, meta: UploadMeta, onProgress?: (p: number) => void, signal?: AbortSignal): Promise<MediaView> {
-  const created = await shortsPost<{ id: string; partBytes: number; parts: number }>("media", { action: "create", size: blob.size, ...meta });
+  const created = await shortsPost<Created>("media", { action: "create", size: blob.size, ...meta });
+  if (created.store === "bucket") {
+    try {
+      await uploadToBucket(blob, created, onProgress, signal);
+      const { media } = await shortsPost<{ media: MediaView }>("media", { action: "done", id: created.id });
+      onProgress?.(1);
+      return media;
+    } catch (e) {
+      await shortsPost("media", { action: "delete", id: created.id }).catch(() => undefined);
+      throw e;
+    }
+  }
   let done = 0;
   const queue = Array.from({ length: created.parts }, (_, n) => n);
   const worker = async () => {
@@ -130,6 +189,41 @@ export function loadMedia(id: string, onProgress?: (p: number) => void): Promise
   })().finally(() => inflight.delete(id));
   inflight.set(id, p);
   return p;
+}
+
+export type MediaSource = { kind: "url"; url: string; revoke: boolean } | { kind: "purged"; reason: "published" | "expired" };
+
+/**
+ * 미리보기용 주소 — 브라우저 사본 → (저장소 파일이면) 서명 URL → 조각으로 받은 Blob.
+ * 게시 뒤 내용을 지운 파일이면 purged.
+ */
+export async function mediaSource(id: string): Promise<MediaSource> {
+  const cached = await cacheGet(id).catch(() => null);
+  if (cached) return { kind: "url", url: URL.createObjectURL(cached), revoke: true };
+  const { media } = await shortsGet<{ media: MediaView }>(`media?id=${encodeURIComponent(id)}&meta=1`);
+  if (media.purged) return { kind: "purged", reason: media.purged.reason };
+  if (media.store === "bucket") {
+    const { url } = await shortsGet<{ url: string | null }>(`media?id=${encodeURIComponent(id)}&url=1`);
+    if (url) return { kind: "url", url, revoke: false };
+  }
+  return { kind: "url", url: URL.createObjectURL(await loadMedia(id)), revoke: true };
+}
+
+/** 받기 — 저장소 파일은 서명 URL(첨부로 받기)로, 조각 파일은 Blob 으로 */
+export async function downloadMedia(m: Pick<MediaView, "id" | "store">, name: string) {
+  if (m.store === "bucket") {
+    const { url } = await shortsGet<{ url: string | null }>(`media?id=${encodeURIComponent(m.id)}&url=1&download=1`);
+    if (url) {
+      const a = document.createElement("a");
+      a.href = url;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      return;
+    }
+  }
+  downloadBlob(await loadMedia(m.id), name);
 }
 
 export async function deleteMedia(id: string) {

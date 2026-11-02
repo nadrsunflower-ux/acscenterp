@@ -6,8 +6,12 @@ import "server-only";
 //  프로토타입(shoppingshorts/studio/server/publishing.ts)을 옮겼다. 바뀐 점:
 //   · 토큰을 환경변수 하나에서 읽지 않고, 호출하는 쪽이 계정 문서에서 꺼내 넘긴다
 //     (사람마다 연결한 계정 — access.ts).
-//   · Cloudflare FixedLengthStream 대신 Node 의 Buffer 를 그대로 보낸다
-//     (쇼츠 완성 파일은 60MB 상한이라 메모리에 올려도 된다).
+//   · Cloudflare FixedLengthStream 대신 Node 의 Buffer 를 그대로 보낸다.
+//   · 완성 파일이 수백 MB 일 수 있어(버킷 · 500MB) 게시는 YouTube 재개형 업로드를
+//     48MB 씩 나눠 보낸다 (youtubeStartSession · youtubeUploadStatus · youtubePutChunk).
+//     보내기 전에 늘 세션에 「어디까지 받았나」 를 물으므로 도중에 끊겨도 이어 보내고,
+//     마지막 조각의 응답을 놓쳐도 다음에 물어보면 영상 id 가 온다 — 두 번 올라가지 않는다.
+//     Instagram 은 버킷 파일이면 서명 URL 을 video_url 로 넘겨 Meta 가 직접 가져간다.
 //
 //  원칙 (프로토타입과 같다):
 //   · 쓰기(업로드 · 컨테이너 · 게시) 도중 응답을 못 받으면 uncertain=true —
@@ -182,8 +186,7 @@ export async function youtubeMyChannels(accessToken: string): Promise<{ id: stri
 
 // ---- YouTube 업로드 ---------------------------------------------------------
 
-export interface YouTubeUpload {
-  bytes: Uint8Array;
+export interface YouTubeMeta {
   mime: string;
   title: string;
   description: string;
@@ -192,12 +195,25 @@ export interface YouTubeUpload {
   containsSyntheticMedia: boolean;
 }
 
+export interface YouTubeUpload extends YouTubeMeta {
+  bytes: Uint8Array;
+}
+
+export interface YouTubeDone {
+  id: string;
+  url: string;
+  privacyStatus: string;
+  uploadStatus: string;
+}
+
+const ytSessionUrlOk = (u: URL) => u.protocol === "https:" && u.hostname === "www.googleapis.com" && u.pathname.startsWith("/upload/youtube/");
+
 /**
- * 부르는 쪽이 게시 원장(문서 id = 계정·파일·플랫폼)을 먼저 원자적으로 잡아야 한다.
- * videos.insert 에는 중복 방지 열쇠가 없다. 결과를 모르는 호출은 다시 하지 않는다.
+ * 재개형 업로드 세션을 연다 (영상은 아직 안 생긴다 — 바이트가 다 가야 생긴다).
+ * 세션 주소는 일주일 동안 쓸 수 있다. 응답을 못 받아도 새 세션을 열면 될 뿐이라 안전하다.
  */
-export async function uploadYouTube(accessToken: string, input: YouTubeUpload): Promise<{ id: string; url: string; privacyStatus: string; uploadStatus: string }> {
-  const size = input.bytes.byteLength;
+export async function youtubeStartSession(accessToken: string, input: YouTubeMeta & { size: number }): Promise<string> {
+  const size = input.size;
   if (!size || size > 256 * 1024 ** 3) throw new PublishingError("INVALID_VIDEO_SIZE", "업로드할 영상 크기가 올바르지 않습니다.", 400);
   const mime = input.mime.split(";")[0].trim().toLowerCase();
   if (!/^video\/[a-z0-9.+-]+$/.test(mime)) throw new PublishingError("INVALID_VIDEO_TYPE", "지원하는 영상 형식을 확인해 주세요.", 400);
@@ -231,18 +247,12 @@ export async function uploadYouTube(accessToken: string, input: YouTubeUpload): 
   } catch {
     throw new PublishingError("YOUTUBE_SESSION_FAILED", "YouTube 업로드 세션을 확인하지 못했습니다.");
   }
-  if (uploadUrl.protocol !== "https:" || uploadUrl.hostname !== "www.googleapis.com" || !uploadUrl.pathname.startsWith("/upload/youtube/")) {
-    throw new PublishingError("YOUTUBE_SESSION_FAILED", "YouTube 업로드 주소를 확인하지 못했습니다.");
-  }
-  const { data } = await providerRequest(
-    uploadUrl.href,
-    {
-      method: "PUT",
-      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": mime, "Content-Range": `bytes 0-${size - 1}/${size}` },
-      body: input.bytes as unknown as BodyInit,
-    },
-    { code: "YOUTUBE_UPLOAD_FAILED", label: "YouTube 영상 업로드", write: true, timeoutMs: 240_000 },
-  );
+  if (!ytSessionUrlOk(uploadUrl)) throw new PublishingError("YOUTUBE_SESSION_FAILED", "YouTube 업로드 주소를 확인하지 못했습니다.");
+  return uploadUrl.href;
+}
+
+/** 다 받은 응답(200/201)의 영상 — id 가 없으면 결과를 모른다 */
+function youtubeDone(data: Json): YouTubeDone {
   if (!present(data.id) || !/^[a-zA-Z0-9_-]{6,40}$/.test(data.id)) {
     throw new PublishingError("YOUTUBE_UPLOAD_UNCERTAIN", "YouTube 영상 ID를 확인하지 못했습니다. YouTube Studio 에서 결과를 먼저 확인해 주세요.", 502, true);
   }
@@ -256,6 +266,106 @@ export async function uploadYouTube(accessToken: string, input: YouTubeUpload): 
     privacyStatus: present(status.privacyStatus) ? status.privacyStatus : "unknown",
     uploadStatus: present(status.uploadStatus) ? status.uploadStatus : "unknown",
   };
+}
+
+/**
+ * 한 번 업로드 (조각 하나로 끝) — 테스트 · 작은 파일용. 게시 실행기는 나눠 보내기를 쓴다.
+ * 부르는 쪽이 게시 원장(문서 id = 계정·파일·플랫폼)을 먼저 원자적으로 잡아야 한다.
+ * videos.insert 에는 중복 방지 열쇠가 없다. 결과를 모르는 호출은 다시 하지 않는다.
+ */
+export async function uploadYouTube(accessToken: string, input: YouTubeUpload): Promise<YouTubeDone> {
+  const size = input.bytes.byteLength;
+  const session = await youtubeStartSession(accessToken, { ...input, size });
+  const mime = input.mime.split(";")[0].trim().toLowerCase();
+  const { data } = await providerRequest(
+    session,
+    {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": mime, "Content-Range": `bytes 0-${size - 1}/${size}` },
+      body: input.bytes as unknown as BodyInit,
+    },
+    { code: "YOUTUBE_UPLOAD_FAILED", label: "YouTube 영상 업로드", write: true, timeoutMs: 240_000 },
+  );
+  return youtubeDone(data);
+}
+
+// ---- YouTube 나눠 보내기 ------------------------------------------------------
+
+/** 한 번에 보내는 양 — 256KiB 의 배수(YouTube 규칙)이자 768KiB(Firestore 조각)의 배수 */
+export const YT_CHUNK_BYTES = 48 * 1024 * 1024;
+
+export type YouTubeProgress = { done: false; offset: number } | ({ done: true } & YouTubeDone);
+
+/** 다시 물어보면 되는 오류 (연결 끊김 · 5xx · 429) — 영상이 두 번 생기지 않는다 */
+export const YT_RETRY = "YOUTUBE_RETRY";
+
+/** 실행기 임대(90초) 안에 끝나게 — 상태 확인 20초 · 조각 60초 */
+async function ytResumable(accessToken: string, sessionUrl: string, init: { headers: Record<string, string>; body?: Uint8Array; timeoutMs: number }, label: string): Promise<YouTubeProgress> {
+  let url: URL;
+  try {
+    url = new URL(sessionUrl);
+  } catch {
+    throw new PublishingError("YOUTUBE_SESSION_FAILED", "YouTube 업로드 주소가 올바르지 않습니다.", 400);
+  }
+  if (!ytSessionUrlOk(url)) throw new PublishingError("YOUTUBE_SESSION_FAILED", "YouTube 업로드 주소가 올바르지 않습니다.", 400);
+  let res: Response;
+  try {
+    res = await fetcher(url.href, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${accessToken}`, ...init.headers },
+      body: (init.body ?? null) as unknown as BodyInit,
+      redirect: "manual",
+      signal: AbortSignal.timeout(init.timeoutMs),
+    });
+  } catch {
+    throw new PublishingError(YT_RETRY, `${label} 응답을 받지 못했습니다 — 잠시 뒤 받은 곳부터 이어 보냅니다.`, 502);
+  }
+  if (res.status === 308) {
+    await res.arrayBuffer().catch(() => undefined);
+    const m = /bytes=0-(\d+)/.exec(res.headers.get("Range") ?? "");
+    return { done: false, offset: m ? Number(m[1]) + 1 : 0 };
+  }
+  let data: unknown = null;
+  try {
+    const text = await res.text();
+    if (text.trim() && text.length <= 1_000_000) data = JSON.parse(text);
+  } catch {
+    data = null;
+  }
+  if (res.status === 200 || res.status === 201) return { done: true, ...youtubeDone(record(data)) };
+  if (res.status === 404 || res.status === 410) {
+    // 세션 만료 · 취소 — 영상은 만들어지지 않았다. 새로 게시하면 새 세션을 연다
+    throw new PublishingError("YOUTUBE_SESSION_EXPIRED", "YouTube 업로드 세션이 만료됐습니다. 영상은 올라가지 않았습니다 — 다시 게시해 주세요.", 410, false, providerCode(data));
+  }
+  if (res.status >= 500 || res.status === 429 || res.status === 408) {
+    throw new PublishingError(YT_RETRY, `${label} 이(가) 잠시 막혔습니다 (${res.status}) — 잠시 뒤 받은 곳부터 이어 보냅니다.`, res.status === 429 ? 429 : 502, false, providerCode(data));
+  }
+  throw new PublishingError(
+    "YOUTUBE_UPLOAD_FAILED",
+    `${label} 요청이 거절됐습니다 (${res.status}). 권한, 토큰 유효기간과 할당량을 확인해 주세요.`,
+    res.status === 401 || res.status === 403 ? 401 : 502,
+    false,
+    providerCode(data),
+  );
+}
+
+/** 세션이 어디까지 받았나 — 다 받았으면 영상 id 가 온다 (마지막 응답을 놓쳤을 때도) */
+export async function youtubeUploadStatus(accessToken: string, sessionUrl: string, size: number): Promise<YouTubeProgress> {
+  return ytResumable(accessToken, sessionUrl, { headers: { "Content-Range": `bytes */${size}` }, timeoutMs: 20_000 }, "YouTube 업로드 상태 확인");
+}
+
+/** 조각 하나 — start 부터 bytes 만큼. 마지막 조각이 아니면 길이가 256KiB 의 배수여야 한다 */
+export async function youtubePutChunk(accessToken: string, sessionUrl: string, start: number, bytes: Uint8Array, size: number, mime: string): Promise<YouTubeProgress> {
+  const end = start + bytes.byteLength - 1;
+  if (!bytes.byteLength || end >= size || (end + 1 < size && bytes.byteLength % (256 * 1024) !== 0)) {
+    throw new PublishingError("INVALID_CHUNK", "YouTube 로 보낼 조각 크기가 올바르지 않습니다.", 400);
+  }
+  return ytResumable(
+    accessToken,
+    sessionUrl,
+    { headers: { "Content-Type": mime.split(";")[0].trim().toLowerCase(), "Content-Range": `bytes ${start}-${end}/${size}` }, body: bytes, timeoutMs: 60_000 },
+    "YouTube 영상 조각 전송",
+  );
 }
 
 /** 내 영상의 통계 · 처리 상태 (읽기) */
@@ -372,22 +482,33 @@ export async function instagramPublishingLimit(token: string, igUserId: string):
   return { used, total };
 }
 
-/** 컨테이너 만들고 영상 바이트를 rupload 로 보낸다 (공개 주소 없이) — 쓰기 두 번 */
-export async function instagramCreateContainer(token: string, igUserId: string, input: { caption: string; isAiGenerated: boolean }): Promise<{ containerId: string; uploadUri: string }> {
+/**
+ * 컨테이너를 만든다 — 쓰기.
+ *  · videoUrl 없음: 영상 바이트를 rupload 로 따로 보낸다 (공개 주소 없이 · Firestore 조각 파일)
+ *  · videoUrl 있음: Meta 가 그 주소(버킷 서명 URL)에서 직접 가져간다 — uploadUri 는 ""
+ */
+export async function instagramCreateContainer(
+  token: string,
+  igUserId: string,
+  input: { caption: string; isAiGenerated: boolean; videoUrl?: string },
+): Promise<{ containerId: string; uploadUri: string }> {
   validIgId(igUserId, "Instagram 계정");
   if ([...input.caption].length > 2200) throw new PublishingError("INVALID_CAPTION", "Instagram 게시 문구는 2,200자 이내여야 합니다.", 400);
+  if (input.videoUrl !== undefined && !/^https:\/\//.test(input.videoUrl)) throw new PublishingError("INSTAGRAM_VIDEO_URL_INVALID", "Instagram 이 가져갈 영상 주소가 올바르지 않습니다.", 400);
+  const source = input.videoUrl ? { video_url: input.videoUrl } : { upload_type: "resumable" };
   const { data } = await providerRequest(
     `${GRAPH}/${igUserId}/media`,
     {
       method: "POST",
       headers: igHeaders(token),
-      body: JSON.stringify({ media_type: "REELS", upload_type: "resumable", caption: input.caption, share_to_feed: true, is_ai_generated: input.isAiGenerated }),
+      body: JSON.stringify({ media_type: "REELS", ...source, caption: input.caption, share_to_feed: true, is_ai_generated: input.isAiGenerated }),
     },
     { code: "INSTAGRAM_CONTAINER_FAILED", label: "Instagram 파일 업로드 준비", write: true },
   );
   if (!present(data.id) || !/^\d{1,40}$/.test(data.id)) {
     throw new PublishingError("INSTAGRAM_CONTAINER_UNCERTAIN", "Instagram 컨테이너 결과를 확인하지 못했습니다. 자동으로 다시 하지 않습니다.", 502, true);
   }
+  if (input.videoUrl) return { containerId: data.id, uploadUri: "" };
   let uri: URL;
   try {
     uri = new URL(present(data.uri) ? data.uri : `https://rupload.facebook.com/ig-api-upload/${GRAPH_VERSION}/${data.id}`);

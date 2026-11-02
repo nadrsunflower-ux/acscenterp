@@ -223,7 +223,8 @@ function RenderStrip({ ids }: { ids: string[] }) {
 }
 
 function RenderVideo({ id }: { id: string }) {
-  const { url, error } = useBlobUrl(id);
+  const { url, error, purged } = useBlobUrl(id);
+  if (purged) return null; // 게시 뒤 내용을 지운 파일 — 게시 기록의 링크로 본다
   if (error) return <p className="text-nd-caption text-nd-danger-text">{error}</p>;
   return url ? (
     <video src={url} controls playsInline className="aspect-[9/16] w-40 shrink-0 rounded-nd-md bg-black" />

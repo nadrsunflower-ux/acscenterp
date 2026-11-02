@@ -1,9 +1,9 @@
 import { adminDb } from "@/lib/neander/server/admin";
 import { isShortsAdmin, requireShortsUser } from "@/lib/neander/shorts/server/access";
 import { fail, json } from "@/lib/neander/shorts/server/http";
-import { completeMedia, createMedia, deleteMedia, getMedia, listClientMedia, listProjectMedia, putPart, readParts } from "@/lib/neander/shorts/server/media";
+import { completeMedia, createMedia, deleteMedia, getMedia, listClientMedia, listProjectMedia, mediaUrl, putPart, readParts, toMediaView, uploadStatus } from "@/lib/neander/shorts/server/media";
 
-// 쇼츠 파일 — 조각 올리기 · 받기 (저장 방식은 shorts/server/media.ts)
+// 쇼츠 파일 — 조각 올리기 · 받기 · 버킷 파일은 세션 주소 · 서명 URL (저장 방식은 shorts/server/media.ts)
 export const dynamic = "force-dynamic";
 
 /** 한 번에 내려주는 조각 수 — 5 × 768KB ≈ 3.8MB (응답 한도 4.5MB 아래) */
@@ -22,8 +22,12 @@ export async function GET(req: Request) {
     if (clientId) return json({ media: await listClientMedia(db, clientId, email, admin) });
     const id = url.searchParams.get("id");
     if (url.searchParams.get("meta") === "1") {
-      const { parts: _p, ...m } = await getMedia(db, id, email, admin);
-      return json({ media: m });
+      const m = await getMedia(db, id, email, admin);
+      return json({ media: toMediaView(m.id, m) });
+    }
+    // 버킷 파일 — 서명 URL (조각 파일이면 url: null → 조각으로 받는다)
+    if (url.searchParams.get("url") === "1") {
+      return json({ url: await mediaUrl(db, email, id, { admin, download: url.searchParams.get("download") === "1" }) });
     }
     const from = Math.max(0, Number(url.searchParams.get("from")) || 0);
     const count = Math.min(MAX_READ_PARTS, Math.max(1, Number(url.searchParams.get("count")) || 1));
@@ -41,7 +45,9 @@ export async function POST(req: Request) {
     const b = (await req.json()) as Record<string, unknown>;
     switch (b.action) {
       case "create":
-        return json(await createMedia(db, email, b));
+        return json(await createMedia(db, email, b, req.headers.get("origin") ?? new URL(req.url).origin));
+      case "status":
+        return json(await uploadStatus(db, email, b.id));
       case "part":
         await putPart(db, email, b.id, Number(b.n), Buffer.from(String(b.base64 ?? ""), "base64"));
         return json({ ok: true });

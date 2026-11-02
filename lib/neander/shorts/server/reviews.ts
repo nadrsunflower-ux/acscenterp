@@ -19,6 +19,7 @@ import { AccessError } from "@/lib/neander/server/auth";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import type { MediaDoc, ProjectDoc, ReviewLinkDoc, ReviewRound } from "../types";
 import { getClientDoc } from "./clients";
+import { readRange, viewUrl } from "./media";
 import { getProject, patchProject } from "./store";
 
 const LINK_DAYS = 30;
@@ -68,7 +69,8 @@ export interface ReviewInfo {
   latest: boolean;
   decision: ReviewRound["decision"];
   feedback: string;
-  media: { size: number; type: string; duration: number | null; parts: number };
+  /** url — 저장소(버킷) 파일이면 서명 URL 로 바로 본다 · purged — 게시가 끝나 내용을 지웠다 */
+  media: { size: number; type: string; duration: number | null; parts: number; url: string | null; purged: boolean };
   revisionLimit: number;
   revisionsUsed: number;
   history: { n: number; decision: ReviewRound["decision"]; feedback: string; decidedAt: number | null }[];
@@ -91,7 +93,7 @@ export async function reviewInfo(db: Firestore, token: unknown): Promise<ReviewI
     latest: p.review.rounds[p.review.rounds.length - 1]?.n === l.round,
     decision: round.decision,
     feedback: round.feedback,
-    media: { size: m.size, type: m.type, duration: m.duration, parts: m.parts },
+    media: { size: m.size, type: m.type, duration: m.duration, parts: m.parts, url: await viewUrl(m), purged: !!m.purged },
     revisionLimit: c.contract.revisionLimit,
     revisionsUsed: p.review.revisionsUsed,
     history: p.review.rounds.filter((r) => r.n < l.round && r.decision !== "withdrawn").map((r) => ({ n: r.n, decision: r.decision, feedback: r.feedback, decidedAt: r.decidedAt })),
@@ -104,10 +106,8 @@ export async function reviewMediaParts(db: Firestore, token: unknown, from: numb
   const l = await linkOf(db, token);
   const m = (await db.collection(NEANDER_COL.shortsMedia).doc(l.renderId).get()).data() as MediaDoc | undefined;
   if (!m || !m.complete) throw new AccessError(404, "영상 파일을 찾지 못했습니다.");
-  const refs = [];
-  for (let n = from; n < Math.min(m.parts, from + count); n++) refs.push(db.collection(NEANDER_COL.shortsMedia).doc(l.renderId).collection("parts").doc(String(n)));
-  const snaps = refs.length ? await db.getAll(...refs) : [];
-  return Buffer.concat(snaps.map((s) => Buffer.from((s.data()?.data as Buffer | undefined) ?? Buffer.alloc(0))));
+  if (m.purged) throw new AccessError(410, "게시가 끝나 영상 파일을 정리했습니다.");
+  return readRange(db, l.renderId, m, from, count);
 }
 
 function decide(pp: ProjectDoc, round: number, decision: "approved" | "revision", feedback: string, by: string, via: "link" | "staff", limit: number) {

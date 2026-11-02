@@ -12,14 +12,14 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { CircleCheck, CircleDashed, CircleX, Clapperboard, Copy, Plug, Send } from "lucide-react";
+import { CircleCheck, CircleDashed, CircleX, Clapperboard, Copy, ExternalLink, Plug, Send } from "lucide-react";
 import { Badge, Button, Card, Checkbox, Dialog, EmptyState, Field, FieldAction, FormRow, InlineNotice, Input, SectionHeader, Select, Textarea, buttonClass, cn, useToast } from "@/components/neander/ui";
 import { mutate, notePendingJobs, shortsPost } from "@/lib/neander/shorts/client";
-import { CAPTION_LIMIT, DISCLOSURE, PLATFORM_LABEL, PUBLICATION_LABEL, TITLE_LIMIT, buildCaption, captionLength, complianceBlockers, complianceItemsFor, disclosureLine, hashtagLine } from "@/lib/neander/shorts/model";
+import { CAPTION_LIMIT, DISCLOSURE, INSTAGRAM_MAX_BYTES, PLATFORM_LABEL, PUBLICATION_LABEL, TITLE_LIMIT, buildCaption, captionLength, complianceBlockers, complianceItemsFor, disclosureLine, hashtagLine } from "@/lib/neander/shorts/model";
 import type { AccountView, ComplianceCheck, ComplianceKey, MediaView, PublicationView, PublishPlatform } from "@/lib/neander/shorts/types";
 import { useShorts } from "../ShortsProvider";
 import { ConnBadge, PubBadge, fmtWhen, useAction } from "../parts";
-import { useBlobUrl, useProjectMedia } from "../media";
+import { MediaUpload, useBlobUrl, useProjectMedia } from "../media";
 import type { Draft } from "../useProjectDraft";
 
 interface Prepared {
@@ -40,8 +40,12 @@ export function PublishTab({ draft }: { draft: Draft }) {
   const d = data!;
   const toast = useToast();
   const { busy, run } = useAction();
-  const { media, loading: mediaLoading } = useProjectMedia(p.id);
-  const renders = media.filter((m) => m.kind === "render" && p.renderIds.includes(m.id)).sort((a, b) => b.createdAt - a.createdAt);
+  const { media, loading: mediaLoading, refresh: refreshMedia } = useProjectMedia(p.id);
+  // 게시할 수 있는 것 = 내용이 남은 완성 파일 · 게시 뒤 지운 것은 기록(링크)으로만
+  const allRenders = media.filter((m) => m.kind === "render" && p.renderIds.includes(m.id)).sort((a, b) => b.createdAt - a.createdAt);
+  const renders = allRenders.filter((m) => !m.purged);
+  const purgedRenders = allRenders.filter((m) => m.purged);
+  const storage = d.status.storage;
   // 브랜드 영상: 그 고객사 계정 + 우리 채널 · 쿠팡 영상: 고객사 계정은 빼고
   const accounts = d.accounts.filter((a) => a.canPublish && (p.kind === "brand" ? !a.clientId || a.clientId === p.clientId : !a.clientId));
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
@@ -83,6 +87,16 @@ export function PublishTab({ draft }: { draft: Draft }) {
       draft.replace(project);
       return r;
     });
+
+  // 다른 도구로 다 만든 영상 — 서버가 영상의 완성 파일 목록에 넣는다
+  const onDirectUpload = async (ms: MediaView[]) => {
+    await refreshMedia();
+    const { project } = await mutate<{ project: typeof p }>("project.get", { id: p.id });
+    draft.replace(project);
+    if (ms[0]) setRenderId(ms[0].id);
+    setPrep(null);
+    toast.success("완성 파일을 올렸습니다 — 「게시 전 점검」 뒤 게시하세요.");
+  };
 
   const publish = (scheduledAt: number | null) =>
     run("pub", async () => {
@@ -234,14 +248,14 @@ export function PublishTab({ draft }: { draft: Draft }) {
       <section>
         <SectionHeader size="lg" title="게시" hint="완성 파일 · 게시 채널 · 지금 게시 또는 예약" />
         <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
-          <Card className="min-w-0">
-            <h3 className="mb-3 text-nd-section text-nd-fg">완성 파일</h3>
+          <Card className="min-w-0 space-y-4">
+            <h3 className="text-nd-section text-nd-fg">완성 파일</h3>
             {renders.length === 0 ? (
               <EmptyState
                 compact
                 icon={Clapperboard}
                 title={mediaLoading ? "파일 목록을 불러오는 중…" : "완성 파일이 없습니다"}
-                description="「편집·출력」 탭에서 MP4 를 출력하세요."
+                description="다른 도구로 다 만든 MP4 를 아래에 올리거나, 「편집·출력」 탭에서 출력하세요."
                 action={<Link href={`/neander/shorts/projects/${p.id}?tab=edit`} scroll={false} className={buttonClass("secondary", "sm")}>편집·출력으로</Link>}
               />
             ) : (
@@ -249,11 +263,62 @@ export function PublishTab({ draft }: { draft: Draft }) {
                 {renders.length > 1 && (
                   <Field label="게시할 완성 파일">
                     <Select value={renderId || renders[0]?.id} onChange={(e) => { setRenderId(e.target.value); setPrep(null); }}>
-                      {renders.map((r) => <option key={r.id} value={r.id}>{fmtWhen(r.createdAt)} · {r.duration?.toFixed(1)}초 · {r.codecs?.video}/{r.codecs?.audio}{r.overlay?.disclosure ? " · 고지 띠" : ""}</option>)}
+                      {renders.map((r) => <option key={r.id} value={r.id}>{fmtWhen(r.createdAt)} · {r.direct ? "직접 올림 · " : ""}{r.duration?.toFixed(1)}초 · {r.codecs?.video}/{r.codecs?.audio}{r.overlay?.disclosure ? " · 고지 띠" : ""}</option>)}
                     </Select>
                   </Field>
                 )}
                 {selectedRender && <RenderInfo r={selectedRender} />}
+              </div>
+            )}
+            <MediaUpload
+              projectId={p.id}
+              kind="render"
+              direct
+              compact
+              multiple={false}
+              title="다 만든 영상 올리기 (MP4)"
+              hint={
+                storage.bucket.ready
+                  ? `하나 ${storage.renderMaxMb}MB 까지 · 저장소에 잠깐 두고 게시가 끝나면 지웁니다`
+                  : `지금은 하나 ${storage.renderMaxMb}MB 까지 (Firebase Storage 를 켜면 500MB) · 게시가 끝나면 지웁니다`
+              }
+              onUploaded={(ms) => void onDirectUpload(ms)}
+            />
+            <div className="border-t border-nd-line pt-3">
+              <Checkbox
+                label={<span className="text-nd-body">게시가 끝나도 완성 파일 남기기</span>}
+                checked={!!p.publish.keepFiles}
+                onChange={(e) => update((x) => void (x.publish.keepFiles = e.target.checked))}
+              />
+              <p className="mt-1 text-[13px] leading-relaxed text-nd-fg-3">
+                {p.publish.keepFiles
+                  ? "이 영상의 완성 파일은 게시 뒤에도 서버에 남습니다. 다 쓰면 「편집·출력」 탭에서 직접 지워 주세요."
+                  : "끄면(기본) 연결된 채널(YouTube · Instagram)에 모두 올라가는 대로 서버에서 지우고 게시물 링크로 봅니다. 한쪽에만 올렸으면 다른 쪽에 마저 올릴 수 있게 하루 뒤에, 아무 데도 안 올린 파일은 7일 뒤 지웁니다. 실패하거나 결과 확인이 필요한 게시가 있으면 다시 시도할 수 있게 남깁니다."}
+              </p>
+            </div>
+            {purgedRenders.length > 0 && (
+              <div className="border-t border-nd-line pt-3">
+                <h4 className="mb-1.5 text-nd-body font-semibold text-nd-fg">게시 뒤 지운 파일 {purgedRenders.length}개</h4>
+                <ul className="space-y-1.5">
+                  {purgedRenders.map((r) => {
+                    const links = pubs.filter((x) => x.renderId === r.id && x.result?.url);
+                    return (
+                      <li key={r.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-nd-fg-2">
+                        <span className="min-w-0 max-w-[16rem] truncate" title={r.name}>{r.name}</span>
+                        <span className="nd-num text-nd-fg-3">{r.purged ? fmtWhen(r.purged.at) : ""} 지움</span>
+                        {links.length ? (
+                          links.map((x) => (
+                            <a key={x.id} href={x.result!.url!} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-nd-accent hover:underline">
+                              {PLATFORM_LABEL[x.platform]}에서 보기 <ExternalLink size={12} aria-hidden />
+                            </a>
+                          ))
+                        ) : (
+                          <span className="text-nd-fg-3">{r.purged?.reason === "expired" ? "7일 동안 게시하지 않아 지움" : "게시 링크 없음"}</span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
               </div>
             )}
           </Card>
@@ -286,6 +351,11 @@ export function PublishTab({ draft }: { draft: Draft }) {
                   <Button variant="secondary" disabled={!accounts.length || !renders.length || busy === "prep"} onClick={() => void prepare()}>게시 전 점검</Button>
                 </FieldAction>
               </FormRow>
+              {platform === "instagram" && selectedRender && selectedRender.size > INSTAGRAM_MAX_BYTES && (
+                <InlineNotice tone="warning">
+                  Instagram 은 릴스 한 편 {INSTAGRAM_MAX_BYTES / 1024 / 1024}MB 까지 받습니다. 이 파일은 {(selectedRender.size / 1024 / 1024).toFixed(0)}MB 라 YouTube 에만 올릴 수 있습니다.
+                </InlineNotice>
+              )}
               {prep && (
                 <div className="space-y-2">
                   {prep.existing && <InlineNotice tone={prep.existing.status === "failed" || prep.existing.status === "cancelled" ? "neutral" : "warning"}>이 계정 · 이 파일의 게시 기록: {PUBLICATION_LABEL[prep.existing.status]}{prep.existing.result?.url ? ` · ${prep.existing.result.url}` : ""}</InlineNotice>}
@@ -366,7 +436,7 @@ function RenderInfo({ r }: { r: MediaView }) {
     ["파일 크기", r.size ? <span key="s" className="nd-num">{(r.size / 1024 / 1024).toFixed(2)}MB</span> : "—"],
     ["코덱", r.codecs ? `${r.codecs.video ?? "?"} / ${r.codecs.audio ?? "?"}` : "—"],
     ["영상 안 고지", r.overlay?.disclosure ? <Badge key="o" tone="success">고지 띠 있음</Badge> : <Badge key="o">고지 띠 없음</Badge>],
-    ["출력 시각", fmtWhen(r.createdAt)],
+    [r.direct ? "올린 시각" : "출력 시각", <span key="t">{fmtWhen(r.createdAt)}{r.direct ? " · 직접 올림" : ""}</span>],
   ];
   return (
     <div className="grid gap-4 sm:grid-cols-[180px_minmax(0,1fr)]">
