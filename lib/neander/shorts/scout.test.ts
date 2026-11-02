@@ -6,6 +6,7 @@ import {
   buildReport,
   computeBaseline,
   formatStats,
+  hitNoteState,
   isShortLike,
   isoWeekKey,
   koreaEvidence,
@@ -286,4 +287,15 @@ test("채널 · 영상 주소 해석", () => {
   assert.deepEqual(parseYoutubeRef("https://youtu.be/jNQXAC9IVRw"), { kind: "video", value: "jNQXAC9IVRw" });
   assert.equal(parseYoutubeRef("https://www.tiktok.com/@a/video/1"), null);
   assert.equal(parseYoutubeRef(""), null);
+});
+
+test("터진 영상 메모 — 분석이 지금 메모를 반영했는지", () => {
+  const a = (note?: string) => ({ note });
+  assert.equal(hitNoteState({ note: "", analysis: null }), "none");
+  assert.equal(hitNoteState({ note: "  ", analysis: a() }), "none");
+  assert.equal(hitNoteState({ note: "훅만 보면 됨", analysis: null }), "pending");
+  assert.equal(hitNoteState({ note: "훅만 보면 됨 ", analysis: a("훅만 보면 됨") }), "applied");
+  assert.equal(hitNoteState({ note: "손 클로즈업이 핵심", analysis: a("훅만 보면 됨") }), "stale");
+  assert.equal(hitNoteState({ note: "훅만 보면 됨", analysis: a() }), "stale"); // 메모 없이 분석했던 것 (예전 분석)
+  assert.equal(hitNoteState({ note: "", analysis: a("지운 메모") }), "stale");
 });

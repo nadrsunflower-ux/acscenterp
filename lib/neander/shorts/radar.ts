@@ -70,6 +70,59 @@ export interface RadarAi {
   model: string;
   costUsd: number;
   at: number;
+  /** 이 분석이 참고한 사람 메모 수 · 그중 가장 늦은 메모 시각 (메모 없이 분석했으면 0 · null) */
+  notes?: number;
+  noteAt?: number | null;
+  /** 메모를 반영해 다시 분석한 사람 (자동 실행이면 없음) */
+  by?: string;
+  /** 이 분석이 참고한 「직접 촬영」 표시 (표시 없이 분석했으면 null) */
+  filmed?: RadarFilmed | null;
+}
+
+/** 사람이 영상을 보고 고른 표시 — 크리에이터가 직접 찍은 실사 영상인가 (AI 생성 · 퍼온 영상 · 사진 넘기기 등은 아님) */
+export type RadarFilmed = "self" | "not_self";
+export const RADAR_FILMED_LABEL: Record<RadarFilmed, string> = { self: "직접 촬영", not_self: "직접 촬영 아님" };
+export const isRadarFilmed = (v: unknown): v is RadarFilmed => v === "self" || v === "not_self";
+
+/** 후보 영상에 사람이 남긴 메모 — 회사 공용 · 한 사람에 하나 · AI 가 분석할 때 참고한다 */
+export interface RadarNote {
+  by: string;
+  text: string;
+  at: number;
+}
+export const RADAR_NOTE_MAX = 1000;
+
+/** 내 메모를 고친다 — 빈 글이면 지운다. 다른 사람 메모는 그대로 */
+export function upsertRadarNote(notes: RadarNote[] | undefined, by: string, text: string, at: number): RadarNote[] {
+  const t = text.trim().slice(0, RADAR_NOTE_MAX);
+  const others = (notes ?? []).filter((n) => n.by !== by);
+  return t ? [...others, { by, text: t, at }] : others;
+}
+
+/**
+ * 사람 표시(메모 · 직접 촬영)와 AI 분석의 관계 —
+ *   none(표시 없음) · pending(분석 전) · applied(지금 표시를 모두 반영) · stale(분석 뒤에 메모 · 촬영 표시가 바뀜)
+ */
+export function radarNoteState(x: {
+  notes?: RadarNote[];
+  filmed?: { value: RadarFilmed } | null;
+  ai: Pick<RadarAi, "notes" | "noteAt" | "filmed"> | null;
+}): "none" | "pending" | "applied" | "stale" {
+  const notes = x.notes ?? [];
+  const filmed = x.filmed?.value ?? null;
+  if (!notes.length && !filmed) return x.ai?.notes || x.ai?.filmed ? "stale" : "none"; // 반영했던 표시를 지웠다
+  if (!x.ai) return "pending";
+  const latest = notes.length ? Math.max(...notes.map((n) => n.at)) : 0;
+  const notesOk = notes.length ? x.ai.notes === notes.length && (x.ai.noteAt ?? 0) >= latest : !x.ai.notes;
+  const filmedOk = (x.ai.filmed ?? null) === filmed;
+  return notesOk && filmedOk ? "applied" : "stale";
+}
+
+/** 지금 목록의 직접 촬영 표시 수 (분석용 한 줄) */
+export function radarFilmedCounts(items: Pick<RadarDoc, "filmed">[]): Record<RadarFilmed | "none", number> {
+  const c = { self: 0, not_self: 0, none: 0 };
+  for (const d of items) c[d.filmed?.value ?? "none"]++;
+  return c;
 }
 
 export type NaverTrendLabel = "rising" | "steady" | "falling" | "low";
@@ -114,6 +167,10 @@ export interface RadarDoc {
   ai: RadarAi | null;
   naver: NaverTrend | null;
   dismissed: { by: string; at: number } | null;
+  /** 사람 메모 (회사 공용 · 한 사람에 하나) — 예전 후보에는 없다 */
+  notes?: RadarNote[];
+  /** 직접 촬영 표시 (회사 공용 · 마지막에 고른 사람) — 아직 안 봤으면 없음 */
+  filmed?: { value: RadarFilmed; by: string; at: number } | null;
   /** 소재로 저장한 사람들 (소재는 사람마다 따로) */
   saved: { by: string; trendId: string; at: number }[];
   firstSeenAt: number;
@@ -258,10 +315,12 @@ export interface RadarFilter {
   keyword: string;
   /** 제목 · 상품 · 채널 낱말 */
   q: string;
+  /** 직접 촬영 표시 — none = 아직 표시 안 함 */
+  filmed: "all" | RadarFilmed | "none";
   sort: "score" | "multiple" | "velocity" | "info" | "recent";
 }
 
-export const DEFAULT_RADAR_FILTER: RadarFilter = { category: "all", product: "all", naver: "all", minMultiple: 0, maxAgeDays: 0, keyword: "", q: "", sort: "score" };
+export const DEFAULT_RADAR_FILTER: RadarFilter = { category: "all", product: "all", naver: "all", minMultiple: 0, maxAgeDays: 0, keyword: "", q: "", filmed: "all", sort: "score" };
 
 export const RADAR_SORT_LABEL: Record<RadarFilter["sort"], string> = {
   score: "점수 순",
@@ -272,7 +331,7 @@ export const RADAR_SORT_LABEL: Record<RadarFilter["sort"], string> = {
 };
 
 export const isDefaultRadarFilter = (f: RadarFilter) =>
-  f.category === "all" && f.product === "all" && f.naver === "all" && !f.minMultiple && !f.maxAgeDays && !f.keyword && !f.q.trim();
+  f.category === "all" && f.product === "all" && f.naver === "all" && !f.minMultiple && !f.maxAgeDays && !f.keyword && !f.q.trim() && (f.filmed ?? "all") === "all";
 
 const infoRateOf = (d: Pick<RadarDoc, "info">) => (d.info && d.info.sampled > 0 ? d.info.matched / d.info.sampled : null);
 
@@ -289,6 +348,8 @@ export function matchRadar(d: RadarDoc, f: RadarFilter, now: number): boolean {
     if (!Number.isFinite(t) || now - t > f.maxAgeDays * 86_400_000) return false;
   }
   if (f.keyword && !d.keywords.includes(f.keyword)) return false;
+  if (f.filmed === "none" && d.filmed) return false;
+  if ((f.filmed === "self" || f.filmed === "not_self") && d.filmed?.value !== f.filmed) return false;
   const q = f.q.trim().toLowerCase();
   if (q && ![d.title, d.channel, d.ai?.product ?? "", ...(d.ai?.naverKeywords ?? [])].some((s) => s.toLowerCase().includes(q))) return false;
   return true;

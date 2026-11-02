@@ -8,6 +8,7 @@ import * as C from "./coupang";
 import * as A from "./ai";
 import * as Y from "./youtube-data";
 import * as S from "./secret";
+import * as SA from "./scout-ai";
 
 // 어댑터는 환경변수를 부를 때마다 읽는다 — import 뒤에 넣어도 된다
 
@@ -310,6 +311,84 @@ test("YouTube 검색: 숨긴 좋아요 · 꺼진 댓글은 0 이 아니라 null"
     assert.equal(r[0].duration, 28);
   } finally {
     restore();
+  }
+});
+
+test("YouTube 댓글 원문: 인기순 · 최신순 · 다음 쪽, 꺼진 댓글은 오류가 아니라 disabled", async () => {
+  process.env.NEANDER_SHORTS_YOUTUBE_API_KEY ||= "test-key";
+  let seen: URL | null = null;
+  mock((url) => {
+    seen = new URL(url);
+    if (seen.searchParams.get("videoId") === "offoffoffof") return json({ error: { errors: [{ reason: "commentsDisabled" }] } }, 403);
+    if (seen.searchParams.get("videoId") === "gonegonegon") return json({ error: { errors: [{ reason: "videoNotFound" }] } }, 404);
+    return json({
+      nextPageToken: "NEXT_1",
+      items: [
+        { id: "t1", snippet: { totalReplyCount: 3, topLevelComment: { id: "c1", snippet: { authorDisplayName: "@kim", textDisplay: "이거 어디서 사요?", likeCount: 12, publishedAt: "2026-10-30T00:00:00Z" } } } },
+        { id: "t2", snippet: { topLevelComment: { id: "c2", snippet: { authorDisplayName: "@lee", textDisplay: "좋네요" } } } },
+        { id: "t3", snippet: { topLevelComment: { id: "c3", snippet: { textDisplay: "   " } } } },
+      ],
+    });
+  });
+  try {
+    const r = await Y.youtubeComments("aaaaaaaaaaa", { order: "time", pageToken: "PAGE_0" });
+    assert.equal(seen!.pathname, "/youtube/v3/commentThreads");
+    assert.equal(seen!.searchParams.get("order"), "time");
+    assert.equal(seen!.searchParams.get("pageToken"), "PAGE_0");
+    assert.equal(seen!.searchParams.get("textFormat"), "plainText");
+    assert.equal(r.items.length, 2); // 빈 글은 뺀다
+    assert.deepEqual(r.items[0], { id: "c1", author: "@kim", text: "이거 어디서 사요?", likes: 12, replies: 3, publishedAt: "2026-10-30T00:00:00Z" });
+    assert.equal(r.items[1].likes, null); // 좋아요를 못 받으면 0 이 아니라 null
+    assert.equal(r.next, "NEXT_1");
+    assert.equal(r.disabled, false);
+    await Y.youtubeComments("aaaaaaaaaaa", { pageToken: "bad token!" });
+    assert.equal(seen!.searchParams.get("order"), "relevance");
+    assert.equal(seen!.searchParams.has("pageToken"), false); // 이상한 쪽 표시는 보내지 않는다
+    assert.deepEqual(await Y.youtubeComments("offoffoffof"), { items: [], next: null, disabled: true });
+    await assert.rejects(Y.youtubeComments("gonegonegon"), /영상을 찾지 못했습니다/);
+    await assert.rejects(Y.youtubeComments("bad"), /영상 id/);
+  } finally {
+    restore();
+  }
+});
+
+test("사람 표시가 AI 요청에 들어간다 — 레이더(메모 · 직접 촬영) · 바이럴 형식(메모)", async () => {
+  const bodies: string[] = [];
+  mock((_url, init) => {
+    bodies.push(String(init.body));
+    const items = [{ videoId: "aaaaaaaaaaa", relevant: true, product: "실리콘 물막이", productKey: "실리콘 물막이", category: "주방", confidence: "likely", evidence: "사람 메모", why: "실사용", hook: "", naverKeywords: ["실리콘 물막이"], coupangQuery: "", caution: "" }];
+    return json({ choices: [{ message: { content: JSON.stringify({ items }) } }], usage: { cost: 0.001 } });
+  });
+  try {
+    await A.radarIdentify([
+      { videoId: "aaaaaaaaaaa", title: "t", channel: "c", description: "", tags: [], comments: [], notes: ["다이소 실리콘 물막이 — 모음 영상 아님"], filmed: "self" },
+      { videoId: "bbbbbbbbbbb", title: "u", channel: "c", description: "", tags: [], comments: [] },
+    ]);
+    const body = JSON.parse(bodies[0]);
+    const list = JSON.parse(body.messages[1].content);
+    assert.deepEqual(list[0].notes, ["다이소 실리콘 물막이 — 모음 영상 아님"]);
+    assert.equal(list[0].filmed, "직접 촬영");
+    assert.equal("notes" in list[1] || "filmed" in list[1], false); // 표시 없는 영상에는 칸을 붙이지 않는다
+    assert.match(body.messages[0].content, /사람 메모/);
+    assert.match(body.messages[0].content, /직접 촬영/);
+  } finally {
+    restore();
+  }
+
+  let scoutBody = "";
+  SA.setScoutAiFetch((async (_input: RequestInfo | URL, init: RequestInit = {}) => {
+    scoutBody = String(init.body);
+    return json({ choices: [{ message: { content: JSON.stringify({ formatName: "손 클로즈업", match: { formatId: null, reason: "" } }) }, finish_reason: "stop" }], usage: { cost: 0.01 } });
+  }) as typeof fetch);
+  try {
+    await SA.analyzeVideo({ url: "https://www.youtube.com/watch?v=aaaaaaaaaaa", title: "t", channel: "c", country: "미국", views: 1, multiple: 3, formats: [], note: "  손 클로즈업이 핵심  " });
+    const b = JSON.parse(scoutBody);
+    assert.match(b.messages[1].content[0].text, /사람 메모: 손 클로즈업이 핵심/);
+    assert.match(b.messages[0].content, /사람 메모/);
+    await SA.analyzeVideo({ url: "https://www.youtube.com/watch?v=aaaaaaaaaaa", title: "t", channel: "c", country: "미국", views: 1, multiple: 3, formats: [], note: "   " });
+    assert.doesNotMatch(JSON.parse(scoutBody).messages[1].content[0].text, /사람 메모/); // 빈 메모는 넣지 않는다
+  } finally {
+    SA.setScoutAiFetch(null);
   }
 });
 

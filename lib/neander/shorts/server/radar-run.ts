@@ -9,6 +9,7 @@ import "server-only";
 //  ④ AI 가 글만 보고 상품 추정 (10편씩 · 하루 비용 상한 · 넘으면 내일로)
 //  ⑤ 네이버 데이터랩 검색어 트렌드 (상품 묶음마다 1회 · 3일 안에 본 것은 다시 안 봄)
 //  돈 드는 것은 ④ 뿐이고, 상한(원)은 설정에 있다. 동시에 두 번 돌지 않게 잠근다.
+//  사람 메모(후보마다 · 회사 공용)는 ④ 에 같이 넘기고, 「메모 반영해 다시 분석」 은 그 영상 하나만 다시 본다(같은 하루 상한).
 // ============================================================
 
 import type { Firestore } from "firebase-admin/firestore";
@@ -25,17 +26,20 @@ import {
   radarScore,
   radarVelocity,
   sanitizeRadarSettings,
+  isRadarFilmed,
+  upsertRadarNote,
   type RadarAi,
   type RadarDoc,
+  type RadarNote,
   type RadarRunSummary,
   type RadarSettings,
 } from "../radar";
 import { computeBaseline, isShortLike, multipleOf } from "../scout";
 import type { TrendDoc } from "../types";
-import { openrouterConfigured, radarIdentify } from "./ai";
+import { openrouterConfigured, radarIdentify, type RadarIdentifyItem } from "./ai";
 import { naverConfig, naverWeeklySeries } from "./naver";
 import { getTrend, takeQuota, writeTrendFromApi } from "./store";
-import { YT_SEARCH_DAILY_LIMIT, youtubeApiKey, youtubeCommentSample, youtubeRecentUploads, youtubeSearch, youtubeVideos, type YoutubeSearchItem } from "./youtube-data";
+import { YT_SEARCH_DAILY_LIMIT, youtubeApiKey, youtubeCommentSample, youtubeComments, youtubeRecentUploads, youtubeSearch, youtubeVideos, type YoutubeComment, type YoutubeSearchItem } from "./youtube-data";
 
 type WithId<T> = T & { id: string };
 
@@ -114,6 +118,113 @@ async function getRadar(db: Firestore, id: unknown): Promise<WithId<RadarDoc>> {
 export async function setRadarDismissed(db: Firestore, email: string, id: unknown, dismissed: boolean): Promise<void> {
   const r = await getRadar(db, id);
   await col(db).doc(r.id).update({ dismissed: dismissed ? { by: email, at: Date.now() } : null });
+}
+
+/**
+ * 후보 영상의 댓글 원문 — 누를 때 YouTube 에서 읽어 온다 (회사 키 · commentThreads 1단위 · 저장 안 함).
+ * 레이더에 있는 후보만 (아무 영상이나 읽는 통로가 되지 않게).
+ */
+export async function radarComments(
+  db: Firestore,
+  id: unknown,
+  o: { order?: unknown; page?: unknown },
+): Promise<{ items: YoutubeComment[]; next: string | null; disabled: boolean; order: "relevance" | "time"; at: number }> {
+  const r = await getRadar(db, id);
+  const order = o.order === "time" ? "time" : "relevance";
+  const out = await youtubeComments(r.videoId, { max: 30, order, pageToken: typeof o.page === "string" ? o.page : undefined });
+  return { ...out, order, at: Date.now() };
+}
+
+/** AI 응답 한 줄 → 저장할 분석 (메모를 참고했으면 몇 개 · 언제 것까지인지 남긴다) */
+function toRadarAi(it: RadarIdentifyItem, model: string, costUsd: number, at: number, human: Pick<RadarDoc, "notes" | "filmed">, by?: string): RadarAi {
+  const notes = human.notes;
+  const used = notes ?? [];
+  return {
+    relevant: it.relevant,
+    product: it.product.trim().slice(0, 80),
+    productKey: it.productKey.trim().slice(0, 40),
+    category: it.category,
+    confidence: it.confidence,
+    evidence: it.evidence.slice(0, 200),
+    why: it.why.slice(0, 300),
+    hook: it.hook.slice(0, 200),
+    naverKeywords: it.naverKeywords.map((k) => k.trim().slice(0, 30)).filter(Boolean).slice(0, 3),
+    coupangQuery: it.coupangQuery.trim().slice(0, 60),
+    caution: it.caution.slice(0, 200),
+    model,
+    costUsd: Math.round(costUsd * 1e6) / 1e6,
+    at,
+    notes: used.length,
+    noteAt: used.length ? Math.max(...used.map((n) => n.at)) : null,
+    filmed: human.filmed?.value ?? null,
+    ...(by ? { by } : {}),
+  };
+}
+
+/** 내 메모 쓰기 · 고치기 · 지우기(빈 글) — 회사 공용, 한 사람에 하나 */
+export async function setRadarNote(db: Firestore, email: string, id: unknown, text: unknown): Promise<RadarNote[]> {
+  const r = await getRadar(db, id);
+  const notes = upsertRadarNote(r.notes, email, typeof text === "string" ? text : "", Date.now());
+  await col(db).doc(r.id).update({ notes });
+  return notes;
+}
+
+/** 직접 촬영 표시 — self · not_self · null(지움). 회사 공용, 마지막에 고른 사람을 남긴다 */
+export async function setRadarFilmed(db: Firestore, email: string, id: unknown, value: unknown): Promise<RadarDoc["filmed"]> {
+  const r = await getRadar(db, id);
+  if (value !== null && !isRadarFilmed(value)) throw new Error("직접 촬영 표시는 self · not_self · null 중 하나입니다.");
+  const filmed = value === null ? null : { value, by: email, at: Date.now() };
+  await col(db).doc(r.id).update({ filmed });
+  return filmed;
+}
+
+/**
+ * 메모를 반영해 이 영상 하나만 다시 분석 — 설명 · 태그 · 댓글 표본을 다시 받고(각 1단위) 메모와 함께 AI 에 넘긴다.
+ * 하루 AI 상한(레이더와 같은 계수기)을 넘으면 멈춘다. 상품 검색어가 바뀌면 네이버 추세도 그 자리에서 다시 본다.
+ */
+export async function reanalyzeRadar(
+  db: Firestore,
+  email: string,
+  id: unknown,
+  o: { quotaPrefix?: string; day?: string; key?: string; settings?: RadarSettings } = {},
+): Promise<{ ai: RadarAi; costUsd: number }> {
+  const r = await getRadar(db, id);
+  if (!openrouterConfigured()) throw new Error("OPENROUTER_API_KEY 가 없어 AI 분석을 할 수 없습니다.");
+  const s = o.settings ?? (await getRadarSettings(db));
+  // 검증은 접두사 붙은 계수기만 쓴다 (실제 「오늘 AI」 를 건드리지 않게)
+  const spendKey = `${o.quotaPrefix ?? ""}radarusd_${o.day ?? kstDay()}`;
+  const spent = await readRadarSpendUsd(db, spendKey);
+  if (spent + EST_BATCH_USD / AI_BATCH > s.aiBudgetKrw / USD_KRW) throw new Error(`오늘 레이더 AI 비용 상한(${s.aiBudgetKrw.toLocaleString("ko-KR")}원)에 닿았습니다 — 내일 다시 하거나 레이더 설정에서 상한을 올려 주세요.`);
+  const key = o.key || youtubeApiKey();
+  const [v] = key ? await youtubeVideos([r.videoId], key).catch(() => []) : [];
+  const comments = key && (r.comments ?? 0) > 0 ? await youtubeCommentSample(r.videoId, 50, key).catch(() => []) : [];
+  const notes = r.notes ?? [];
+  const out = await radarIdentify([
+    { videoId: r.videoId, title: v?.title || r.title, channel: r.channel, description: v?.description ?? "", tags: v?.tags ?? [], comments, notes: notes.map((n) => n.text), filmed: r.filmed?.value ?? null },
+  ]);
+  await addRadarSpend(db, spendKey, out.costUsd);
+  const it = out.items[0];
+  if (!it) throw new Error("AI 가 답을 주지 않았습니다 — 잠시 뒤 다시 해 주세요.");
+  const ai = toRadarAi(it, out.model, out.costUsd, Date.now(), r, email);
+  let naver = r.naver;
+  const same = (a: string[], b: string[]) => a.length === b.length && a.every((x, k) => x === b[k]);
+  if (!ai.relevant || !ai.product || !ai.naverKeywords.length) naver = null;
+  else if (!naver || !same(naver.keywords, ai.naverKeywords)) {
+    naver = null;
+    if (naverConfig().configured) {
+      try {
+        const now = Date.now();
+        naver = { keywords: ai.naverKeywords, ...classifyNaverTrend(await naverWeeklySeries(ai.naverKeywords, 8, now)), at: now };
+      } catch {
+        naver = null; // 다음 아침 실행이 채운다
+      }
+    }
+  }
+  const patch: Partial<RadarDoc> = { ai, naver };
+  if (comments.length) patch.info = countInfoRequests(comments);
+  if (patch.info) patch.score = radarScore({ ...r, info: patch.info });
+  await col(db).doc(r.id).update(patch);
+  return { ai, costUsd: out.costUsd };
 }
 
 /** 소재로 저장 — 그 사람의 소재(비공개 기본)로. 이미 저장했으면 그 소재를 돌려준다 */
@@ -310,6 +421,9 @@ export async function runRadar(db: Firestore, o: RadarRunOptions): Promise<Radar
         naver: prev?.naver ?? null,
         dismissed: prev?.dismissed ?? null,
         saved: prev?.saved ?? [],
+        // 사람 표시는 AI 에 넘기려고만 들고 있다 — 저장할 때는 쓰지 않는다(아래 ⑧)
+        notes: prev?.notes ?? [],
+        filmed: prev?.filmed ?? null,
         firstSeenAt: prev?.firstSeenAt ?? now,
         lastSeenAt: now,
       };
@@ -359,6 +473,8 @@ export async function runRadar(db: Firestore, o: RadarRunOptions): Promise<Radar
             description: vids.get(d.videoId)?.description ?? "",
             tags: vids.get(d.videoId)?.tags ?? [],
             comments: commentText.get(d.videoId) ?? [],
+            notes: (d.notes ?? []).map((n) => n.text),
+            filmed: d.filmed?.value ?? null,
           })),
         );
         return { ...r, calls: 1 };
@@ -405,23 +521,7 @@ export async function runRadar(db: Firestore, o: RadarRunOptions): Promise<Radar
           for (const it of r.items) {
             const d = docs.get(docIdOf(it.videoId));
             if (!d) continue;
-            const ai: RadarAi = {
-              relevant: it.relevant,
-              product: it.product.trim().slice(0, 80),
-              productKey: it.productKey.trim().slice(0, 40),
-              category: it.category,
-              confidence: it.confidence,
-              evidence: it.evidence.slice(0, 200),
-              why: it.why.slice(0, 300),
-              hook: it.hook.slice(0, 200),
-              naverKeywords: it.naverKeywords.map((k) => k.trim().slice(0, 30)).filter(Boolean).slice(0, 3),
-              coupangQuery: it.coupangQuery.trim().slice(0, 60),
-              caution: it.caution.slice(0, 200),
-              model: r.model,
-              costUsd: Math.round((r.costUsd / Math.max(1, r.items.length)) * 1e6) / 1e6,
-              at,
-            };
-            d.ai = ai;
+            d.ai = toRadarAi(it, r.model, r.costUsd / Math.max(1, r.items.length), at, d);
           }
         }
       }
@@ -463,7 +563,11 @@ export async function runRadar(db: Firestore, o: RadarRunOptions): Promise<Radar
     const all = [...docs.entries()];
     for (let i = 0; i < all.length; i += 400) {
       const batch = db.batch();
-      for (const [id, d] of all.slice(i, i + 400)) batch.set(col(db).doc(id), d);
+      // 사람이 남긴 메모 · 직접 촬영 표시는 덮지 않는다 — 실행이 도는 2분 사이에 고친 것도 그대로 남게
+      for (const [id, d] of all.slice(i, i + 400)) {
+        const { notes: _n, filmed: _f, ...machine } = d;
+        batch.set(col(db).doc(id), machine, { mergeFields: Object.keys(machine) });
+      }
       await batch.commit();
     }
     if (!o.quotaPrefix) {

@@ -28,7 +28,7 @@ import {
 } from "@/components/neander/ui";
 import { Num, SourceTag, Unknown, fmtUsd, fmtWhen, useAction } from "@/components/neander/shorts/parts";
 import { PLATFORM_LABEL, fmtCount, fmtPct, platformFromUrl } from "@/lib/neander/shorts/model";
-import { COUNTRIES, RISK_LABEL, countryLabel, type HitDoc } from "@/lib/neander/shorts/scout";
+import { COUNTRIES, RISK_LABEL, countryLabel, hitNoteState, type HitDoc } from "@/lib/neander/shorts/scout";
 import { Ago, AiBadge, CountrySelect, CountryText, LangBadge, Multiple, Note, VideoThumb, fmtDate } from "./bits";
 import { scout, type ScoutData, type WithId } from "./useScout";
 
@@ -216,6 +216,18 @@ function HitDialog({ d, hit: h, refresh, onClose, onOpenFormat }: { d: ScoutData
       await scout(action, { id: h.id, ...body });
       await refresh();
     }, ok);
+  // 분석 — 고치던 메모가 아직 안 저장됐으면 먼저 저장하고 본다 (AI 가 새 메모를 읽게)
+  const analyze = () =>
+    run(
+      "an",
+      async () => {
+        if (note !== h.note) await scout("hit.update", { id: h.id, patch: { note } });
+        await scout("hit.analyze", { id: h.id, model });
+        await refresh();
+      },
+      note.trim() ? "메모를 참고해 AI 가 영상을 다시 봤습니다." : "AI 가 영상을 보고 형식을 뽑았습니다.",
+    );
+  const noteState = hitNoteState({ note, analysis: a });
 
   return (
     <Dialog
@@ -299,12 +311,27 @@ function HitDialog({ d, hit: h, refresh, onClose, onOpenFormat }: { d: ScoutData
                     <option key={m.id} value={m.id}>{m.label}</option>
                   ))}
                 </Select>
-                <Button size="sm" icon={Sparkles} disabled={busy === "an"} onClick={() => void act("an", "hit.analyze", { model }, "AI 가 영상을 보고 형식을 뽑았습니다.")}>
-                  {busy === "an" ? "영상 보는 중…" : a ? "다시 분석" : "AI 로 영상 분석 (약 10원)"}
+                <Button size="sm" icon={Sparkles} disabled={busy === "an"} onClick={() => void analyze()}>
+                  {busy === "an" ? "영상 보는 중…" : !a ? "AI 로 영상 분석 (약 10원)" : noteState === "stale" ? "메모 반영해 다시 분석 (약 10원)" : "다시 분석"}
                 </Button>
               </div>
             ) : null}
           </div>
+          <Field label="메모 — AI 가 분석할 때 참고합니다" className="mb-3">
+            <Textarea
+              value={note}
+              rows={2}
+              onChange={(e) => setNote(e.target.value)}
+              onBlur={() => note !== h.note && void act("note", "hit.update", { patch: { note } })}
+              placeholder="왜 눈여겨봤는지 · 어디가 핵심인지 (예: 「첫 장면 손 클로즈업이 핵심」 「소리 위주로 봐 줘」)"
+            />
+          </Field>
+          {a && noteState === "applied" && <p className="mb-3 text-[13px] text-nd-fg-3">이 분석은 위 메모를 참고했습니다 · {fmtWhen(a.at)}</p>}
+          {a && noteState === "stale" && (
+            <InlineNotice tone="info" className="mb-3">
+              {note.trim() ? "메모가 분석 뒤에 바뀌었습니다 — 「메모 반영해 다시 분석」 을 누르면 AI 가 메모를 참고해 영상을 다시 봅니다." : "분석에 썼던 메모를 지웠습니다 — 다시 분석하면 메모 없이 봅니다."}
+            </InlineNotice>
+          )}
           {!a ? (
             h.platform === "youtube" ? (
               <p className="text-nd-body text-nd-fg-3">AI 가 영상을 직접 보고(화면 · 소리 · 자막) 훅 · 흐름 · 편집 · 소리 · 먹힌 이유 · AI 재현 난이도를 뽑습니다.</p>
@@ -358,9 +385,6 @@ function HitDialog({ d, hit: h, refresh, onClose, onOpenFormat }: { d: ScoutData
           )}
         </Card>
 
-        <Field label="메모">
-          <Textarea value={note} rows={2} onChange={(e) => setNote(e.target.value)} onBlur={() => note !== h.note && void act("note", "hit.update", { patch: { note } })} placeholder="왜 눈여겨봤는지, 어디서 봤는지" />
-        </Field>
       </div>
     </Dialog>
   );

@@ -19,26 +19,34 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Bookmark,
   BookmarkCheck,
   BookmarkPlus,
   ChevronDown,
   ChevronUp,
+  ChevronsUp,
+  Hand,
   Clapperboard,
   ExternalLink,
   EyeOff,
   Film,
   GalleryVerticalEnd,
   Info,
+  MessageCircle,
   Play,
   Radar,
   RotateCcw,
+  Sparkles,
   SquarePlay,
+  StickyNote,
+  ThumbsUp,
   TriangleAlert,
 } from "lucide-react";
 import {
   Badge,
   Button,
   Card,
+  Dialog,
   Disclosure,
   EmptyState,
   ErrorState,
@@ -48,17 +56,20 @@ import {
   InlineNotice,
   NumberInput,
   SearchInput,
+  SegmentedControl,
   Sheet,
   Skeleton,
   Switch,
   Tabs,
   Textarea,
   cn,
+  useToast,
   type Tone,
 } from "@/components/neander/ui";
 import { useShorts } from "@/components/neander/shorts/ShortsProvider";
 import { Num, SourceTag, Unknown, fmtWhen, useAction } from "@/components/neander/shorts/parts";
-import { Ago, Multiple, fmtDur } from "@/components/neander/shorts/scout/bits";
+import { Ago, Multiple, fmtAgo, fmtDur } from "@/components/neander/shorts/scout/bits";
+import { countInfoRequests } from "@/lib/neander/shorts/model";
 import { mutate, shortsGet, shortsPost } from "@/lib/neander/shorts/client";
 import {
   DEFAULT_RADAR_FILTER,
@@ -67,9 +78,13 @@ import {
   RADAR_SORT_LABEL,
   filterRadarGroups,
   isDefaultRadarFilter,
+  RADAR_FILMED_LABEL,
   krwOf,
+  radarFilmedCounts,
+  radarNoteState,
   type NaverTrend,
   type RadarDoc,
+  type RadarFilmed,
   type RadarFilter,
   type RadarRunSummary,
   type RadarSettings,
@@ -88,6 +103,18 @@ interface RadarData {
 
 const NAVER_TONE: Record<NaverTrend["label"], Tone> = { rising: "success", steady: "neutral", falling: "warning", low: "neutral" };
 const FILTER_KEY = "neander.shorts.radarFilter";
+/** 쇼츠처럼 보기에서 마지막으로 본 후보 (이 브라우저) — 다시 열 때 그 영상부터 */
+const FEED_LAST_KEY = "neander.shorts.radarFeedLast";
+type FeedLast = { id: string; at: number };
+function loadFeedLast(): FeedLast | null {
+  try {
+    const raw = typeof window !== "undefined" ? window.localStorage.getItem(FEED_LAST_KEY) : null;
+    const v = raw ? (JSON.parse(raw) as Partial<FeedLast>) : null;
+    return v && typeof v.id === "string" ? { id: v.id, at: Number(v.at) || 0 } : null;
+  } catch {
+    return null;
+  }
+}
 const PAGE = 12;
 const won = (n: number) => n.toLocaleString("ko-KR");
 
@@ -131,6 +158,7 @@ function BadgeRow({ i }: { i: Item }) {
           </Badge>
         </span>
       )}
+      {i.filmed && <FilmedBadge f={i.filmed} />}
       {i.dismissed && (
         <span className="inline-flex" title={`${fmtWhen(i.dismissed.at)} 에 제외했습니다 — 「되살리기」 로 새 후보에 돌려놓습니다`}>
           <Badge tone="neutral" size="md">
@@ -341,6 +369,344 @@ function Metrics({ i, className }: { i: Item; className?: string }) {
   );
 }
 
+// ---- 반응 줄 (좋아요 · 댓글 · 저장) · 댓글 원문 ------------------------------
+
+const pct = (r: number) => `${(r * 100).toFixed(r < 0.1 ? 1 : 0)}%`;
+
+/**
+ * 좋아요 · 댓글 · 저장 — 조회수와 같은 때 YouTube Data API 로 받은 값. 저장 · 공유 수는 YouTube 가 공개하지 않는다
+ * (채널 주인만 YouTube Studio 에서 본다) — 0 이 아니라 「비공개」 로 적는다.
+ */
+function Engagement({ i, onComments, className }: { i: Item; onComments?: () => void; className?: string }) {
+  const likeRate = i.likes !== null && i.views ? i.likes / i.views : null;
+  const at = `YouTube Data API · ${fmtWhen(i.viewsAt)} 기준`;
+  // 세 칸 고정 — 카드마다 같은 자리 · 같은 높이 (숫자 줄은 줄바꿈 없이)
+  const cell = "min-w-0";
+  const label = "flex items-center gap-1 text-[13px] text-nd-fg-3";
+  const value = "mt-0.5 flex min-w-0 items-baseline gap-1.5 whitespace-nowrap text-[15px] font-semibold text-nd-fg";
+  return (
+    <dl data-radar-engagement className={cn("grid grid-cols-3 gap-x-3 rounded-nd-md bg-nd-sunken/70 px-3 py-2", className)}>
+      <div className={cell} title={`좋아요 수 — ${at}${likeRate !== null ? ` · 조회수 대비 ${pct(likeRate)}` : ""}`}>
+        <dt className={label}>
+          <ThumbsUp size={13} className="shrink-0" aria-hidden />
+          좋아요
+        </dt>
+        <dd className={value}>
+          {i.likes === null ? (
+            <span className="font-normal text-nd-fg-3" title="채널이 좋아요 수를 숨겼습니다 — YouTube API 가 값을 주지 않습니다 (0 이 아닙니다)">
+              비공개
+            </span>
+          ) : (
+            <span className="nd-num truncate">{won(i.likes)}</span>
+          )}
+        </dd>
+      </div>
+      <div className={cell} title={`댓글 수 — ${at}`}>
+        <dt className={label}>
+          <MessageCircle size={13} className="shrink-0" aria-hidden />
+          댓글
+        </dt>
+        <dd className={value}>
+          {i.comments === null ? (
+            <span className="font-normal text-nd-fg-3" title="댓글이 꺼져 있거나 받지 못했습니다">
+              꺼짐
+            </span>
+          ) : (
+            <span className="nd-num truncate">{won(i.comments)}</span>
+          )}
+          {onComments && (i.comments ?? 0) > 0 && (
+            <button type="button" onClick={onComments} className="shrink-0 text-[13px] font-medium text-nd-accent hover:underline" aria-label={`댓글 ${won(i.comments ?? 0)}개 보기`}>
+              보기
+            </button>
+          )}
+        </dd>
+      </div>
+      <div className={cell} title="YouTube 는 저장 · 공유 수를 API 로 공개하지 않습니다 — 채널 주인만 YouTube Studio 에서 볼 수 있습니다">
+        <dt className={label}>
+          <Bookmark size={13} className="shrink-0" aria-hidden />
+          저장
+        </dt>
+        <dd className={cn(value, "font-normal text-nd-fg-3")}>비공개</dd>
+      </div>
+    </dl>
+  );
+}
+
+type RadarComment = { id: string; author: string; text: string; likes: number | null; replies: number | null; publishedAt: string | null };
+type CommentPage = { items: RadarComment[]; next: string | null; disabled: boolean; order: "relevance" | "time"; at: number };
+
+/** 댓글 하나 — 긴 글은 다섯 줄까지만, 「펼치기」 로 전부 */
+function CommentItem({ c }: { c: RadarComment }) {
+  const [open, setOpen] = useState(false);
+  const long = c.text.length > 240 || c.text.split("\n").length > 5;
+  const info = countInfoRequests([c.text]).matched > 0;
+  return (
+    <li className="border-b border-nd-line py-3 first:pt-1 last:border-0">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-nd-fg-3">
+        <span className="max-w-[60%] truncate font-medium text-nd-fg-2" title={c.author}>
+          {c.author || "이름 없음"}
+        </span>
+        {c.publishedAt && <span title={c.publishedAt}>{fmtAgo(c.publishedAt)}</span>}
+        {info && (
+          <span className="inline-flex" title="「어디서 사요 · 링크 · 제품명」 같은 정보 요청 낱말이 들어 있습니다 — 카드의 「요청 댓글」 과 같은 기준">
+            <Badge tone="accent" size="sm">
+              정보 요청
+            </Badge>
+          </span>
+        )}
+      </div>
+      <p className={cn("mt-1 whitespace-pre-line text-nd-body leading-relaxed text-nd-fg [overflow-wrap:anywhere]", long && !open && "line-clamp-5")}>{c.text}</p>
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 text-[13px] text-nd-fg-3">
+        <span className="nd-num inline-flex items-center gap-1">
+          <ThumbsUp size={12} aria-hidden />
+          {c.likes === null ? "—" : won(c.likes)}
+        </span>
+        {(c.replies ?? 0) > 0 && <span className="nd-num">답글 {won(c.replies ?? 0)}</span>}
+        {long && (
+          <button type="button" onClick={() => setOpen(!open)} className="font-medium text-nd-accent hover:underline">
+            {open ? "접기" : "펼치기"}
+          </button>
+        )}
+      </div>
+    </li>
+  );
+}
+
+/**
+ * 댓글 원문 — 열 때 YouTube 에서 읽어 온다 (회사 키 · 저장 안 함). 인기순 · 최신순 · 30개씩 더 보기.
+ * 카드의 댓글 창과 쇼츠처럼 보기 드로어가 같이 쓴다.
+ */
+function CommentList({ i, className }: { i: Item; className?: string }) {
+  const [order, setOrder] = useState<"relevance" | "time">("relevance");
+  const [page, setPage] = useState<CommentPage | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const seq = useRef(0);
+  const load = useCallback(
+    async (next?: string) => {
+      const n = ++seq.current;
+      setLoading(true);
+      setError(null);
+      try {
+        const q = new URLSearchParams({ comments: i.id, order });
+        if (next) q.set("page", next);
+        const r = await shortsGet<CommentPage>(`radar?${q}`);
+        if (n !== seq.current) return; // 그사이 순서를 바꿨다
+        setPage((prev) => (next && prev ? { ...r, items: [...prev.items, ...r.items] } : r));
+      } catch (e) {
+        if (n === seq.current) setError(e instanceof Error ? e.message : "댓글을 불러오지 못했습니다.");
+      } finally {
+        if (n === seq.current) setLoading(false);
+      }
+    },
+    [i.id, order],
+  );
+  useEffect(() => {
+    setPage(null);
+    void load();
+  }, [load]);
+
+  return (
+    <div data-radar-comments className={cn("min-w-0", className)}>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <SegmentedControl
+          size="sm"
+          ariaLabel="댓글 순서"
+          value={order}
+          onChange={setOrder}
+          options={[
+            { value: "relevance", label: "인기순" },
+            { value: "time", label: "최신순" },
+          ]}
+        />
+        <span className="nd-num text-[13px] text-nd-fg-3">
+          {page && !page.disabled ? `${i.comments !== null ? `댓글 ${won(i.comments)}개 중 ` : ""}${won(page.items.length)}개` : i.comments !== null ? `댓글 ${won(i.comments)}개` : ""}
+        </span>
+      </div>
+      {error ? (
+        <InlineNotice tone="warning">
+          {error}{" "}
+          <button type="button" onClick={() => void load()} className="font-medium underline">
+            다시 시도
+          </button>
+        </InlineNotice>
+      ) : !page ? (
+        <div className="space-y-3 py-1" aria-busy="true">
+          <p className="sr-only" role="status">
+            댓글을 불러오는 중…
+          </p>
+          {[0, 1, 2].map((k) => (
+            <div key={k} className="space-y-1.5">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-2/3" />
+            </div>
+          ))}
+        </div>
+      ) : page.disabled ? (
+        <p className="py-2 text-nd-body text-nd-fg-3">이 영상은 댓글이 꺼져 있습니다.</p>
+      ) : page.items.length === 0 ? (
+        <p className="py-2 text-nd-body text-nd-fg-3">아직 댓글이 없습니다.</p>
+      ) : (
+        <>
+          <ul>
+            {page.items.map((c) => (
+              <CommentItem key={c.id} c={c} />
+            ))}
+          </ul>
+          {page.next && (
+            <Button size="sm" variant="secondary" className="mt-2 w-full" loading={loading} onClick={() => void load(page.next ?? undefined)}>
+              댓글 더 보기
+            </Button>
+          )}
+        </>
+      )}
+      <p className="mt-2 text-[13px] text-nd-fg-3">
+        YouTube 공개 댓글을 열 때 읽어 옵니다(저장하지 않음){page ? ` · ${fmtWhen(page.at)}` : ""} · 「정보 요청」 은 낱말로 고른 것입니다.
+      </p>
+    </div>
+  );
+}
+
+// ---- 메모 (AI 가 참고) -------------------------------------------------------
+
+/** AI 요약 줄의 메모 표시 — 반영했으면 「메모 반영」, 분석 뒤에 바뀌었으면 「메모 반영 전」 */
+function NoteBadge({ state }: { state: ReturnType<typeof radarNoteState> }) {
+  if (state === "applied")
+    return (
+      <span className="inline-flex shrink-0" title="이 분석은 사람 메모 · 직접 촬영 표시를 참고했습니다">
+        <Badge tone="success" size="md">
+          사람 표시 반영
+        </Badge>
+      </span>
+    );
+  if (state === "stale")
+    return (
+      <span className="inline-flex shrink-0" title="메모 · 직접 촬영 표시가 분석 뒤에 바뀌었습니다 — 「메모」 에서 다시 분석하면 반영됩니다">
+        <Badge tone="warning" size="md">
+          사람 표시 반영 전
+        </Badge>
+      </span>
+    );
+  return null;
+}
+
+const FilmedBadge = ({ f }: { f: NonNullable<Item["filmed"]> }) => (
+  <span className="inline-flex" title={`사람이 영상을 보고 표시 · ${fmtWhen(f.at)}`}>
+    <Badge tone={f.value === "self" ? "success" : "neutral"} size="md">
+      {RADAR_FILMED_LABEL[f.value]}
+    </Badge>
+  </span>
+);
+
+/** 직접 촬영인가 — 사람이 보고 고른다 (회사 공용 · 마지막에 고른 사람). 같은 칸을 다시 누르면 지운다 */
+function FilmedToggle({ i, a, keys = false }: { i: Item; a: Actions; keys?: boolean }) {
+  const { nameOf } = useShorts();
+  const cur = i.filmed?.value ?? null;
+  const opt = (v: RadarFilmed, hint: string) => (
+    <button
+      type="button"
+      aria-pressed={cur === v}
+      onClick={() => a.onFilmed(i, cur === v ? null : v)}
+      className={cn(
+        "inline-flex h-8 items-center gap-1 rounded-[8px] border px-2.5 text-[13px] font-medium transition-colors",
+        cur === v
+          ? v === "self"
+            ? "border-nd-success/40 bg-nd-success-soft text-nd-success-text"
+            : "border-nd-fg-3/40 bg-nd-fg/[.08] text-nd-fg"
+          : "border-nd-border bg-nd-content text-nd-fg-2 hover:bg-nd-sunken",
+      )}
+    >
+      {RADAR_FILMED_LABEL[v]}
+      {keys && <kbd className="ml-0.5 rounded-[4px] bg-nd-fg/[.06] px-1 text-[12px] font-normal text-nd-fg-3">{hint}</kbd>}
+    </button>
+  );
+  return (
+    <div data-radar-filmed className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+      <span className="inline-flex items-center gap-1 text-[13px] font-medium text-nd-fg-2" title="크리에이터가 직접 찍은 실사 영상인가 — AI 생성 · 퍼온 영상 · 사진 넘기기 등은 「직접 촬영 아님」. AI 분석과 필터에 씁니다">
+        <Hand size={14} aria-hidden />
+        촬영
+      </span>
+      {opt("self", "1")}
+      {opt("not_self", "2")}
+      <span className="text-[13px] text-nd-fg-3">
+        {i.filmed ? `${nameOf(i.filmed.by)} · ${fmtWhen(i.filmed.at)}` : "아직 표시 안 함"}
+        {keys && i.filmed ? " · 0 지우기" : ""}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * 메모 칸 — 회사 공용 · 한 사람에 하나(쓴 사람 · 시각 표시). 칸을 벗어나면 저장, 빈 글이면 지운다.
+ * 「메모 반영해 다시 분석」 은 이 영상 하나만 AI 에 다시 보낸다 (글만 읽어 약 2원 · 레이더 하루 상한 안).
+ */
+function NotePanel({ i, a, keys = false }: { i: Item; a: Actions; keys?: boolean }) {
+  const { nameOf } = useShorts();
+  const mine = (i.notes ?? []).find((n) => n.by === a.me);
+  const others = (i.notes ?? []).filter((n) => n.by !== a.me).sort((x, y) => y.at - x.at);
+  const [text, setText] = useState(mine?.text ?? "");
+  useEffect(() => setText(mine?.text ?? ""), [mine?.text, i.id]);
+  const dirty = text.trim() !== (mine?.text ?? "");
+  const state = radarNoteState(i);
+  const busyRe = a.busy === `re-${i.id}`;
+  const hasAny = !!(i.notes?.length || text.trim() || i.filmed);
+  return (
+    <div data-radar-notes className="space-y-2.5">
+      <FilmedToggle i={i} a={a} keys={keys} />
+      {others.length > 0 && (
+        <ul className="space-y-2">
+          {others.map((n) => (
+            <li key={n.by} className="rounded-nd-md bg-nd-sunken px-3 py-2">
+              <p className="text-[13px] text-nd-fg-3">
+                <span className="font-medium text-nd-fg-2">{nameOf(n.by)}</span> · {fmtWhen(n.at)}
+              </p>
+              <p className="mt-0.5 whitespace-pre-line text-nd-body text-nd-fg [overflow-wrap:anywhere]">{n.text}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Field label={others.length ? "내 메모" : "메모 — AI 가 분석할 때 참고합니다"}>
+        <Textarea
+          value={text}
+          rows={3}
+          maxLength={1000}
+          onChange={(e) => setText(e.target.value)}
+          onBlur={() => dirty && void a.onNote(i, text)}
+          placeholder="영상을 보고 알게 된 것 (예: 「다이소 실리콘 물막이 3천원」 「모음 영상 아님 — 상품 하나」 「훅은 물 튀는 장면」)"
+        />
+      </Field>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <Button
+          size="sm"
+          icon={Sparkles}
+          loading={busyRe}
+          disabled={!hasAny || (a.busy !== null && !busyRe)}
+          onClick={() => a.onReanalyze(i, dirty ? text : undefined)}
+          title="이 영상 하나만 메모와 함께 AI 에 다시 보냅니다 (글만 읽음 · 약 2원 · 레이더 하루 상한 안)"
+        >
+          {busyRe ? "다시 분석하는 중…" : i.ai ? "메모 반영해 다시 분석 (약 2원)" : "메모 반영해 분석 (약 2원)"}
+        </Button>
+        <span className="text-[13px] text-nd-fg-3">
+          {a.busy === `note-${i.id}`
+            ? "저장하는 중…"
+            : dirty
+              ? "칸을 벗어나면 저장됩니다"
+              : state === "applied"
+                ? `AI 분석이 ${[i.notes?.length ? `메모 ${i.notes.length}개` : "", i.filmed ? "촬영 표시" : ""].filter(Boolean).join(" · ")}를 반영했습니다 · ${fmtWhen(i.ai?.at)}`
+                : state === "stale"
+                  ? i.notes?.length || i.filmed
+                    ? "메모 · 촬영 표시가 분석 뒤에 바뀌었습니다 — 다시 분석하면 반영됩니다"
+                    : "분석에 썼던 메모 · 표시가 지워졌습니다"
+                  : state === "pending"
+                    ? "아직 AI 분석 전 — 아침 자동 분석 때도 메모 · 촬영 표시를 함께 참고합니다"
+                    : "메모 · 촬영 표시는 회사 공용입니다 (남긴 사람 표시)"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // ---- AI 요약 · 분석 ---------------------------------------------------------
 
 /** 펼친 분석 — 카드의 「분석 보기」 와 플레이어 창이 같이 쓴다 */
@@ -386,15 +752,21 @@ function AiSummary({ i, className }: { i: Item; className?: string }) {
   const id = useId();
   const ai = i.ai;
   if (!ai) {
-    return <div className={cn("rounded-nd-md bg-nd-sunken px-3 py-2 text-[13px] text-nd-fg-3", className)}>AI 분석 전 — 상품 · 해설 없이 숫자만 모았습니다</div>;
+    return (
+      <div className={cn("rounded-nd-md bg-nd-sunken px-3 py-2 text-[13px] text-nd-fg-3", className)}>
+        AI 분석 전 — 상품 · 해설 없이 숫자만 모았습니다{i.notes?.length ? ` · 메모 ${i.notes.length}개는 분석 때 참고` : ""}
+      </div>
+    );
   }
   const summary = ai.why || ai.hook || ai.evidence || "해설 없음";
+  const ns = radarNoteState(i);
   return (
     <div className={cn("rounded-nd-md bg-nd-accent-soft/60", className)}>
       <div className="flex min-w-0 items-center gap-2 px-3 py-1.5">
         <Badge tone="accent" size="md" className="shrink-0">
           AI 추정
         </Badge>
+        <NoteBadge state={ns} />
         <p className="min-w-0 flex-1 truncate text-[13px] text-nd-fg-2" title={summary}>
           {summary}
         </p>
@@ -466,10 +838,20 @@ interface Actions {
   onSave: (i: Item) => void;
   onMake: (i: Item) => void;
   onDismiss: (i: Item, dismissed: boolean) => void;
+  /** 댓글 원문 창 */
+  onComments: (i: Item) => void;
+  /** 메모 · AI 다시 분석 창 */
+  onNotes: (i: Item) => void;
+  /** 내 메모 저장 (빈 글이면 지움) */
+  onNote: (i: Item, text: string) => Promise<unknown>;
+  /** 메모 반영해 다시 분석 — 아직 저장 안 한 내 메모가 있으면 먼저 저장 */
+  onReanalyze: (i: Item, unsaved?: string) => void;
+  /** 직접 촬영 표시 — 같은 것을 다시 누르면 지움 */
+  onFilmed: (i: Item, value: RadarFilmed | null) => void;
 }
 
 /** 소재로 저장 · 영상 만들기 · 제외(되살리기) · YouTube — 카드와 플레이어가 같은 순서 */
-function ActionRow({ i, a, linkLabel = "YouTube" }: { i: Item; a: Actions; linkLabel?: string }) {
+function ActionRow({ i, a, linkLabel = "YouTube", notes = true }: { i: Item; a: Actions; linkLabel?: string; notes?: boolean }) {
   const saved = i.saved.some((s) => s.by === a.me);
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -488,6 +870,11 @@ function ActionRow({ i, a, linkLabel = "YouTube" }: { i: Item; a: Actions; linkL
       <Button size="sm" icon={Clapperboard} loading={a.busy === `make-${i.id}`} onClick={() => a.onMake(i)}>
         영상 만들기
       </Button>
+      {notes && (
+        <Button size="sm" variant="ghost" icon={StickyNote} onClick={() => a.onNotes(i)} title="직접 촬영 표시 · 메모를 남기면 AI 가 다시 분석할 때 참고합니다">
+          메모{i.notes?.length ? ` ${i.notes.length}` : ""}
+        </Button>
+      )}
       {i.dismissed ? (
         <Button size="sm" variant="ghost" icon={RotateCcw} loading={a.busy === `dis-${i.id}`} onClick={() => a.onDismiss(i, false)}>
           되살리기
@@ -677,6 +1064,12 @@ function RadarFilters({ filter, setFilter, keywordOptions }: { filter: RadarFilt
           <option value="7">7일 안</option>
           <option value="14">14일 안</option>
         </LabeledSelect>
+        <LabeledSelect label="촬영" className={cell} value={filter.filmed ?? "all"} onChange={(v) => set("filmed", v as RadarFilter["filmed"])}>
+          <option value="all">전체</option>
+          <option value="self">직접 촬영</option>
+          <option value="not_self">직접 촬영 아님</option>
+          <option value="none">아직 표시 안 함</option>
+        </LabeledSelect>
         <LabeledSelect label="발견 검색어" className="flex-[1.3_1_180px]" value={filter.keyword} onChange={(v) => set("keyword", v)}>
           <option value="">전체</option>
           {keywordOptions.map((k) => (
@@ -733,6 +1126,7 @@ export function RadarPanel() {
   const { refresh: refreshShorts } = useShorts();
   const router = useRouter();
   const { busy, run } = useAction();
+  const toast = useToast();
   const [data, setData] = useState<RadarData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"new" | "saved" | "out">("new");
@@ -740,6 +1134,24 @@ export function RadarPanel() {
   const [filter, setFilterState] = useState<RadarFilter>(DEFAULT_RADAR_FILTER);
   // 쇼츠처럼 보기 드로어 — 처음 보여 줄 영상 id (null = 닫힘. 같은 상품 묶음 안의 다른 영상일 수도 있다)
   const [feedStart, setFeedStart] = useState<string | null>(null);
+  // 카드의 「댓글 보기」 창
+  const [commentsOf, setCommentsOf] = useState<Item | null>(null);
+  // 카드의 「메모」 창 — id 로 들고 있다가 새로 받은 자료에서 찾는다 (다시 분석하면 바로 바뀌게)
+  const [notesId, setNotesId] = useState<string | null>(null);
+  // 쇼츠처럼 보기 — 마지막으로 본 후보 (이 브라우저)
+  const [feedLast, setFeedLast] = useState<FeedLast | null>(null);
+  useEffect(() => setFeedLast(loadFeedLast()), []);
+  const onSeen = useCallback((id: string) => {
+    const v = { id, at: Date.now() };
+    setFeedLast(v);
+    try {
+      window.localStorage.setItem(FEED_LAST_KEY, JSON.stringify(v));
+    } catch {
+      /* 기억 못 해도 보기는 그대로 */
+    }
+  }, []);
+  // 한 후보만 바로 고친다 (목록 전체를 다시 받지 않게 — 넘기며 빠르게 표시할 때)
+  const patchItem = (id: string, patch: Partial<Item>) => setData((d) => (d ? { ...d, items: d.items.map((x) => (x.id === id ? { ...x, ...patch } : x)) } : d));
 
   useEffect(() => setFilterState(loadFilter()), []);
   const setFilter = (next: RadarFilter) => {
@@ -776,6 +1188,9 @@ export function RadarPanel() {
     };
   }, [data]);
   const groups = useMemo(() => filterRadarGroups(lists[tab], filter, Date.now()), [lists, tab, filter]);
+  // 이어 보기 — 마지막으로 본 영상이 지금 목록(탭 · 필터 · 정렬)의 몇 번째인가 (없으면 -1)
+  const resumeIdx = feedLast ? groups.findIndex((g) => g.items.some((x) => x.id === feedLast.id)) : -1;
+  const filmedCount = useMemo(() => radarFilmedCounts(groups.flatMap((g) => g.items)), [groups]);
   const shownCount = groups.reduce((n, g) => n + g.items.length, 0);
 
   const save = async (i: Item) => {
@@ -799,7 +1214,35 @@ export function RadarPanel() {
         await shortsPost("radar", { action: "dismiss", id: i.id, dismissed });
         await load();
       }),
+    onComments: (i) => setCommentsOf(i),
+    onNotes: (i) => setNotesId(i.id),
+    onNote: (i, text) =>
+      run(`note-${i.id}`, async () => {
+        await shortsPost("radar", { action: "note", id: i.id, text });
+        await load();
+      }),
+    onFilmed: (i, value) => {
+      const prev = i.filmed ?? null;
+      patchItem(i.id, { filmed: value ? { value, by: data?.me ?? "", at: Date.now() } : null });
+      void shortsPost<{ filmed: Item["filmed"] }>("radar", { action: "filmed", id: i.id, value })
+        .then((r) => patchItem(i.id, { filmed: r.filmed }))
+        .catch((e) => {
+          patchItem(i.id, { filmed: prev });
+          toast.error(e instanceof Error ? e.message : "직접 촬영 표시를 저장하지 못했습니다.");
+        });
+    },
+    onReanalyze: (i, unsaved) =>
+      void run(
+        `re-${i.id}`,
+        async () => {
+          if (unsaved !== undefined) await shortsPost("radar", { action: "note", id: i.id, text: unsaved });
+          await shortsPost("radar", { action: "reanalyze", id: i.id });
+          await load();
+        },
+        "메모를 반영해 AI 가 다시 분석했습니다.",
+      ),
   };
+  const notesItem = notesId ? (data?.items.find((x) => x.id === notesId) ?? null) : null;
   const runNow = () =>
     void run(
       "run",
@@ -879,12 +1322,26 @@ export function RadarPanel() {
           {filtered && <span className="ml-2 text-[13px] font-normal text-nd-fg-3">필터 적용 중 · 이 탭 전체 {lists[tab].length}편</span>}
         </h3>
         <div className="flex items-center gap-3">
+          <span className="nd-num text-[13px] text-nd-fg-3" title="사람이 영상을 보고 고른 「직접 촬영」 표시 — 지금 목록 기준">
+            직접 촬영 {filmedCount.self} · 아님 {filmedCount.not_self} · 표시 전 {filmedCount.none}
+          </span>
           <span className="nd-num text-[13px] text-nd-fg-2" title="편 = 영상 수 · 묶음 = AI 가 같은 상품으로 본 영상끼리 한 카드">
             {shownCount}편 · {groups.length}묶음
           </span>
-          <Button size="sm" variant="secondary" icon={GalleryVerticalEnd} disabled={!groups.length} onClick={() => setFeedStart(groups[0]?.items[0].id ?? null)}>
-            쇼츠처럼 보기
-          </Button>
+          {resumeIdx > 0 ? (
+            <>
+              <Button size="sm" icon={GalleryVerticalEnd} onClick={() => setFeedStart(feedLast!.id)} title={`쇼츠처럼 보기에서 마지막으로 본 영상(${resumeIdx + 1}번째)부터 이어서 봅니다`}>
+                이어 보기 · <span className="nd-num">{resumeIdx + 1}</span>번째
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => setFeedStart(groups[0].items[0].id)}>
+                처음부터
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" variant="secondary" icon={GalleryVerticalEnd} disabled={!groups.length} onClick={() => setFeedStart(groups[0]?.items[0].id ?? null)}>
+              쇼츠처럼 보기
+            </Button>
+          )}
         </div>
       </div>
 
@@ -941,7 +1398,29 @@ export function RadarPanel() {
         <span>AI 상품명 · 해설은 추정</span>
       </p>
 
-      <ShortsFeedSheet startId={feedStart} groups={groups} a={actions} onClose={() => setFeedStart(null)} />
+      <ShortsFeedSheet startId={feedStart} groups={groups} a={actions} onClose={() => setFeedStart(null)} onSeen={onSeen} />
+
+      <Dialog open={!!commentsOf} onClose={() => setCommentsOf(null)} size="lg" title="댓글" description={commentsOf?.title}>
+        {commentsOf && <CommentList key={commentsOf.id} i={commentsOf} />}
+      </Dialog>
+
+      <Dialog open={!!notesItem} onClose={() => setNotesId(null)} size="lg" title="메모 · AI 분석" description={notesItem?.title}>
+        {notesItem && (
+          <div className="space-y-4">
+            <NotePanel key={notesItem.id} i={notesItem} a={actions} />
+            <div className="rounded-nd-md bg-nd-accent-soft/60 px-3 py-2.5">
+              <div className="mb-1.5 flex items-center gap-2">
+                <Badge tone={notesItem.ai ? "accent" : "neutral"} size="md">
+                  {notesItem.ai ? "AI 추정" : "AI 분석 전"}
+                </Badge>
+                <NoteBadge state={radarNoteState(notesItem)} />
+                <span className="text-[13px] font-medium text-nd-fg-2">지금 분석</span>
+              </div>
+              <Analysis i={notesItem} />
+            </div>
+          </div>
+        )}
+      </Dialog>
 
       <Disclosure
         className="mt-6"
@@ -964,7 +1443,7 @@ function RadarCard({ items, a, onOpen }: { items: Item[]; a: Actions; onOpen: (i
   return (
     <Card data-radar-card padding="none" className="flex min-w-0 flex-col p-4 [container-type:inline-size]">
       <div className="grid grid-cols-[104px_minmax(0,1fr)] gap-3 [@container(min-width:470px)]:grid-cols-[140px_minmax(0,1fr)] [@container(min-width:470px)]:gap-x-4">
-        <RadarThumb i={i} onOpen={() => onOpen(i)} className="aspect-[5/7] w-full self-start [@container(min-width:470px)]:row-span-3" />
+        <RadarThumb i={i} onOpen={() => onOpen(i)} className="aspect-[5/7] w-full self-start [@container(min-width:470px)]:row-span-4" />
         {/* 머리 높이를 고정해 지표 줄이 카드마다 같은 높이에서 시작한다 (배지 한 줄 + 제목 두 줄 + 채널 + 주의) */}
         <div className="flex min-w-0 flex-col gap-1.5 [@container(min-width:470px)]:min-h-[132px]">
           <BadgeRow i={i} />
@@ -978,6 +1457,7 @@ function RadarCard({ items, a, onOpen }: { items: Item[]; a: Actions; onOpen: (i
           </div>
         </div>
         <Metrics i={i} className="col-span-2 [@container(min-width:470px)]:col-span-1 [@container(min-width:470px)]:col-start-2" />
+        <Engagement i={i} onComments={() => a.onComments(i)} className="col-span-2 [@container(min-width:470px)]:col-span-1 [@container(min-width:470px)]:col-start-2" />
         <AiSummary i={i} className="col-span-2 [@container(min-width:470px)]:col-span-1 [@container(min-width:470px)]:col-start-2" />
       </div>
       <div className="mt-4 border-t border-nd-line pt-3">
@@ -1011,7 +1491,7 @@ function useFeedWidth() {
  * 넘기는 방법: 휠 · 터치 · ↑↓(PageUp/Down · J/K) · 머리의 위아래 버튼. 순서는 지금 필터 · 정렬의 묶음 순서.
  * 플레이어는 보고 있는 칸에만 띄우고, 앞뒤 두 칸까지만 내용을 그린다 (나머지는 빈 칸 — 높이만 같다).
  */
-function ShortsFeedSheet({ startId, groups, a, onClose }: { startId: string | null; groups: FeedGroup[]; a: Actions; onClose: () => void }) {
+function ShortsFeedSheet({ startId, groups, a, onClose, onSeen }: { startId: string | null; groups: FeedGroup[]; a: Actions; onClose: () => void; onSeen: (id: string) => void }) {
   const width = useFeedWidth();
   const [active, setActive] = useState(0);
   const activeRef = useRef(0);
@@ -1099,12 +1579,26 @@ function ShortsFeedSheet({ startId, groups, a, onClose }: { startId: string | nu
     [groups.length],
   );
   goRef.current = go;
+  // 지금 보는 영상 — 다음에 열 때 여기서 이어 보게 기억한다
+  const curItem = groups[cur] ? (groups[cur].items.find((x) => x.id === picked[groups[cur].key]) ?? groups[cur].items[0]) : null;
+  useEffect(() => {
+    if (open && curItem) onSeen(curItem.id);
+  }, [open, curItem?.id, onSeen]); // eslint-disable-line react-hooks/exhaustive-deps
+  const curRef = useRef(curItem);
+  curRef.current = curItem;
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
       const k = e.key;
+      // 1 직접 촬영 · 2 직접 촬영 아님 · 0 지우기 — 보면서 바로 표시
+      if ((k === "1" || k === "2" || k === "0") && curRef.current && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        const v = k === "1" ? "self" : k === "2" ? "not_self" : null;
+        if ((curRef.current.filmed?.value ?? null) !== v) a.onFilmed(curRef.current, v);
+        return;
+      }
       const d = k === "ArrowDown" || k === "PageDown" || k === "j" || k === "ArrowRight" ? 1 : k === "ArrowUp" || k === "PageUp" || k === "k" || k === "ArrowLeft" ? -1 : 0;
       if (!d) return;
       e.preventDefault();
@@ -1112,7 +1606,7 @@ function ShortsFeedSheet({ startId, groups, a, onClose }: { startId: string | nu
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, go]);
+  }, [open, go, a]);
 
   return (
     <Sheet
@@ -1129,8 +1623,19 @@ function ShortsFeedSheet({ startId, groups, a, onClose }: { startId: string | nu
           <span className="inline-flex items-center gap-1">
             <IconButton icon={ChevronUp} label="이전 후보 (↑)" variant="secondary" size="sm" data-feed-key disabled={cur <= 0} onClick={() => go(-1)} />
             <IconButton icon={ChevronDown} label="다음 후보 (↓)" variant="secondary" size="sm" data-feed-key disabled={cur >= groups.length - 1} onClick={() => go(1)} />
+            <IconButton
+              icon={ChevronsUp}
+              label="처음 후보로"
+              variant="secondary"
+              size="sm"
+              data-feed-key
+              disabled={cur <= 0}
+              onClick={() => {
+                if (scroller.current) scroller.current.scrollTop = 0;
+              }}
+            />
           </span>
-          <span className="hidden text-[13px] font-normal text-nd-fg-3 md:inline">휠 · ↑↓ 넘기기 · 스페이스 재생/정지 · M 소리</span>
+          <span className="hidden text-[13px] font-normal text-nd-fg-3 md:inline">휠 · ↑↓ 넘기기 · 스페이스 재생/정지 · M 소리 · 1 · 2 촬영 표시</span>
         </span>
       }
     >
@@ -1269,6 +1774,9 @@ function FeedPlayer({ i }: { i: Item }) {
 
 /** 쇼츠 한 칸 — 왼쪽 세로 영상, 오른쪽(좁으면 아래) 근거 · 버튼 */
 function FeedSlide({ i, group, active, a, onPick, onFocus }: { i: Item; group: Item[]; active: boolean; a: Actions; onPick: (id: string) => void; onFocus: () => void }) {
+  // 댓글은 누를 때만 읽는다 (넘길 때마다 YouTube 를 부르지 않게) — 다른 영상으로 바뀌면 닫는다
+  const [comments, setComments] = useState(false);
+  useEffect(() => setComments(false), [i.id]);
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-4 pt-0 sm:flex-row sm:gap-5">
       <div className="flex min-h-0 flex-1 items-center justify-center sm:h-full sm:flex-none">
@@ -1296,11 +1804,27 @@ function FeedSlide({ i, group, active, a, onPick, onFocus }: { i: Item; group: I
           <ScoreBox score={i.score} className="shrink-0" />
         </div>
         <Metrics i={i} />
+        <Engagement i={i} onComments={() => setComments(true)} />
+        {comments && (
+          <section aria-label="댓글" className="rounded-nd-md border border-nd-line px-3 py-2.5">
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <span className="text-[13px] font-medium text-nd-fg-2">댓글</span>
+              <button type="button" onClick={() => setComments(false)} className="text-[13px] font-medium text-nd-accent hover:underline">
+                닫기
+              </button>
+            </div>
+            <CommentList i={i} />
+          </section>
+        )}
+        <section aria-label="촬영 · 메모" className="rounded-nd-md border border-nd-line px-3 py-2.5">
+          <NotePanel i={i} a={a} keys />
+        </section>
         <div className="rounded-nd-md bg-nd-accent-soft/60 px-3 py-2.5">
           <div className="mb-1.5 flex items-center gap-2">
             <Badge tone={i.ai ? "accent" : "neutral"} size="md">
               {i.ai ? "AI 추정" : "AI 분석 전"}
             </Badge>
+            <NoteBadge state={radarNoteState(i)} />
             <span className="text-[13px] font-medium text-nd-fg-2">분석</span>
           </div>
           <Analysis i={i} />
@@ -1330,7 +1854,7 @@ function FeedSlide({ i, group, active, a, onPick, onFocus }: { i: Item; group: I
           </div>
         )}
         <div className="sticky bottom-0 mt-auto border-t border-nd-line bg-nd-content pt-3">
-          <ActionRow i={i} a={a} linkLabel="YouTube에서 열기" />
+          <ActionRow i={i} a={a} linkLabel="YouTube에서 열기" notes={false} />
         </div>
       </div>
     </div>

@@ -9,11 +9,15 @@ import {
   getRadarSettings,
   kstDay,
   listRadar,
+  radarComments,
   radarToday,
+  reanalyzeRadar,
   runRadar,
   saveRadarAsTrend,
   saveRadarSettings,
   setRadarDismissed,
+  setRadarFilmed,
+  setRadarNote,
 } from "@/lib/neander/shorts/server/radar-run";
 import { readQuota } from "@/lib/neander/shorts/server/store";
 import { YT_SEARCH_DAILY_LIMIT, youtubeApiKey } from "@/lib/neander/shorts/server/youtube-data";
@@ -27,6 +31,11 @@ export async function GET(req: Request) {
   try {
     const { email } = await requireShortsUser(req);
     const db = adminDb();
+    // 댓글 원문 — ?comments=<후보 id>&order=relevance|time&page=<다음 쪽>
+    const u = new URL(req.url);
+    if (u.searchParams.has("comments")) {
+      return json(await radarComments(db, u.searchParams.get("comments"), { order: u.searchParams.get("order"), page: u.searchParams.get("page") ?? undefined }));
+    }
     const settings = await getRadarSettings(db);
     const [items, last, today, searchUsed] = await Promise.all([listRadar(db), getRadarLast(db), radarToday(db, settings), readQuota(db, `ytsearch_${kstDay()}`)]);
     return json({
@@ -53,6 +62,12 @@ export async function POST(req: Request) {
         return json({ summary: await runRadar(db, { by: email, deadline: Date.now() + 105_000, force: true }) });
       case "save":
         return json({ trendId: await saveRadarAsTrend(db, email, b.id, b.visibility) });
+      case "note":
+        return json({ notes: await setRadarNote(db, email, b.id, b.text) });
+      case "filmed":
+        return json({ filmed: await setRadarFilmed(db, email, b.id, b.value ?? null) });
+      case "reanalyze":
+        return json(await reanalyzeRadar(db, email, b.id));
       case "dismiss":
         await setRadarDismissed(db, email, b.id, b.dismissed !== false);
         return json({ ok: true });

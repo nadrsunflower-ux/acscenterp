@@ -86,6 +86,8 @@ export interface HitAnalysis {
   costUsd: number;
   at: number;
   by: string;
+  /** 분석할 때 참고한 사람 메모 (그때의 글 그대로 · 메모 없이 분석했으면 "" · 예전 분석에는 없다) */
+  note?: string;
 }
 
 export type HitStatus = "new" | "assigned" | "dismissed";
@@ -530,6 +532,15 @@ export function buildReport(input: {
     newHits,
     lags,
   };
+}
+
+/** 터진 영상의 메모와 AI 분석의 관계 — none(메모 없음) · applied(지금 메모로 분석) · stale(분석 뒤에 메모가 바뀜) · pending(분석 전) */
+export function hitNoteState(h: { note: string; analysis: { note?: string } | null }): "none" | "pending" | "applied" | "stale" {
+  const note = h.note.trim();
+  const used = (h.analysis?.note ?? "").trim();
+  if (!note) return used ? "stale" : "none";
+  if (!h.analysis) return "pending";
+  return used === note ? "applied" : "stale";
 }
 
 // ---- 보고 화면용 ---------------------------------------------------------

@@ -150,6 +150,69 @@ export async function youtubeCommentSample(videoId: string, max = 100, apiKey?: 
   return (data.items ?? []).map((i) => i.snippet?.topLevelComment?.snippet?.textDisplay ?? "").filter(Boolean);
 }
 
+export interface YoutubeComment {
+  id: string;
+  author: string;
+  text: string;
+  /** 좋아요 — 받지 못하면 null (0 과 다르다) */
+  likes: number | null;
+  replies: number | null;
+  publishedAt: string | null;
+}
+
+/**
+ * 영상 댓글 원문 (commentThreads.list · 1단위 — 하루 검색 한도와 따로) — 인기순(relevance) · 최신순(time).
+ * 댓글을 꺼 둔 영상은 오류가 아니라 disabled. 화면에 보여 주기만 하고 저장하지 않는다.
+ */
+export async function youtubeComments(
+  videoId: string,
+  o: { max?: number; order?: "relevance" | "time"; pageToken?: string } = {},
+  apiKey?: string,
+): Promise<{ items: YoutubeComment[]; next: string | null; disabled: boolean }> {
+  const key = apiKey || youtubeApiKey();
+  if (!key) throw new Error("YouTube 키가 없습니다 — 회사 키(NEANDER_SHORTS_YOUTUBE_API_KEY)를 설정해 주세요.");
+  if (!/^[\w-]{11}$/.test(videoId)) throw new Error("YouTube 영상 id 가 올바르지 않습니다.");
+  const q = new URLSearchParams({
+    key,
+    part: "snippet",
+    videoId,
+    maxResults: String(Math.min(100, Math.max(1, o.max ?? 30))),
+    textFormat: "plainText",
+    order: o.order === "time" ? "time" : "relevance",
+  });
+  if (o.pageToken && /^[\w-]{1,200}$/.test(o.pageToken)) q.set("pageToken", o.pageToken);
+  const label = "YouTube 댓글";
+  let res: Response;
+  try {
+    res = await fetcher(`https://www.googleapis.com/youtube/v3/commentThreads?${q}`, { cache: "no-store", signal: AbortSignal.timeout(20_000) });
+  } catch {
+    throw new Error(`${label}: YouTube 에 연결하지 못했습니다.`);
+  }
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    const reason = JSON.stringify((payload as { error?: unknown })?.error ?? "").toLowerCase();
+    if (res.status === 403 && reason.includes("commentsdisabled")) return { items: [], next: null, disabled: true };
+    if (res.status === 404) throw new Error(`${label}: 영상을 찾지 못했습니다 — 지워졌거나 비공개로 바뀌었을 수 있습니다.`);
+    throw ytError(res.status, payload, label);
+  }
+  type ThreadRes = { id?: string; snippet?: { totalReplyCount?: unknown; topLevelComment?: { id?: string; snippet?: { authorDisplayName?: string; textDisplay?: string; textOriginal?: string; likeCount?: unknown; publishedAt?: string } } } };
+  const data = payload as { items?: ThreadRes[]; nextPageToken?: string } | null;
+  const items = (data?.items ?? [])
+    .map((t): YoutubeComment => {
+      const s = t.snippet?.topLevelComment?.snippet;
+      return {
+        id: t.snippet?.topLevelComment?.id ?? t.id ?? "",
+        author: s?.authorDisplayName ?? "",
+        text: s?.textDisplay ?? s?.textOriginal ?? "",
+        likes: countOf(s?.likeCount),
+        replies: countOf(t.snippet?.totalReplyCount),
+        publishedAt: s?.publishedAt ?? null,
+      };
+    })
+    .filter((c) => c.text.trim());
+  return { items, next: data?.nextPageToken ?? null, disabled: false };
+}
+
 // ---- 바이럴 형식 정찰 (감시 채널) -----------------------------------------
 //  채널 정보 channels.list · 최근 업로드 playlistItems.list · 영상 통계 videos.list — 모두 1단위.
 //  search.list(하루 100회) 는 「채널 찾기」 에서만 쓴다.

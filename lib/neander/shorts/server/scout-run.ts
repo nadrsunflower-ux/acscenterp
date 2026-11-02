@@ -150,8 +150,9 @@ export async function analyzeHit(db: Firestore, by: string, hitId: unknown, opts
     views: h.views.v,
     multiple: h.multiple,
     formats: formats.map((f) => ({ id: f.id, name: f.name, summary: f.summary })),
+    note: h.note,
   });
-  const analysis: HitAnalysis = { ...r.analysis, model: r.model, costUsd: r.costUsd, at: Date.now(), by };
+  const analysis: HitAnalysis = { ...r.analysis, model: r.model, costUsd: r.costUsd, at: Date.now(), by, note: h.note.trim() };
   await setHitAnalysis(db, h.id, analysis);
   if (h.country !== "KR" && !h.koreanComments && opts.key) {
     const comments = await youtubeCommentSample(h.externalId, 100, opts.key).catch(() => null);

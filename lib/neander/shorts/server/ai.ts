@@ -384,6 +384,10 @@ export interface RadarVideoInput {
   description: string;
   tags: string[];
   comments: string[];
+  /** 사람이 영상을 보고 남긴 메모 — 있으면 글보다 먼저 참고한다 */
+  notes?: string[];
+  /** 사람이 영상을 보고 고른 표시 — 크리에이터가 직접 찍은 실사 영상인가 */
+  filmed?: "self" | "not_self" | null;
 }
 export type RadarIdentifyItem = {
   videoId: string;
@@ -445,7 +449,13 @@ ${RULES}
 - hook: 제목으로 짐작되는 첫 장면 훅 한 줄. 짐작이 안 되면 "".
 - naverKeywords: 한국 사람이 네이버에서 이 상품을 찾을 검색어 1~3개 (짧게). product 가 "" 이면 [].
 - coupangQuery: 쿠팡에서 같은 종류를 찾을 검색어 하나. 모르면 "".
-- caution: 효능 · 안전 · 과장 위험이 있으면 한 줄(예: 「살균 효과 표현 주의」), 없으면 "".`;
+- caution: 효능 · 안전 · 과장 위험이 있으면 한 줄(예: 「살균 효과 표현 주의」), 없으면 "".
+- notes(사람 메모)가 있으면 사람이 영상을 직접 보고 적은 정보다. 상품 · 쓰임 · 반응 이유 · 관련 여부를 정할 때 제목 · 설명 · 댓글보다 먼저 믿는다.
+  · 메모가 상품을 하나로 짚으면 모음 영상이라도 그 상품으로 적고, confidence 는 likely 로 둔다. 메모가 「관련 없음 · 상품 없음」 이라 하면 그대로 따른다.
+  · 메모를 근거로 쓴 칸이 있으면 evidence 를 「사람 메모」 로 시작한다 (예: 「사람 메모 · 제목 #물막이」).
+  · 메모에 없는 사실(가격 · 판매량 · 브랜드)을 지어내지 않는다. 메모가 물음이나 지시(「훅 위주로 봐 줘」)면 그 초점으로 why · hook 을 쓴다.
+- filmed(사람 표시)가 있으면 사실로 본다: "직접 촬영" = 크리에이터가 실제로 찍은 실사 영상, "직접 촬영 아님" = AI 생성 · 퍼온 영상 · 사진 넘기기 등.
+  why 를 쓸 때 이 점을 반영한다(예: 실사용 장면이라 믿음이 감 · 남의 영상을 모은 형식). 직접 판단하지는 않는다.`;
   const user = JSON.stringify(
     list.map((v) => ({
       videoId: v.videoId,
@@ -454,6 +464,8 @@ ${RULES}
       description: v.description.slice(0, 400),
       tags: v.tags.slice(0, 12),
       comments: v.comments.slice(0, 8).map((c) => c.slice(0, 120)),
+      ...(v.notes?.length ? { notes: v.notes.slice(0, 5).map((n) => n.slice(0, 500)) } : {}),
+      ...(v.filmed ? { filmed: v.filmed === "self" ? "직접 촬영" : "직접 촬영 아님" } : {}),
     })),
   );
   const out = await chatJson<{ items: RadarIdentifyItem[] }>(shortsTextModel(null), system, user, "radar_identify", schema, 7000);

@@ -2,15 +2,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  DEFAULT_RADAR_FILTER,
   DEFAULT_RADAR_SETTINGS,
   classifyNaverTrend,
   groupRadar,
   krwOf,
+  RADAR_NOTE_MAX,
+  matchRadar,
   normalizeProductKey,
+  radarFilmedCounts,
+  radarNoteState,
   radarScore,
   radarVelocity,
   sanitizeRadarSettings,
+  upsertRadarNote,
   type RadarAi,
+  type RadarDoc,
 } from "./radar";
 
 const DAY = 86_400_000;
@@ -96,4 +103,41 @@ test("화면 필터: 분류 · 상품 상태 · 네이버 · 배수 · 기간 ·
   assert.deepEqual(filterRadarGroups(docs, { ...f, q: "토스트" }, now).map((g) => g.items[0].id), ["a"]);
   assert.deepEqual(filterRadarGroups(docs, { ...f, sort: "velocity" }, now).map((g) => g.items[0].id), ["b", "a", "c"], "모르는 값은 맨 뒤");
   assert.deepEqual(filterRadarGroups(docs, { ...f, sort: "recent" }, now).map((g) => g.items[0].id), ["a", "b", "c"]);
+});
+
+test("레이더 메모 — 한 사람에 하나 · 빈 글은 지움 · 분석 반영 상태", () => {
+  let notes = upsertRadarNote(undefined, "a@x", "  다이소 실리콘 물막이 — 3천원  ", 100);
+  assert.deepEqual(notes, [{ by: "a@x", text: "다이소 실리콘 물막이 — 3천원", at: 100 }]);
+  notes = upsertRadarNote(notes, "b@x", "모음 영상 아님 · 상품 하나", 200);
+  notes = upsertRadarNote(notes, "a@x", "고쳐 씀", 300);
+  assert.deepEqual(notes.map((n) => [n.by, n.text]), [["b@x", "모음 영상 아님 · 상품 하나"], ["a@x", "고쳐 씀"]]);
+  assert.equal(upsertRadarNote(notes, "a@x", "   ", 400).length, 1);
+  assert.equal(upsertRadarNote([], "a@x", "가".repeat(2000), 1)[0].text.length, RADAR_NOTE_MAX);
+
+  assert.equal(radarNoteState({ notes: [], ai: null }), "none");
+  assert.equal(radarNoteState({ notes, ai: null }), "pending");
+  assert.equal(radarNoteState({ notes, ai: { notes: 2, noteAt: 300 } }), "applied");
+  assert.equal(radarNoteState({ notes, ai: { notes: 2, noteAt: 250 } }), "stale"); // 분석 뒤에 a 가 고침
+  assert.equal(radarNoteState({ notes, ai: { notes: 0, noteAt: null } }), "stale"); // 메모 없이 분석
+  assert.equal(radarNoteState({ notes: [notes[0]], ai: { notes: 2, noteAt: 300 } }), "stale"); // 하나를 지움
+  assert.equal(radarNoteState({ notes: [], ai: { notes: 1, noteAt: 300 } }), "stale"); // 반영했던 메모를 다 지움
+});
+
+test("직접 촬영 표시 — 분석 반영 상태 · 필터 · 수", () => {
+  const self = { value: "self" as const };
+  assert.equal(radarNoteState({ notes: [], filmed: self, ai: null }), "pending");
+  assert.equal(radarNoteState({ notes: [], filmed: self, ai: { notes: 0, noteAt: null, filmed: null } }), "stale"); // 표시 뒤 분석 전
+  assert.equal(radarNoteState({ notes: [], filmed: self, ai: { notes: 0, noteAt: null, filmed: "self" } }), "applied");
+  assert.equal(radarNoteState({ notes: [], filmed: { value: "not_self" }, ai: { notes: 0, noteAt: null, filmed: "self" } }), "stale"); // 바꿈
+  assert.equal(radarNoteState({ notes: [], filmed: null, ai: { notes: 0, noteAt: null, filmed: "self" } }), "stale"); // 지움
+  const n = [{ by: "a", text: "메모", at: 10 }];
+  assert.equal(radarNoteState({ notes: n, filmed: self, ai: { notes: 1, noteAt: 10, filmed: "self" } }), "applied");
+  assert.equal(radarNoteState({ notes: n, filmed: self, ai: { notes: 1, noteAt: 10, filmed: null } }), "stale");
+
+  const d = (filmed: RadarDoc["filmed"]) => ({ ...base, filmed }) as RadarDoc;
+  const base = { ai: null, naver: null, multiple: 5, publishedAt: null, keywords: [], title: "t", channel: "c" } as unknown as RadarDoc;
+  const items = [d({ value: "self", by: "a", at: 1 }), d({ value: "not_self", by: "a", at: 1 }), d(null), d(undefined)];
+  const f = (filmed: (typeof DEFAULT_RADAR_FILTER)["filmed"]) => items.filter((x) => matchRadar(x, { ...DEFAULT_RADAR_FILTER, filmed }, 0)).length;
+  assert.deepEqual([f("all"), f("self"), f("not_self"), f("none")], [4, 1, 1, 2]);
+  assert.deepEqual(radarFilmedCounts(items), { self: 1, not_self: 1, none: 2 });
 });

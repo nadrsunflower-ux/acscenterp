@@ -119,7 +119,9 @@ const ANALYZE_SYSTEM = `너는 한국의 숏폼 영상 기획사에서 국내외
 - koreanQueries: 한국 유튜브에서 이 형식이 이미 있는지 찾아볼 짧은 한국어 검색어 2~3개.
 - match: 아래 「기존 형식 카드」 중 만드는 방식이 같은 것이 있으면 그 id, 없으면 null. 주제만 같고 만드는 방식이 다르면 다른 형식이다.
 - totalSec · cutCount 는 영상에서 센 값이다. 모르면 null.
-- 영상을 볼 수 없었다면 추측하지 말고 summary 를 「영상을 보지 못함」 으로 쓰고 나머지는 비운다.`;
+- 영상을 볼 수 없었다면 추측하지 말고 summary 를 「영상을 보지 못함」 으로 쓰고 나머지는 비운다.
+- 「사람 메모」 가 있으면 이 영상을 직접 본 사람이 남긴 것이다. 메모가 짚은 장면 · 의도 · 관심(예: 「훅만 보면 됨」 「손 클로즈업이 핵심」)을 분석의 초점으로 삼는다.
+  영상에서 보이고 들리는 것과 메모가 어긋나면 영상을 따르고 summary 끝에 「(메모와 다름: 한 줄)」 을 붙인다. 메모에 없는 사실을 지어내지 않는다.`;
 
 export async function analyzeVideo(input: {
   model?: unknown;
@@ -130,7 +132,9 @@ export async function analyzeVideo(input: {
   views: number | null;
   multiple: number | null;
   formats: { id: string; name: string; summary: string }[];
-}): Promise<{ analysis: Omit<HitAnalysis, "model" | "costUsd" | "at" | "by">; costUsd: number; model: string }> {
+  /** 사람이 이 영상에 남긴 메모 — 분석의 초점으로 참고 */
+  note?: string;
+}): Promise<{ analysis: Omit<HitAnalysis, "model" | "costUsd" | "at" | "by" | "note">; costUsd: number; model: string }> {
   if (!/^https:\/\/www\.youtube\.com\/watch\?v=[\w-]{11}$/.test(input.url)) throw new Error("AI 가 직접 볼 수 있는 것은 YouTube 영상뿐입니다.");
   const model = videoModel(input.model);
   const known = input.formats.length
@@ -139,6 +143,7 @@ export async function analyzeVideo(input: {
   const text = [
     `영상: ${input.title || "(제목 없음)"} · 채널 ${input.channel || "?"} · 나라 ${input.country || "?"}`,
     `조회수 ${input.views ?? "?"} · 채널 평소의 ${input.multiple ?? "?"}배`,
+    ...(input.note?.trim() ? ["", `사람 메모: ${input.note.trim().slice(0, 1000)}`] : []),
     "",
     "기존 형식 카드:",
     known,
@@ -157,7 +162,7 @@ export async function analyzeVideo(input: {
     },
     110_000,
   );
-  let a: Omit<HitAnalysis, "model" | "costUsd" | "at" | "by">;
+  let a: Omit<HitAnalysis, "model" | "costUsd" | "at" | "by" | "note">;
   try {
     a = JSON.parse(r.content);
   } catch {
@@ -167,7 +172,7 @@ export async function analyzeVideo(input: {
   const clip = (s: unknown, n: number) => (typeof s === "string" ? s.trim().slice(0, n) : "");
   const list = (v: unknown, items: number, n: number) => (Array.isArray(v) ? v.map((x) => clip(x, n)).filter(Boolean).slice(0, items) : []);
   const numOr = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v * 10) / 10 : null);
-  const analysis: Omit<HitAnalysis, "model" | "costUsd" | "at" | "by"> = {
+  const analysis: Omit<HitAnalysis, "model" | "costUsd" | "at" | "by" | "note"> = {
     formatName: clip(a.formatName, 80) || "이름 없는 형식",
     summary: clip(a.summary, 500),
     hook: clip(a.hook, 500),
