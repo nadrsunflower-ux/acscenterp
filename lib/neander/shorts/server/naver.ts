@@ -77,3 +77,67 @@ export async function naverWeeklySeries(keywords: string[], weeks = 8, now = Dat
   if (!hit && raw.length) return [...Array(Math.max(0, weeks - raw.length)).fill(0), ...raw.slice(-weeks).map((p) => p.ratio)];
   return out;
 }
+
+// ---- 시장 트렌드 (/neander/shorts/market) — 여러 묶음 비교 · 나이 · 성별 ----------------------
+//  한 요청 안의 묶음끼리만 크기를 견줄 수 있다 (가장 높은 구간 = 100). 나이 · 성별을 바꾸면 요청이 따로라
+//  집단끼리 크기는 못 견주고 모양(오르내림)만 견준다 — 화면이 그렇게 적는다.
+
+export interface NaverTrendQuery {
+  /** 묶음 1~5개 · 묶음마다 검색어 1~20개 */
+  groups: { name: string; keywords: string[] }[];
+  startDate: string;
+  endDate: string;
+  timeUnit: "date" | "week" | "month";
+  /** 없으면 전체 */
+  gender?: "m" | "f";
+  /** 데이터랩 나이 구간 코드 "1"~"11" */
+  ages?: string[];
+}
+
+export interface NaverTrendSeries {
+  name: string;
+  points: { period: string; ratio: number }[];
+}
+
+/** 검색어 트렌드 한 번 — 묶음마다 기간 순 값 (빈 구간은 응답에서 빠진다) */
+export async function naverTrend(q: NaverTrendQuery): Promise<NaverTrendSeries[]> {
+  const { id, secret, configured } = naverConfig();
+  if (!configured) throw new Error("네이버 데이터랩 키(NEANDER_SHORTS_NAVER_CLIENT_ID · _SECRET)가 없습니다.");
+  const groups = q.groups
+    .slice(0, 5)
+    .map((g) => ({ groupName: g.name.trim().slice(0, 40) || "묶음", keywords: [...new Set(g.keywords.map((k) => k.trim().slice(0, 40)).filter(Boolean))].slice(0, 20) }))
+    .filter((g) => g.keywords.length);
+  if (!groups.length) throw new Error("네이버에 넣을 검색어가 없습니다.");
+  const body: Record<string, unknown> = { startDate: q.startDate, endDate: q.endDate, timeUnit: q.timeUnit, keywordGroups: groups };
+  if (q.gender) body.gender = q.gender;
+  const ages = (q.ages ?? []).filter((a) => /^(?:[1-9]|1[01])$/.test(a));
+  if (ages.length) body.ages = ages;
+  let res: Response;
+  try {
+    res = await fetcher("https://naverapihub.apigw.ntruss.com/search-trend/v1/search", {
+      method: "POST",
+      headers: { "X-NCP-APIGW-API-KEY-ID": id, "X-NCP-APIGW-API-KEY": secret, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    throw new Error("네이버 데이터랩에 연결하지 못했습니다.");
+  }
+  const data = (await res.json().catch(() => null)) as {
+    results?: { title?: string; data?: { period?: string; ratio?: number }[] }[];
+    errorMessage?: string;
+    errMsg?: string;
+    error?: { errorCode?: string; message?: string; details?: string };
+  } | null;
+  if (!res.ok) {
+    const msg = data?.error ? [data.error.message, data.error.details].filter(Boolean).join(" — ") : (data?.errorMessage ?? data?.errMsg);
+    throw new Error(`네이버 데이터랩: ${String(msg || `HTTP ${res.status}`).slice(0, 120)}`);
+  }
+  return groups.map((g, i) => {
+    const r = data?.results?.find((x) => x.title === g.groupName) ?? data?.results?.[i];
+    return {
+      name: g.groupName,
+      points: (r?.data ?? []).map((p) => ({ period: String(p.period ?? ""), ratio: Math.round((Number(p.ratio) || 0) * 100) / 100 })).sort((a, b) => a.period.localeCompare(b.period)),
+    };
+  });
+}

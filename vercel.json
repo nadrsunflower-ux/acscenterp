@@ -17,6 +17,10 @@
     {
       "path": "/api/neander/shorts/cron-scout",
       "schedule": "0 22 * * *"
+    },
+    {
+      "path": "/api/neander/shorts/cron-market",
+      "schedule": "30 22 * * *"
     }
   ]
 }

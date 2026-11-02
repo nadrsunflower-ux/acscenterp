@@ -236,4 +236,10 @@ export const NEANDER_COL = {
   shortsRadar: "neander_shorts_radar",
   /** 대본 작성기 세션 — 사람마다 비공개 · 대화 · 버전 · 사진 미리보기 (사진 원본은 하위 photos). shorts/script-writer.ts */
   shortsScripts: "neander_shorts_scripts",
+  /** 시장 트렌드 — 검색어 묶음 추이(series) · 브리핑(brief_<날짜>) · 비교 캐시(cache_…). shorts/market.ts */
+  shortsMarket: "neander_shorts_market",
+  /** 채널 모니터링 — 감시 채널 · 내 채널의 하루 한 번 숫자 기록 (yt_<채널> · ig_<계정>) */
+  shortsChannelStats: "neander_shorts_channel_stats",
+  /** 트렌드 노트 — 사람마다 비공개 카드 */
+  shortsNotes: "neander_shorts_notes",
 } as const;

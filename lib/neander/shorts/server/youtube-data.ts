@@ -322,3 +322,42 @@ export async function youtubeDiscoverChannels(
     .filter((g) => g.videos.length > 0)
     .sort((a, b) => (b.videos[0].views ?? 0) - (a.videos[0].views ?? 0));
 }
+
+// ---- 시장 트렌드 — 채널 모니터링 (channels.list · 50곳에 1단위) -------------------------
+
+export interface YoutubeChannelStats {
+  channelId: string;
+  title: string;
+  handle: string;
+  thumbnail: string;
+  /** 숨긴 채널 · 못 받으면 null (0 과 다르다) */
+  subscribers: number | null;
+  views: number | null;
+  videos: number | null;
+}
+
+/** 채널 공개 통계 — 구독자 · 총 조회 · 영상 수 (50곳씩 1단위) */
+export async function youtubeChannelStats(ids: string[], apiKey?: string): Promise<YoutubeChannelStats[]> {
+  const key = needKey(apiKey);
+  const clean = [...new Set(ids.filter((id) => /^UC[\w-]{22}$/.test(id)))];
+  const out: YoutubeChannelStats[] = [];
+  for (let i = 0; i < clean.length; i += 50) {
+    const q = new URLSearchParams({ key, part: "snippet,statistics", id: clean.slice(i, i + 50).join(",") });
+    type Res = { id?: string; snippet?: ChannelRes["snippet"]; statistics?: { subscriberCount?: string; hiddenSubscriberCount?: boolean; viewCount?: string; videoCount?: string } };
+    const data = await getJson<{ items?: Res[] }>(`https://www.googleapis.com/youtube/v3/channels?${q}`, "YouTube 채널");
+    for (const c of data.items ?? []) {
+      if (!c.id) continue;
+      const th = c.snippet?.thumbnails ?? {};
+      out.push({
+        channelId: c.id,
+        title: c.snippet?.title ?? "",
+        handle: c.snippet?.customUrl ?? "",
+        thumbnail: th.medium?.url ?? th.default?.url ?? th.high?.url ?? "",
+        subscribers: c.statistics?.hiddenSubscriberCount ? null : countOf(c.statistics?.subscriberCount),
+        views: countOf(c.statistics?.viewCount),
+        videos: countOf(c.statistics?.videoCount),
+      });
+    }
+  }
+  return out;
+}

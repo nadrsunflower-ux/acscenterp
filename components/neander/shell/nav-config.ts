@@ -34,6 +34,7 @@ import {
   ListChecks,
   MessageCircle,
   Package,
+  Newspaper,
   PenLine,
   Plug,
   Radar,
@@ -216,6 +217,8 @@ export const SHORTS_NAV: NavGroup[] = [
   {
     label: "기획",
     items: [
+      // 매일 아침 AI 브리핑 · 네이버 검색어 추이 · 채널 모니터링 · 트렌드 노트
+      { href: "/neander/shorts/market", label: "시장 트렌드", icon: Newspaper },
       { href: "/neander/shorts/trends", label: "소재 발굴", icon: Radar },
       { href: "/neander/shorts/scout", label: "바이럴 형식", icon: Telescope },
       { href: "/neander/shorts/templates", label: "성공 공식", icon: Sparkles },
