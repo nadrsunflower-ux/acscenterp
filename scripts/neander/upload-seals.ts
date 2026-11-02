@@ -44,7 +44,8 @@ async function main() {
   const col = getFirestore().collection(NEANDER_COL.finSeals);
 
   for (const seal of SEALS) {
-    const file = path.join(process.cwd(), "public/images/seals", `${seal.id}.png`);
+    const privateFile = path.join(process.cwd(), "private/finance/seals", `${seal.id}.png`);
+    const file = existsSync(privateFile) ? privateFile : path.join(process.cwd(), "public/images/seals", `${seal.id}.png`);
     if (!existsSync(file)) {
       console.log(`- ${seal.id}  파일 없음 — 건너뜀 (${file})`);
       continue;

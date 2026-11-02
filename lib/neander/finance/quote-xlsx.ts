@@ -24,7 +24,7 @@ import { resolveSeal } from "./supplier";
 
 type Cell = string | number | null;
 
-export function exportQuoteXlsx(q: FinQuoteInput | FinQuoteDoc) {
+export function buildQuoteWorkbook(q: FinQuoteInput | FinQuoteDoc) {
   const t = quoteTotals(q);
   const s = q.supplier;
   const lines = q.lines.filter((l) => l.name.trim());
@@ -83,7 +83,7 @@ export function exportQuoteXlsx(q: FinQuoteInput | FinQuoteDoc) {
   put(15, C("E"), "규격/사양");
   put(15, C("H"), "수량");
   put(15, C("J"), "단가");
-  put(15, C("M"), "공급가액");
+  put(15, C("M"), "금액");
   put(15, C("P"), "비고");
   let r = 16;
   lines.forEach((l) => {
@@ -99,10 +99,12 @@ export function exportQuoteXlsx(q: FinQuoteInput | FinQuoteDoc) {
   put(r, C("H"), t.qty);
   put(r, C("M"), t.sum);
   put(r, C("P"), vat);
-  if (q.vatMode === "excluded") {
-    put(r + 1, C("M"), `부가세 ${t.vat.toLocaleString("ko-KR")} 별도 · 합계 ${t.total.toLocaleString("ko-KR")}`);
-  }
+  put(r + 1, C("B"), `공급가액 ${t.supply.toLocaleString("ko-KR")} + 부가세 ${t.vat.toLocaleString("ko-KR")} = 합계 ${t.total.toLocaleString("ko-KR")}`);
   if (q.note) put(r + 3, C("B"), q.note);
+  if (q.receiver) {
+    put(r + 5, C("B"), "수신자 정보");
+    put(r + 6, C("B"), [q.recipient, q.receiver.ceo && `대표자 ${q.receiver.ceo}`, q.receiver.bizNo && `사업자번호 ${q.receiver.bizNo}`, q.receiver.address].filter(Boolean).join("\n"));
+  }
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
   const m = (s1: string, e1: string) => XLSX.utils.decode_range(`${s1}:${e1}`);
@@ -133,5 +135,10 @@ export function exportQuoteXlsx(q: FinQuoteInput | FinQuoteDoc) {
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "견적서");
+  return wb;
+}
+
+export function exportQuoteXlsx(q: FinQuoteInput | FinQuoteDoc) {
+  const wb = buildQuoteWorkbook(q);
   XLSX.writeFile(wb, `${quoteFileStem(q)}.xlsx`);
 }

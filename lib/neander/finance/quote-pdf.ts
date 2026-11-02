@@ -19,6 +19,8 @@
 //  표 머리를 다시 찍는다 (thead 반복은 브라우저가 해 준다).
 // ============================================================
 
+import { QUOTE_DESIGN_CSS } from "@/components/neander/finance/quotation-designs/styles";
+
 const esc = (s: string) =>
   String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -121,8 +123,10 @@ export function openPrintWindow(args: {
   printCss?: string;
   /** @page 선언의 안쪽 — 「size: A4 portrait; margin: 16mm 14mm;」 */
   page?: string;
+  /** 비동기 인감 로딩 전에 사용자 클릭으로 미리 연 창 */
+  targetWindow?: Window;
 }): boolean {
-  const win = window.open("", "_blank");
+  const win = args.targetWindow ?? window.open("", "_blank");
   if (!win) return false;
   win.document.write(`<!doctype html>
 <html lang="ko">
@@ -148,17 +152,22 @@ export function openPrintWindow(args: {
 <body>
   <button type="button" class="print-btn" onclick="window.print()">인쇄 / PDF 저장</button>
   ${args.bodyHtml}
-  <script>window.addEventListener("load", () => setTimeout(() => window.print(), 300));</script>
+  <script>window.addEventListener("load", async () => {
+    await Promise.all(Array.from(document.images).map(img => img.complete ? Promise.resolve() : new Promise(resolve => { img.onload = resolve; img.onerror = resolve; })));
+    if (document.fonts) await document.fonts.ready;
+    setTimeout(() => window.print(), 100);
+  });</script>
 </body>
 </html>`);
   win.document.close();
   return true;
 }
 
-export const openQuotePdf = (bodyHtml: string, title: string): boolean =>
+export const openQuotePdf = (bodyHtml: string, title: string, targetWindow?: Window): boolean =>
   openPrintWindow({
     bodyHtml,
     title,
-    css: QUOTE_CSS,
-    printCss: ".sheet .lines thead { display: table-header-group; } .sheet tr { page-break-inside: avoid; }",
+    css: QUOTE_CSS + QUOTE_DESIGN_CSS,
+    printCss: ".sheet .lines thead { display: table-header-group; } .sheet tr, .quotation-design tr { break-inside: avoid; page-break-inside: avoid; } .quotation-design thead { display: table-header-group; }",
+    targetWindow,
   });

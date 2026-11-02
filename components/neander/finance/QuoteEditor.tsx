@@ -1,29 +1,9 @@
 "use client";
 
-// ============================================================
-//  견적서 편집창
-// ------------------------------------------------------------
-//  탭이 없다. 종이 한 장이 떠 있고 그 위에서 바로 고친다 — 예전에는
-//  「편집」 에서 폼을 채우고 「미리보기」 로 넘어가 확인했는데, 그러면
-//  고치는 화면과 나가는 종이가 서로 다른 물건이 되고 미리보기는 약속에
-//  그친다. 지금은 화면의 그 종이가 그대로 인쇄된다 (QuoteSheet).
-//
-//  종이에 자리가 없는 것만 위 띠에 둔다 — 공급자 프리셋, 단가 기준,
-//  상태. 앞의 둘은 종이에 결과가 보이고(공급자 표·「VAT 포함」), 상태는
-//  우리끼리 쓰는 값이라 종이에 찍히지 않는다. 붙이는 파일도 종이 밖이라
-//  시트 아래에 둔다.
-//
-//  저장은 문서를 통째로 보낸다. 파일은 저장 뒤에 올린다 — 문서 id 아래에
-//  놓이기 때문이다. 파일 올리기가 실패해도 문서는 남고, 편집창은 열린
-//  채로 사유를 보여 준다.
-//
-//  「계약금액으로 반영」 은 프로젝트 초안에 표의 합과 그 부가세 기준을 넣어 줄
-//  뿐, 프로젝트를 저장하지는 않는다 — 프로젝트 화면의 「저장」 이 그 일을
-//  한다. 두 저장이 한 버튼에 묶이면 어디까지 반영됐는지 흐려진다.
-// ============================================================
+// 프로젝트 견적 작성기: 별도 프로그램의 폼·디자인을 ERP 문서 저장 흐름에 연결한다.
 
 import { useMemo, useState } from "react";
-import { FileSpreadsheet, Printer, Trash2 } from "lucide-react";
+import { FileSpreadsheet, ImageDown, Printer, Trash2 } from "lucide-react";
 import {
   Button,
   Dialog,
@@ -32,7 +12,7 @@ import {
   useConfirm,
 } from "@/components/neander/ui";
 import { DocFilesField } from "@/components/neander/finance/DocFiles";
-import { QuoteSheet, printableQuoteHtml } from "@/components/neander/finance/QuoteSheet";
+import { printableQuoteHtml } from "@/components/neander/finance/QuoteSheet";
 import { deleteFinDoc, saveFinDoc, uploadFinDocFiles } from "@/lib/neander/finance/client";
 import {
   QUOTE_STATUSES,
@@ -40,12 +20,19 @@ import {
   QUOTE_VAT_LABEL,
   quoteFileStem,
   quoteTotals,
+  sanitizeFinDoc,
+  type QuoteDesign,
   type FinDocFile,
   type FinQuoteInput,
   type QuoteStatus,
   type QuoteVatMode,
 } from "@/lib/neander/finance/docs";
-import { CUSTOM_PRESET, SUPPLIER_PRESETS, findPreset, matchPresetId } from "@/lib/neander/finance/supplier";
+import { resolveSeal } from "@/lib/neander/finance/supplier";
+import { loadSealImage } from "@/lib/neander/finance/seal-image";
+import { QuoteForm } from "./QuoteForm";
+import { QuotePaperPreview } from "./QuotePaperPreview";
+import { QUOTE_DESIGNS, QUOTE_DESIGN_CSS } from "./quotation-designs/QuoteDesignPreview";
+import { exportQuotePng } from "@/lib/neander/finance/quote-image";
 import { QUOTE_CSS, openQuotePdf } from "@/lib/neander/finance/quote-pdf";
 import { exportQuoteXlsx } from "@/lib/neander/finance/quote-xlsx";
 import type { VatMode } from "@/lib/neander/finance/project";
@@ -87,27 +74,19 @@ export function QuoteEditor({
   const [files, setFiles] = useState<FinDocFile[]>(initialFiles);
   const [pending, setPending] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [view, setView] = useState<"edit" | "preview">("edit");
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
 
   const dirty = JSON.stringify(form) !== savedSnapshot || pending.length > 0;
   const totals = useMemo(() => quoteTotals(form), [form]);
-  const presetId = matchPresetId(form.supplier);
+  const busy = saving || exporting;
 
   const set = <K extends keyof FinQuoteInput>(k: K, v: FinQuoteInput[K]) => setForm((f) => ({ ...f, [k]: v }));
 
-  /**
-   * 프리셋을 고르면 공급자 여덟 칸과 도장이 함께 갈린다. 도장을 같이
-   * 갈아야 와작홈즈 견적서에 네안데르 대표이사인이 남는 일이 없다.
-   * 채워 넣은 뒤로는 어느 칸이든 종이 위에서 손으로 고칠 수 있다.
-   */
-  const applyPreset = (id: string) => {
-    const p = findPreset(id);
-    if (!p) return;
-    setForm((f) => ({ ...f, supplier: { ...p.supplier }, sealId: p.sealId }));
-  };
-
   const close = async () => {
+    if (busy) return;
     if (
       dirty &&
       !(await confirm({
@@ -126,9 +105,14 @@ export function QuoteEditor({
     setError(null);
     setOkMsg(null);
     try {
-      const res = await saveFinDoc(form, docId);
+      const parsed = sanitizeFinDoc(form);
+      if (!parsed.ok) throw new Error(parsed.error);
+      if (parsed.value.kind !== "quote") throw new Error("견적서가 아닙니다.");
+      const next = parsed.value;
+      const res = await saveFinDoc(next, docId);
       setDocId(res.id);
-      setSavedSnapshot(JSON.stringify(form));
+      setForm(next);
+      setSavedSnapshot(JSON.stringify(next));
       let uploadError: string | null = null;
       if (pending.length > 0) {
         try {
@@ -190,8 +174,26 @@ export function QuoteEditor({
   };
   const print = async () => {
     if (!(await exportGuard())) return;
-    if (!openQuotePdf(printableQuoteHtml(form), quoteFileStem(form)))
-      setError("팝업이 차단되어 인쇄창을 열지 못했습니다. 이 사이트의 팝업을 허용해 주세요.");
+    // 클릭 직후 창을 먼저 열어 비동기 인감 로딩 때문에 브라우저가 팝업을 막지 않게 한다.
+    const win = window.open("", "_blank");
+    if (!win) { setError("팝업이 차단되어 인쇄창을 열지 못했습니다. 이 사이트의 팝업을 허용해 주세요."); return; }
+    setExporting(true);
+    try {
+      const seal = resolveSeal(form.sealId);
+      if (seal) await loadSealImage(seal.id);
+      openQuotePdf(printableQuoteHtml(form), quoteFileStem(form), win);
+    } catch (e) {
+      win.close();
+      setError(e instanceof Error ? e.message : "인쇄본을 만들지 못했습니다.");
+    } finally { setExporting(false); }
+  };
+  const image = async () => {
+    if (!(await exportGuard())) return;
+    setExporting(true);
+    setError(null);
+    try { await exportQuotePng(form); }
+    catch (e) { setError(e instanceof Error ? e.message : "이미지를 만들지 못했습니다."); }
+    finally { setExporting(false); }
   };
   const excel = async () => {
     if (!(await exportGuard())) return;
@@ -202,14 +204,16 @@ export function QuoteEditor({
     <Dialog
       open
       onClose={() => void close()}
-      size="xl"
+      size="full"
+      className="sm:!max-w-[1440px]"
+      description="프로젝트 정보로 시작해 견적을 작성하고, 선택한 디자인 그대로 출력합니다."
       closeOnOverlay={false}
       title={docId ? "견적서" : "새 견적서"}
       footer={
         <div className="flex flex-1 flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             {docId && onDeleted && (
-              <Button variant="danger" size="sm" icon={Trash2} onClick={remove} disabled={saving}>
+              <Button variant="danger" size="sm" icon={Trash2} onClick={remove} disabled={busy}>
                 삭제
               </Button>
             )}
@@ -217,7 +221,7 @@ export function QuoteEditor({
               <Button
                 variant="secondary"
                 size="sm"
-                disabled={saving || totals.sum === 0}
+                disabled={busy || totals.sum === 0}
                 onClick={() => {
                   // 표의 합을 단가 기준과 함께 넘긴다. 총액(부가세 포함)을 「별도」 로 넘기면
                   // 프로젝트가 거기에 부가세를 한 번 더 얹어 계약이 10% 부풀었다
@@ -232,10 +236,10 @@ export function QuoteEditor({
           </div>
           <div className="flex items-center gap-2">
             {dirty && <span className="text-nd-caption text-nd-warning-text">저장 안 됨</span>}
-            <Button variant="ghost" onClick={() => void close()} disabled={saving}>
+            <Button variant="ghost" onClick={() => void close()} disabled={busy}>
               닫기
             </Button>
-            <Button onClick={save} disabled={!dirty} loading={saving}>
+            <Button onClick={save} disabled={busy || (!dirty && !!docId)} loading={saving}>
               저장
             </Button>
           </div>
@@ -245,24 +249,11 @@ export function QuoteEditor({
       {/* ---- 종이에 자리가 없는 값 · 내보내기 ---- */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <ToolbarField label="공급자">
-            <Select
-              size="sm"
-              className="w-auto"
-              value={presetId}
-              onChange={(e) => applyPreset(e.target.value)}
-              title="고르면 공급자 표와 도장이 함께 채워집니다. 그 뒤로는 종이 위에서 직접 고칠 수 있습니다"
-            >
-              {SUPPLIER_PRESETS.map((p) => (
-                <option key={p.id} value={p.id}>{p.label}</option>
-              ))}
-              {presetId === CUSTOM_PRESET && <option value={CUSTOM_PRESET}>직접 입력</option>}
-            </Select>
-          </ToolbarField>
           <ToolbarField label="단가 기준">
             <Select
               size="sm"
               className="w-auto"
+              disabled={busy}
               value={form.vatMode}
               onChange={(e) => set("vatMode", e.target.value as QuoteVatMode)}
               title="표의 단가가 부가세를 포함한 값인지"
@@ -273,18 +264,19 @@ export function QuoteEditor({
             </Select>
           </ToolbarField>
           <ToolbarField label="상태">
-            <Select size="sm" className="w-auto" value={form.status} onChange={(e) => set("status", e.target.value as QuoteStatus)}>
+            <Select size="sm" className="w-auto" disabled={busy} value={form.status} onChange={(e) => set("status", e.target.value as QuoteStatus)}>
               {QUOTE_STATUSES.map((s) => (
                 <option key={s} value={s}>{QUOTE_STATUS_LABEL[s]}</option>
               ))}
             </Select>
           </ToolbarField>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="secondary" size="sm" icon={FileSpreadsheet} onClick={() => void excel()} disabled={saving} title="같은 판형의 엑셀 (숫자를 만질 수 있는 사본)">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="secondary" size="sm" icon={ImageDown} onClick={() => void image()} disabled={busy}>이미지</Button>
+          <Button variant="secondary" size="sm" icon={FileSpreadsheet} onClick={() => void excel()} disabled={busy} title="견적 내용을 엑셀 파일로 저장합니다">
             엑셀
           </Button>
-          <Button variant="secondary" size="sm" icon={Printer} onClick={() => void print()} disabled={saving} title="인쇄창을 엽니다 — 대상에서 「PDF로 저장」">
+          <Button variant="secondary" size="sm" icon={Printer} onClick={() => void print()} disabled={busy} title="인쇄창을 엽니다 — 대상에서 「PDF로 저장」">
             인쇄 / PDF
           </Button>
         </div>
@@ -296,19 +288,40 @@ export function QuoteEditor({
         </InlineNotice>
       )}
 
-      {/* ---- 종이 ---- */}
-      <style>{QUOTE_CSS}</style>
-      <div className="nd-scroll overflow-x-auto">
-        <div className="mx-auto min-w-[700px] max-w-[820px] rounded-lg border border-nd-line bg-white px-8 py-7 shadow-sm">
-          <QuoteSheet value={form} onChange={setForm} />
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <ToolbarField label="출력 디자인">
+          <Select aria-label="출력 디자인" size="sm" className="w-auto" value={form.design ?? 0} disabled={busy}
+            onChange={(e) => set("design", e.target.value === "0" ? undefined : Number(e.target.value) as QuoteDesign)}>
+            <option value={0}>기존 ERP 양식</option>
+            {QUOTE_DESIGNS.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </Select>
+        </ToolbarField>
+        <div className="flex gap-1 xl:hidden" aria-label="견적서 화면 선택">
+          <Button size="sm" variant={view === "edit" ? "soft" : "ghost"} onClick={() => setView("edit")}>내용 편집</Button>
+          <Button size="sm" variant={view === "preview" ? "soft" : "ghost"} onClick={() => setView("preview")}>미리보기</Button>
         </div>
       </div>
+      <style>{QUOTE_CSS + QUOTE_DESIGN_CSS}</style>
+      <fieldset disabled={busy} className="min-w-0">
+        <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(320px,1fr)_minmax(0,820px)]">
+          <div className={view === "edit" ? "min-w-0" : "hidden min-w-0 xl:block"}>
+            <QuoteForm value={form} onChange={setForm} disabled={busy} />
+          </div>
+          <section aria-label="견적서 미리보기" className={view === "preview" ? "min-w-0" : "hidden min-w-0 xl:block"}>
+            <QuotePaperPreview value={form} onChange={setForm} />
+            <div className="mt-3 rounded-nd-md border border-nd-line bg-nd-content p-3 text-nd-caption" aria-label="견적 금액 요약">
+              <p className="text-nd-fg-2">공급가액 {totals.supply.toLocaleString("ko-KR")}원 + 부가세 {totals.vat.toLocaleString("ko-KR")}원</p>
+              <p className="mt-1 text-nd-body font-semibold text-nd-fg">합계 {totals.total.toLocaleString("ko-KR")}원</p>
+            </div>
+          </section>
+        </div>
+      </fieldset>
 
       <div className="mt-5 flex flex-col gap-1.5">
         <span className="text-nd-caption font-medium text-nd-fg-2">
           파일 <span className="ml-1 font-normal text-nd-fg-3">받은 견적 요청서, 보낸 PDF, 상대가 되보낸 수정본</span>
         </span>
-        <DocFilesField docId={docId} files={files} onFilesChange={setFiles} pending={pending} onPendingChange={setPending} disabled={saving} onError={setError} />
+        <DocFilesField docId={docId} files={files} onFilesChange={setFiles} pending={pending} onPendingChange={setPending} disabled={busy} onError={setError} />
       </div>
     </Dialog>
   );

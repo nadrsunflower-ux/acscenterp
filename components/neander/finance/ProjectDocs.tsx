@@ -50,7 +50,8 @@ import { contractTemplate } from "@/lib/neander/finance/contract-body";
 import { contractFileStem, hasContractBody, newContract as buildContract, type FinContractDraft } from "@/lib/neander/finance/contract";
 import { openQuotePdf } from "@/lib/neander/finance/quote-pdf";
 import { printableQuoteHtml } from "@/components/neander/finance/QuoteSheet";
-import { preloadSeals } from "@/lib/neander/finance/seal-image";
+import { loadSealImage, preloadSeals } from "@/lib/neander/finance/seal-image";
+import { resolveSeal } from "@/lib/neander/finance/supplier";
 import {
   CONTRACT_STATUS_LABEL,
   QUOTE_STATUS_LABEL,
@@ -103,7 +104,7 @@ type Open =
 /** 저장된 문서에서 편집 가능한 부분만 뗀다 (id·시각·파일은 따로 다룬다) */
 function quoteInput(d: FinQuoteDoc): FinQuoteInput {
   const { id: _id, createdAt: _c, createdBy: _cb, updatedAt: _u, updatedBy: _ub, files: _f, ...rest } = d;
-  return { ...rest, lines: rest.lines.map((l) => ({ ...l })), supplier: { ...rest.supplier } };
+  return { ...rest, lines: rest.lines.map((l) => ({ ...l })), supplier: { ...rest.supplier }, ...(rest.receiver ? { receiver: { ...rest.receiver } } : {}) };
 }
 function contractInput(d: FinContractDoc): FinContractInput {
   const { id: _id, createdAt: _c, createdBy: _cb, updatedAt: _u, updatedBy: _ub, files: _f, ...rest } = d;
@@ -167,8 +168,17 @@ export function ProjectDocs({
       files: [],
     });
 
-  const printQuote = (q: FinQuoteDoc) => {
-    if (!openQuotePdf(printableQuoteHtml(q), quoteFileStem(q))) onNotice?.({ kind: "error", text: "팝업이 차단되어 인쇄창을 열지 못했습니다. 이 사이트의 팝업을 허용해 주세요." });
+  const printQuote = async (q: FinQuoteDoc) => {
+    const win = window.open("", "_blank");
+    if (!win) { onNotice?.({ kind: "error", text: "팝업이 차단되어 인쇄창을 열지 못했습니다. 이 사이트의 팝업을 허용해 주세요." }); return; }
+    try {
+      const seal = resolveSeal(q.sealId);
+      if (seal) await loadSealImage(seal.id);
+      openQuotePdf(printableQuoteHtml(q), quoteFileStem(q), win);
+    } catch (e) {
+      win.close();
+      onNotice?.({ kind: "error", text: e instanceof Error ? e.message : "인쇄본을 만들지 못했습니다." });
+    }
   };
   const printContract = (c: FinContractDraft) => {
     if (!openContractPdf(printableContractHtml(c), contractFileStem(c))) onNotice?.({ kind: "error", text: "팝업이 차단되어 인쇄창을 열지 못했습니다. 이 사이트의 팝업을 허용해 주세요." });
@@ -238,6 +248,7 @@ export function ProjectDocs({
                         <Badge tone={QUOTE_STATUS_TONE[q.status]} size="sm" dot>
                           {QUOTE_STATUS_LABEL[q.status]}
                         </Badge>
+                        {q.category && <Badge size="sm">{q.category}</Badge>}
                         {(q.files ?? []).map((f) => (
                           <FileChip key={f.path} file={f} />
                         ))}

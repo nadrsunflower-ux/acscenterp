@@ -46,6 +46,9 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     let bytes: Uint8Array | null = doc?.data ? new Uint8Array(doc.data) : null;
     let mime = doc?.mime || "image/png";
     if (!bytes) {
+      bytes = await readFile(path.join(process.cwd(), "private/finance/seals", `${id}.png`)).catch(() => null);
+    }
+    if (!bytes) {
       bytes = await readFile(path.join(process.cwd(), "public/images/seals", `${id}.png`)).catch(() => null);
       mime = "image/png";
     }

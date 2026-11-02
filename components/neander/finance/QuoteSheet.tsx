@@ -37,6 +37,7 @@ import { NO_SEAL, SEALS, resolveSeal, sealOwnerFields } from "@/lib/neander/fina
 import { useSealImage } from "@/lib/neander/finance/seal-image";
 import { sheetPrintHtml } from "@/lib/neander/finance/quote-pdf";
 import { Cell, NumCell } from "./sheet-cells";
+import { QuoteDesignPreview } from "./quotation-designs/QuoteDesignPreview";
 
 const won = (n: number) => n.toLocaleString("ko-KR");
 
@@ -65,6 +66,15 @@ function MemoCell({ value, onChange }: { value: string; onChange: (v: string) =>
 // ---- 시트 --------------------------------------------------------
 
 export const QuoteSheet = forwardRef<HTMLDivElement, {
+  value: FinQuoteInput;
+  onChange: (next: FinQuoteInput) => void;
+}>(function QuoteSheet(props, ref) {
+  return props.value.design
+    ? <QuoteDesignPreview ref={ref} value={props.value} />
+    : <LegacyQuoteSheet ref={ref} {...props} />;
+});
+
+const LegacyQuoteSheet = forwardRef<HTMLDivElement, {
   value: FinQuoteInput;
   onChange: (next: FinQuoteInput) => void;
 }>(function QuoteSheet({ value: q, onChange }, ref) {
@@ -147,6 +157,13 @@ export const QuoteSheet = forwardRef<HTMLDivElement, {
             </b>{" "}
             님 귀하
           </p>
+          {q.receiver && (
+            <div style={{ fontSize: 11, marginBottom: 6 }}>
+              {q.receiver.ceo && <p>대표자: {q.receiver.ceo}</p>}
+              {q.receiver.bizNo && <p>사업자번호: {q.receiver.bizNo}</p>}
+              {q.receiver.address && <p>{q.receiver.address}</p>}
+            </div>
+          )}
           <p className="date">
             <span className="q-date">
               {koreanDate(q.date)}
@@ -322,7 +339,7 @@ export const QuoteSheet = forwardRef<HTMLDivElement, {
             <th>규격/사양</th>
             <th className="num">수량</th>
             <th className="num">단가</th>
-            <th className="num">공급가액</th>
+            <th className="num">금액</th>
             <th className="note">비고</th>
           </tr>
         </thead>

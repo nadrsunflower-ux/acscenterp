@@ -28,6 +28,7 @@
 import { VAT_MODES, VAT_RATE, type VatMode } from "./project";
 import { sanitizeContractBody, theirParty, type ContractBody } from "./contract-body";
 import { DEFAULT_SUPPLIER, DEFAULT_SEAL_ID, SEAL_IDS, canonicalSealId, type FinSupplier } from "./supplier";
+import { todayStrKST } from "@/lib/neander/format";
 
 // 공급자·인감은 supplier.ts 가 갖는다. 견적서를 다루는 쪽이 두 곳을 뒤지지
 // 않도록 여기서 그대로 내보낸다.
@@ -90,6 +91,15 @@ export interface FinQuoteLine {
   note?: string;
 }
 
+export type QuoteDesign = 1 | 2 | 3 | 4 | 5;
+
+/** 수신 상호는 기존 recipient 를 사용한다. 예전 견적에는 이 상세 정보가 없다. */
+export interface QuoteReceiver {
+  ceo?: string;
+  bizNo?: string;
+  address?: string;
+}
+
 interface FinDocBase {
   id: string;
   projectId: string;
@@ -113,6 +123,10 @@ export interface FinQuoteDoc extends FinDocBase {
   date: string;
   /** 수신 — 「FNC 님 귀하」 의 FNC */
   recipient: string;
+  receiver?: QuoteReceiver;
+  /** 없으면 기존 ERP 시트 판형. 새 견적은 별도 프로그램의 기본 디자인으로 시작한다. */
+  design?: QuoteDesign;
+  category?: string;
   supplier: FinSupplier;
   /** 납품기한 */
   delivery?: string;
@@ -180,7 +194,7 @@ export function newQuoteLine(): FinQuoteLine {
   return { id: shortId(), name: "", qty: 1, unitPrice: 0 };
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = todayStrKST;
 
 /**
  * 다음 견적번호. 예시의 「제 26-218호」 처럼 연도 두 자리 + 일련번호.
@@ -231,6 +245,7 @@ export function emptyQuote(
     quoteNo: nextQuoteNo(existing),
     date: today(),
     recipient: seed.recipient ?? "",
+    design: 1,
     supplier: from.supplier,
     delivery: "",
     payment: "",
@@ -398,6 +413,13 @@ function sanitizeQuoteLine(raw: Partial<FinQuoteLine>): FinQuoteLine {
   }) as FinQuoteLine;
 }
 
+function sanitizeReceiver(raw: unknown): QuoteReceiver | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const r = raw as Record<string, unknown>;
+  const receiver = compact({ ceo: str(r.ceo), bizNo: str(r.bizNo), address: str(r.address) });
+  return Object.keys(receiver).length ? receiver : undefined;
+}
+
 export type SanitizeResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
 /**
@@ -426,6 +448,9 @@ export function sanitizeFinDoc(raw: Partial<FinDocInput> & { kind?: unknown }): 
         quoteNo: String(r.quoteNo ?? "").trim(),
         date: d ?? today(),
         recipient: String(r.recipient ?? "").trim(),
+        receiver: sanitizeReceiver(r.receiver),
+        design: [1, 2, 3, 4, 5].includes(Number(r.design)) && r.design !== undefined ? Number(r.design) as QuoteDesign : undefined,
+        category: str(r.category),
         supplier: sanitizeSupplier(r.supplier),
         delivery: str(r.delivery),
         payment: str(r.payment),
