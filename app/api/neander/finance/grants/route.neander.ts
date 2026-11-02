@@ -3,7 +3,7 @@ import { adminDb } from "@/lib/neander/server/admin";
 import { requireErpUser, accessErrorResponse } from "@/lib/neander/server/auth";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import { sanitizeGrant, type FinGrantDoc } from "@/lib/neander/finance/grant";
-import { deleteGrantFilesForGrant } from "@/lib/neander/finance/server/grant-files";
+import { grantFiles } from "@/lib/neander/finance/server/attached-files";
 
 // 지원사업 — 목록 · 저장 · 삭제 (lib/neander/finance/grant.ts).
 //
@@ -96,7 +96,7 @@ export async function DELETE(req: Request) {
     const db = adminDb();
     // 부모를 먼저 지워 동시에 새 파일이 붙는 것을 막은 뒤 첨부 원본도 정리한다.
     await db.collection(NEANDER_COL.finGrants).doc(id).delete();
-    await deleteGrantFilesForGrant(db, id);
+    await grantFiles.removeAllFor(db, id);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return fail(e);

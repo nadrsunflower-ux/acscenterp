@@ -120,6 +120,7 @@ import {
 } from "@/lib/neander/finance/client";
 import { TransactionEditor } from "@/components/neander/finance/TransactionEditor";
 import { ProjectDocs } from "@/components/neander/finance/ProjectDocs";
+import { ProjectFilesPanel } from "@/components/neander/finance/AttachedFiles";
 import { ledgerHref } from "@/lib/neander/finance/ledgerLink";
 import {
   exportProjectXlsx,
@@ -859,7 +860,7 @@ function ProjectDetailEditor({ id }: { id: string }) {
   // 사고, 마지막에 원장과 맞춘다
   const tabs = [
     { key: "overview", label: "개요" },
-    { key: "docs", label: "견적 · 계약" },
+    { key: "docs", label: "견적 · 계약 · 자료" },
     {
       key: "revenue",
       label: "수입 · 입금",
@@ -1930,18 +1931,22 @@ function ProjectDetailEditor({ id }: { id: string }) {
         </div>
       )}
 
-      {/* ================= 견적 · 계약 ================= */}
+      {/* ================= 견적 · 계약 · 자료 ================= */}
       {/* 문서는 편집창 안에서 바로 저장된다 (프로젝트 「저장」 과 따로). 계약금액 반영만 초안을 거친다.
-          바깥이 이미 Card 라 ProjectDocs 는 껍데기를 벗고(bare) 한 겹으로 들어온다. */}
+          바깥이 이미 Card 라 ProjectDocs 는 껍데기를 벗고(bare) 한 겹으로 들어온다.
+          자료(제안서 등)는 올리는 즉시 따로 저장된다 — Storage 가 없어 Firestore 조각에 둔다. */}
       {tab === "docs" && (
-        <Card>
-          <ProjectDocs
-            bare
-            project={saved}
-            onApplyAmount={(amount, vatMode) => edit((f) => ({ ...f, contractAmount: amount, vatMode }))}
-            onNotice={notify}
-          />
-        </Card>
+        <div className="flex flex-col gap-4">
+          <Card>
+            <ProjectDocs
+              bare
+              project={saved}
+              onApplyAmount={(amount, vatMode) => edit((f) => ({ ...f, contractAmount: amount, vatMode }))}
+              onNotice={notify}
+            />
+          </Card>
+          <ProjectFilesPanel projectId={saved.id} />
+        </div>
       )}
 
       {/* ================= 원장대조 ================= */}

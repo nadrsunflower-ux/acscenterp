@@ -8,23 +8,67 @@ import {
 } from "@/components/neander/ui";
 import { formatBytes } from "@/lib/neander/finance/docs";
 import {
-  GRANT_FILE_ACCEPT, MAX_GRANT_FILE_BYTES, MAX_GRANT_FILES, validateGrantFileMeta, type GrantFile,
-} from "@/lib/neander/finance/grant-files";
+  ATTACHED_FILE_ACCEPT, MAX_ATTACHED_FILE_BYTES, MAX_ATTACHED_FILES, validateAttachedFileMeta, type AttachedFile,
+} from "@/lib/neander/finance/attached-files";
 import {
-  canPreviewGrantFile, deleteGrantFile, downloadGrantFile, fetchGrantFiles, openGrantFile, uploadGrantFiles,
-} from "@/lib/neander/finance/grant-files-client";
+  canPreviewAttachedFile, grantFileClient, projectFileClient, type AttachedFileClient,
+} from "@/lib/neander/finance/attached-files-client";
 
 const dateOf = (timestamp: number) => new Intl.DateTimeFormat("ko-KR", {
   timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
 }).format(timestamp);
 
+/** 패널 문구 — 주인(지원사업 · 프로젝트)마다 다르다 */
+interface PanelCopy {
+  /** 주인 이름 — 「지원사업」 · 「프로젝트」 */
+  owner: string;
+  title: string;
+  hint: string;
+  deleteMessage: string;
+  emptyDescription: string;
+}
+
+/** 지원사업 서류 */
 export function GrantFilesPanel({ grantId }: { grantId: string }) {
+  return (
+    <AttachedFilesPanel
+      ownerId={grantId}
+      client={grantFileClient}
+      copy={{
+        owner: "지원사업",
+        title: "첨부파일",
+        hint: "사업계획서, 협약서, 정산 증빙을 함께 보관합니다",
+        deleteMessage: "이 지원사업의 첨부파일에서 삭제합니다. 사업 정보와 금액은 유지됩니다.",
+        emptyDescription: "관련 서류를 올리면 이 지원사업에서 다시 열거나 내려받을 수 있습니다.",
+      }}
+    />
+  );
+}
+
+/** 프로젝트 자료 — 견적·계약서 밖의 파일(제안서 · 발주처 자료 등) */
+export function ProjectFilesPanel({ projectId }: { projectId: string }) {
+  return (
+    <AttachedFilesPanel
+      ownerId={projectId}
+      client={projectFileClient}
+      copy={{
+        owner: "프로젝트",
+        title: "자료",
+        hint: "제안서, 발주처 자료처럼 견적·계약서 밖의 파일을 함께 보관합니다",
+        deleteMessage: "이 프로젝트의 자료에서 삭제합니다. 프로젝트 정보와 금액은 유지됩니다.",
+        emptyDescription: "제안서 같은 자료를 올리면 이 프로젝트에서 다시 열거나 내려받을 수 있습니다.",
+      }}
+    />
+  );
+}
+
+function AttachedFilesPanel({ ownerId, client, copy }: { ownerId: string; client: AttachedFileClient; copy: PanelCopy }) {
   const confirm = useConfirm();
   const toast = useToast();
   const picker = useRef<HTMLInputElement>(null);
   const request = useRef<AbortController | null>(null);
   const listRequest = useRef<AbortController | null>(null);
-  const [files, setFiles] = useState<GrantFile[]>([]);
+  const [files, setFiles] = useState<AttachedFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState({ value: 0, name: "" });
@@ -39,7 +83,7 @@ export function GrantFilesPanel({ grantId }: { grantId: string }) {
     listRequest.current = controller;
     setLoading(true);
     try {
-      const list = await fetchGrantFiles(grantId, controller.signal);
+      const list = await client.list(ownerId, controller.signal);
       if (!controller.signal.aborted) {
         setFiles(list);
         setError(null);
@@ -52,7 +96,7 @@ export function GrantFilesPanel({ grantId }: { grantId: string }) {
         if (!controller.signal.aborted) setLoading(false);
       }
     }
-  }, [grantId]);
+  }, [client, ownerId]);
 
   useEffect(() => {
     void refresh();
@@ -75,13 +119,13 @@ export function GrantFilesPanel({ grantId }: { grantId: string }) {
     const accepted: File[] = [];
     const rejected: string[] = [];
     for (const file of picked) {
-      const checked = validateGrantFileMeta({ name: file.name, type: file.type, size: file.size, sha256: "0".repeat(64) });
+      const checked = validateAttachedFileMeta({ name: file.name, type: file.type, size: file.size, sha256: "0".repeat(64) });
       if (checked.ok) accepted.push(file);
       else rejected.push(`${file.name}: ${checked.error}`);
     }
     if (!accepted.length) { setError(rejected.join("\n")); return; }
-    if (files.length + accepted.length > MAX_GRANT_FILES) {
-      setError(`한 지원사업에는 첨부파일을 ${MAX_GRANT_FILES}개까지 올릴 수 있습니다.`);
+    if (files.length + accepted.length > MAX_ATTACHED_FILES) {
+      setError(`한 ${copy.owner}에는 첨부파일을 ${MAX_ATTACHED_FILES}개까지 올릴 수 있습니다.`);
       return;
     }
     const controller = new AbortController();
@@ -90,7 +134,7 @@ export function GrantFilesPanel({ grantId }: { grantId: string }) {
     setUploading(true);
     setProgress({ value: 0, name: accepted[0].name });
     try {
-      const report = await uploadGrantFiles(grantId, accepted, (value, name) => {
+      const report = await client.upload(ownerId, accepted, (value, name) => {
         if (request.current === controller && !controller.signal.aborted) setProgress({ value, name });
       }, controller.signal);
       if (request.current !== controller) return;
@@ -111,7 +155,7 @@ export function GrantFilesPanel({ grantId }: { grantId: string }) {
     }
   };
 
-  const act = async (file: GrantFile, action: "open" | "download" | "delete") => {
+  const act = async (file: AttachedFile, action: "open" | "download" | "delete") => {
     if (request.current || listRequest.current || loading) return;
     const controller = new AbortController();
     request.current = controller;
@@ -120,14 +164,14 @@ export function GrantFilesPanel({ grantId }: { grantId: string }) {
     try {
       if (action === "delete" && !await confirm({
         title: `「${file.name}」 파일을 삭제할까요?`,
-        message: "이 지원사업의 첨부파일에서 삭제합니다. 사업 정보와 금액은 유지됩니다.",
+        message: copy.deleteMessage,
         confirmLabel: "삭제", tone: "danger",
       })) return;
       if (controller.signal.aborted) return;
-      if (action === "open") await openGrantFile(grantId, file, controller.signal);
-      else if (action === "download") await downloadGrantFile(grantId, file, controller.signal);
+      if (action === "open") await client.open(ownerId, file, controller.signal);
+      else if (action === "download") await client.download(ownerId, file, controller.signal);
       else {
-        await deleteGrantFile(grantId, file.id, controller.signal);
+        await client.remove(ownerId, file.id, controller.signal);
         if (request.current !== controller) return;
         setFiles((current) => current.filter((f) => f.id !== file.id));
         toast.success("첨부파일을 삭제했습니다.");
@@ -156,18 +200,18 @@ export function GrantFilesPanel({ grantId }: { grantId: string }) {
         }}
       >
         <SectionHeader
-          title="첨부파일"
-          hint={`${files.length}개 · 사업계획서, 협약서, 정산 증빙을 함께 보관합니다`}
+          title={copy.title}
+          hint={`${files.length}개 · ${copy.hint}`}
           action={<>
-            <IconButton icon={RefreshCw} label="첨부파일 새로고침" variant="ghost" size="sm" disabled={busy || loading} onClick={() => void refresh()} />
-            <Button size="sm" icon={Paperclip} disabled={busy || loading || files.length >= MAX_GRANT_FILES} onClick={() => picker.current?.click()}>파일 올리기</Button>
+            <IconButton icon={RefreshCw} label={`${copy.title} 새로고침`} variant="ghost" size="sm" disabled={busy || loading} onClick={() => void refresh()} />
+            <Button size="sm" icon={Paperclip} disabled={busy || loading || files.length >= MAX_ATTACHED_FILES} onClick={() => picker.current?.click()}>파일 올리기</Button>
           </>}
         />
         <input
-          ref={picker} type="file" multiple accept={GRANT_FILE_ACCEPT} disabled={busy || loading} className="hidden" aria-label="지원사업 첨부파일 선택"
+          ref={picker} type="file" multiple accept={ATTACHED_FILE_ACCEPT} disabled={busy || loading} className="hidden" aria-label={`${copy.owner} ${copy.title} 선택`}
           onChange={(event) => { const picked = Array.from(event.target.files ?? []); event.target.value = ""; void upload(picked); }}
         />
-        <p className="mb-4 text-nd-table text-nd-fg-3">PDF · 엑셀 · 한글 · 문서 · 사진을 올리거나 이곳으로 끌어다 놓으세요. 파일 하나 {formatBytes(MAX_GRANT_FILE_BYTES)}, 최대 {MAX_GRANT_FILES}개.</p>
+        <p className="mb-4 text-nd-table text-nd-fg-3">PDF · 엑셀 · 한글 · 문서 · 사진을 올리거나 이곳으로 끌어다 놓으세요. 파일 하나 {formatBytes(MAX_ATTACHED_FILE_BYTES)}, 최대 {MAX_ATTACHED_FILES}개.</p>
         {uploading && (
           <div className="mb-4 rounded-nd-md bg-nd-sunken px-3 py-3" role="status" aria-live="polite">
             <div className="mb-2 flex min-w-0 items-center gap-3 text-nd-table">
@@ -184,9 +228,9 @@ export function GrantFilesPanel({ grantId }: { grantId: string }) {
           </div>
         )}
         {loading ? <LoadingState label="첨부파일을 불러오는 중…" /> : files.length === 0 ? (
-          <EmptyState compact icon={Paperclip} title="아직 첨부파일이 없습니다" description="관련 서류를 올리면 이 지원사업에서 다시 열거나 내려받을 수 있습니다." />
+          <EmptyState compact icon={Paperclip} title="아직 첨부파일이 없습니다" description={copy.emptyDescription} />
         ) : (
-          <ul className="divide-y divide-nd-line" aria-label="지원사업 첨부파일 목록">
+          <ul className="divide-y divide-nd-line" aria-label={`${copy.owner} ${copy.title} 목록`}>
             {files.map((file) => (
               <li key={file.id} className="flex min-w-0 flex-col gap-3 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center">
                 <span className="flex min-w-0 flex-1 items-start gap-2.5">
@@ -197,7 +241,7 @@ export function GrantFilesPanel({ grantId }: { grantId: string }) {
                   </span>
                 </span>
                 <span className="flex shrink-0 flex-wrap items-center gap-1.5 pl-7 sm:pl-0">
-                  {canPreviewGrantFile(file) && <Button variant="secondary" size="sm" icon={ExternalLink} disabled={busy || loading} loading={operation?.id === file.id && operation.action === "open"} onClick={() => void act(file, "open")}>열기</Button>}
+                  {canPreviewAttachedFile(file) && <Button variant="secondary" size="sm" icon={ExternalLink} disabled={busy || loading} loading={operation?.id === file.id && operation.action === "open"} onClick={() => void act(file, "open")}>열기</Button>}
                   <Button variant="ghost" size="sm" icon={Download} disabled={busy || loading} loading={operation?.id === file.id && operation.action === "download"} onClick={() => void act(file, "download")}>받기</Button>
                   <IconButton icon={Trash2} label={`${file.name} 삭제`} variant="ghost" size="sm" disabled={busy || loading} onClick={() => void act(file, "delete")} className="text-nd-fg-3 hover:text-nd-danger-text" />
                 </span>

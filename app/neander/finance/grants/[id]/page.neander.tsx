@@ -74,7 +74,7 @@ import {
 import { AutoCodeBox } from "@/components/neander/finance/AutoCode";
 import { DueInput } from "@/components/neander/finance/DueInput";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
-import { GrantFilesPanel } from "@/components/neander/finance/GrantFiles";
+import { GrantFilesPanel } from "@/components/neander/finance/AttachedFiles";
 import { GrantPaymentSheet, type GrantPaymentRow } from "@/components/neander/finance/GrantPaymentSheet";
 import { useCrumbTail } from "@/components/neander/shell/context";
 import { deleteGrant, saveGrant, useGrants } from "@/lib/neander/finance/grant-client";

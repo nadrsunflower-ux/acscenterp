@@ -112,6 +112,8 @@ export const NEANDER_COL = {
   finGrants: "neander_fin_grants",
   /** 지원사업 첨부파일 — grantId로 연결, 원본은 parts/{n}에 보관. 서버만 접근한다 */
   finGrantFiles: "neander_fin_grant_files",
+  /** 프로젝트 자료(제안서 등) — projectId로 연결, 원본은 parts/{n}에 보관. 서버만 접근한다 */
+  finProjectFiles: "neander_fin_project_files",
   /** 돌려줄 돈 — 프로젝트에 묶이지 않은 환급 · 페이백 (finance/payback.ts). 서버(api/neander/finance/paybacks)만 접근한다 */
   finPaybacks: "neander_fin_paybacks",
   /** 임직원 개인 결제의 회사 비용. 비용 원장·은행 상환은 claimId 꼬리표로 연결하며 법인카드 적재와 분리한다. */

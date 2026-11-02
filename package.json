@@ -54,6 +54,7 @@
     "finance:verify-slots": "tsx scripts/neander/verify-import-slots.ts",
     "finance:verify-personal-expenses": "tsx scripts/neander/verify-personal-expense-import.ts",
     "finance:verify-expense-claims": "tsx --conditions react-server scripts/neander/verify-expense-claims.ts",
+    "finance:verify-attached-files": "tsx --conditions react-server scripts/neander/verify-attached-files.ts",
     "finance:verify-expense-claims-report": "tsx scripts/neander/verify-expense-claims-report.ts",
     "finance:test-expense-claims-client": "tsx --test lib/neander/finance/expense-claims-client.test.ts",
     "finance:verify-personal-expense-ui": "node e2e/personal-expenses-ui.mjs",

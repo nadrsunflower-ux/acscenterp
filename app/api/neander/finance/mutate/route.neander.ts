@@ -13,6 +13,7 @@ import { isInstallmentReceived, sanitizeInstallment, sanitizeProject, type FinPr
 import { sanitizeFinDoc, sanitizeFiles } from "@/lib/neander/finance/docs";
 import { allocatedByTx, checkNewLinks, sanitizeSuspense, type FinSuspenseDoc } from "@/lib/neander/finance/suspense";
 import { deleteFiles } from "@/lib/neander/server/storage";
+import { projectFiles } from "@/lib/neander/finance/server/attached-files";
 import { sanitizeTrust, type FinTrustSettings } from "@/lib/neander/finance/trust";
 import { readTrust, remeasureTrust, trustRef } from "@/lib/neander/finance/server/trust";
 import { readForLog, writeLog } from "@/lib/neander/finance/server/tx-log";
@@ -955,6 +956,8 @@ export async function POST(req: Request) {
         const { id } = payload as { id: string };
         if (!id) return NextResponse.json({ error: "id 가 필요합니다." }, { status: 400 });
         await db.collection(NEANDER_COL.finProjects).doc(id).delete();
+        // 프로젝트를 먼저 지워 새 파일이 붙는 것을 막은 뒤 자료(제안서 등) 원본도 정리한다.
+        await projectFiles.removeAllFor(db, id);
         return NextResponse.json({ ok: true });
       }
 
