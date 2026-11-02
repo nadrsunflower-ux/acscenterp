@@ -232,4 +232,6 @@ export const NEANDER_COL = {
   shortsReports: "neander_shorts_reports",
   /** AI 레이더 후보 — 매일 키워드로 훑은 반응 큰 쇼츠 (문서 id = yt_{영상 id} · 회사 공용). shorts/radar.ts */
   shortsRadar: "neander_shorts_radar",
+  /** 대본 작성기 세션 — 사람마다 비공개 · 대화 · 버전 · 사진 미리보기 (사진 원본은 하위 photos). shorts/script-writer.ts */
+  shortsScripts: "neander_shorts_scripts",
 } as const;

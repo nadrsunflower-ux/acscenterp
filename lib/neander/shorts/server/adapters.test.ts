@@ -392,6 +392,73 @@ test("사람 표시가 AI 요청에 들어간다 — 레이더(메모 · 직접 
   }
 });
 
+test("대본 작성기: 사진은 image_url 로 · 규칙 · 대화 · 지금 대본이 요청에 들어가고, 답은 다듬어 돌려준다", async () => {
+  const bodies: string[] = [];
+  const script = {
+    title: "물막이",
+    hook: "물 튀는 싱크대, 3초면 끝",
+    targetSec: 15,
+    description: "설명",
+    hashtags: ["#물막이"],
+    cta: { type: "comment_keyword", keyword: "물막이", wording: "댓글에 물막이", atSec: null },
+    scenes: [{ label: "제품", kind: "image", durationSec: 3, visual: "제품 컷", aiPrompt: "", photo: 5 }],
+    lines: [{ beat: "hook", text: "물 튀는 거 지겹죠?", caption: "", scene: 0 }],
+  };
+  mock((_url, init) => {
+    bodies.push(String(init.body));
+    return json({
+      choices: [{ message: { content: JSON.stringify({ reply: "훅을 세게 바꿨어요", script, facts: ["흰색 실리콘(사진)", "흰색 실리콘(사진)"], basis: { kind: "format", id: "f1", name: "문제공감", why: "구성" }, checks: ["가격 확인"] }) } }],
+      usage: { cost: 0.003 },
+    });
+  });
+  try {
+    const r = await A.writerTurn({
+      model: "google/gemini-3.7-flash",
+      kind: "coupang",
+      product: { name: "실리콘 물막이", info: "3천원 · 접힘" },
+      facts: ["접으면 2cm"],
+      targetSec: 15,
+      ctaKeyword: "물막이",
+      brand: null,
+      reference: "- format id=f1 · 문제공감",
+      referenceMode: "auto",
+      current: null,
+      history: [
+        { role: "user", text: "처음 대본" },
+        { role: "assistant", text: "썼어요" },
+      ],
+      message: "훅을 더 세게",
+      photos: [{ index: 0, dataUrl: "data:image/jpeg;base64,AAAA" }],
+      photoCount: 2,
+    });
+    const body = JSON.parse(bodies[0]);
+    assert.equal(body.response_format.json_schema.name, "script_writer");
+    assert.match(body.messages[0].content, /가격, 할인율/); // 공통 규칙
+    assert.match(body.messages[0].content, /쿠팡 파트너스 제휴/);
+    assert.match(body.messages[0].content, /제품 사진은 2장/);
+    assert.match(body.messages[0].content, /목록에서 이 제품에 가장 맞는 하나/);
+    assert.deepEqual(body.messages.slice(1, 3).map((m: { role: string }) => m.role), ["user", "assistant"]); // 앞선 대화
+    const last = body.messages.at(-1).content;
+    assert.equal(last[1].type, "image_url");
+    assert.equal(last[1].image_url.url, "data:image/jpeg;base64,AAAA");
+    assert.match(last[0].text, /사람의 요청: 훅을 더 세게/);
+    assert.match(last[0].text, /"verifiedFacts":\["접으면 2cm"\]/);
+    assert.equal(r.out.script.scenes[0].photo, 0); // 없는 사진 번호(5) → 첫 사진
+    assert.deepEqual(r.out.facts, ["흰색 실리콘(사진)"]);
+    assert.equal(r.out.basis.kind, "format");
+    assert.equal(r.costUsd, 0.003);
+
+    // 줄이 하나도 없으면 실패로
+    mock(() => json({ choices: [{ message: { content: JSON.stringify({ reply: "", script: { ...script, lines: [] }, facts: [], basis: { kind: "none", id: "", name: "", why: "" }, checks: [] }) } }] }));
+    await assert.rejects(
+      A.writerTurn({ model: null, kind: "general", product: { name: "x", info: "" }, facts: [], targetSec: 30, ctaKeyword: "", brand: null, reference: "", referenceMode: "fixed", current: null, history: [], message: "m", photos: [], photoCount: 0 }),
+      /대본 줄을 만들지 못했습니다/,
+    );
+  } finally {
+    restore();
+  }
+});
+
 test("토큰 암호화: 다른 계정 문서에 옮겨 붙이면 풀리지 않는다", () => {
   const sealed = S.sealTokens({ refreshToken: "rt-secret" }, "youtube_UC1_abc");
   assert.doesNotMatch(sealed, /rt-secret/);

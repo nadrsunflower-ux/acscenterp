@@ -34,6 +34,7 @@ import {
   ListChecks,
   MessageCircle,
   Package,
+  PenLine,
   Plug,
   Radar,
   RefreshCw,
@@ -224,6 +225,8 @@ export const SHORTS_NAV: NavGroup[] = [
     label: "제작",
     items: [
       { href: "/neander/shorts/projects", label: "영상", icon: Clapperboard },
+      // 제품 사진 · 정보 + 분석(형식 카드 · 성공 공식 · 레이더)으로 대본을 쓰고 대화로 고친다
+      { href: "/neander/shorts/scripts", label: "대본 작성기", icon: PenLine },
       // 브랜드 대행 — 고객사마다 계약 · 브리프 · 월 N편 · 승인 · 월간 보고
       { href: "/neander/shorts/clients", label: "고객사", icon: Briefcase },
     ],

@@ -83,7 +83,7 @@
     "deck:overflow": "node e2e/deck-overflow.mjs",
     "deck:links": "node e2e/deck-links.mjs",
     "e2e:token": "tsx --conditions react-server scripts/neander/e2e-token.ts",
-    "shorts:test": "tsx --test lib/neander/shorts/model.test.ts lib/neander/shorts/scout.test.ts lib/neander/shorts/radar.test.ts lib/neander/shorts/scout-auto.test.ts && tsx --conditions react-server --test lib/neander/shorts/server/adapters.test.ts",
+    "shorts:test": "tsx --test lib/neander/shorts/model.test.ts lib/neander/shorts/scout.test.ts lib/neander/shorts/radar.test.ts lib/neander/shorts/scout-auto.test.ts lib/neander/shorts/script-writer.test.ts && tsx --conditions react-server --test lib/neander/shorts/server/adapters.test.ts",
     "shorts:verify-render": "node e2e/shorts-render.mjs",
     "shorts:verify-server": "tsx --conditions react-server scripts/neander/verify-shorts-server.ts",
     "shorts:verify-scout": "tsx --conditions react-server scripts/neander/verify-scout-server.ts"

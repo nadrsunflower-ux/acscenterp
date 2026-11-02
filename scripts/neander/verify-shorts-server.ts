@@ -41,6 +41,7 @@ import { setYoutubeDataFetch } from "@/lib/neander/shorts/server/youtube-data";
 import { DEFAULT_RADAR_SETTINGS, radarNoteState } from "@/lib/neander/shorts/radar";
 import * as scoutAuto from "@/lib/neander/shorts/server/scout-auto-run";
 import * as scoutStore from "@/lib/neander/shorts/server/scout-store";
+import * as scriptWriter from "@/lib/neander/shorts/server/script-writer";
 import { setScoutAiFetch } from "@/lib/neander/shorts/server/scout-ai";
 import { DEFAULT_SCOUT_AUTO, type ScoutAutoSummary } from "@/lib/neander/shorts/scout-auto";
 import type { HitAnalysis } from "@/lib/neander/shorts/scout";
@@ -833,6 +834,66 @@ async function main() {
     setYoutubeDataFetch(null);
     setScoutAiFetch(null);
 
+
+    // ---- 16. 대본 작성기 (AI 모의 · 검증용 이메일 세션 · 사진 2장) ----
+    const tinyJpeg = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==";
+    const wBodies: { photos: number; text: string; history: number }[] = [];
+    let wFail = false;
+    setAiFetch((async (_input: RequestInfo | URL, init: RequestInit = {}) => {
+      const body = JSON.parse(String(init.body));
+      const last = body.messages.at(-1).content as { type: string; text?: string }[];
+      wBodies.push({ photos: last.filter((c) => c.type === "image_url").length, text: last[0].text ?? "", history: body.messages.length - 2 });
+      if (wFail) return new Response(JSON.stringify({ error: { message: "verify fail" } }), { status: 500 });
+      const n = wBodies.length;
+      const script = {
+        title: `검증 대본 ${n}`, hook: "첫 3초", targetSec: 15, description: "설명", hashtags: ["검증"],
+        cta: { type: "comment_keyword", keyword: "검증", wording: "댓글에 검증", atSec: null },
+        scenes: [
+          { label: "사진 장면", kind: "image", durationSec: 3, visual: "제품", aiPrompt: "", photo: 1 },
+          { label: "AI 장면", kind: "ai", durationSec: 4, visual: "물", aiPrompt: "water", photo: null },
+          { label: "직접", kind: "clip", durationSec: 3, visual: "손", aiPrompt: "", photo: null },
+        ],
+        lines: [{ beat: "hook", text: `줄 ${n}`, caption: "", scene: 0 }, { beat: "demo", text: "시연", caption: "", scene: 1 }, { beat: "cta", text: "댓글", caption: "", scene: 2 }],
+      };
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ reply: `고쳤어요 ${n}`, script, facts: ["흰색(사진)"], basis: { kind: "format", id: f1, name: "검증 형식", why: "구성" }, checks: ["가격 확인"] }) } }], usage: { cost: 0.002 } }));
+    }) as typeof fetch);
+    const w1 = await scriptWriter.createScriptSession(db, A, {
+      productName: "검증 물막이", productInfo: "3천원", kind: "coupang", targetSec: 15, ctaKeyword: "검증", refKind: "auto",
+      photos: [{ name: "a.jpg", dataUrl: tinyJpeg, thumb: tinyJpeg }, { name: "b.jpg", dataUrl: tinyJpeg, thumb: tinyJpeg }],
+    });
+    const ws = w1.session;
+    ok(!w1.error && ws.versionCount === 1 && ws.script?.title === "검증 대본 1" && ws.photos.length === 2 && wBodies[0].photos === 2, "대본 작성기: 새 대본 — 사진 2장을 AI 에 보여 주고 v1", JSON.stringify({ e: w1.error, v: ws.versionCount, p: wBodies[0]?.photos }));
+    ok(ws.reference.kind === "format" && ws.reference.id === f1 && ws.facts[0] === "흰색(사진)" && ws.checks[0] === "가격 확인", "「AI 가 고르기」 면 고른 형식 카드를 기억 · 확인된 사실 · 확인할 것");
+    ok(/검증 형식/.test(wBodies[0].text) || /format id=/.test(wBodies[0].text), "참고 분석 목록이 요청에 들어감");
+    const photoDocs = await db.collection(NEANDER_COL.shortsScripts).doc(ws.id).collection("photos").get();
+    ok(photoDocs.size === 2, "사진 원본은 하위 photos 에 (세션 문서엔 미리보기만)");
+    const w2 = await scriptWriter.scriptSessionTurn(db, A, ws.id, { message: "15초로 줄여 줘" });
+    ok(w2.session.versionCount === 2 && wBodies[1].photos === 0 && wBodies[1].history === 2 && /15초로 줄여 줘/.test(wBodies[1].text) && /"currentScript":\{"title":"검증 대본 1"/.test(wBodies[1].text), "두 번째 요청 — 사진은 다시 안 보냄 · 앞 대화 · 지금 대본을 넘김", JSON.stringify(wBodies[1] && { p: wBodies[1].photos, h: wBodies[1].history }));
+    const w3 = await scriptWriter.scriptSessionTurn(db, A, ws.id, { message: "새 사진 반영", photos: [{ name: "c.jpg", dataUrl: tinyJpeg, thumb: tinyJpeg }] });
+    ok(w3.session.photos.length === 3 && wBodies[2].photos === 1, "새로 붙인 사진만 AI 에 보여 줌");
+    await rejects(scriptWriter.scriptSessionTurn(db, A, ws.id, { message: "x", photos: [1, 2].map(() => ({ name: "d.jpg", dataUrl: tinyJpeg, thumb: tinyJpeg })) }), /4장까지/, "사진은 4장까지");
+    wFail = true;
+    const wf = await scriptWriter.scriptSessionTurn(db, A, ws.id, { message: "실패할 요청" });
+    wFail = false;
+    ok(!!wf.error && wf.session.versionCount === 3 && wf.session.messages.at(-1)?.error && wf.session.messages.at(-2)?.text === "실패할 요청", "AI 가 실패해도 사람 말은 남고 버전은 그대로");
+    const wr = await scriptWriter.revertScriptSession(db, A, ws.id, 1);
+    ok(wr.versionCount === 4 && wr.script?.title === "검증 대본 1" && wr.versions.at(-1)?.note === "v1 으로 되돌림", "되돌리기는 새 버전으로 쌓임 (v1 → v4)");
+    const wp = await scriptWriter.patchScriptSession(db, A, ws.id, { facts: ["  흰색  ", "흰색", "용량 350ml"], targetSec: 45 });
+    ok(wp.facts.join("|") === "흰색|용량 350ml" && wp.targetSec === 45, "사람이 고친 확인된 사실 · 길이");
+    await rejects(scriptWriter.scriptSessionTurn(db, B, ws.id, { message: "남의 대본" }), /다른 사람의 대본/, "다른 사람은 고치지 못함");
+    await rejects(scriptWriter.getScriptSession(db, B, ws.id), /다른 사람의 대본/, "다른 사람은 열지 못함 (관리자만 읽기)");
+    const wl = await scriptWriter.listScriptSessions(db, A);
+    ok(wl.some((x) => x.id === ws.id && x.versionCount === 4 && x.product === "검증 물막이" && !!x.cover) && !(await scriptWriter.listScriptSessions(db, B)).some((x) => x.id === ws.id), "목록 — 내 것만 · 버전 수 · 미리보기");
+    const wt = await scriptWriter.scriptSessionToProject(db, A, ws.id);
+    created.projects.push(wt.projectId);
+    const wproj = await store.getProject(db, A, wt.projectId);
+    ok(wt.created && wproj.scenes.length === 3 && wproj.scenes[0].kind === "blank" && /제품 사진 2/.test(wproj.scenes[0].label) && wproj.scenes[1].kind === "ai" && wproj.scenes[1].ai?.prompt === "water" && wproj.script.lines.length === 3 && wproj.script.lines[0].sceneId === wproj.scenes[0].id, "이 대본으로 영상 만들기 — 장면 · 줄 · 사진 장면은 빈 장면(사진 번호 표시)", JSON.stringify(wproj.scenes.map((x) => [x.kind, x.label])));
+    ok(wproj.publish.title === "검증 대본 1" && wproj.cta.keyword === "검증" && wproj.facts.includes("용량 350ml") && wproj.stage === "scripting", "게시 제목 · CTA · 확인된 사실 · 단계");
+    ok((await scriptWriter.scriptSessionToProject(db, A, ws.id)).projectId === wt.projectId, "두 번 눌러도 같은 영상");
+    await scriptWriter.deleteScriptSession(db, A, ws.id);
+    ok(!(await db.collection(NEANDER_COL.shortsScripts).doc(ws.id).get()).exists && (await db.collection(NEANDER_COL.shortsScripts).doc(ws.id).collection("photos").get()).size === 0, "지우기 — 세션과 사진 원본 모두");
+    setAiFetch(null);
+
     platforms.setPlatformFetch(null);
   } finally {
     // ---- 정리 ----
@@ -842,6 +903,7 @@ async function main() {
     for (const id of created.hits) await db.collection(NEANDER_COL.shortsHits).doc(id).delete();
     for (const id of created.formats) await db.collection(NEANDER_COL.shortsFormats).doc(id).delete();
     for (const who of [A, B]) await db.collection(NEANDER_COL.shortsProfiles).doc(who).delete();
+    for (const who of [A, B]) for (const d of (await db.collection(NEANDER_COL.shortsScripts).where("owner", "==", who).get()).docs) await db.recursiveDelete(d.ref);
     for (const col of [NEANDER_COL.shortsJobs, NEANDER_COL.shortsPublications, NEANDER_COL.shortsAccounts, NEANDER_COL.shortsMetrics, NEANDER_COL.shortsTemplates, NEANDER_COL.shortsTrends]) {
       for (const who of [A, B]) {
         const snap = await db.collection(col).where("owner", "==", who).get();
