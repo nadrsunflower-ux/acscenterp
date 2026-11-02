@@ -207,7 +207,7 @@ export default function TrendsPage() {
     <PageShell>
       <PageHeader
         title="소재 발굴"
-        description="국내에서 반응이 좋은 소재, 해외에서 반응이 크지만 국내 검색 표본에서 아직 보이지 않는 상품 후보를 모읍니다."
+        description="반응이 큰 영상에서 다음 소재를 고르세요. 맨 위는 매일 아침 모이는 AI 레이더 후보, 아래는 직접 찾기 · 국내외 검색 비교 · 저장한 소재입니다."
         actions={
           <Button icon={Plus} onClick={openNew}>
             직접 등록

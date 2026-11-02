@@ -241,3 +241,80 @@ export function sanitizeRadarSettings(input: unknown, prev: RadarSettings, by: s
     updatedBy: by,
   };
 }
+
+// ---- 화면 필터 · 정렬 ---------------------------------------------------
+
+export interface RadarFilter {
+  category: RadarCategory | "all";
+  /** known = AI 가 상품을 짚음 · unknown = 글로는 모름(모음 영상 포함) · pending = AI 추정 전 */
+  product: "all" | "known" | "unknown" | "pending";
+  /** none = 네이버 추세를 아직 안 봄 */
+  naver: NaverTrendLabel | "all" | "none";
+  /** 평소 대비 최소 배수 (0 = 상관없음 · 배수를 모르면 빠진다) */
+  minMultiple: number;
+  /** 올린 지 최대 며칠 (0 = 상관없음) */
+  maxAgeDays: number;
+  /** 이 검색어로 찾은 것만 ("" = 전부) */
+  keyword: string;
+  /** 제목 · 상품 · 채널 낱말 */
+  q: string;
+  sort: "score" | "multiple" | "velocity" | "info" | "recent";
+}
+
+export const DEFAULT_RADAR_FILTER: RadarFilter = { category: "all", product: "all", naver: "all", minMultiple: 0, maxAgeDays: 0, keyword: "", q: "", sort: "score" };
+
+export const RADAR_SORT_LABEL: Record<RadarFilter["sort"], string> = {
+  score: "점수 순",
+  multiple: "평소 대비 배수 순",
+  velocity: "하루 조회 속도 순",
+  info: "정보 요청 비율 순",
+  recent: "최근 올린 순",
+};
+
+export const isDefaultRadarFilter = (f: RadarFilter) =>
+  f.category === "all" && f.product === "all" && f.naver === "all" && !f.minMultiple && !f.maxAgeDays && !f.keyword && !f.q.trim();
+
+const infoRateOf = (d: Pick<RadarDoc, "info">) => (d.info && d.info.sampled > 0 ? d.info.matched / d.info.sampled : null);
+
+export function matchRadar(d: RadarDoc, f: RadarFilter, now: number): boolean {
+  if (f.category !== "all" && d.ai?.category !== f.category) return false;
+  if (f.product === "known" && !d.ai?.product) return false;
+  if (f.product === "unknown" && (!d.ai || d.ai.product)) return false;
+  if (f.product === "pending" && d.ai) return false;
+  if (f.naver === "none" && d.naver) return false;
+  if (f.naver !== "all" && f.naver !== "none" && d.naver?.label !== f.naver) return false;
+  if (f.minMultiple > 0 && (d.multiple === null || d.multiple < f.minMultiple)) return false;
+  if (f.maxAgeDays > 0) {
+    const t = d.publishedAt ? Date.parse(d.publishedAt) : NaN;
+    if (!Number.isFinite(t) || now - t > f.maxAgeDays * 86_400_000) return false;
+  }
+  if (f.keyword && !d.keywords.includes(f.keyword)) return false;
+  const q = f.q.trim().toLowerCase();
+  if (q && ![d.title, d.channel, d.ai?.product ?? "", ...(d.ai?.naverKeywords ?? [])].some((s) => s.toLowerCase().includes(q))) return false;
+  return true;
+}
+
+/** 정렬 값 — 모르는 값은 맨 뒤 */
+export function radarSortValue(d: RadarDoc, sort: RadarFilter["sort"]): number {
+  switch (sort) {
+    case "multiple":
+      return d.multiple ?? -1;
+    case "velocity":
+      return d.velocityPerDay ?? -1;
+    case "info":
+      return infoRateOf(d) ?? -1;
+    case "recent": {
+      const t = d.publishedAt ? Date.parse(d.publishedAt) : NaN;
+      return Number.isFinite(t) ? t : -1;
+    }
+    default:
+      return d.score;
+  }
+}
+
+/** 필터 → 같은 상품 묶음 → 정렬 (묶음은 대표 영상 값으로) */
+export function filterRadarGroups<T extends RadarDoc & { id: string }>(docs: T[], f: RadarFilter, now: number) {
+  const groups = groupRadar(docs.filter((d) => matchRadar(d, f, now)));
+  for (const g of groups) g.items.sort((a, b) => radarSortValue(b, f.sort) - radarSortValue(a, f.sort));
+  return groups.sort((a, b) => radarSortValue(b.items[0], f.sort) - radarSortValue(a.items[0], f.sort));
+}
