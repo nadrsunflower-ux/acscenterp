@@ -8,15 +8,20 @@ import {
   formatStats,
   isShortLike,
   isoWeekKey,
+  koreaEvidence,
   koreanCommentCount,
   lifecycleOf,
   median,
   multipleOf,
   parseYoutubeRef,
   pickHits,
+  reportDays,
+  reportFormatCards,
+  reportFormatList,
   type FormatDoc,
   type HitDoc,
   type KoreaCheck,
+  type ReportFormatLine,
   type WatchChannelDoc,
 } from "./scout";
 
@@ -205,6 +210,65 @@ test("주간 보고 — 떠오름 · 해외에만 · 새로 터진 영상 · 시
   assert.equal(r.counts.unassigned, 6);
   assert.deepEqual(r.lags.map((l) => [l.formatId, l.from, l.days]), [["f2", "US", 30]]);
   assert.equal(r.counts.formats, 2); // 보관한 형식은 빠진다
+});
+
+test("보고 화면 — 겹친 형식은 한 번만 · 구간 순서 · 기간은 저장된 from/to", () => {
+  const l = (formatId: string): ReportFormatLine => ({ formatId, name: formatId, stage: "rising", basis: "", countries: ["US"], examples: 2, medianMultiple: 5, korea: "unchecked", ai: "easy", lang: "visual", top: null });
+  const list = reportFormatList({ abroadOnly: [l("b")], rising: [l("a"), l("b")], saturating: [l("c"), l("a")] });
+  assert.deepEqual(list.map((x) => [x.formatId, x.sections]), [["b", ["abroadOnly", "rising"]], ["a", ["rising", "saturating"]], ["c", ["saturating"]]]);
+  assert.deepEqual(reportFormatList({ abroadOnly: [], rising: [], saturating: [] }), []);
+  // 주 이름이 아니라 저장된 기간 — 7일 · 반올림 · 최소 1일
+  assert.equal(reportDays({ from: NOW - 7 * 86_400_000, to: NOW }), 7);
+  assert.equal(reportDays({ from: NOW - 7 * 86_400_000 - 3_600_000, to: NOW }), 7);
+  assert.equal(reportDays({ from: NOW, to: NOW }), 1);
+});
+
+test("보고 화면 카드 — 구간 형식 먼저(저장된 줄) · 구간 밖 형식도 · 보고 뒤 영상 · 보관 · 예시 없음은 빼고", () => {
+  const formats = [
+    format("f1", "떠오름"),
+    format("f2", "국내에 퍼진 유지", { korea: korea({ status: "spread", by: "company", checkedAt: NOW }) }),
+    format("f3", "보관함", { archived: true }),
+    format("f4", "예시 없음"),
+    format("f5", "보고 뒤에 묶임"),
+  ];
+  const hits = [
+    hit("a", { formatId: "f1", country: "US", channel: "a", publishedAt: daysAgo(4), multiple: 12 }),
+    hit("b", { formatId: "f1", country: "JP", channel: "b", publishedAt: daysAgo(6), multiple: 8 }),
+    hit("c", { formatId: "f2", country: "KR", channel: "c", publishedAt: daysAgo(26), multiple: 5 }),
+    hit("d", { formatId: "f2", country: "KR", channel: "c", publishedAt: daysAgo(9), multiple: 7 }),
+    hit("e", { formatId: "f3", country: "US", channel: "e" }),
+    hit("f", { formatId: "f5", country: "US", channel: "f", createdAt: NOW + 3_600_000 }),
+    hit("g", { formatId: "f2", country: "KR", channel: "g", status: "dismissed" }),
+  ];
+  // 보고는 f 를 찾기 전에 만들었다 — 화면에는 지금 자료(f 포함)가 온다
+  const r = buildReport({ formats, hits: hits.filter((h) => h.id !== "f"), channels: [], now: NOW });
+  const cards = reportFormatCards(r, formats, hits);
+  assert.deepEqual(cards.map((c) => [c.formatId, c.sections]), [["f1", ["abroadOnly", "rising"]], ["f2", []]]);
+  assert.equal(cards.length, r.counts.formats); // 보고의 「형식 카드 N장」 과 같은 형식들
+  const f2 = cards[1];
+  assert.equal(f2.examples, 2); // 지운 영상(g)은 빼고
+  assert.equal(f2.korea, "spread");
+  assert.notEqual(f2.stage, "rising");
+  // 구간 형식은 보고에 저장된 줄 그대로 (지금 자료로 다시 세지 않는다)
+  const stored = { ...r, rising: [{ ...r.rising[0], examples: 99 }], abroadOnly: [] };
+  assert.equal(reportFormatCards(stored, formats, hits)[0].examples, 99);
+});
+
+test("국내 근거 — AI 판단 표시는 자동 확인일 때만 · 표본에 없음은 단정이 아님", () => {
+  const k = (o: Partial<KoreaCheck>): KoreaCheck => ({ status: "unchecked", query: "", checkedAt: null, by: null, sampleSize: null, matches: [], lastSearch: null, note: "", ...o });
+  const m = (n: number) => Array.from({ length: n }, (_, i) => ({ url: `u${i}`, title: "", views: null, publishedAt: null }));
+  assert.deepEqual(koreaEvidence("unchecked", k({})), { text: "아직 국내 검색 전", ai: false });
+  const auto = koreaEvidence("spread", k({ status: "spread", checkedAt: NOW, by: "company", sampleSize: 25, matches: m(4) }));
+  assert.equal(auto.ai, true);
+  assert.equal(auto.text, "국내 검색 표본 25편 중 4편이 같은 형식 · 제목·설명 기반 AI 판단");
+  const human = koreaEvidence("some", k({ status: "some", checkedAt: NOW, by: "a@b.c", sampleSize: 20, matches: m(1) }));
+  assert.equal(human.ai, false);
+  assert.match(human.text, /사람이 확인$/);
+  const none = koreaEvidence("none_in_sample", k({ status: "none_in_sample", checkedAt: NOW, by: "company", sampleSize: 25 }));
+  assert.equal(none.text, "국내 검색 표본 25편에서 같은 형식을 못 찾음 · 제목·설명 기반 AI 판단");
+  // 카드 기록은 「확인 전」 인데 국내 영상이 묶여 보고가 「조금 있음」 — AI 판단이 아니다
+  assert.deepEqual(koreaEvidence("some", k({ status: "unchecked" })), { text: "국내 영상이 이 형식에 묶여 있음", ai: false });
+  assert.equal(koreaEvidence("some", null).ai, false);
 });
 
 test("주 번호는 한국 시각 기준 (일요일 밤 11시 KST 는 아직 그 주)", () => {

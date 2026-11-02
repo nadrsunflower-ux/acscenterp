@@ -432,6 +432,23 @@ export function isoWeekKey(ms: number): string {
 
 type IdOf<T> = T & { id: string };
 
+/** 보고의 형식 한 줄 — 카드 + 집계 (buildReport · 보고 화면 공용) */
+function reportLine(f: IdOf<Pick<FormatDoc, "name" | "aiFeasibility" | "languageDependence">>, s: ReturnType<typeof formatStats>): ReportFormatLine {
+  return {
+    formatId: f.id,
+    name: f.name,
+    stage: s.life.stage,
+    basis: s.life.basis,
+    countries: s.countries.map((c) => c.code),
+    examples: s.examples,
+    medianMultiple: s.medianMultiple,
+    korea: s.korea,
+    ai: f.aiFeasibility.level,
+    lang: f.languageDependence,
+    top: s.top,
+  };
+}
+
 /**
  * 보고서 본문 — 사람 손 없이 데이터만으로 만든다 (AI 요약은 따로 붙인다).
  *   떠오름 / 해외에만 있음(국내 표본에 없거나 확인 전) / 포화 조짐 / 이번 주 새로 터진 영상 / 시차
@@ -453,20 +470,7 @@ export function buildReport(input: {
     .filter((f) => !f.archived)
     .map((f) => {
       const s = formatStats(f, byFormat.get(f.id) ?? [], now);
-      const line: ReportFormatLine = {
-        formatId: f.id,
-        name: f.name,
-        stage: s.life.stage,
-        basis: s.life.basis,
-        countries: s.countries.map((c) => c.code),
-        examples: s.examples,
-        medianMultiple: s.medianMultiple,
-        korea: s.korea,
-        ai: f.aiFeasibility.level,
-        lang: f.languageDependence,
-        top: s.top,
-      };
-      return { line, s, f };
+      return { line: reportLine(f, s), s, f };
     })
     .filter((x) => x.s.examples > 0);
 
@@ -526,6 +530,81 @@ export function buildReport(input: {
     newHits,
     lags,
   };
+}
+
+// ---- 보고 화면용 ---------------------------------------------------------
+
+/** 보고 기간 날수 — 저장된 from · to 그대로 센다 (주 이름 2026-W45 를 다시 풀지 않는다) */
+export const reportDays = (r: Pick<ScoutReportDoc, "from" | "to">) => Math.max(1, Math.round((r.to - r.from) / DAY));
+
+export type ReportSection = "abroadOnly" | "rising" | "saturating";
+export const REPORT_SECTION_LABEL: Record<ReportSection, string> = { abroadOnly: "해외 먼저", rising: "떠오름", saturating: "포화 조짐" };
+
+/**
+ * 보고에 오른 형식 — 해외 먼저 · 떠오름 · 포화 조짐 구간에 겹쳐 오른 형식을 한 번씩만.
+ * 순서는 처음 나온 구간 순 (해외 먼저 → 떠오름 → 포화 조짐), 구간 안에서는 보고에 적힌 순서 그대로.
+ */
+export function reportFormatList(r: Pick<ScoutReportDoc, ReportSection>): (ReportFormatLine & { sections: ReportSection[] })[] {
+  const out = new Map<string, ReportFormatLine & { sections: ReportSection[] }>();
+  for (const s of ["abroadOnly", "rising", "saturating"] as const) {
+    for (const l of r[s] ?? []) {
+      const x = out.get(l.formatId);
+      if (!x) out.set(l.formatId, { ...l, sections: [s] });
+      else if (!x.sections.includes(s)) x.sections.push(s);
+    }
+  }
+  return [...out.values()];
+}
+
+/**
+ * 보고 화면의 형식 카드 — 보고 구간에 오른 형식(보고에 저장된 줄 그대로)을 먼저, 그다음 구간에 오르지 않은
+ * 나머지 형식 카드(보관 안 함 · 예시 있음)를 보고 시각(to)까지 찾은 영상으로 buildReport 와 같은 식으로 센다.
+ * 보고는 구간 밖 형식의 줄을 저장하지 않는다 — 「형식 카드 N장」 이 구간 밖에만 있으면 카드가 비지 않게.
+ * 나머지는 예시 많은 순 → 배수 중앙값 큰 순.
+ */
+export function reportFormatCards(
+  r: Pick<ScoutReportDoc, ReportSection | "to">,
+  formats: IdOf<FormatDoc>[],
+  hits: IdOf<HitDoc>[],
+): (ReportFormatLine & { sections: ReportSection[] })[] {
+  const listed = reportFormatList(r);
+  const seen = new Set(listed.map((l) => l.formatId));
+  const byFormat = new Map<string, IdOf<HitDoc>[]>();
+  for (const h of hits) if (h.formatId && h.status !== "dismissed" && h.createdAt <= r.to) byFormat.set(h.formatId, [...(byFormat.get(h.formatId) ?? []), h]);
+  const rest = formats
+    .filter((f) => !f.archived && !seen.has(f.id) && byFormat.has(f.id))
+    .map((f) => reportLine(f, formatStats(f, byFormat.get(f.id)!, r.to)))
+    .filter((l) => l.examples > 0)
+    .sort((a, b) => b.examples - a.examples || (b.medianMultiple ?? 0) - (a.medianMultiple ?? 0));
+  return [...listed, ...rest.map((l) => ({ ...l, sections: [] as ReportSection[] }))];
+}
+
+/**
+ * 국내 상태의 근거 한 줄 — 카드에 적힌 확인 기록에서만 만든다 (지어낸 숫자 없음).
+ *   ai = 자동 확인(by = 회사 자동화)이 이 상태를 정했을 때만. 사람이 고른 것 · 국내 영상이 묶여 「조금」 이 된 것은 아니다.
+ */
+export function koreaEvidence(
+  status: KoreaStatus,
+  k: Pick<KoreaCheck, "status" | "checkedAt" | "by" | "sampleSize" | "matches"> | null | undefined,
+  auto = "company",
+): { text: string; ai: boolean } {
+  if (status === "unchecked") return { text: "아직 국내 검색 전", ai: false };
+  // 보고의 상태가 카드의 확인 기록과 다르면 — 국내(KR) 영상이 같은 카드에 묶여 「조금 있음」 이 된 것
+  if (!k || k.status !== status) return { text: status === "some" ? "국내 영상이 이 형식에 묶여 있음" : "국내 확인 기록 없음", ai: false };
+  const ai = !!k.checkedAt && k.by === auto;
+  const n = k.sampleSize;
+  const m = k.matches.length;
+  const base =
+    status === "none_in_sample"
+      ? n
+        ? `국내 검색 표본 ${n}편에서 같은 형식을 못 찾음`
+        : "국내 검색 표본에서 같은 형식을 못 찾음"
+      : n && m
+        ? `국내 검색 표본 ${n}편 중 ${m}편이 같은 형식`
+        : m
+          ? `국내 사례 ${m}편`
+          : "국내 사례 표시";
+  return { text: `${base} · ${ai ? "제목·설명 기반 AI 판단" : k.by ? "사람이 확인" : "확인한 사람 모름"}`, ai };
 }
 
 // ---- 입력 해석 ----------------------------------------------------------

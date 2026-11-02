@@ -84,19 +84,24 @@ export const fmtDur = (sec: number | null | undefined) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
+/** YouTube 썸네일을 큰 것(hqdefault 480×360)으로 — 저장된 주소(mqdefault 320×180)는 세로로 크게 자르면 흐리다 */
+export const hqThumb = (u: string) => (/^https:\/\/i\.ytimg\.com\/vi\/[\w-]+\/mqdefault\.jpg$/.test(u) ? u.replace(/mqdefault\.jpg$/, "hqdefault.jpg") : u);
+
 /**
  * 원본 영상 썸네일 — 자료에 이미 있는 주소(YouTube 등)만 쓴다. 없거나 못 받으면 아이콘 상자 (가짜 사진 금지).
- * 길이를 알면 오른쪽 아래에 붙인다.
+ * 길이를 알면 오른쪽 아래에 붙인다. hq 면 큰 썸네일부터 → 실패하면 저장된 주소 → 아이콘.
  */
-export function VideoThumb({ src, duration, label, className }: { src: string | null | undefined; duration?: number | null; label?: string; className?: string }) {
-  const [failed, setFailed] = useState(false);
+export function VideoThumb({ src, duration, label, className, hq = false }: { src: string | null | undefined; duration?: number | null; label?: string; className?: string; hq?: boolean }) {
+  const [step, setStep] = useState(0); // 0 = 큰 것(hq) 또는 저장된 주소 · 1 = 저장된 주소 · 2 = 실패
+  const big = src && hq ? hqThumb(src) : src;
+  const shown = step === 0 ? big : step === 1 ? src : null;
   const dur = fmtDur(duration);
   const box = cn("relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-nd-sm bg-nd-fg/[.06] text-nd-fg-3", className ?? "h-[54px] w-24");
   return (
     <span className={box}>
-      {src && !failed ? (
+      {shown ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt="" className="h-full w-full object-cover" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />
+        <img src={shown} alt="" className="h-full w-full object-cover" loading="lazy" referrerPolicy="no-referrer" onError={() => setStep(step === 0 && big !== src ? 1 : 2)} />
       ) : (
         <span className="flex flex-col items-center gap-0.5" aria-label={label ? `${label} 영상` : "영상"}>
           <Film size={16} aria-hidden />

@@ -39,6 +39,11 @@ import { setAiFetch } from "@/lib/neander/shorts/server/ai";
 import { setNaverFetch } from "@/lib/neander/shorts/server/naver";
 import { setYoutubeDataFetch } from "@/lib/neander/shorts/server/youtube-data";
 import { DEFAULT_RADAR_SETTINGS } from "@/lib/neander/shorts/radar";
+import * as scoutAuto from "@/lib/neander/shorts/server/scout-auto-run";
+import * as scoutStore from "@/lib/neander/shorts/server/scout-store";
+import { setScoutAiFetch } from "@/lib/neander/shorts/server/scout-ai";
+import { DEFAULT_SCOUT_AUTO, type ScoutAutoSummary } from "@/lib/neander/shorts/scout-auto";
+import type { HitAnalysis } from "@/lib/neander/shorts/scout";
 
 process.env.NEANDER_SHORTS_TOKEN_KEY = Buffer.alloc(32, 9).toString("base64");
 process.env.NEANDER_SHORTS_GOOGLE_CLIENT_ID = "verify-client";
@@ -72,7 +77,7 @@ async function main() {
   const foreign = live.docs.filter((d) => ![A, B].includes((d.data() as JobDoc).owner));
   if (foreign.length) throw new Error(`실제 쇼츠 작업 ${foreign.length}건이 대기 중이라 검증을 시작하지 않습니다.`);
 
-  const created = { projects: [] as string[], trends: [] as string[], clients: [] as string[] };
+  const created = { projects: [] as string[], trends: [] as string[], clients: [] as string[], watch: [] as string[], hits: [] as string[], formats: [] as string[] };
   try {
     // ---- 1. 사람별 분리 ----
     const pid = await store.createProject(db, A, { product: "검증 선반", visibility: "private" });
@@ -658,11 +663,140 @@ async function main() {
     setAiFetch(null);
     setNaverFetch(null);
 
+    // ---- 15. 바이럴 형식 자동화 (YouTube · AI 모의 · 검증용 채널 · 영상 · 카드만) ----
+    const SC = (s: string) => `UC${s.padEnd(22, "0").slice(0, 22)}`;
+    const CH = { kr1: SC("vrfyAutoKR1"), kr2: SC("vrfyAutoKR2"), kr3: SC("vrfyAutoKR3"), us1: SC("vrfyAutoUS1"), us2: SC("vrfyAutoUS2"), us3: SC("vrfyAutoUS3") };
+    created.watch.push(...Object.values(CH));
+    const nowA = Date.now();
+    const agoA = (days: number) => new Date(nowA - days * 86_400_000).toISOString();
+    // 채널마다 평소 영상 6편 (7일 넘음) + 후보 영상
+    const avids: Record<string, { ch: string; views: number; days: number; title: string }> = {
+      vrfyAutUS1t: { ch: CH.us1, views: 100_000, days: 3, title: "kitchen gadget wow" },
+      vrfyAutUS2t: { ch: CH.us2, views: 200_000, days: 3, title: "big channel normal" },
+      vrfyAutUS3t: { ch: CH.us3, views: 5_000, days: 3, title: "small view" },
+    };
+    const basePer: Record<string, number> = { [CH.us1]: 10_000, [CH.us2]: 150_000, [CH.us3]: 1_000 };
+    for (const [ch, v] of Object.entries(basePer)) for (let n = 1; n <= 6; n++) avids[`vrfyAB${ch.slice(10, 13)}${n}`.padEnd(11, "x").slice(0, 11)] = { ch, views: v, days: 10 + n, title: "평소" };
+    const ytCalls: string[] = [];
+    setYoutubeDataFetch((async (input: RequestInfo | URL) => {
+      const u = new URL(String(input));
+      const kind = u.pathname.split("/").pop()!;
+      ytCalls.push(kind);
+      if (kind === "search") {
+        if (u.searchParams.get("regionCode") === "KR") return new Response(JSON.stringify({ items: ["vrfyKorea01", "vrfyKorea02", "vrfyKorea03", "vrfyKorea04"].map((videoId) => ({ id: { videoId }, snippet: { channelId: SC("vrfyKoreaCh") } })) }));
+        return new Response(JSON.stringify({ items: ["vrfyAutUS1t", "vrfyAutUS2t", "vrfyAutUS3t"].map((videoId) => ({ id: { videoId }, snippet: { channelId: avids[videoId].ch } })) }));
+      }
+      if (kind === "videos") {
+        const ids = (u.searchParams.get("id") ?? "").split(",");
+        return new Response(
+          JSON.stringify({
+            items: ids.map((id) => {
+              const v = avids[id] ?? (id.startsWith("vrfyKorea") ? { ch: SC("vrfyKoreaCh"), views: 30_000, days: 20, title: `국내 ${id}` } : null);
+              if (!v) return null;
+              return { id, snippet: { title: v.title, channelTitle: "검증", channelId: v.ch, publishedAt: agoA(v.days), description: `${v.title} 설명` }, statistics: { viewCount: String(v.views), likeCount: "1", commentCount: "1" }, contentDetails: { duration: "PT30S" } };
+            }).filter(Boolean),
+          }),
+        );
+      }
+      if (kind === "playlistItems") {
+        const ch = `UC${(u.searchParams.get("playlistId") ?? "").slice(2)}`;
+        return new Response(JSON.stringify({ items: Object.entries(avids).filter(([, v]) => v.ch === ch).map(([id, v]) => ({ contentDetails: { videoId: id, videoPublishedAt: agoA(v.days) } })) }));
+      }
+      if (kind === "channels") {
+        const ids = (u.searchParams.get("id") ?? "").split(",");
+        return new Response(JSON.stringify({ items: ids.map((id) => ({ id, snippet: { title: `검증 채널 ${id.slice(2, 14)}`, customUrl: "@vrfy" }, statistics: { subscriberCount: "1000" } })) }));
+      }
+      return new Response("{}", { status: 404 });
+    }) as typeof fetch);
+    const aiNames: string[] = [];
+    setScoutAiFetch((async (_input: RequestInfo | URL, init: RequestInit = {}) => {
+      const body = JSON.parse(String(init.body));
+      const name = body.response_format?.json_schema?.name;
+      aiNames.push(name);
+      const user = JSON.parse(body.messages[1].content);
+      const content =
+        name === "cluster_formats"
+          ? { groups: [{ name: "전후 비교 반전", hitIds: user.hits.filter((h: { formatName: string }) => h.formatName.includes("전후")).map((h: { id: string }) => h.id), formatId: null, reason: "같은 전후 비교" }] }
+          : { matchIds: user.results.slice(0, 3).map((r: { id: string }) => r.id), reason: "제목에 같은 구성" };
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }], usage: { cost: 0.001 } }));
+    }) as typeof fetch);
+
+    const sAuto = { ...DEFAULT_SCOUT_AUTO, countries: ["US" as const] };
+    const aopt = { by: A, key: "verify-key", prefix: "verify_", skipPipeline: true };
+    const radarFix = [
+      { channelId: CH.kr1, multiple: 12, views: 50_000, title: "국내 터짐", ai: { relevant: true, category: "주방" }, dismissed: null },
+      { channelId: CH.kr2, multiple: 2, views: 50_000, title: "덜 터짐", ai: { relevant: true, category: "살림" }, dismissed: null },
+      { channelId: CH.kr3, multiple: 20, views: 50_000, title: "먹방", ai: { relevant: false, category: "기타" }, dismissed: null },
+    ] as unknown as import("@/lib/neander/shorts/radar").RadarDoc[];
+    const sum0 = (): ScoutAutoSummary => ({ at: 0, by: A, added: [], searches: 0, scanned: 0, newHits: 0, analyzed: 0, assigned: 0, cardsCreated: [], korea: [], narrated: false, aiUsd: 0, notes: [], ms: 0 });
+    const sf1 = sum0();
+    await scoutAuto.autoFillWatch(db, sAuto, { ...aopt, deadline: Date.now() + 90_000, radar: radarFix }, sf1);
+    const w = async (ch: string) => (await db.collection(NEANDER_COL.shortsWatch).doc(`yt_${ch}`).get()).data() as import("@/lib/neander/shorts/scout").WatchChannelDoc | undefined;
+    const wk = await w(CH.kr1);
+    ok(wk?.country === "KR" && wk.owner === "company" && wk.topics.includes("자동 추가") && /AI 레이더/.test(wk.note), "한국: 레이더에서 평소의 N배 넘게 터진 채널을 자동 추가", wk?.note);
+    ok(!(await w(CH.kr2)) && !(await w(CH.kr3)), "배수가 모자라거나 AI 가 무관이라 본 채널은 안 넣음");
+    const wu = await w(CH.us1);
+    ok(wu?.country === "US" && /평소의 10배/.test(wu.note), "해외: 검색에서 평소의 N배 넘은 영상이 있는 채널만", wu?.note);
+    ok(!(await w(CH.us2)) && !(await w(CH.us3)), "평소 대비 낮거나 조회 적은 채널은 안 넣음");
+    ok(sf1.searches === 1 && (await store.readQuota(db, `verify_ytsearch_${new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10)}`)) === 1, "해외 검색은 나라마다 1회 · 같은 계수기(검증용 접두사)");
+    await db.collection(NEANDER_COL.shortsWatch).doc(`yt_${CH.us1}`).delete();
+    const sf2 = sum0();
+    await scoutAuto.autoFillWatch(db, sAuto, { ...aopt, deadline: Date.now() + 90_000, radar: radarFix }, sf2);
+    ok(sf2.added.length === 0 && !(await w(CH.us1)), "사람이 지운 자동 채널은 다시 넣지 않음 · 이미 있는 채널도 그대로");
+
+    // 자동 묶기
+    const f1 = await scoutStore.saveFormat(db, A, null, { name: "검증 형식 카드", summary: "검증", koreanQueries: ["검증 국내 검색", "검증 둘째"] });
+    created.formats.push(f1);
+    const an = (formatName: string, match: string | null): HitAnalysis => ({
+      formatName, summary: `${formatName} 요약`, hook: "훅", structure: ["가", "나"], editing: "", sound: "", textOverlay: "", whyItWorks: "", languageDependence: "visual",
+      aiFeasibility: { level: "easy", easyParts: "", hardParts: "" }, risks: [], riskNote: "", brandIdeas: [], koreanQueries: ["전후 비교 살림"], totalSec: 20, cutCount: 5,
+      match: { formatId: match, reason: "" }, model: "m", costUsd: 0, at: Date.now(), by: "company",
+    });
+    const hv = ["vrfyAutoH01", "vrfyAutoH02", "vrfyAutoH03", "vrfyAutoH04"];
+    for (const v of hv) {
+      await scoutStore.upsertHitFromApi(db, A, { videoId: v, url: `https://www.youtube.com/watch?v=${v}`, title: v, channel: "검증", thumbnail: "", publishedAt: agoA(2), duration: 30, views: 50_000, likes: 1, comments: 1, baseline: 5_000, baselineRef: "검증", watchId: null, country: "US", language: "en" }, { create: true, found: "scan" });
+      created.hits.push(`yt_${v}`);
+    }
+    await scoutStore.setHitAnalysis(db, "yt_vrfyAutoH01", an("검증 형식", f1));
+    await scoutStore.setHitAnalysis(db, "yt_vrfyAutoH02", an("전후 비교 A", null));
+    await scoutStore.setHitAnalysis(db, "yt_vrfyAutoH03", an("전후 비교 B", null));
+    await scoutStore.setHitAnalysis(db, "yt_vrfyAutoH04", an("혼자 형식", null));
+    const sg = sum0();
+    await scoutAuto.autoGroup(db, { ...aopt, deadline: Date.now() + 90_000, onlyHits: hv.map((v) => `yt_${v}`), onlyFormats: [f1] }, sg);
+    const hit = async (v: string) => scoutStore.getHit(db, `yt_${v}`);
+    ok((await hit("vrfyAutoH01")).formatId === f1, "AI 가 기존 카드와 같다고 본 영상은 바로 묶음");
+    const h2 = await hit("vrfyAutoH02");
+    const h3 = await hit("vrfyAutoH03");
+    ok(!!h2.formatId && h2.formatId === h3.formatId && sg.cardsCreated.includes("전후 비교 반전"), "같은 형식 2편 → 카드를 자동으로 만들고 묶음", JSON.stringify(sg.cardsCreated));
+    if (h2.formatId) created.formats.push(h2.formatId);
+    const newCard = h2.formatId ? await scoutStore.getFormat(db, h2.formatId) : null;
+    ok(newCard?.owner === "company" && /AI 자동 묶음/.test(newCard.note) && newCard.koreanQueries.includes("전후 비교 살림"), "자동 카드: 회사 소유 · 근거 메모 · 한국어 검색어 이어받음");
+    ok((await hit("vrfyAutoH04")).status === "new", "혼자인 형식은 그대로 둠");
+    ok(sg.assigned === 3 && aiNames.filter((n) => n === "cluster_formats").length === 1, "AI 묶기는 한 번만", `묶음 ${sg.assigned}`);
+
+    // 한국 확인
+    const sk = sum0();
+    await scoutAuto.autoKoreaCheck(db, { ...sAuto, koreaPerDay: 5 }, { ...aopt, deadline: Date.now() + 90_000, onlyFormats: [f1] }, sk);
+    const fk = await scoutStore.getFormat(db, f1);
+    ok(fk.korea.status === "spread" && fk.korea.by === "company" && fk.korea.sampleSize === 4 && fk.korea.matches.length === 3 && /영상은 안 봄/.test(fk.korea.note), "한국 확인: 국내 표본 4편 중 AI 가 3편 고름 → 「국내에 퍼짐」 · 근거 메모", fk.korea.note.slice(0, 60));
+    const sk2 = sum0();
+    await scoutAuto.autoKoreaCheck(db, { ...sAuto, koreaPerDay: 5 }, { ...aopt, deadline: Date.now() + 90_000, onlyFormats: [f1] }, sk2);
+    ok(sk2.korea.length === 0, "7일 안에 다시 확인하지 않음");
+    await scoutStore.patchFormatKorea(db, A, f1, { ...fk.korea, status: "some", by: A, checkedAt: Date.now() - 10 * 86_400_000 });
+    const sk3 = sum0();
+    await scoutAuto.autoKoreaCheck(db, { ...sAuto, koreaPerDay: 5 }, { ...aopt, deadline: Date.now() + 90_000, onlyFormats: [f1] }, sk3);
+    ok(sk3.korea.length === 0 && (await scoutStore.getFormat(db, f1)).korea.by === A, "사람이 표시한 지 30일 안이면 자동 확인이 덮지 않음");
+    setYoutubeDataFetch(null);
+    setScoutAiFetch(null);
+
     platforms.setPlatformFetch(null);
   } finally {
     // ---- 정리 ----
     for (const v of ["vrfyRadar01", "vrfyRadar02", "vrfyRadar03", "vrfyRadar04", "vrfyRadar05", "vrfyRadar06"]) await db.collection(NEANDER_COL.shortsRadar).doc(`yt_${v}`).delete();
-    for (const k of ["usage_verify_ytsearch_verify", "usage_verify_radarusd_verify", "verify_radar_lock"]) await db.collection(NEANDER_COL.shortsSettings).doc(k).delete();
+    for (const k of ["usage_verify_ytsearch_verify", "usage_verify_radarusd_verify", "verify_radar_lock", "verify_scout_auto_added", "verify_scout_auto_lock", `usage_verify_ytsearch_${new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10)}`]) await db.collection(NEANDER_COL.shortsSettings).doc(k).delete();
+    for (const ch of created.watch) await db.collection(NEANDER_COL.shortsWatch).doc(`yt_${ch}`).delete();
+    for (const id of created.hits) await db.collection(NEANDER_COL.shortsHits).doc(id).delete();
+    for (const id of created.formats) await db.collection(NEANDER_COL.shortsFormats).doc(id).delete();
     for (const who of [A, B]) await db.collection(NEANDER_COL.shortsProfiles).doc(who).delete();
     for (const col of [NEANDER_COL.shortsJobs, NEANDER_COL.shortsPublications, NEANDER_COL.shortsAccounts, NEANDER_COL.shortsMetrics, NEANDER_COL.shortsTemplates, NEANDER_COL.shortsTrends]) {
       for (const who of [A, B]) {

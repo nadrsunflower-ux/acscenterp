@@ -227,3 +227,106 @@ export async function narrateReport(input: { model?: unknown; report: ScoutRepor
   );
   return { text: out.content.trim().slice(0, 4000), costUsd: out.costUsd, model };
 }
+
+// ---- 자동화 (scout-auto-run.ts) — 글 모델 · 하루 몇 번 · 한 번에 몇 원 -------------------------
+
+async function completeJson<T>(system: string, user: string, name: string, schema: object, maxTokens: number): Promise<{ data: T; costUsd: number; model: string }> {
+  const model = DEFAULT_FIN_AI_MODEL;
+  const out = await complete(
+    {
+      model,
+      max_tokens: maxTokens,
+      provider: { require_parameters: true },
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      response_format: { type: "json_schema", json_schema: { name, strict: true, schema } },
+      usage: { include: true },
+    },
+    90_000,
+  );
+  try {
+    return { data: JSON.parse(out.content) as T, costUsd: out.costUsd, model };
+  } catch {
+    throw new Error(out.finish === "length" ? "AI 응답이 너무 길어 잘렸습니다." : "AI 응답 형식을 읽지 못했습니다.");
+  }
+}
+
+/**
+ * 아직 안 묶은 터진 영상(분석 결과 글)들을 「만드는 방식이 같은 것」 끼리 묶는다.
+ * 2편 이상 모인 묶음만 돌려준다. 기존 카드와 같으면 그 카드 id.
+ */
+export async function clusterFormats(input: {
+  hits: { id: string; formatName: string; summary: string; hook: string; structure: string[] }[];
+  formats: { id: string; name: string; summary: string }[];
+}): Promise<{ groups: { name: string; hitIds: string[]; formatId: string | null; reason: string }[]; costUsd: number; model: string }> {
+  const hits = input.hits.slice(0, 40);
+  if (hits.length < 2) return { groups: [], costUsd: 0, model: DEFAULT_FIN_AI_MODEL };
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["groups"],
+    properties: {
+      groups: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["name", "hitIds", "formatId", "reason"],
+          properties: { name: S, hitIds: { type: "array", items: S }, formatId: { type: ["string", "null"] }, reason: S },
+        },
+      },
+    },
+  };
+  const system = `너는 바이럴 쇼츠의 「형식(어떻게 만들었나)」 을 묶는 사람이다. 아래 영상 분석 글들 중 만드는 방식이 같은 것끼리 묶는다.
+- 주제 · 상품이 달라도 훅 · 구성 · 편집 방식이 같으면 같은 형식이다. 주제만 같고 방식이 다르면 다른 형식이다.
+- 2편 이상 모이는 묶음만 돌려준다. 혼자인 영상은 넣지 않는다. 한 영상은 한 묶음에만.
+- 「기존 형식 카드」 와 방식이 같으면 formatId 에 그 id, 아니면 null.
+- name 은 12자 안팎의 짧은 형식 이름(예: 「전후 비교 3초 반전」).
+- 확실하지 않으면 묶지 않는다. 억지로 묶지 않는다.`;
+  const user = JSON.stringify({
+    formats: input.formats.slice(0, 60).map((f) => ({ id: f.id, name: f.name, summary: f.summary.slice(0, 160) })),
+    hits: hits.map((h) => ({ id: h.id, formatName: h.formatName, summary: h.summary.slice(0, 200), hook: h.hook.slice(0, 120), structure: h.structure.slice(0, 6).map((x) => x.slice(0, 60)) })),
+  });
+  const out = await completeJson<{ groups: { name: string; hitIds: string[]; formatId: string | null; reason: string }[] }>(system, user, "cluster_formats", schema, 3000);
+  const known = new Set(hits.map((h) => h.id));
+  const fids = new Set(input.formats.map((f) => f.id));
+  const used = new Set<string>();
+  const groups = out.data.groups
+    .map((g) => ({
+      name: g.name.trim().slice(0, 40),
+      hitIds: g.hitIds.filter((id) => known.has(id) && !used.has(id) && (used.add(id), true)),
+      formatId: g.formatId && fids.has(g.formatId) ? g.formatId : null,
+      reason: g.reason.slice(0, 200),
+    }))
+    .filter((g) => g.name && (g.hitIds.length >= 2 || (g.formatId && g.hitIds.length >= 1)));
+  return { groups, costUsd: out.costUsd, model: out.model };
+}
+
+/**
+ * 국내 검색 표본 중 이 형식과 같은 방식으로 보이는 영상을 고른다 — 영상은 보지 않고 제목 · 채널 · 설명 글로만.
+ */
+export async function judgeKoreaSample(input: {
+  format: { name: string; summary: string; hook: string; structure: string[] };
+  results: { id: string; title: string; channel: string; description: string }[];
+}): Promise<{ matchIds: string[]; reason: string; costUsd: number; model: string }> {
+  if (!input.results.length) return { matchIds: [], reason: "표본이 비어 있음", costUsd: 0, model: DEFAULT_FIN_AI_MODEL };
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["matchIds", "reason"],
+    properties: { matchIds: { type: "array", items: S }, reason: S },
+  };
+  const system = `너는 한국 유튜브 검색 표본에서 주어진 쇼츠 형식(어떻게 만들었나)과 같은 방식의 영상을 고른다.
+- 영상을 보지 못한다. 제목 · 채널 · 설명 글로 같은 방식임이 꽤 분명한 것만 고른다. 주제만 같으면 고르지 않는다.
+- 애매하면 고르지 않는다. 고른 게 없어도 된다 (그건 「표본에서 못 찾음」 일 뿐이다).
+- reason 은 한 줄로.`;
+  const user = JSON.stringify({
+    format: { name: input.format.name, summary: input.format.summary.slice(0, 300), hook: input.format.hook.slice(0, 200), structure: input.format.structure.slice(0, 6) },
+    results: input.results.slice(0, 25).map((r) => ({ id: r.id, title: r.title.slice(0, 150), channel: r.channel.slice(0, 60), description: r.description.slice(0, 200) })),
+  });
+  const out = await completeJson<{ matchIds: string[]; reason: string }>(system, user, "korea_sample", schema, 1200);
+  const known = new Set(input.results.map((r) => r.id));
+  return { matchIds: out.data.matchIds.filter((id) => known.has(id)), reason: out.data.reason.slice(0, 300), costUsd: out.costUsd, model: out.model };
+}

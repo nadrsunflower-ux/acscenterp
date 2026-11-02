@@ -6,7 +6,6 @@ import { sweepStaleMedia } from "@/lib/neander/shorts/server/media";
 import { syncCoupangReports, syncPublicationMetrics } from "@/lib/neander/shorts/server/metrics";
 import { tick } from "@/lib/neander/shorts/server/runner";
 import { runRadar } from "@/lib/neander/shorts/server/radar-run";
-import { runScoutCron } from "@/lib/neander/shorts/server/scout-run";
 import { youtubeApiKey } from "@/lib/neander/shorts/server/youtube-data";
 import type { ProfileDoc, PublicationDoc } from "@/lib/neander/shorts/types";
 
@@ -19,7 +18,8 @@ import type { ProfileDoc, PublicationDoc } from "@/lib/neander/shorts/types";
 //    ③ 최근 30일 게시물의 성과를 공식 API 로 다시 읽기 (최대 20건)
 //    ④ 사람마다 자기 쿠팡 키로 자기 리포트 (키를 확인한 사람만 · 막힌 키는 건너뜀)
 //    ⑤ AI 레이더 — 키워드 검색 → 반응 큰 쇼츠 후보 · AI 상품 추정(하루 비용 상한) · 네이버 국내 검색 추세
-//    ⑥ 바이럴 형식 정찰 — 감시 채널 훑기 · 새로 터진 영상 자동 분석 · 이번 주 보고 (남은 시간 안에서)
+//  바이럴 형식 정찰(채널 채우기 · 훑기 · 분석 · 묶기 · 한국 확인 · 보고)은 따로 cron-scout(07:00 KST)가 돈다
+//  — 한 cron 의 5분 안에서 레이더와 시간을 다투지 않게.
 //
 //  ⚠️ 지금 cron 은 하루 한 번이다 (기존 cron 들과 같은 주기 — Hobby 요금제는 하루 한 번만
 //     허용해 더 잦게 적으면 배포가 실패한다). 예약 게시가 정시에 나가려면 ERP 화면이
@@ -67,8 +67,7 @@ export async function GET(req: Request) {
   }
   out.coupangReports = coupang;
   out.radar = youtubeApiKey()
-    ? await runRadar(db, { by: "company", deadline: started + 235_000 }).catch((e) => (e instanceof Error ? e.message : "레이더 실패"))
+    ? await runRadar(db, { by: "company", deadline: started + 285_000 }).catch((e) => (e instanceof Error ? e.message : "레이더 실패"))
     : "회사 YouTube 키가 없어 건너뜀";
-  out.scout = await runScoutCron(db, started + 285_000).catch((e) => (e instanceof Error ? e.message : "정찰 실패"));
   return NextResponse.json(out);
 }
