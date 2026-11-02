@@ -29,18 +29,24 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowDown,
+  ArrowRight,
   ArrowUp,
   ChevronDown,
+  ChevronRight,
   FilterX,
   FolderOpen,
   Funnel,
+  Info,
   Plus,
   SearchX,
+  Settings2,
+  X,
 } from "lucide-react";
 import {
   Badge,
   Button,
   Card,
+  Checkbox,
   Dialog,
   EmptyState,
   Field,
@@ -50,7 +56,6 @@ import {
   Icon,
   InlineNotice,
   Input,
-  KpiStrip,
   LoadingState,
   Money,
   NumberInput,
@@ -59,8 +64,8 @@ import {
   Pagination,
   SearchInput,
   SectionHeader,
+  SegmentedControl,
   Select,
-  StatTile,
   Table,
   TableNote,
   TableScroll,
@@ -76,6 +81,7 @@ import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { ColumnMenu } from "@/components/neander/finance/ColumnMenu";
 import { AutoCodeBox } from "@/components/neander/finance/AutoCode";
 import { DeliveryDate } from "@/components/neander/finance/DeliveryDate";
+import { PairedMoney, UnsplitMoney } from "@/components/neander/finance/PairedMoney";
 import { saveFinProject } from "@/lib/neander/finance/client";
 import { nextCode, saveWithAutoCode, takenCodes } from "@/lib/neander/finance/codes";
 import { useGrants } from "@/lib/neander/finance/grant-client";
@@ -100,6 +106,7 @@ import {
   activeProjectFilterCount,
   applyProjectFilters,
   isProjectRangeKey,
+  projectLabelOf,
   projectOptions,
   sortProjectRows,
   type ProjectListFilters,
@@ -116,6 +123,31 @@ const PROJECT_STATUS_TONE: Record<ProjectStatus, Tone> = {
   cancelled: "danger",
 };
 
+type AmountView = "profit" | "settlement";
+const EXTRA_COLUMNS = ["entity", "period", "estimate", "ledger", "ready", "docs"] as const;
+type ExtraColumn = (typeof EXTRA_COLUMNS)[number];
+const COLUMN_LABELS: Record<ProjectListKey, string> = {
+  name: "프로젝트", status: "상태", entity: "사업체", period: "진행 기간", delivery: "납기",
+  revenue: "매출액", revenueTotal: "청구액", estimate: "견적 원가", actual: "원가",
+  profit: "잠정 이익", margin: "잠정 이익률", received: "입금액", returned: "반환액",
+  unpaid: "미수금", overdue: "연체 미수금", ledger: "원장 지출", ready: "준비", docs: "문서",
+};
+const COLUMN_HINTS: Partial<Record<ProjectListKey, string>> = {
+  revenue: "공급가액과 부가세 포함 총액을 함께 표시합니다. 정렬·필터는 공급가액 기준입니다.",
+  revenueTotal: "공급가액과 부가세 포함 청구액을 함께 표시합니다. 정렬·필터는 부가세 포함액 기준입니다.",
+  actual: "입력한 원가이며 실제금액 미입력분은 견적으로 반영합니다. 공급가액은 아직 확인되지 않았습니다.",
+  estimate: "입력한 견적 원가입니다. 공급가액은 아직 확인되지 않았습니다.",
+  profit: "매출 공급가액에서 입력 원가를 뺀 잠정 이익입니다. 원가 부가세는 미조정입니다.",
+  margin: "잠정 이익 ÷ 매출 공급가액. 원가 미입력분과 부가세 미조정의 영향을 받습니다.",
+  received: "입금 확인된 회차와 추가 수입의 합계입니다. 부가세 포함액이며 원장 자동 합계와는 다릅니다.",
+  returned: "반환 완료로 기록된 매출 차감액입니다. 실제 반환 금액을 표시합니다.",
+  unpaid: "청구 총액에서 아직 안 들어온 돈입니다. 부가세 포함액이며 공급가액은 별도 배분하지 않습니다.",
+  entity: "매출을 낸 사업체. 흐린 글자는 원장 입금 사업장으로 추정한 값입니다.",
+  delivery: "결과물을 넘기는 날입니다. 끝나지 않은 건은 남은 날도 표시합니다.",
+  ledger: "같은 프로젝트코드가 찍힌 원장 지출에서 환급을 뺀 참고 금액입니다. 원가와 별도로 확인하세요.",
+};
+const conditionLabel = (key: ProjectListKey) => `${COLUMN_LABELS[key]}${key === "revenue" ? " · 공급가액" : key === "revenueTotal" ? " · 부가세 포함" : ""}`;
+
 export default function ProjectsPage() {
   const { projects, transactions, docs, loading, refresh } = useFinance();
   const router = useRouter();
@@ -127,6 +159,25 @@ export default function ProjectsPage() {
   const [filters, setFilters] = useStickyState<ProjectListFilters>("finance.projects.filters", {});
   const [sort, setSort] = useStickyState<ProjectListSort | null>("finance.projects.sort", null);
   const [menu, setMenu] = useState<{ key: ProjectListKey; label: string; anchor: DOMRect } | null>(null);
+  const [amountView, setAmountView] = useStickyState<AmountView>("finance.projects.amountView", "profit");
+  const [extraColumns, setExtraColumns] = useStickyState<ExtraColumn[]>("finance.projects.extraColumns", []);
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  const columns: ProjectListKey[] = [
+    "name", "status", "delivery",
+    ...(amountView === "profit"
+      ? ["revenue", "actual", "profit", "margin"] as const
+      : ["revenueTotal", "received", "returned", "unpaid"] as const),
+    ...EXTRA_COLUMNS.filter((key) => extraColumns.includes(key)),
+  ];
+  const changeAmountView = (next: AmountView) => {
+    setAmountView(next);
+    setSort((prev) => prev && (prev.key === "revenue" || prev.key === "revenueTotal")
+      ? { ...prev, key: next === "profit" ? "revenue" : "revenueTotal" }
+      : prev);
+    setMenu(null);
+  };
+  const activeFilters = (Object.entries(filters) as [ProjectListKey, NonNullable<ProjectListFilters[ProjectListKey]>][])
+    .filter(([, filter]) => filter.kind === "values" ? filter.values.length > 0 : filter.min !== undefined || filter.max !== undefined);
 
   // 검색은 이미 받아온 목록 안에서만 한다 — 프로젝트는 많아야 수백 건이라
   // 서버를 한 번 더 부를 이유가 없고, 글자를 칠 때마다 표가 즉시 좁혀진다.
@@ -164,13 +215,15 @@ export default function ProjectsPage() {
     return live.reduce(
       (a, s) => ({
         revenue: a.revenue + s.revenue,
+        revenueTotal: a.revenueTotal + s.revenueTotal,
         actual: a.actual + s.actual,
         profit: a.profit + s.profitActual,
         unpaid: a.unpaid + s.unpaid,
         overdue: a.overdue + s.overdue,
         count: a.count + 1,
+        unfilled: a.unfilled + s.lineCount - s.actualFilled,
       }),
-      { revenue: 0, actual: 0, profit: 0, unpaid: 0, overdue: 0, count: 0 },
+      { revenue: 0, revenueTotal: 0, actual: 0, profit: 0, unpaid: 0, overdue: 0, count: 0, unfilled: 0 },
     );
   }, [rows]);
 
@@ -188,6 +241,7 @@ export default function ProjectsPage() {
     const dir = sort?.key === key ? sort.dir : null;
     return (
       <Th
+        key={key}
         align={opts.align}
         sticky={opts.sticky}
         className={opts.className}
@@ -234,13 +288,51 @@ export default function ProjectsPage() {
     ];
   }, [projects]);
 
+  const projectCell = ({ p, s, quotes, contracts }: ProjectListRow, key: ProjectListKey) => {
+    switch (key) {
+      case "name": return (
+        <>
+          <Link href={`/neander/finance/projects/${p.id}`} className="block max-w-[15rem] truncate font-medium text-nd-fg hover:text-nd-accent-strong sm:max-w-[23rem]" title={p.name}>
+            {p.name}
+          </Link>
+          <div className="max-w-[15rem] truncate text-nd-caption text-nd-fg-3 sm:max-w-[23rem]" title={[p.code, p.client].filter(Boolean).join(" · ")}>
+            <span className="font-mono">{p.code}</span>{p.client && <span> · {p.client}</span>}
+          </div>
+        </>
+      );
+      case "status": return <Badge tone={PROJECT_STATUS_TONE[p.status]} dot>{PROJECT_STATUS_LABEL[p.status]}</Badge>;
+      case "entity": return <EntityCell entities={projectEntities(p, transactions)} />;
+      case "period": return <span className="text-nd-caption text-nd-fg-2">{p.startDate ?? "—"}{p.endDate && p.endDate !== p.startDate ? ` ~ ${p.endDate}` : ""}</span>;
+      case "delivery": return <DeliveryDate project={p} />;
+      case "revenue":
+      case "revenueTotal": return <PairedMoney supply={s.revenue} total={s.revenueTotal} emphasize={key === "revenue" ? "supply" : "total"} flow="income" />;
+      case "actual": return s.lineCount === 0 ? (
+        <div className="space-y-1"><Money value={0} unit={false} /><div className="text-nd-micro text-nd-fg-3">원가 미입력</div></div>
+      ) : (
+        <><UnsplitMoney value={s.actual} flow="expense" />{s.actualFilled < s.lineCount && <div className="mt-1 text-nd-micro text-nd-fg-3">견적 {s.lineCount - s.actualFilled}줄 포함</div>}</>
+      );
+      case "estimate": return <UnsplitMoney value={s.estimate} />;
+      case "profit": return <Money value={s.profitActual} unit={false} flow="net" className="font-semibold" />;
+      case "margin": return <span className={s.marginActual !== null && s.marginActual < 0 ? "text-nd-expense-text" : "text-nd-fg-2"}>{formatMargin(s.marginActual)}</span>;
+      case "received": return <UnsplitMoney value={s.received} kind="receivable" flow="income" />;
+      case "returned": return <div className="space-y-1"><Money value={s.returned} unit={false} flow="expense" /><div className="text-nd-micro text-nd-fg-3">실제 반환액</div></div>;
+      case "unpaid": return (
+        <><UnsplitMoney value={s.unpaid} kind="receivable" className={s.overdue > 0 ? "[&_dd:last-child>span]:text-nd-danger-text" : undefined} />{s.overdue > 0 && <div className="mt-1 text-nd-micro text-nd-danger-text">연체 {won(s.overdue)}원 포함</div>}</>
+      );
+      case "ledger": return s.ledger.count > 0 ? <UnsplitMoney value={s.ledger.expense - s.ledger.refund} /> : <span className="text-nd-fg-4">—</span>;
+      case "ready": return <span className="text-nd-caption text-nd-fg-3">{s.lineCount > 0 ? `${s.doneCount}/${s.lineCount}` : "—"}</span>;
+      case "docs": return <span className="text-nd-caption text-nd-fg-3">{quotes + contracts === 0 ? "—" : `견 ${quotes} · 계 ${contracts}`}</span>;
+      case "overdue": return <UnsplitMoney value={s.overdue} kind="receivable" />;
+    }
+  };
+
   if (loading) return <LoadingState />;
 
   return (
     <PageShell width="wide">
       <PageHeader
         title="프로젝트 손익"
-        description="행사·납품 건마다 계약금액과 지출(물품·식대·인건비 …)을 대조해 실제로 남는 돈을 봅니다."
+        description="프로젝트별 잠정 손익과 수금 현황을 확인합니다. 거래금액은 공급가액과 부가세 포함액을 함께 표시합니다."
         className="mb-4"
         actions={
           <Button icon={Plus} onClick={() => setCreating(true)} disabled={creating}>
@@ -285,11 +377,11 @@ export default function ProjectsPage() {
             items={statusTabs}
           />
 
-          <FilterBar className="mb-4">
-            <FilterField label="검색" htmlFor="proj-q">
+          <FilterBar className="mb-4" actions={<span className="rounded-nd-md bg-nd-accent-soft px-3 py-1.5 text-nd-caption text-nd-accent-strong">금액 표시: 공급가액 · 부가세 포함</span>}>
+            <FilterField label="검색" htmlFor="proj-q" className="w-full max-w-full basis-full sm:w-auto sm:basis-auto">
               <SearchInput
                 id="proj-q"
-                className="w-64"
+                className="w-full sm:w-64"
                 value={q}
                 onValueChange={(v) => {
                   setQ(v);
@@ -315,35 +407,78 @@ export default function ProjectsPage() {
             )}
           </FilterBar>
 
-          <KpiStrip columns={4} className="mb-4">
-            <StatTile
-              label="수입 합계"
-              value={head.revenue}
-              flow="income"
-              hint={`${rows.length < projects.length ? "표에 남은 " : ""}취소 제외 ${head.count}건 · 공급가액(부가세 제외)`}
-            />
-            <StatTile label="실제 원가 합계" value={head.actual} flow="expense" hint="실제금액 없는 줄은 견적으로" />
-            <StatTile
-              label="실질 이익 합계"
-              value={head.profit}
-              flow="net"
-              hint={head.revenue > 0 ? `이익률 ${formatMargin(head.profit / head.revenue)}` : undefined}
-            />
-            <StatTile
-              label="미수금 합계"
-              value={head.unpaid}
-              tone={head.overdue > 0 ? "danger" : undefined}
-              hint={head.overdue > 0 ? `연체 ${head.overdue.toLocaleString("ko-KR")}원 포함` : "아직 안 들어온 돈"}
-            />
-          </KpiStrip>
+          {(activeFilters.length > 0 || sort) && (
+            <div className="mb-4 flex flex-wrap gap-2" aria-label="프로젝트 적용 조건">
+              {sort && <button type="button" aria-label={`${conditionLabel(sort.key)} 정렬 해제`} onClick={() => { setSort(null); resetPage(); }} className="inline-flex items-center gap-1.5 rounded-nd-md bg-nd-accent-soft px-2.5 py-1.5 text-nd-caption text-nd-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nd-accent/50">
+                {conditionLabel(sort.key)} {sort.dir === "asc" ? "오름차순" : "내림차순"}<Icon icon={X} size={12} />
+              </button>}
+              {activeFilters.map(([key, filter]) => <button key={key} type="button" aria-label={`${conditionLabel(key)} 필터 해제`} onClick={() => { setFilters((prev) => { const next = { ...prev }; delete next[key]; return next; }); resetPage(); }} className="inline-flex max-w-full items-center gap-1.5 rounded-nd-md bg-nd-accent-soft px-2.5 py-1.5 text-nd-caption text-nd-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nd-accent/50">
+                <span className="truncate">{conditionLabel(key)}: {filter.kind === "values" ? filter.values.map((value) => projectLabelOf(key, value)).join(", ") : `${filter.min !== undefined ? won(filter.min) : "제한 없음"} ~ ${filter.max !== undefined ? won(filter.max) : "제한 없음"}${key === "margin" ? "%" : "원"}`}</span><Icon icon={X} size={12} className="shrink-0" />
+              </button>)}
+            </div>
+          )}
+
+          <div className="mb-4 grid min-w-0 gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(270px,1fr)]">
+            <Card as="section" aria-label="프로젝트 손익" padding="none" className="min-w-0">
+              <div className="px-5 pt-4">
+                <SectionHeader title="프로젝트 손익" action={<span className="text-nd-micro text-nd-fg-3">현재 입력값 기준 · 잠정</span>} />
+              </div>
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(min(240px,100%),1fr))] gap-y-4 px-5 pb-4">
+                <div className="min-w-0 py-1 pr-4">
+                  <h3 className="mb-3 text-nd-body font-medium text-nd-fg-2">매출액 합계</h3>
+                  <PairedMoney supply={head.revenue} total={head.revenueTotal} flow="income" size="lg" unit />
+                  <p className="mt-2 text-nd-micro text-nd-fg-3">{rows.length < projects.length ? "표에 남은 " : ""}취소 제외 {head.count}건</p>
+                </div>
+                <div className="min-w-0 py-1 pr-4">
+                  <h3 className="mb-3 text-nd-body font-medium text-nd-fg-2">원가 합계</h3>
+                  <UnsplitMoney value={head.actual} flow="expense" size="lg" unit />
+                  <p className="mt-2 text-nd-micro text-nd-fg-3">{head.unfilled > 0 ? `실제 미입력 ${head.unfilled}줄은 견적 포함` : "현재 입력된 원가 기준"}</p>
+                </div>
+                <div className="min-w-0 py-1">
+                  <h3 className="mb-3 text-nd-body font-medium text-nd-fg-2">잠정 이익</h3>
+                  <Money value={head.profit} flow="net" className="text-[clamp(22px,1.8vw,32px)] font-bold leading-tight tracking-[-0.02em]" />
+                  <p className="mt-2 text-nd-caption text-nd-fg-3">잠정 이익률 {formatMargin(head.revenue > 0 ? head.profit / head.revenue : null)}</p>
+                </div>
+              </div>
+              <div className="mx-3 mb-3 flex items-start gap-2 rounded-nd-md bg-nd-accent-soft/50 px-3 py-2 text-nd-caption text-nd-fg-2">
+                <Icon icon={Info} size={14} className="mt-0.5 shrink-0 text-nd-accent-strong" />
+                <span>이익은 현재 입력값 기준입니다 · 원가 부가세 미조정</span>
+              </div>
+            </Card>
+            <Card as="section" aria-label="수금 현황" className="flex min-w-0 flex-col">
+              <SectionHeader title="수금 현황" />
+              <h3 className="mb-3 text-nd-body font-medium text-nd-fg-2">미수금</h3>
+              <UnsplitMoney value={head.unpaid} kind="receivable" size="lg" unit />
+              {head.overdue > 0 ? (
+                <p className="mt-3 flex items-center gap-2 rounded-nd-md bg-nd-danger-soft px-2.5 py-1.5 text-nd-caption text-nd-danger-text">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-nd-danger" aria-hidden />연체 {won(head.overdue)}원 포함
+                </p>
+              ) : <p className="mt-3 text-nd-caption text-nd-fg-3">{head.unpaid === 0 ? "미수금 없음" : "아직 안 들어온 돈"}</p>}
+              <button type="button" onClick={() => changeAmountView("settlement")} className="mt-3 inline-flex items-center justify-end gap-1 text-nd-caption font-medium text-nd-accent-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nd-accent/50">
+                수금 내역 보기 <Icon icon={ArrowRight} size={14} />
+              </button>
+            </Card>
+          </div>
 
           <Card padding="none" className="overflow-hidden">
             <div className="px-5 pt-5">
               <SectionHeader
                 title="프로젝트 목록"
                 hint={`${rows.length.toLocaleString("ko-KR")}건`}
-                action={<TableNote>단위: 원 · 수입은 공급가액, 미수금은 부가세 포함</TableNote>}
+                action={
+                  <div className="flex flex-wrap items-center gap-3">
+                    <SegmentedControl<AmountView>
+                      value={amountView}
+                      onChange={changeAmountView}
+                      ariaLabel="프로젝트 금액 보기"
+                      options={[{ value: "profit", label: "손익" }, { value: "settlement", label: "수금·정산" }]}
+                    />
+                    <TableNote>단위: 원</TableNote>
+                    <Button variant="secondary" size="sm" icon={Settings2} onClick={() => setColumnsOpen(true)}>표시 항목{extraColumns.length > 0 ? ` ${extraColumns.length}` : ""}</Button>
+                  </div>
+                }
               />
+              <TableNote className="mb-3">거래금액은 공급가액 → 부가세 포함 순서입니다. {amountView === "profit" ? "매출액 열의 정렬·필터는 공급가액 기준입니다." : "청구액 열의 정렬·필터는 부가세 포함액 기준입니다."}</TableNote>
             </div>
 
             {rows.length === 0 ? (
@@ -361,106 +496,45 @@ export default function ProjectsPage() {
                 />
               </div>
             ) : (
-              // 14열이라 좁은 화면에서는 반드시 가로로 밀린다. 프로젝트명 열을
-              // 고정해 두지 않으면 오른쪽 숫자를 볼 때 「어느 프로젝트의 값인지」를
-              // 잃는다. 가로 스크롤은 TableScroll 안에서만 일어난다.
+              // 두 줄 금액이 찌그러지지 않게 하고, 좁은 화면에서는 표 안에서만 스크롤한다.
               <TableScroll>
-                <Table minWidth={1340}>
+                <Table minWidth={(amountView === "profit" ? 1120 : 1240) + extraColumns.length * 150} aria-label={amountView === "profit" ? "프로젝트 잠정 손익 목록" : "프로젝트 수금·정산 목록"}>
                   <thead>
                     <tr>
-                      {columnHead("name", "프로젝트", { sticky: "left", className: "pl-5" })}
-                      {columnHead("status", "상태")}
-                      {columnHead("entity", "사업체", { title: "매출을 낸 사업체 — 흐린 글자는 고르지 않아 원장 입금 사업장으로 추정한 것" })}
-                      {columnHead("period", "진행 기간")}
-                      {columnHead("delivery", "납기", { title: "결과물을 넘기는 날 (납품일 · 행사 당일). 끝나지 않은 건은 남은 날이 붙습니다" })}
-                      {columnHead("revenue", "수입", { align: "right", title: "공급가액 기준 — 부가세를 뺀 값입니다" })}
-                      {columnHead("estimate", "견적 원가", { align: "right" })}
-                      {columnHead("actual", "실제 원가", { align: "right" })}
-                      {columnHead("profit", "실질 이익", { align: "right" })}
-                      {columnHead("margin", "이익률", { align: "right" })}
-                      {columnHead("unpaid", "미수금", { align: "right", title: "청구 총액에서 아직 안 들어온 돈 (부가세 포함)" })}
-                      {columnHead("ledger", "원장 지출", { align: "right", title: "원장에 같은 프로젝트코드가 찍힌 지출 합계 (참고)" })}
-                      {columnHead("ready", "준비", { align: "right" })}
-                      {columnHead("docs", "문서", { align: "right", className: "pr-5", title: "견적서 · 계약서 수" })}
+                      {columns.map((key) => columnHead(key, COLUMN_LABELS[key], {
+                        align: isProjectRangeKey(key) || key === "ready" || key === "docs" ? "right" : undefined,
+                        sticky: key === "name" ? "left" : undefined,
+                        className: key === "name" ? "pl-5" : undefined,
+                        title: COLUMN_HINTS[key],
+                      }))}
+                      <Th className="pr-5"><span className="sr-only">상세</span></Th>
                     </tr>
                   </thead>
                   <tbody>
-                    {pageRows.map(({ p, s, quotes, contracts }) => (
+                    {pageRows.map((row) => (
                       // 행 전체가 상세로 간다 — 이름 글자만 링크면 숫자를 눌러본
                       // 사람이 아무 반응 없는 표를 보게 된다. 이름은 진짜 <a> 로
                       // 남겨 둬 낭독기가 링크로 읽고 새 탭 열기(⌘·Ctrl 클릭)도 된다.
                       <Tr
-                        key={p.id}
+                        key={row.p.id}
                         onClick={(e) => {
                           if ((e.target as HTMLElement).closest("a")) return;
-                          router.push(`/neander/finance/projects/${p.id}`);
+                          router.push(`/neander/finance/projects/${row.p.id}`);
                         }}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter") router.push(`/neander/finance/projects/${p.id}`);
+                          if (e.key === "Enter") router.push(`/neander/finance/projects/${row.p.id}`);
                         }}
                         tabIndex={0}
                         role="link"
-                        aria-label={`${p.name} 상세`}
+                        aria-label={`${row.p.name} 상세`}
                         className="cursor-pointer focus:bg-nd-accent-soft/60 focus:outline-none"
                       >
-                        <Td sticky="left" className="pl-5">
-                          <Link
-                            href={`/neander/finance/projects/${p.id}`}
-                            className="block max-w-[24rem] truncate font-medium text-nd-fg hover:text-nd-accent-strong"
-                            title={p.name}
-                          >
-                            {p.name}
-                          </Link>
-                          <div className="truncate text-nd-caption text-nd-fg-3" title={[p.code, p.client].filter(Boolean).join(" · ")}>
-                            <span className="font-mono">{p.code}</span>
-                            {p.client && <span> · {p.client}</span>}
-                          </div>
-                        </Td>
-                        <Td>
-                          <Badge tone={PROJECT_STATUS_TONE[p.status]} dot>
-                            {PROJECT_STATUS_LABEL[p.status]}
-                          </Badge>
-                        </Td>
-                        <Td className="whitespace-nowrap">
-                          <EntityCell entities={projectEntities(p, transactions)} />
-                        </Td>
-                        <Td className="whitespace-nowrap text-nd-caption text-nd-fg-2">
-                          {p.startDate ?? "—"}
-                          {p.endDate && p.endDate !== p.startDate ? ` ~ ${p.endDate}` : ""}
-                        </Td>
-                        <Td className="text-nd-caption text-nd-fg-2">
-                          <DeliveryDate project={p} />
-                        </Td>
-                        <Td num><Money value={s.revenue} unit={false} flow="income" /></Td>
-                        <Td num><Money value={s.estimate} unit={false} muted /></Td>
-                        <Td num><Money value={s.actual} unit={false} flow="expense" /></Td>
-                        <Td num className="font-medium"><Money value={s.profitActual} unit={false} flow="net" /></Td>
-                        <Td num className={s.marginActual !== null && s.marginActual < 0 ? "text-nd-expense-text" : "text-nd-fg-2"}>
-                          {formatMargin(s.marginActual)}
-                        </Td>
-                        <Td num>
-                          {s.unpaid === 0 ? (
-                            <span className="text-nd-fg-4">—</span>
-                          ) : (
-                            <span className={s.overdue > 0 ? "font-medium text-nd-danger-text" : undefined}>
-                              <Money value={s.unpaid} unit={false} className={s.overdue > 0 ? "text-nd-danger-text" : undefined} />
-                              {s.overdue > 0 && <span className="ml-1 text-nd-micro">연체</span>}
-                            </span>
-                          )}
-                        </Td>
-                        <Td num>
-                          {s.ledger.count > 0 ? (
-                            <Money value={s.ledger.expense - s.ledger.refund} unit={false} muted />
-                          ) : (
-                            <span className="text-nd-fg-4">—</span>
-                          )}
-                        </Td>
-                        <Td num muted className="text-nd-caption">
-                          {s.lineCount > 0 ? `${s.doneCount}/${s.lineCount}` : "—"}
-                        </Td>
-                        <Td num muted className="pr-5 text-nd-caption">
-                          {quotes + contracts === 0 ? "—" : `견 ${quotes} · 계 ${contracts}`}
-                        </Td>
+                        {columns.map((key) => (
+                          <Td key={key} sticky={key === "name" ? "left" : undefined} num={isProjectRangeKey(key) || key === "ready" || key === "docs"} className={cn("whitespace-nowrap py-3", key === "name" && "pl-5", key === "delivery" && "text-nd-caption text-nd-fg-2")}>
+                            {projectCell(row, key)}
+                          </Td>
+                        ))}
+                        <Td className="pr-5"><Icon icon={ChevronRight} size={16} className="text-nd-fg-3" /></Td>
                       </Tr>
                     ))}
                   </tbody>
@@ -468,11 +542,19 @@ export default function ProjectsPage() {
               </TableScroll>
             )}
 
+            {columnsOpen && (
+              <Dialog open onClose={() => setColumnsOpen(false)} title="프로젝트 표시 항목" description="기본 금액 열에 더해 표시할 항목을 선택하세요." size="sm" footer={<Button onClick={() => setColumnsOpen(false)}>완료</Button>}>
+                <div className="grid gap-4 py-2">
+                  {EXTRA_COLUMNS.map((key) => <Checkbox key={key} label={COLUMN_LABELS[key]} checked={extraColumns.includes(key)} onChange={(e) => setExtraColumns((prev) => e.target.checked ? [...prev, key] : prev.filter((item) => item !== key))} />)}
+                </div>
+              </Dialog>
+            )}
+
             {menu && (
               <ColumnMenu
                 columnKey={`p-${menu.key}`}
                 range={isProjectRangeKey(menu.key)}
-                rangeLabel={menu.key === "margin" ? "이익률(%)" : "금액"}
+                rangeLabel={menu.key === "margin" ? "잠정 이익률(%)" : menu.key === "revenue" ? "공급가액(원)" : menu.key === "revenueTotal" ? "부가세 포함액(원)" : "금액(원)"}
                 label={menu.label}
                 anchor={menu.anchor}
                 sortDir={sort?.key === menu.key ? sort.dir : null}

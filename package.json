@@ -48,6 +48,8 @@
     "finance:verify-runway": "tsx scripts/neander/verify-runway.ts",
     "finance:verify-installments": "tsx scripts/neander/verify-installment-received.ts",
     "finance:verify-project-report": "tsx scripts/neander/verify-project-report.ts",
+    "finance:test-project-list": "tsx --test lib/neander/finance/project-list.test.ts",
+    "finance:verify-project-amounts-ui": "node e2e/project-amounts-ui.mjs",
     "finance:verify-focus": "tsx --conditions react-server scripts/neander/verify-assistant-focus.ts",
     "finance:verify-slots": "tsx scripts/neander/verify-import-slots.ts",
     "finance:verify-personal-expenses": "tsx scripts/neander/verify-personal-expense-import.ts",

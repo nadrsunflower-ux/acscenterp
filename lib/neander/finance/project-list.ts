@@ -38,11 +38,15 @@ export const PROJECT_LIST_KEYS = [
   "period",
   "delivery",
   "revenue",
+  "revenueTotal",
   "estimate",
   "actual",
   "profit",
   "margin",
   "unpaid",
+  "received",
+  "returned",
+  "overdue",
   "ledger",
   "ready",
   "docs",
@@ -55,7 +59,10 @@ export interface ProjectListSort {
   dir: "asc" | "desc";
 }
 
-const RANGE_KEYS = new Set<ProjectListKey>(["revenue", "estimate", "actual", "profit", "margin", "unpaid", "ledger"]);
+const RANGE_KEYS = new Set<ProjectListKey>([
+  "revenue", "revenueTotal", "estimate", "actual", "profit", "margin",
+  "unpaid", "received", "returned", "overdue", "ledger",
+]);
 export const isProjectRangeKey = (k: ProjectListKey) => RANGE_KEYS.has(k);
 
 /**
@@ -66,6 +73,8 @@ export function projectNumberOf(r: ProjectListRow, key: ProjectListKey): number 
   switch (key) {
     case "revenue":
       return r.s.revenue;
+    case "revenueTotal":
+      return r.s.revenueTotal;
     case "estimate":
       return r.s.estimate;
     case "actual":
@@ -76,6 +85,12 @@ export function projectNumberOf(r: ProjectListRow, key: ProjectListKey): number 
       return r.s.marginActual === null ? NaN : Math.round(r.s.marginActual * 1000) / 10;
     case "unpaid":
       return r.s.unpaid;
+    case "received":
+      return r.s.received;
+    case "returned":
+      return r.s.returned;
+    case "overdue":
+      return r.s.overdue;
     case "ledger":
       return r.s.ledger.count > 0 ? r.s.ledger.expense - r.s.ledger.refund : NaN;
     default:
