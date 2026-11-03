@@ -1,7 +1,10 @@
 import { adminDb } from "@/lib/neander/server/admin";
 import { createSpace, requestDb, updateSpace } from "@/lib/neander/shorts/server/space-db";
 import { analysisToTemplate } from "@/lib/neander/shorts/model";
-import { isShortsAdmin, requireShortsUser } from "@/lib/neander/shorts/server/access";
+import { AccessError, hasFinanceAccess } from "@/lib/neander/server/auth";
+import { isShortsAdmin, requireShortsUser, saveShortsAccess } from "@/lib/neander/shorts/server/access";
+import { financeProjectOptions } from "@/lib/neander/shorts/server/client-finance";
+import { deleteEvent, saveEvent } from "@/lib/neander/shorts/server/events";
 import { deleteCoupangKeys, saveCoupangKeys, saveProfileMeta, saveYoutubeKey, verifyCoupang } from "@/lib/neander/shorts/server/profiles";
 import { createClientProject, deleteClient, getClient, saveClient } from "@/lib/neander/shorts/server/clients";
 import { recordByStaff, reopenReview, sendForReview } from "@/lib/neander/shorts/server/reviews";
@@ -34,10 +37,25 @@ type Body = Record<string, unknown> & { action?: string };
 export async function POST(req: Request) {
   try {
     const { email } = await requireShortsUser(req);
-    const db = await requestDb(req, adminDb());
+    const db = await requestDb(req, adminDb(), email);
     const b = (await req.json()) as Body;
     switch (b.action) {
-      // ---- AI STUDIO 프로젝트 (채널 단위 · 팀 공용 — 보관은 관리자만)
+      // ---- 일정 (손으로 적는 촬영 · 미팅 · 마감 — 프로젝트 권한을 따른다)
+      case "event.save":
+        return json({ event: await saveEvent(db, email, b.id, b.event) });
+      case "event.delete":
+        await deleteEvent(db, email, b.id);
+        return json({ ok: true });
+
+      // ---- AI STUDIO 사용자 · 관리자 (관리자만 · 배포 설정에 더하는 목록)
+      case "access.save":
+        return json({ access: await saveShortsAccess(email, { users: b.users, admins: b.admins }) });
+      // ---- 업체에 붙일 재무 계약 프로젝트 고르기 (재무 권한이 있을 때만)
+      case "finance.options":
+        if (!hasFinanceAccess(email)) throw new AccessError(403, "재무 접근 권한이 없어 재무 프로젝트를 볼 수 없습니다.");
+        return json({ options: await financeProjectOptions(db) });
+
+      // ---- AI STUDIO 프로젝트 (채널 단위 · 자체 운영은 팀 공용 · 대행은 관리자와 업체 담당자 — 보관은 관리자만)
       case "space.create":
         return json({ space: await createSpace(db, email, b.space) });
       case "space.update":

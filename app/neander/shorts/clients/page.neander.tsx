@@ -1,10 +1,10 @@
 "use client";
 
 // ============================================================
-//  고객사 — 브랜드 대행 목록
+//  업체 · 계약 — 브랜드 대행 업체(고객사) 목록
 // ------------------------------------------------------------
-//  고객사마다 이 달 계약 편수 대비 진행 · 고객 검토 대기 · 수정 요청을 한 줄로.
-//  담당자만 보인다 (관리자는 「모든 사용자」 보기에서 전부 · 읽기 전용).
+//  업체마다 이 달 계약 편수 대비 진행 · 고객 검토 대기 · 수정 요청 · 대행 프로젝트 수 · 재무 계약(입금)을 한 줄로.
+//  담당자와 AI STUDIO 관리자에게 보인다 (관리자는 담당자가 아니면 읽기 전용). 재무 칸은 재무 권한이 있을 때만.
 //  조회수 약속 칸은 없다 — 계약은 제작 편수 · 수정 횟수까지다.
 // ============================================================
 
@@ -17,6 +17,7 @@ import { useShorts } from "@/components/neander/shorts/ShortsProvider";
 import { KindTile, Unknown, useAction } from "@/components/neander/shorts/parts";
 import { mutate } from "@/lib/neander/shorts/client";
 import { currentMonth, monthProgress } from "@/lib/neander/shorts/model";
+import { spaceKind } from "@/lib/neander/shorts/spaces";
 
 const STATUS = { active: ["진행", "success"], paused: ["멈춤", "warning"], ended: ["종료", "neutral"] } as const;
 
@@ -38,25 +39,27 @@ export default function ClientsPage() {
   return (
     <PageShell>
       <PageHeader
-        title="고객사"
-        description="브랜드 대행 — 고객사마다 계약(월 편수 · 수정 횟수) · 브리프 · 금지 표현 · 제품 사진 · 게시 계정을 두고, 월별로 영상을 만들어 승인받습니다. 조회수는 약속하지 않습니다."
-        actions={<Button icon={Plus} onClick={() => setCreating(true)}>새 고객사</Button>}
+        title="업체 · 계약"
+        description="브랜드 대행 업체 — 업체마다 계약(월 편수 · 수정 횟수) · 브리프 · 금지 표현 · 제품 사진 · 게시 방식 · 재무 계약 · 계약서를 두고, 브랜드(채널)마다 대행 프로젝트를 만들어 월별로 영상을 만들고 승인받습니다. 조회수는 약속하지 않습니다."
+        actions={<Button icon={Plus} onClick={() => setCreating(true)}>새 업체</Button>}
       />
       {rows.length === 0 ? (
-        <EmptyState icon={Briefcase} title="고객사가 없습니다" description="계약한 브랜드를 등록하면 월별 영상 · 검토 링크 · 월간 보고를 여기서 관리합니다. 내가 담당자인 고객사만 보입니다." action={<Button onClick={() => setCreating(true)}>새 고객사</Button>} />
+        <EmptyState icon={Briefcase} title="계약 업체가 없습니다" description="계약한 업체를 등록하면 대행 프로젝트 · 월별 영상 · 검토 링크 · 월간 보고 · 재무 계약을 여기서 관리합니다. 내가 담당자인 업체(관리자는 전부)가 보입니다." action={<Button onClick={() => setCreating(true)}>새 업체</Button>} />
       ) : (
         <Card padding="none" className="overflow-hidden">
           <TableScroll>
             <Table size="md" minWidth={980}>
               <thead>
                 <tr>
-                  <Th>고객사</Th>
+                  <Th>업체</Th>
                   <Th>상태</Th>
+                  <Th align="right">프로젝트</Th>
                   <Th align="right">{Number(month.slice(5))}월 제작 / 계약</Th>
                   <Th align="right">승인</Th>
                   <Th align="right">검토 대기</Th>
                   <Th align="right">수정 요청</Th>
                   <Th align="right">월 금액</Th>
+                  {d.financeAccess && <Th align="right">재무 계약 (받음 / 계약)</Th>}
                   <Th>담당자</Th>
                 </tr>
               </thead>
@@ -75,6 +78,7 @@ export default function ClientsPage() {
                         </div>
                       </Td>
                       <Td className="whitespace-nowrap"><Badge size="lg" dot tone={STATUS[c.status][1]}>{STATUS[c.status][0]}</Badge></Td>
+                      <Td num>{d.spaces.filter((x) => !x.archived && spaceKind(x) === "agency" && x.clientId === c.id).length}</Td>
                       <Td num className="whitespace-nowrap">
                         <span className="inline-flex items-center gap-2.5">
                           <Meter value={prog.made} max={prog.planned} width={56} />
@@ -101,6 +105,25 @@ export default function ClientsPage() {
                           </>
                         )}
                       </Td>
+                      {d.financeAccess && (
+                        <Td num className="whitespace-nowrap">
+                          {(() => {
+                            const fs = (d.clientFinance[c.id] ?? []).filter((x) => x.projectId);
+                            if (!fs.length) return <span className="text-nd-fg-3">이은 계약 없음</span>;
+                            const contract = fs.reduce((n, x) => n + x.contractAmount, 0);
+                            const known = fs.filter((x) => x.received !== null);
+                            const got = known.reduce((n, x) => n + (x.received ?? 0), 0);
+                            const overdue = fs.reduce((n, x) => n + x.overdue, 0);
+                            return (
+                              <>
+                                {known.length ? got.toLocaleString("ko-KR") : "—"} <span className="text-nd-fg-3">/</span> {contract.toLocaleString("ko-KR")}
+                                <span className="ml-0.5 text-nd-fg-3">원</span>
+                                {overdue > 0 && <div className="text-[13px] font-medium text-nd-danger-text">연체 {overdue}건</div>}
+                              </>
+                            );
+                          })()}
+                        </Td>
+                      )}
                       <Td className="max-w-[220px] truncate text-nd-fg-2" title={members}>{members || <span className="text-nd-fg-3">—</span>}</Td>
                     </Tr>
                   );
@@ -122,8 +145,8 @@ function NewClient({ onClose, onCreated }: { onClose: () => void; onCreated: (id
     <Dialog
       open
       onClose={onClose}
-      title="새 고객사"
-      description="자세한 브리프 · 제품 · 담당자는 만든 뒤 고객사 화면에서 채웁니다."
+      title="새 업체"
+      description="자세한 브리프 · 제품 · 담당자 · 게시 방식 · 재무 계약은 만든 뒤 업체 화면에서 채웁니다. 대행 프로젝트(브랜드 · 채널)는 업체 화면의 「프로젝트」 탭에서 만듭니다."
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>취소</Button>
@@ -144,7 +167,7 @@ function NewClient({ onClose, onCreated }: { onClose: () => void; onCreated: (id
       }
     >
       <div className="space-y-4">
-        <Field label="고객사(브랜드) 이름" required><Input autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
+        <Field label="업체 이름" required><Input autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
         <FormRow className="grid-cols-1 sm:grid-cols-3">
           <Field label="월 금액 (부가세 별도)"><NumberInput value={f.fee} onValueChange={(r) => setF({ ...f, fee: r })} /></Field>
           <Field label="월 편수"><NumberInput value={f.videos} onValueChange={(r) => setF({ ...f, videos: r })} /></Field>

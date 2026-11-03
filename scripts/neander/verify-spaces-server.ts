@@ -18,6 +18,10 @@ import * as folders from "@/lib/neander/shorts/server/folders";
 import * as accounts from "@/lib/neander/shorts/server/accounts";
 import * as secret from "@/lib/neander/shorts/server/secret";
 import * as platforms from "@/lib/neander/shorts/server/platforms";
+import * as clients from "@/lib/neander/shorts/server/clients";
+import * as access from "@/lib/neander/shorts/server/access";
+import { clientFinance } from "@/lib/neander/shorts/server/client-finance";
+import * as events from "@/lib/neander/shorts/server/events";
 import { getRadarSettings, saveRadarSettings } from "@/lib/neander/shorts/server/radar-run";
 import { getMarketSettings, saveNote, listNotes } from "@/lib/neander/shorts/server/market";
 import { getScoutAuto } from "@/lib/neander/shorts/server/scout-auto-run";
@@ -47,7 +51,7 @@ async function main() {
   const db = adminDb();
   const name = `검증 프로젝트 ${Date.now().toString(36)} (자동 삭제)`;
   let sid = "";
-  const made = { projects: [] as string[], templates: [] as string[], trends: [] as string[], folders: [] as string[], accounts: [] as string[], notes: [] as string[] };
+  const made = { projects: [] as string[], templates: [] as string[], trends: [] as string[], folders: [] as string[], accounts: [] as string[], notes: [] as string[], clients: [] as string[], spaces: [] as string[], events: [] as string[] };
   try {
     // ---- 1. 만들기 · 목록 · 머리글 ----
     const sp = await S.createSpace(db, A, { name, description: "반려동물 용품 AI 스토리 광고", production: "ai" });
@@ -168,6 +172,61 @@ async function main() {
     ok(spaceOf((await db.collection(NEANDER_COL.shortsAccounts).doc(yId).get()).data() as AccountDoc) === sid, "살림 화면에서 다시 연결해도 원래 프로젝트 그대로 (옮기려면 「프로젝트」 칸에서)");
     platforms.setPlatformFetch(null);
 
+    // ---- 9. 대행 프로젝트 — 업체(고객사) 담당자 · 관리자만 본다 ----
+    const cId = await clients.saveClient(db, A, null, { name: `검증 업체 ${Date.now().toString(36)} (자동 삭제)`, delivery: "file", contract: { videosPerMonth: 4, financeCodes: ["pj-verify-01", "bad code!"] } });
+    made.clients.push(cId);
+    const cDoc = await clients.getClientDoc(db, cId);
+    ok(cDoc.delivery === "file" && JSON.stringify(cDoc.contract.financeCodes) === JSON.stringify(["PJ-VERIFY-01"]), "업체 — 게시 방식 · 재무 계약 코드(대문자 · 엉뚱한 글자는 뺌)", JSON.stringify(cDoc.contract.financeCodes));
+    await rejects(S.createSpace(db, A, { name: "검증 대행 없음", kind: "agency" }), /업체를 골라/, "대행인데 업체가 없으면 거절");
+    await rejects(S.createSpace(db, B, { name: "검증 대행 남의 업체", kind: "agency", clientId: cId }), /담당자나 AI STUDIO 관리자/, "담당자 · 관리자가 아니면 그 업체의 대행 프로젝트를 못 만듦");
+    const ag1 = await S.createSpace(db, A, { name: `검증 대행 브랜드1 ${Date.now().toString(36)}`, kind: "agency", clientId: cId });
+    const ag2 = await S.createSpace(db, A, { name: `검증 대행 브랜드2 ${Date.now().toString(36)}`, kind: "agency", clientId: cId });
+    made.spaces.push(ag1.id, ag2.id);
+    ok(ag1.kind === "agency" && ag2.clientId === cId, "업체 하나에 대행 프로젝트 둘");
+    const seenA = (await S.listSpacesFor(db, A, false)).map((x) => x.id);
+    const seenB = (await S.listSpacesFor(db, B, false)).map((x) => x.id);
+    const seenAdmin = (await S.listSpacesFor(db, B, true)).map((x) => x.id);
+    ok(seenA.includes(ag1.id) && !seenB.includes(ag1.id) && seenAdmin.includes(ag2.id) && seenB.includes(DEFAULT_SPACE_ID), "담당자 · 관리자에게만 보이고 자체 운영은 누구나", JSON.stringify({ A: seenA.includes(ag1.id), B: seenB.includes(ag1.id), admin: seenAdmin.includes(ag2.id) }));
+    await rejects(S.spaceFromRequest(req(ag1.id), db, B), /대행 프로젝트라/, "담당자가 아니면 그 프로젝트로 요청할 수 없음 (머리글을 바꿔도)");
+    ok((await S.spaceFromRequest(req(ag1.id), db, A)) === ag1.id, "담당자는 그 프로젝트로 요청");
+    await rejects(S.updateSpace(db, B, ag1.id, { name: "남이 바꿈" }, false), /대행 프로젝트라/, "담당자가 아니면 대행 프로젝트를 못 고침");
+    // 담당자에 B 를 넣으면 바로 보인다 (사본 비우기)
+    await rejects(clients.saveClient(db, A, cId, { ...cDoc, members: [A, "nobody@test.invalid"] }), /등록된 팀원이 아닙니다/, "담당자는 등록된 팀원만");
+    // 브랜드 영상은 그 업체의 대행 프로젝트로 (지금 화면이 살림이어도)
+    const vid = await clients.createClientProject(ddb, A, { clientId: cId, month: "2026-11", spaceId: ag2.id });
+    made.projects.push(vid);
+    const vid2 = await clients.createClientProject(ddb, A, { clientId: cId, month: "2026-11" });
+    made.projects.push(vid2);
+    const v1 = (await db.collection(NEANDER_COL.shortsProjects).doc(vid).get()).data() as ProjectDoc;
+    const v2 = (await db.collection(NEANDER_COL.shortsProjects).doc(vid2).get()).data() as ProjectDoc;
+    ok(v1.spaceId === ag2.id && v1.kind === "brand" && [ag1.id, ag2.id].includes(v2.spaceId ?? ""), "브랜드 영상 — 고른 프로젝트 · 안 고르면 그 업체의 프로젝트(살림 아님)", JSON.stringify([v1.spaceId, v2.spaceId]));
+
+    // ---- 9-1. 일정 — 대행 프로젝트 일정은 담당자 · 관리자만 ----
+    const evA = await events.saveEvent(db, A, null, { title: "검증 업체 미팅", date: "2026-11-20", time: "14:00", kind: "meeting", spaceId: ag1.id });
+    made.events.push(evA.id);
+    ok(evA.clientId === cId && evA.spaceId === ag1.id, "대행 프로젝트 일정 — 업체가 찍힘");
+    await rejects(events.saveEvent(db, B, null, { title: "남의 업체", date: "2026-11-21", spaceId: ag1.id }), /적을 수 없습니다/, "담당자가 아니면 그 업체 일정을 못 적음");
+    ok(!(await events.listEvents(db, B, false)).some((e) => e.id === evA.id) && (await events.listEvents(db, B, true)).some((e) => e.id === evA.id), "담당자가 아니면 안 보이고 관리자는 봄");
+    const evB = await events.saveEvent(db, B, null, { title: "검증 살림 촬영", date: "2026-11-22", kind: "shoot", spaceId: DEFAULT_SPACE_ID });
+    made.events.push(evB.id);
+    ok((await events.listEvents(db, A, false)).some((e) => e.id === evB.id), "자체 운영 일정은 누구나 봄");
+    await rejects(events.saveEvent(db, A, evB.id, { title: "남이 고침" }), /적은 사람이나/, "적은 사람(또는 관리자)만 고침");
+    await rejects(events.deleteEvent(db, A, evB.id), /적은 사람이나/, "적은 사람(또는 관리자)만 지움");
+    await events.deleteEvent(db, B, evB.id);
+    ok(!(await db.collection(NEANDER_COL.shortsEvents).doc(evB.id).get()).exists, "적은 사람은 지움");
+
+    // ---- 10. AI STUDIO 사용자 · 관리자 (ERP 목록) — 관리자만 고친다 (실제 목록은 건드리지 않음) ----
+    await rejects(access.saveShortsAccess(A, { admins: [A] }), /관리자만/, "관리자가 아니면 사용자 · 관리자 목록을 못 고침");
+    const envAdmin = access.envShortsAdmins()[0];
+    if (envAdmin) await rejects(access.saveShortsAccess(envAdmin, { users: ["nobody@test.invalid"], admins: [envAdmin] }), /등록된 NEANDER 팀원이 아닙니다/, "팀원이 아닌 이메일은 넣을 수 없음 (저장 전에 거절)");
+
+    // ---- 11. 재무 계약 요약 — 실제 재무 자료를 읽기만 ----
+    const anyCode = (await db.collection(NEANDER_COL.finProjects).limit(20).get()).docs.map((x) => String((x.data() as { code?: string }).code ?? "")).find(Boolean);
+    const fin = await clientFinance(db, [...(anyCode ? [anyCode] : []), "PJ-NOT-THERE-99"]);
+    const missing = fin.find((x) => x.code === "PJ-NOT-THERE-99");
+    const real = anyCode ? fin.find((x) => x.code.toUpperCase() === anyCode.toUpperCase()) : null;
+    ok(missing?.projectId === null && (!anyCode || (real?.projectId && typeof real.contractAmount === "number" && Array.isArray(real.contracts))), "재무 계약 요약 — 있는 코드는 금액 · 계약서, 없는 코드는 「찾지 못함」", anyCode ? `${anyCode} · 계약서 ${real?.contracts.length}` : "재무 프로젝트 없음");
+
     // ---- 8. 자동 실행 — 프로젝트마다 남은 시간을 나눠 ----
     const until = Date.now() + 60_000;
     const seen: { name: string; left: number }[] = [];
@@ -182,6 +241,9 @@ async function main() {
   } finally {
     platforms.setPlatformFetch(null);
     // ---- 정리 ----
+    for (const id of made.events) await db.collection(NEANDER_COL.shortsEvents).doc(id).delete();
+    for (const id of made.spaces) await db.collection(NEANDER_COL.shortsSpaces).doc(id).delete();
+    for (const id of made.clients) await db.collection(NEANDER_COL.shortsClients).doc(id).delete();
     for (const id of made.projects) await db.collection(NEANDER_COL.shortsProjects).doc(id).delete();
     for (const id of made.templates) await db.collection(NEANDER_COL.shortsTemplates).doc(id).delete();
     for (const id of made.trends) await db.collection(NEANDER_COL.shortsTrends).doc(id).delete();

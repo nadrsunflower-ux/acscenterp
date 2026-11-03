@@ -22,6 +22,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useAppData } from "@/components/neander/app-data";
 import { setShortsSpace, shortsGet } from "@/lib/neander/shorts/client";
 import { DEFAULT_SPACE_ID, spaceOf, type SpaceView } from "@/lib/neander/shorts/spaces";
+import type { ClientFinanceSummary } from "@/lib/neander/shorts/agency";
+import type { ShortsEventView } from "@/lib/neander/shorts/calendar";
 import type {
   AccountView,
   ClientView,
@@ -44,8 +46,16 @@ export interface ShortsData {
   me: string;
   admin: boolean;
   scope: "mine" | "all";
-  /** AI STUDIO 프로젝트 — 보관한 것도 온다 (archived) */
+  /** AI STUDIO 프로젝트 — 보관한 것도 온다 (archived) · 대행은 관리자 · 그 업체 담당자에게만 */
   spaces: SpaceView[];
+  /** 재무 자료를 볼 수 있나 — 업체의 재무 계약 요약은 이때만 온다 */
+  financeAccess: boolean;
+  /** 업체 id → 재무 계약 요약 (agency.ts) */
+  clientFinance: Record<string, ClientFinanceSummary[]>;
+  /** 손으로 적은 일정 — 볼 수 있는 프로젝트의 것만 (calendar.ts) */
+  events: ShortsEventView[];
+  /** AI STUDIO 사용자 · 관리자 목록 — 관리자에게만 (fixed = 배포 설정에 있어 ERP 에서 못 뺌) */
+  access: { users: string[]; admins: string[]; fixedUsers: string[]; fixedAdmins: string[]; open: boolean } | null;
   profiles: ProfileView[];
   clients: ClientView[];
   /** 영상 폴더 — AI STUDIO 공용 나무 (shorts/folders.ts) */

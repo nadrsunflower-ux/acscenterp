@@ -42,3 +42,33 @@ test("새 프로젝트 기본값 · 목록 순서 — AI 생성이면 스토리 
   ]);
   assert.deepEqual(list.map((x) => x.id), [DEFAULT_SPACE_ID, "spaaaaaaaa", "spbbbbbbbb"]);
 });
+
+test("자체 운영 · 대행 — 대행은 업체가 있어야 하고, 만든 뒤엔 종류 · 업체를 바꾸지 않는다 · 관리자와 담당자만 본다", async () => {
+  const { canSeeSpace, spaceKind } = await import("./spaces");
+  assert.throws(() => sanitizeSpace({ name: "브랜드 A", kind: "agency" }, null, "a@x", 1), /업체/);
+  const ag = sanitizeSpace({ name: "브랜드 A", kind: "agency", clientId: "client_abc1" }, null, "a@x", 1);
+  assert.equal(spaceKind(ag), "agency");
+  assert.equal(ag.clientId, "client_abc1");
+  const own = sanitizeSpace({ name: "우리 채널", kind: "own", clientId: "client_abc1" }, null, "a@x", 1);
+  assert.equal(spaceKind(own), "own");
+  assert.equal(own.clientId, null); // 자체 운영엔 업체가 붙지 않는다
+  const moved = sanitizeSpace({ kind: "own", clientId: "other_xyz9" }, ag, "b@x", 2);
+  assert.equal(spaceKind(moved), "agency");
+  assert.equal(moved.clientId, "client_abc1");
+  assert.equal(spaceKind({}), "own"); // 예전 문서
+  const members = (id: string) => (id === "client_abc1" ? ["m@x"] : undefined);
+  assert.equal(canSeeSpace(own, "anyone@x", false, members), true);
+  assert.equal(canSeeSpace(ag, "m@x", false, members), true);
+  assert.equal(canSeeSpace(ag, "anyone@x", false, members), false);
+  assert.equal(canSeeSpace(ag, "boss@x", true, members), true);
+});
+
+test("업체 재무 계약 코드 · 계약 기간", async () => {
+  const { clientFinanceCodes, inContract } = await import("./agency");
+  const base = { monthlyFeeKrw: null, vat: "excluded" as const, videosPerMonth: 8, revisionLimit: 2, startMonth: "2026-11", endMonth: "2027-04", note: "" };
+  assert.deepEqual(clientFinanceCodes({ contract: { ...base, financeCode: "pj-2611-01", financeCodes: ["PJ-2611-01", "PJ-2612-03"] } }), ["PJ-2611-01", "PJ-2612-03"]);
+  assert.deepEqual(clientFinanceCodes({ contract: { ...base, financeCode: "" } }), []);
+  assert.equal(inContract({ contract: { ...base, financeCode: "" } }, "2026-12"), true);
+  assert.equal(inContract({ contract: { ...base, financeCode: "" } }, "2027-05"), false);
+  assert.equal(inContract({ contract: { ...base, financeCode: "", endMonth: null } }, "2030-01"), true);
+});

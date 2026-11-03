@@ -54,6 +54,12 @@ const bootstrapAdmins = () =>
 const financeAllowlist = () =>
   (process.env.NEANDER_FINANCE_EMAILS ?? "").split(",").map(norm).filter(Boolean);
 
+/** 재무 자료를 볼 수 있는 사람인가 (requireErpUser 와 같은 기준) — 다른 모듈이 재무 숫자를 보여 줄지 정할 때 */
+export const hasFinanceAccess = (email: string) => {
+  const allow = financeAllowlist();
+  return allow.length === 0 || allow.includes(norm(email));
+};
+
 /**
  * 요청에서 신원을 확인하고 NEANDER 팀원인지까지만 검사한다 (1단계).
  * 재무 허용 목록과 무관한 개인 기능(메일)이 쓴다.

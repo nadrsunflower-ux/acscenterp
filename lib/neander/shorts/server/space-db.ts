@@ -16,7 +16,9 @@ import "server-only";
 import type { Firestore } from "firebase-admin/firestore";
 import { AccessError } from "@/lib/neander/server/auth";
 import { NEANDER_COL } from "@/lib/neander/collections";
-import { DEFAULT_SPACE, DEFAULT_SPACE_ID, SPACE_HEADER, isSpaceId, sanitizeSpace, sortSpaces, type SpaceDoc, type SpaceView } from "../spaces";
+import { DEFAULT_SPACE, DEFAULT_SPACE_ID, SPACE_HEADER, canSeeSpace, isSpaceId, sanitizeSpace, sortSpaces, spaceKind, type SpaceDoc, type SpaceView } from "../spaces";
+import type { ClientDoc } from "../types";
+import { isShortsAdmin } from "./access";
 
 const SPACE = Symbol("neander.shorts.space");
 const ROOT = Symbol("neander.shorts.root");
@@ -77,6 +79,35 @@ export async function listSpaces(db: Firestore, withArchived = false): Promise<S
   return sortSpaces(list.filter((s) => withArchived || !s.archived));
 }
 
+// ---- 대행 프로젝트 — 업체 담당자 (1분 사본) ----------------------------------
+
+let membersCache: { map: Map<string, string[]>; at: number } = { map: new Map(), at: 0 };
+const MEMBERS_MS = 60_000;
+
+/** 업체(고객사) id → 담당자 — 대행 프로젝트를 누가 보나 */
+export async function clientMembersMap(db: Firestore, force = false): Promise<Map<string, string[]>> {
+  if (!force && Date.now() - membersCache.at < MEMBERS_MS) return membersCache.map;
+  const snap = await rootDb(db).collection(NEANDER_COL.shortsClients).get();
+  membersCache = { map: new Map(snap.docs.map((d) => [d.id, (d.data() as ClientDoc).members ?? []])), at: Date.now() };
+  return membersCache.map;
+}
+/** 업체 담당자가 바뀌면 (clients.saveClient) */
+export const forgetClientMembers = () => {
+  membersCache.at = 0;
+};
+
+/** 이 사람이 볼 수 있는 프로젝트 — 대행은 관리자 · 그 업체 담당자만 */
+export async function listSpacesFor(db: Firestore, email: string, admin: boolean, withArchived = false): Promise<SpaceView[]> {
+  const [list, members] = await Promise.all([listSpaces(db, withArchived), clientMembersMap(db)]);
+  return list.filter((s) => canSeeSpace(s, email, admin, (id) => members.get(id)));
+}
+
+export async function assertSpaceAccess(db: Firestore, s: SpaceView, email: string): Promise<void> {
+  if (spaceKind(s) === "own") return;
+  const members = await clientMembersMap(db);
+  if (!canSeeSpace(s, email, isShortsAdmin(email), (id) => members.get(id))) throw new AccessError(403, `「${s.name}」 은(는) 대행 프로젝트라 AI STUDIO 관리자와 그 업체 담당자만 봅니다.`);
+}
+
 export async function getSpace(db: Firestore, id: string): Promise<SpaceView | null> {
   if (!isSpaceId(id)) return null;
   const d = (await spacesCol(db).doc(id).get()).data() as SpaceDoc | undefined;
@@ -89,11 +120,16 @@ const newSpaceId = () => `sp${Math.random().toString(36).slice(2, 8)}${Date.now(
 export async function createSpace(db: Firestore, email: string, input: unknown): Promise<SpaceView> {
   const now = Date.now();
   const doc = sanitizeSpace(input, null, email, now);
+  if (spaceKind(doc) === "agency") {
+    // 대행 — 있는 업체여야 하고, 만드는 사람은 그 업체 담당자 또는 관리자
+    const members = (await clientMembersMap(db, true)).get(doc.clientId!);
+    if (!members) throw new AccessError(404, "계약 업체를 찾지 못했습니다.");
+    if (!members.includes(email) && !isShortsAdmin(email)) throw new AccessError(403, "그 업체의 담당자나 AI STUDIO 관리자만 대행 프로젝트를 만듭니다.");
+  }
   const all = await listSpaces(db, true);
   if (all.some((s) => s.name === doc.name)) throw new Error(`「${doc.name}」 프로젝트가 이미 있습니다.`);
   const id = newSpaceId();
   await spacesCol(db).doc(id).create({ ...doc, order: Math.max(0, ...all.map((s) => s.order)) + 1 });
-  known.set(id, Date.now());
   return { ...doc, id };
 }
 
@@ -107,6 +143,7 @@ export async function updateSpace(db: Firestore, email: string, id: unknown, inp
     if (!admin) throw new AccessError(403, "프로젝트 보관은 AI STUDIO 관리자만 합니다.");
     if (id === DEFAULT_SPACE_ID && r.archived) throw new Error("기본 프로젝트는 보관할 수 없습니다.");
   }
+  await assertSpaceAccess(db, prev, email);
   const { id: _id, ...base } = prev;
   const next = sanitizeSpace(r, base, email);
   if (next.name !== prev.name && (await listSpaces(db, true)).some((s) => s.id !== id && s.name === next.name)) throw new Error(`「${next.name}」 프로젝트가 이미 있습니다.`);
@@ -125,24 +162,32 @@ export async function spaceNiche(db: Firestore): Promise<{ name: string; descrip
 // ---- 요청의 프로젝트 ----------------------------------------------------------
 
 const known = new Map<string, number>();
+const knownSpace = new Map<string, SpaceView>();
 const KNOWN_MS = 5 * 60_000;
 
-/** 화면이 보낸 프로젝트(머리글)가 있는 프로젝트인지 — 없는 id 로 아무 컬렉션이나 만들지 않게 */
-export async function spaceFromRequest(req: Request, db: Firestore): Promise<string> {
+/**
+ * 화면이 보낸 프로젝트(머리글)가 있는 프로젝트인지 — 없는 id 로 아무 컬렉션이나 만들지 않게.
+ * email 을 주면 대행 프로젝트를 볼 수 있는 사람인지도 본다 (관리자 · 그 업체 담당자).
+ */
+export async function spaceFromRequest(req: Request, db: Firestore, email?: string): Promise<string> {
   const raw = (req.headers.get(SPACE_HEADER) ?? "").trim();
   if (!raw || raw === DEFAULT_SPACE_ID) return DEFAULT_SPACE_ID;
   if (!isSpaceId(raw)) throw new Error("프로젝트 id 가 올바르지 않습니다.");
   const at = known.get(raw);
-  if (at && Date.now() - at < KNOWN_MS) return raw;
-  const s = await getSpace(db, raw);
-  if (!s) throw new AccessError(404, "고른 프로젝트를 찾지 못했습니다. 위의 프로젝트를 다시 골라 주세요.");
-  known.set(raw, Date.now());
+  let s = at && Date.now() - at < KNOWN_MS ? (knownSpace.get(raw) ?? null) : null;
+  if (!s) {
+    s = await getSpace(db, raw);
+    if (!s) throw new AccessError(404, "고른 프로젝트를 찾지 못했습니다. 위의 프로젝트를 다시 골라 주세요.");
+    known.set(raw, Date.now());
+    knownSpace.set(raw, s);
+  }
+  if (email) await assertSpaceAccess(db, s, email);
   return raw;
 }
 
-/** 요청의 프로젝트로 감싼 db */
-export async function requestDb(req: Request, db: Firestore): Promise<Firestore> {
-  return spaceDb(db, await spaceFromRequest(req, db));
+/** 요청의 프로젝트로 감싼 db — email 을 주면 대행 프로젝트 권한도 본다 */
+export async function requestDb(req: Request, db: Firestore, email?: string): Promise<Firestore> {
+  return spaceDb(db, await spaceFromRequest(req, db, email));
 }
 
 /**

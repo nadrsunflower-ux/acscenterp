@@ -52,8 +52,9 @@ import { FolderPanel, VIDEO_DRAG_TYPE } from "@/components/neander/shorts/folder
 import { FolderNameDialog, MoveVideosDialog } from "@/components/neander/shorts/folders/FolderDialogs";
 import { mutate } from "@/lib/neander/shorts/client";
 import { folderCounts, folderLabel, folderTree, inFolder } from "@/lib/neander/shorts/folders";
-import { REVIEW_LABEL, STAGE_LABEL, confirmedCandidate, projectCost } from "@/lib/neander/shorts/model";
+import { currentMonth, REVIEW_LABEL, STAGE_LABEL, confirmedCandidate, projectCost } from "@/lib/neander/shorts/model";
 import type { FolderView, ProjectDoc, ProjectKind, ProjectStage } from "@/lib/neander/shorts/types";
+import { spaceKind } from "@/lib/neander/shorts/spaces";
 
 const REVIEW_TONE: Record<ProjectDoc["review"]["state"], Tone> = { none: "neutral", waiting: "warning", revision: "danger", approved: "success" };
 
@@ -549,6 +550,72 @@ function VideoRow({
 }
 
 function NewProjectDialog({ folderName, onClose, onCreated }: { folderName: string | null; onClose: () => void; onCreated: (id: string) => Promise<void> }) {
+  const { currentSpace } = useShorts();
+  // 대행 프로젝트면 그 업체의 브랜드 영상 (계약 월 · 제품)
+  if (currentSpace && spaceKind(currentSpace) === "agency") return <NewAgencyVideo folderName={folderName} onClose={onClose} onCreated={onCreated} />;
+  return <NewOwnVideo folderName={folderName} onClose={onClose} onCreated={onCreated} />;
+}
+
+function NewAgencyVideo({ folderName, onClose, onCreated }: { folderName: string | null; onClose: () => void; onCreated: (id: string) => Promise<void> }) {
+  const { busy, run } = useAction();
+  const { data, currentSpace } = useShorts();
+  const client = data?.clients.find((c) => c.id === currentSpace?.clientId) ?? null;
+  const [f, setF] = useState({ month: currentMonth(), productId: client?.products[0]?.id ?? "", title: "" });
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title="새 브랜드 영상"
+      description={`${folderName ? `「${folderName}」 폴더에 만듭니다. ` : ""}「${client?.name ?? "업체"}」 의 계약분 — 제품의 확인된 사실이 대본 재료가 됩니다. 형식 카드는 업체 화면의 「영상 추가」 에서 고를 수 있습니다.`}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            취소
+          </Button>
+          <Button
+            disabled={busy === "c" || !client?.canEdit}
+            onClick={() =>
+              void run("c", async () => {
+                const r = await mutate<{ id: string }>("client.createProject", { clientId: client!.id, spaceId: currentSpace!.id, month: f.month, productId: f.productId, formatId: "", brandTarget: "client", title: f.title });
+                await onCreated(r.id);
+              })
+            }
+          >
+            만들기
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {!client ? (
+          <InlineNotice tone="warning">이 대행 프로젝트의 업체를 찾지 못했습니다.</InlineNotice>
+        ) : !client.canEdit ? (
+          <InlineNotice tone="neutral">「{client.name}」 의 담당자만 영상을 만듭니다 — 업체 화면에서 담당자로 넣어 달라고 요청하세요.</InlineNotice>
+        ) : null}
+        <FormRow className="grid-cols-1 sm:grid-cols-2">
+          <Field label="계약 월">
+            <Input type="month" value={f.month} onChange={(e) => setF({ ...f, month: e.target.value || currentMonth() })} />
+          </Field>
+          <Field label="제품">
+            <Select value={f.productId} onChange={(e) => setF({ ...f, productId: e.target.value })}>
+              <option value="">(제품 미정)</option>
+              {(client?.products ?? []).map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </FormRow>
+        <Field label="제목 (비우면 자동)">
+          <Input value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} />
+        </Field>
+      </div>
+    </Dialog>
+  );
+}
+
+function NewOwnVideo({ folderName, onClose, onCreated }: { folderName: string | null; onClose: () => void; onCreated: (id: string) => Promise<void> }) {
   const { busy, run } = useAction();
   // 새 영상 기본 종류는 지금 프로젝트의 설정에서
   const { currentSpace } = useShorts();
@@ -558,7 +625,7 @@ function NewProjectDialog({ folderName, onClose, onCreated }: { folderName: stri
       open
       onClose={onClose}
       title="새 영상"
-      description={`${folderName ? `「${folderName}」 폴더에 만듭니다. ` : ""}고객사(브랜드) 영상은 고객사 화면의 「영상 추가」 로 만듭니다.`}
+      description={`${folderName ? `「${folderName}」 폴더에 만듭니다. ` : ""}업체(브랜드) 영상은 그 업체의 대행 프로젝트에서 만듭니다.`}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>

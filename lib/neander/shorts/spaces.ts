@@ -15,11 +15,23 @@ import type { ProjectKind } from "./types";
 
 export const DEFAULT_SPACE_ID = "salim";
 
+/**
+ * 자체 운영 = 우리 채널을 키운다 (쿠팡 수수료 · 광고 수익).
+ * 대행 = 계약한 업체(고객사 · clients)의 브랜드를 맡아 운영한다 — 업체 하나에 프로젝트 여러 개.
+ * 대행 프로젝트는 AI STUDIO 관리자와 그 업체 담당자만 본다 (계약 금액 · 브리프가 들어 있어서).
+ */
+export type SpaceKind = "own" | "agency";
+export const SPACE_KIND_LABEL: Record<SpaceKind, string> = { own: "자체 운영", agency: "대행" };
+
 export type SpaceProduction = "shoot" | "ai";
 export const PRODUCTION_LABEL: Record<SpaceProduction, string> = { shoot: "직접 촬영", ai: "AI 생성" };
 
 export interface SpaceDoc {
   name: string;
+  /** 자체 운영 · 대행 — 만들 때 정하고 바꾸지 않는다 (없으면 자체 운영) */
+  kind?: SpaceKind;
+  /** 대행이면 계약 업체(고객사) id */
+  clientId?: string | null;
   /** 어떤 채널인가 — 주제 · 시청자 · 톤 (AI 가 참고) */
   description: string;
   production: SpaceProduction;
@@ -41,6 +53,8 @@ export type SpaceView = SpaceDoc & { id: string };
 
 export const DEFAULT_SPACE: SpaceDoc = {
   name: "살림설계사무소",
+  kind: "own",
+  clientId: null,
   description: "다이소 · 생활템을 직접 사서 찍어 소개하는 쇼츠 — 쿠팡 제휴 · 일반 정보",
   production: "shoot",
   defaultKind: "coupang",
@@ -52,6 +66,18 @@ export const DEFAULT_SPACE: SpaceDoc = {
   updatedAt: 0,
   updatedBy: "system",
 };
+
+/** 자체 운영 · 대행 (예전 문서는 kind 가 없다 — 자체 운영) */
+export const spaceKind = (s: Pick<SpaceDoc, "kind"> | null | undefined): SpaceKind => (s?.kind === "agency" ? "agency" : "own");
+
+/**
+ * 이 사람이 이 프로젝트를 볼 수 있나 — 자체 운영은 팀 공용, 대행은 관리자 · 그 업체 담당자만.
+ * membersOf: 업체 id → 담당자 이메일 (없는 업체면 undefined)
+ */
+export function canSeeSpace(s: Pick<SpaceDoc, "kind" | "clientId">, email: string, admin: boolean, membersOf: (clientId: string) => string[] | undefined): boolean {
+  if (spaceKind(s) === "own" || admin) return true;
+  return !!s.clientId && !!membersOf(s.clientId)?.includes(email);
+}
 
 /** 자료가 어느 프로젝트의 것인가 — spaceId 가 없으면 처음부터 있던 「살림설계사무소」 */
 export const spaceOf = (d: { spaceId?: string | null } | null | undefined): string => d?.spaceId || DEFAULT_SPACE_ID;
@@ -67,9 +93,15 @@ export function sanitizeSpace(input: unknown, prev: SpaceDoc | null, email: stri
   const base = prev ?? { ...DEFAULT_SPACE, name: "", description: "", createdBy: email, createdAt: now, order: now, ...newSpaceDefaults(r.production === "ai" ? "ai" : "shoot") };
   const name = str(r.name, 40).trim() || base.name;
   if (!name) throw new Error("프로젝트 이름을 적어 주세요.");
+  // 자체 운영 · 대행과 업체는 만들 때만 정한다 (자료가 그 업체의 담당자 권한을 따르므로)
+  const kind: SpaceKind = prev ? spaceKind(prev) : r.kind === "agency" ? "agency" : "own";
+  const clientId = prev ? (prev.clientId ?? null) : kind === "agency" && typeof r.clientId === "string" && /^[\w-]{6,60}$/.test(r.clientId) ? r.clientId : null;
+  if (kind === "agency" && !clientId) throw new Error("대행 프로젝트는 계약 업체를 골라 주세요.");
   return {
     ...base,
     name,
+    kind,
+    clientId,
     description: r.description === undefined ? base.description : str(r.description, 1000).trim(),
     production: r.production === "ai" || r.production === "shoot" ? r.production : base.production,
     defaultKind: r.defaultKind === "general" || r.defaultKind === "coupang" ? r.defaultKind : base.defaultKind,

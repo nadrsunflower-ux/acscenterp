@@ -43,6 +43,7 @@ import * as scoutAuto from "@/lib/neander/shorts/server/scout-auto-run";
 import * as scoutStore from "@/lib/neander/shorts/server/scout-store";
 import * as scriptWriter from "@/lib/neander/shorts/server/script-writer";
 import * as folders from "@/lib/neander/shorts/server/folders";
+import * as spaceDbMod from "@/lib/neander/shorts/server/space-db";
 import { setScoutAiFetch } from "@/lib/neander/shorts/server/scout-ai";
 import { DEFAULT_SCOUT_AUTO, type ScoutAutoSummary } from "@/lib/neander/shorts/scout-auto";
 import type { HitAnalysis } from "@/lib/neander/shorts/scout";
@@ -79,7 +80,7 @@ async function main() {
   const foreign = live.docs.filter((d) => ![A, B].includes((d.data() as JobDoc).owner));
   if (foreign.length) throw new Error(`실제 쇼츠 작업 ${foreign.length}건이 대기 중이라 검증을 시작하지 않습니다.`);
 
-  const created = { projects: [] as string[], trends: [] as string[], clients: [] as string[], watch: [] as string[], hits: [] as string[], formats: [] as string[], folders: [] as string[] };
+  const created = { projects: [] as string[], trends: [] as string[], clients: [] as string[], watch: [] as string[], hits: [] as string[], formats: [] as string[], folders: [] as string[], spaces: [] as string[] };
   try {
     // ---- 1. 사람별 분리 ----
     const pid = await store.createProject(db, A, { product: "검증 선반", visibility: "private" });
@@ -449,6 +450,9 @@ async function main() {
       products: [{ name: "검증 크림", facts: ["용량 50ml"] }],
     });
     created.clients.push(cid);
+    // 고객사 영상은 그 업체의 대행 프로젝트에 들어간다 — 검증용 대행 프로젝트 하나
+    const cSpace = await spaceDbMod.createSpace(db, A, { name: `검증 고객사 브랜드 ${Date.now().toString(36)}`, kind: "agency", clientId: cid });
+    created.spaces.push(cSpace.id);
     const cid2 = await clients.saveClient(db, A, null, { name: "검증 다른 고객사" });
     created.clients.push(cid2);
     const cDoc = await clients.getClient(db, A, cid);
@@ -1052,6 +1056,7 @@ async function main() {
       for (const d of v.docs) await d.ref.delete();
       await db.collection(NEANDER_COL.shortsProjects).doc(id).delete();
     }
+    for (const id of created.spaces) await db.collection(NEANDER_COL.shortsSpaces).doc(id).delete();
     for (const id of created.clients) {
       const m = await db.collection(NEANDER_COL.shortsMedia).where("clientId", "==", id).get();
       for (const d of m.docs) await db.recursiveDelete(d.ref);

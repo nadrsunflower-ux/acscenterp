@@ -63,7 +63,7 @@ async function ytKey(db: Db, email: string, countSearch: boolean): Promise<strin
 export async function GET(req: Request) {
   try {
     const { email } = await requireShortsUser(req);
-    const db = await requestDb(req, adminDb());
+    const db = await requestDb(req, adminDb(), email);
     const [channels, hits, formats, reports, settings, yk] = await Promise.all([
       listWatch(db),
       listHits(db),
@@ -96,7 +96,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const { email } = await requireShortsUser(req);
-    const db = await requestDb(req, adminDb());
+    const db = await requestDb(req, adminDb(), email);
     const b = (await req.json()) as Record<string, unknown>;
     switch (b.action) {
       // ---- 감시 채널 ----

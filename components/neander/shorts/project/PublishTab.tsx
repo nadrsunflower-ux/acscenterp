@@ -115,8 +115,15 @@ export function PublishTab({ draft }: { draft: Draft }) {
       x.compliance[key] = { system: cur.system, user: ok ? { ok: true, by: d.me, at: Date.now(), note: note ?? cur.user?.note ?? "" } : null };
     });
 
+  // 업체가 「완성 파일만 납품」 이면 게시는 고객사가 한다 — 우리는 승인된 파일을 넘긴다
+  const fileOnly = p.kind === "brand" && d.clients.find((c) => c.id === p.clientId)?.delivery === "file";
   return (
     <div className="space-y-10">
+      {fileOnly && (
+        <InlineNotice tone="info">
+          이 업체는 <b>완성 파일만 납품</b>합니다 — 고객이 승인한 완성 파일을 아래 「완성 파일」 에서 내려받아 전달하세요. 게시는 고객사가 합니다(우리 계정으로 올리지 않습니다).
+        </InlineNotice>
+      )}
       <section>
         <SectionHeader size="lg" title="게시 설정" hint="제목 · 설명 · 해시태그 · 공개 범위 · 고지" />
         <Card className="space-y-4">

@@ -825,8 +825,10 @@ export interface ClientDoc {
     revisionLimit: number;
     startMonth: string;
     endMonth: string | null;
-    /** 재무 프로젝트 코드 (PJ-…) — 입금 · 손익은 재무에서 */
+    /** 재무 프로젝트 코드 (PJ-…) — 예전 한 칸. 지금은 financeCodes 를 쓴다 */
     financeCode: string;
+    /** 이 업체와 맺은 재무 계약 프로젝트들 (PJ-…) — 계약서 · 입금 · 손익은 재무에서 (client-finance.ts) */
+    financeCodes?: string[];
     note: string;
   };
   brief: {
@@ -843,7 +845,15 @@ export interface ClientDoc {
   products: ClientProduct[];
   /** 고객사 담당자 이름 (연락처는 두지 않는다) */
   contactName: string;
+  /**
+   * 게시 방식 — upload: 고객이 승인한 파일을 우리가 고객사 계정에 올린다 · file: 완성 파일만 넘긴다(게시는 고객사).
+   * 업체마다 다르다. 없으면 upload
+   */
+  delivery?: ClientDelivery;
 }
+
+export type ClientDelivery = "upload" | "file";
+export const CLIENT_DELIVERY_LABEL: Record<ClientDelivery, string> = { upload: "우리가 고객사 계정에 게시", file: "완성 파일만 납품" };
 
 export type ClientView = ClientDoc & { id: string; canEdit: boolean };
 

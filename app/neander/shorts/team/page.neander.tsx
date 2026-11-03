@@ -9,12 +9,13 @@
 //  쿠팡 키는 상태만 보인다 — 키 값은 서버 밖으로 나오지 않는다.
 // ============================================================
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Badge, Card, InlineNotice, PageHeader, PageShell, Table, TableScroll, Td, Th, TotalRow, Tr } from "@/components/neander/ui";
+import { Badge, Button, Card, Checkbox, InlineNotice, PageHeader, PageShell, SectionHeader, Table, TableScroll, Td, Th, TotalRow, Tr } from "@/components/neander/ui";
 import { useAppData } from "@/components/neander/app-data";
 import { useShorts } from "@/components/neander/shorts/ShortsProvider";
-import { Num, Unknown, fmtUsd } from "@/components/neander/shorts/parts";
+import { Num, Unknown, fmtUsd, useAction } from "@/components/neander/shorts/parts";
+import { mutate } from "@/lib/neander/shorts/client";
 import { fmtPct, perfRates, projectCost, projectTotals, type PerfTotals } from "@/lib/neander/shorts/model";
 import type { AccountView } from "@/lib/neander/shorts/types";
 import { spaceOf } from "@/lib/neander/shorts/spaces";
@@ -90,9 +91,10 @@ export default function TeamPage() {
         title="사용자별 현황"
         description="ERP 사용자마다 자기 채널 세트(YouTube · Instagram · 쿠팡 파트너스)와 영상 · 게시 · 성과를 따로 관리합니다. 이름을 누르면 그 사람의 것만 모아 봅니다."
       />
+      {d.admin && d.access && <AccessCard access={d.access} />}
       {!d.admin ? (
         <InlineNotice tone="neutral" className="mb-4">
-          모든 사용자의 현황은 AI STUDIO 관리자만 봅니다 (NEANDER_SHORTS_ADMIN_EMAILS). 지금은 내 줄만 보입니다 — 다른 사람의 팀 공개 영상은 위쪽 「보기」 에서 고를 수 있습니다.
+          모든 사용자의 현황은 AI STUDIO 관리자만 봅니다. 지금은 내 줄만 보입니다 — 다른 사람의 팀 공개 영상은 위쪽 「보기」 에서 고를 수 있습니다.
         </InlineNotice>
       ) : (
         <InlineNotice tone="info" className="mb-4">
@@ -203,5 +205,75 @@ function CountRate({ value, rate }: { value: number | null; rate: number | null 
       <Num value={value} />
       <div className="nd-num text-[13px] text-nd-fg-3">({rate === null ? "—" : fmtPct(rate)})</div>
     </div>
+  );
+}
+
+/**
+ * AI STUDIO 사용자 · 관리자 — 관리자만 고친다. 배포 설정(환경변수)에 있는 사람은 「고정」.
+ * 관리자는 모든 사람의 것과 대행 프로젝트(업체별)를 읽고, 프로젝트 보관 · 자동화 설정을 바꾼다.
+ */
+function AccessCard({ access }: { access: NonNullable<ReturnType<typeof useShorts>["data"]>["access"] & object }) {
+  const { members } = useAppData();
+  const { data, refresh } = useShorts();
+  const { busy, run } = useAction();
+  const me = data!.me;
+  const [users, setUsers] = useState<string[]>(access.users);
+  const [admins, setAdmins] = useState<string[]>(access.admins);
+  const people = members.filter((m) => m.email).map((m) => ({ name: m.name, email: (m.email ?? "").toLowerCase() }));
+  const fixedAdmin = (e: string) => access.fixedAdmins.includes(e);
+  const fixedUser = (e: string) => access.open || access.fixedUsers.includes(e) || fixedAdmin(e);
+  const isAdmin = (e: string) => fixedAdmin(e) || admins.includes(e);
+  const isUser = (e: string) => isAdmin(e) || fixedUser(e) || users.includes(e);
+  const toggle = (list: string[], e: string, on: boolean) => (on ? [...new Set([...list, e])] : list.filter((x) => x !== e));
+  const dirty = users.join() !== access.users.join() || admins.join() !== access.admins.join();
+  return (
+    <section className="mb-6">
+      <SectionHeader size="lg" title="AI STUDIO 사용자 · 관리자" hint="관리자는 모든 사람의 것과 대행 프로젝트(업체별)를 보고, 보관 · 자동화 설정을 바꿉니다 — 「고정」 은 배포 설정이라 여기서 못 뺍니다" />
+      <Card padding="none" className="overflow-hidden">
+        <TableScroll>
+          <Table size="md" minWidth={560}>
+            <thead>
+              <tr>
+                <Th>팀원</Th>
+                <Th>AI STUDIO 사용</Th>
+                <Th>관리자</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {people.map((p) => (
+                <Tr key={p.email}>
+                  <Td>
+                    <span className="font-medium">{p.name}</span>
+                    <span className="ml-2 text-[13px] text-nd-fg-3">{p.email}</span>
+                  </Td>
+                  <Td>
+                    <Checkbox
+                      checked={isUser(p.email)}
+                      disabled={fixedUser(p.email) || isAdmin(p.email)}
+                      onChange={(e) => setUsers(toggle(users, p.email, e.target.checked))}
+                      label={<span className="text-[13px] text-nd-fg-3">{fixedUser(p.email) ? (access.open ? "팀원 누구나" : "고정") : isAdmin(p.email) ? "관리자라서" : ""}</span>}
+                    />
+                  </Td>
+                  <Td>
+                    <Checkbox
+                      checked={isAdmin(p.email)}
+                      disabled={fixedAdmin(p.email) || (p.email === me && !fixedAdmin(me))}
+                      onChange={(e) => setAdmins(toggle(admins, p.email, e.target.checked))}
+                      label={<span className="text-[13px] text-nd-fg-3">{fixedAdmin(p.email) ? "고정" : p.email === me ? "나 (스스로 못 뺌)" : ""}</span>}
+                    />
+                  </Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
+        </TableScroll>
+        <div className="flex items-center gap-3 border-t border-nd-line px-4 py-3">
+          <Button size="sm" disabled={!dirty} loading={busy === "save"} onClick={() => void run("save", async () => { await mutate("access.save", { users, admins }); await refresh(); }, "AI STUDIO 사용자 · 관리자를 저장했습니다 — 1분 안에 반영됩니다.")}>
+            저장
+          </Button>
+          <span className="text-[13px] text-nd-fg-3">관리자는 사용자이기도 합니다. 바꾸면 1분 안에 모든 서버에 반영됩니다.</span>
+        </div>
+      </Card>
+    </section>
   );
 }

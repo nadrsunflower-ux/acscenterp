@@ -206,6 +206,8 @@ export const NEANDER_COL = {
    * 분석 컬렉션(레이더 · 정찰 · 시장 · 노트 · 대본 · 설정)을 `<이름>__<프로젝트 id>` 로 따로 쓴다 (server/space-db.ts)
    */
   shortsSpaces: "neander_shorts_spaces",
+  /** AI STUDIO 일정 — 손으로 적는 촬영 · 미팅 · 마감 (프로젝트마다 · shorts/calendar.ts · server/events.ts) */
+  shortsEvents: "neander_shorts_events",
   /** 참고 자료 · 구성 분석 · 대본의 버전 기록 */
   shortsVersions: "neander_shorts_versions",
   /** 성공 공식 템플릿 */

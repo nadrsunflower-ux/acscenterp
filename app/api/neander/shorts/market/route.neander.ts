@@ -37,7 +37,7 @@ export const maxDuration = 300;
 export async function GET(req: Request) {
   try {
     const { email } = await requireShortsUser(req);
-    const db = await requestDb(req, adminDb());
+    const db = await requestDb(req, adminDb(), email);
     const u = new URL(req.url);
     if (u.searchParams.has("compare")) {
       return json(
@@ -95,7 +95,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const { email } = await requireShortsUser(req);
-    const db = await requestDb(req, adminDb());
+    const db = await requestDb(req, adminDb(), email);
     const b = (await req.json()) as Record<string, unknown>;
     switch (b.action) {
       case "settings.save":

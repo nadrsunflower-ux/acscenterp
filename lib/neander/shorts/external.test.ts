@@ -87,6 +87,9 @@ test("연결 대상 · 이름 · 문서 id", () => {
   assert.equal(isImportablePost("instagram", post({ mediaType: "IMAGE" })), false);
   assert.equal(isImportablePost("instagram", post({ mediaType: "REELS", publishedAt: 0 })), false);
   assert.equal(externalProjectTitle("youtube", { title: YT_TITLE, caption: "", publishedAt: T0 }), YT_TITLE);
+  // 해시태그를 떼면 남는 끝의 「|」 · 「·」 도 뗀다 (2화 실제 제목)
+  assert.equal(externalProjectTitle("youtube", { title: "[다이소] EP.02 차량 청소 편 | #다이소 #차량용품", caption: "", publishedAt: T0 }), "[다이소] EP.02 차량 청소 편");
+  assert.equal(externalProjectTitle("youtube", { title: "다이소 4가지 · #shorts", caption: "", publishedAt: T0 }), "다이소 4가지");
   assert.equal(externalProjectTitle("instagram", { title: "", caption: "#다이소 #살림\n다이소 4가지, 다 합쳐 8천 원 🏠\n둘째 줄", publishedAt: T0 }), "다이소 4가지, 다 합쳐 8천 원 🏠");
   assert.equal(externalProjectTitle("instagram", { title: "", caption: "#다이소", publishedAt: T0 }), "인스타 릴스 11/2");
   assert.equal(externalPublicationId("youtube_UCabc_x1", "dQw4w9WgXcQ"), "ext_youtube_UCabc_x1_dQw4w9WgXcQ");

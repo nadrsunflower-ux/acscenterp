@@ -129,6 +129,9 @@ export function externalProjectTitle(platform: PublishPlatform, post: Pick<Exter
   const first = (platform === "youtube" ? post.title : post.caption.split("\n").find((l) => l.replace(/#\S+/g, "").trim()) ?? "")
     .replace(/#\S+/g, "")
     .replace(/\s+/g, " ")
+    .trim()
+    // 해시태그를 떼고 남은 끝의 나눔표 (「… 편 | #다이소」 → 「… 편」)
+    .replace(/[\s|｜·•\-–—:/]+$/u, "")
     .trim();
   if (first) return first.slice(0, 80);
   const d = new Date(post.publishedAt + 9 * 3600_000);

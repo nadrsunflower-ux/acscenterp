@@ -12,12 +12,12 @@
 import Link from "next/link";
 import { useMemo, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarClock, CircleAlert, Clapperboard, FolderKanban, Plug, Radar } from "lucide-react";
+import { Briefcase, CalendarClock, CircleAlert, Clapperboard, FolderKanban, Plug, Radar } from "lucide-react";
 import { Badge, Button, Card, EmptyState, InlineNotice, KpiItem, KpiStrip, PageHeader, PageShell, SectionHeader, Table, TableScroll, Td, Th, Tr, cn, type Tone } from "@/components/neander/ui";
 import { useScoped, useShorts } from "@/components/neander/shorts/ShortsProvider";
 import { ConnBadge, JobBadge, KindTile, PubBadge, StageBadge, fmtWhen } from "@/components/neander/shorts/parts";
-import { PLATFORM_LABEL, STAGE_LABEL, projectTotals } from "@/lib/neander/shorts/model";
-import { PRODUCTION_LABEL, spaceOf } from "@/lib/neander/shorts/spaces";
+import { PLATFORM_LABEL, STAGE_LABEL, currentMonth, projectTotals } from "@/lib/neander/shorts/model";
+import { PRODUCTION_LABEL, spaceKind, spaceOf, type SpaceView } from "@/lib/neander/shorts/spaces";
 import type { AccountView, ProjectStage, PublishPlatform } from "@/lib/neander/shorts/types";
 
 const FLOW: ProjectStage[] = ["research", "sourcing", "matching", "scripting", "editing", "ready", "published"];
@@ -42,8 +42,12 @@ export default function ShortsDashboard() {
           const pubs = sc.publications.filter((p) => ids.has(p.projectId));
           const views = ps.map((p) => projectTotals(sc.metrics.filter((m) => m.projectId === p.id)).views).filter((v): v is number => v !== null);
           const review = ps.reduce((n, p) => n + p.scenes.filter((sc2) => sc2.kind === "ai" && sc2.ai?.status === "review").length, 0);
+          const thisMonth = currentMonth();
           return {
             space: x,
+            agency: spaceKind(x) === "agency",
+            waiting: ps.filter((p) => p.review?.state === "waiting").length,
+            monthMade: ps.filter((p) => p.kind === "brand" && p.month === thisMonth).length,
             videos: ps.length,
             inProgress: ps.filter((p) => p.stage !== "published" && p.stage !== "archived").length,
             published: pubs.filter((p) => p.status === "published").length,
@@ -54,6 +58,30 @@ export default function ShortsDashboard() {
         }),
     [d.spaces, d.accounts, sc],
   );
+  // 대행은 업체마다 — 이번 달 납품 · 승인 대기 · 재무 계약(권한이 있을 때)
+  const agencyClients = useMemo(() => {
+    const rows = bySpace.filter((r) => r.agency);
+    return [...new Set(rows.map((r) => r.space.clientId ?? ""))]
+      .map((id) => {
+        const client = d.clients.find((c) => c.id === id) ?? null;
+        const mine = rows.filter((r) => (r.space.clientId ?? "") === id);
+        const fs = (d.clientFinance[id] ?? []).filter((x) => x.projectId);
+        const known = fs.filter((x) => x.received !== null);
+        const next = fs.map((x) => x.next).filter((x): x is NonNullable<typeof x> => !!x).sort((a, b) => a.date.localeCompare(b.date))[0];
+        return {
+          id,
+          client,
+          name: client?.name ?? "업체",
+          rows: mine,
+          made: mine.reduce((n, r) => n + r.monthMade, 0),
+          waiting: mine.reduce((n, r) => n + r.waiting, 0),
+          finance: fs.length
+            ? { contract: fs.reduce((n, x) => n + x.contractAmount, 0), received: known.length ? known.reduce((n, x) => n + (x.received ?? 0), 0) : null, overdue: fs.reduce((n, x) => n + x.overdue, 0), next: next?.label ?? null }
+            : null,
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  }, [bySpace, d.clients, d.clientFinance]);
   const projectById = useMemo(() => new Map(sc.projects.map((p) => [p.id, p])), [sc.projects]);
   const accountById = useMemo(() => new Map(d.accounts.map((a) => [a.id, a])), [d.accounts]);
   const whose = viewer === "mine" ? "내" : viewer === "visible" ? (d.admin ? "모든 사용자의" : "볼 수 있는") : `${nameOf(viewer)} 님의`;
@@ -104,41 +132,48 @@ export default function ShortsDashboard() {
         }
       />
 
-      <section className="mb-8">
+      <section className="mb-8 space-y-5">
         <SectionHeader size="lg" title="프로젝트별" hint="채널 하나 = 프로젝트 · 누르면 그 프로젝트로" action={<Link href="/neander/shorts/spaces" className="text-[13px] font-medium text-nd-accent hover:underline">프로젝트 관리</Link>} />
-        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr))]">
-          {bySpace.map((r) => (
-            <button
-              key={r.space.id}
-              type="button"
-              onClick={() => {
-                setSpace(r.space.id);
-                router.push("/neander/shorts/projects");
-              }}
-              className={cn("rounded-nd-lg border bg-nd-content p-4 text-left transition-colors hover:bg-nd-sunken", r.space.id === space ? "border-nd-accent/50 ring-1 ring-nd-accent/30" : "border-nd-border")}
-            >
-              <div className="flex items-center gap-2">
-                <FolderKanban size={18} aria-hidden className="shrink-0 text-nd-accent" />
-                <span className="truncate text-[16px] font-semibold">{r.space.name}</span>
-                <span className="ml-auto shrink-0 text-[13px] text-nd-fg-3">{PRODUCTION_LABEL[r.space.production]}</span>
-              </div>
-              <dl className="mt-3 grid grid-cols-4 gap-2">
-                {[
-                  ["영상", r.videos, `만드는 중 ${r.inProgress}`],
-                  ["게시", r.published, `계정 ${r.accounts}`],
-                  ["조회", r.views, "최근 기록 합"],
-                  ["확인할 일", r.attention, ""],
-                ].map(([label, v, hint]) => (
-                  <div key={String(label)} className="min-w-0">
-                    <dt className="text-[13px] text-nd-fg-3">{label}</dt>
-                    <dd className={cn("nd-num text-[18px] font-semibold", label === "확인할 일" && Number(v) > 0 && "text-nd-danger-text")}>{v === null ? "—" : Number(v).toLocaleString("ko-KR")}</dd>
-                    {hint && <dd className="truncate text-[13px] text-nd-fg-3" title={String(hint)}>{hint}</dd>}
-                  </div>
-                ))}
-              </dl>
-            </button>
-          ))}
+        <div>
+          <p className="mb-2 text-[13px] font-semibold text-nd-fg-2">자체 운영</p>
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr))]">
+            {bySpace.filter((r) => !r.agency).map((r) => (
+              <SpaceTile key={r.space.id} r={r} current={r.space.id === space} onOpen={() => { setSpace(r.space.id); router.push("/neander/shorts/projects"); }} />
+            ))}
+          </div>
         </div>
+        {agencyClients.length > 0 && (
+          <div>
+            <p className="mb-2 text-[13px] font-semibold text-nd-fg-2">대행 · 업체별</p>
+            <div className="space-y-3">
+              {agencyClients.map((g) => (
+                <div key={g.id} className="rounded-nd-lg border border-nd-border bg-nd-sunken/40 p-3">
+                  <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 px-1">
+                    <Briefcase size={16} aria-hidden className="text-nd-warning-text" />
+                    <Link href={`/neander/shorts/clients/${g.id}`} className="text-[15px] font-semibold hover:underline">{g.name}</Link>
+                    {g.client && (
+                      <span className="text-[13px] text-nd-fg-2">
+                        이번 달 <b className="nd-num">{g.made}</b> / {g.client.contract.videosPerMonth}편 · 승인 대기 <b className={cn("nd-num", g.waiting > 0 && "text-nd-warning-text")}>{g.waiting}</b>
+                      </span>
+                    )}
+                    {g.finance && (
+                      <span className="text-[13px] text-nd-fg-2">
+                        입금 <b className="nd-num">{g.finance.received === null ? "—" : g.finance.received.toLocaleString("ko-KR")}</b> / {g.finance.contract.toLocaleString("ko-KR")}원
+                        {g.finance.next && <> · 다음 {g.finance.next}</>}
+                        {g.finance.overdue > 0 && <b className="ml-1 text-nd-danger-text">연체 {g.finance.overdue}건</b>}
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr))]">
+                    {g.rows.map((r) => (
+                      <SpaceTile key={r.space.id} r={r} current={r.space.id === space} onOpen={() => { setSpace(r.space.id); router.push("/neander/shorts/projects"); }} />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
 
       <KpiStrip columns={6} className="mb-8">
@@ -346,5 +381,46 @@ function StorageUsage({ usedMb, quotaMb }: { usedMb: number; quotaMb: number }) 
         Firestore 조각 — Storage 버킷 없음{high ? " · 용량이 거의 찼습니다" : ""}
       </p>
     </div>
+  );
+}
+
+type SpaceRow = { space: SpaceView; agency: boolean; videos: number; inProgress: number; published: number; views: number | null; attention: number; accounts: number; waiting: number; monthMade: number };
+
+/** 프로젝트 한 칸 — 누르면 그 프로젝트의 영상 화면으로 */
+function SpaceTile({ r, current, onOpen }: { r: SpaceRow; current: boolean; onOpen: () => void }) {
+  const cells: [string, number | null, string][] = r.agency
+    ? [
+        ["영상", r.videos, `이번 달 ${r.monthMade}`],
+        ["승인 대기", r.waiting, ""],
+        ["게시", r.published, `계정 ${r.accounts}`],
+        ["확인할 일", r.attention, ""],
+      ]
+    : [
+        ["영상", r.videos, `만드는 중 ${r.inProgress}`],
+        ["게시", r.published, `계정 ${r.accounts}`],
+        ["조회", r.views, "최근 기록 합"],
+        ["확인할 일", r.attention, ""],
+      ];
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={cn("rounded-nd-lg border bg-nd-content p-4 text-left transition-colors hover:bg-nd-sunken", current ? "border-nd-accent/50 ring-1 ring-nd-accent/30" : "border-nd-border")}
+    >
+      <div className="flex items-center gap-2">
+        {r.agency ? <Briefcase size={18} aria-hidden className="shrink-0 text-nd-warning-text" /> : <FolderKanban size={18} aria-hidden className="shrink-0 text-nd-accent" />}
+        <span className="truncate text-[16px] font-semibold">{r.space.name}</span>
+        <span className="ml-auto shrink-0 text-[13px] text-nd-fg-3">{PRODUCTION_LABEL[r.space.production]}</span>
+      </div>
+      <dl className="mt-3 grid grid-cols-4 gap-2">
+        {cells.map(([label, v, hint]) => (
+          <div key={label} className="min-w-0">
+            <dt className="text-[13px] text-nd-fg-3">{label}</dt>
+            <dd className={cn("nd-num text-[18px] font-semibold", (label === "확인할 일" || label === "승인 대기") && Number(v) > 0 && (label === "확인할 일" ? "text-nd-danger-text" : "text-nd-warning-text"))}>{v === null ? "—" : Number(v).toLocaleString("ko-KR")}</dd>
+            {hint && <dd className="truncate text-[13px] text-nd-fg-3" title={hint}>{hint}</dd>}
+          </div>
+        ))}
+      </dl>
+    </button>
   );
 }

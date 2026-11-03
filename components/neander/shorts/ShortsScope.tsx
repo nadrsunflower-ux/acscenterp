@@ -10,6 +10,7 @@ import { FolderKanban, Users } from "lucide-react";
 import { Select } from "@/components/neander/ui";
 import { ToolbarPortal } from "@/components/neander/shell/context";
 import { useAppData } from "@/components/neander/app-data";
+import { spaceKind } from "@/lib/neander/shorts/spaces";
 import { useShorts } from "./ShortsProvider";
 
 const MANAGE = "__manage";
@@ -19,6 +20,10 @@ export function ShortsSpaceSwitch() {
   const { data, space, setSpace } = useShorts();
   const router = useRouter();
   const list = (data?.spaces ?? []).filter((x) => !x.archived);
+  // 대행은 업체마다 묶어서 (업체 이름순)
+  const agencyGroups = [...new Set(list.filter((x) => spaceKind(x) === "agency").map((x) => x.clientId ?? ""))]
+    .map((clientId) => ({ clientId, name: data?.clients.find((c) => c.id === clientId)?.name ?? "업체", spaces: list.filter((x) => spaceKind(x) === "agency" && (x.clientId ?? "") === clientId) }))
+    .sort((a, b) => a.name.localeCompare(b.name, "ko"));
   return (
     <ToolbarPortal order={3}>
       <label className="flex items-center gap-1.5 text-nd-caption text-nd-fg-2">
@@ -31,10 +36,23 @@ export function ShortsSpaceSwitch() {
           onChange={(e) => (e.target.value === MANAGE ? router.push("/neander/shorts/spaces") : setSpace(e.target.value))}
           className="w-auto max-w-[118px] font-medium sm:max-w-[200px]"
         >
-          {list.map((x) => (
-            <option key={x.id} value={x.id}>
-              {x.name}
-            </option>
+          <optgroup label="자체 운영">
+            {list
+              .filter((x) => spaceKind(x) === "own")
+              .map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.name}
+                </option>
+              ))}
+          </optgroup>
+          {agencyGroups.map((g) => (
+            <optgroup key={g.clientId} label={`대행 · ${g.name}`}>
+              {g.spaces.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.name}
+                </option>
+              ))}
+            </optgroup>
           ))}
           <option value={MANAGE}>프로젝트 관리 · 새 프로젝트…</option>
         </Select>

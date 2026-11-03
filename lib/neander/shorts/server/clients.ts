@@ -17,7 +17,8 @@ import { NEANDER_COL } from "@/lib/neander/collections";
 import { currentMonth, emptyProject, httpUrl, newId } from "../model";
 import type { FormatDoc } from "../scout";
 import type { ClientDoc, ClientProduct, ClientView, ProjectDoc } from "../types";
-import { stampSpace } from "./space-db";
+import { spaceKind } from "../spaces";
+import { currentSpace, forgetClientMembers, listSpaces } from "./space-db";
 
 const col = (db: Firestore) => db.collection(NEANDER_COL.shortsClients);
 const isId = (v: unknown): v is string => typeof v === "string" && /^[\w-]{6,60}$/.test(v);
@@ -100,6 +101,8 @@ export async function saveClient(db: Firestore, email: string, id: unknown, inpu
       startMonth: monthOf(contract.startMonth) ?? prev?.contract.startMonth ?? currentMonth(),
       endMonth: monthOf(contract.endMonth),
       financeCode: str(contract.financeCode, 30).trim(),
+      // 재무 계약 프로젝트 코드 여러 개 (예전 한 칸도 받아 합친다)
+      financeCodes: [...new Set([...(Array.isArray(contract.financeCodes) ? contract.financeCodes : []), contract.financeCode].map((x) => str(x, 30).trim().toUpperCase()).filter((x) => /^[A-Z0-9][A-Z0-9-]{1,29}$/.test(x)))].slice(0, 20),
       note: str(contract.note, 2000),
     },
     brief: {
@@ -114,10 +117,12 @@ export async function saveClient(db: Firestore, email: string, id: unknown, inpu
     },
     products: sanitizeProducts(r.products, prev?.products ?? []),
     contactName: str(r.contactName, 60),
+    delivery: r.delivery === "file" ? "file" : "upload",
   };
   const ref = prev ? col(db).doc(prev.id) : col(db).doc(randomBytes(12).toString("base64url"));
   await ref.set(doc);
   if (!prev || prev.members.join() !== doc.members.join() || prev.name !== doc.name) await syncClientCopies(db, ref.id, doc);
+  forgetClientMembers();
   return ref.id;
 }
 
@@ -151,9 +156,14 @@ export async function deleteClient(db: Firestore, email: string, id: unknown): P
 export async function createClientProject(
   db: Firestore,
   email: string,
-  input: { clientId?: unknown; month?: unknown; productId?: unknown; formatId?: unknown; brandTarget?: unknown; title?: unknown },
+  input: { clientId?: unknown; month?: unknown; productId?: unknown; formatId?: unknown; brandTarget?: unknown; title?: unknown; spaceId?: unknown },
 ): Promise<string> {
   const c = await getClientForEdit(db, email, input.clientId);
+  // 대행 영상은 그 업체의 대행 프로젝트(space)에 — 고른 것 → 지금 화면의 프로젝트 → 그 업체의 첫 프로젝트
+  const spaces = (await listSpaces(db)).filter((s) => spaceKind(s) === "agency" && s.clientId === c.id);
+  if (!spaces.length) throw new Error(`「${c.name}」 의 대행 프로젝트가 없습니다 — 프로젝트 화면에서 이 업체의 프로젝트를 먼저 만들어 주세요.`);
+  const want = typeof input.spaceId === "string" ? input.spaceId : currentSpace(db);
+  const space = spaces.find((s) => s.id === want) ?? spaces[0];
   const month = monthOf(input.month) ?? currentMonth();
   const product = c.products.find((x) => x.id === input.productId) ?? null;
   let format: (FormatDoc & { id: string }) | null = null;
@@ -222,6 +232,6 @@ export async function createClientProject(
       : null,
   };
   const id = randomBytes(12).toString("base64url");
-  await db.collection(NEANDER_COL.shortsProjects).doc(id).set({ ...doc, spaceId: stampSpace(db) });
+  await db.collection(NEANDER_COL.shortsProjects).doc(id).set({ ...doc, spaceId: space.id });
   return id;
 }

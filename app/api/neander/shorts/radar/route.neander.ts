@@ -31,7 +31,7 @@ export const maxDuration = 120;
 export async function GET(req: Request) {
   try {
     const { email } = await requireShortsUser(req);
-    const db = await requestDb(req, adminDb());
+    const db = await requestDb(req, adminDb(), email);
     // 댓글 원문 — ?comments=<후보 id>&order=relevance|time&page=<다음 쪽>
     const u = new URL(req.url);
     if (u.searchParams.has("comments")) {
@@ -56,7 +56,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const { email } = await requireShortsUser(req);
-    const db = await requestDb(req, adminDb());
+    const db = await requestDb(req, adminDb(), email);
     const b = (await req.json()) as Record<string, unknown>;
     switch (b.action) {
       case "run":

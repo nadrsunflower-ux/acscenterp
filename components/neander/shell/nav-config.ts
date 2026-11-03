@@ -217,6 +217,10 @@ export const SHORTS_NAV: NavGroup[] = [
       { href: "/neander/shorts", label: "대시보드", icon: LayoutDashboard, exact: true },
       // 채널 하나 = 프로젝트 (살림설계사무소 · AI 쿠팡 채널 …) — 위 툴바에서 고르면 아래 메뉴가 그 프로젝트 것으로
       { href: "/neander/shorts/spaces", label: "프로젝트", icon: FolderKanban },
+      // 브랜드 대행 업체 — 계약 · 브리프 · 대행 프로젝트 · 재무 계약 · 계약서 · 월 N편 · 승인 · 월간 보고
+      { href: "/neander/shorts/clients", label: "업체 · 계약", icon: Briefcase },
+      // 촬영 · 미팅 · 마감 + 게시 예약 · 고객 검토 · 업체 계약 · 받을 돈이 저절로 모이는 달력
+      { href: "/neander/shorts/calendar", label: "일정", icon: CalendarDays },
     ],
   },
   {
@@ -235,8 +239,6 @@ export const SHORTS_NAV: NavGroup[] = [
       { href: "/neander/shorts/projects", label: "영상", icon: Clapperboard },
       // 제품 사진 · 정보 + 분석(형식 카드 · 성공 공식 · 레이더)으로 대본을 쓰고 대화로 고친다
       { href: "/neander/shorts/scripts", label: "대본 작성기", icon: PenLine },
-      // 브랜드 대행 — 고객사마다 계약 · 브리프 · 월 N편 · 승인 · 월간 보고
-      { href: "/neander/shorts/clients", label: "고객사", icon: Briefcase },
     ],
   },
   {

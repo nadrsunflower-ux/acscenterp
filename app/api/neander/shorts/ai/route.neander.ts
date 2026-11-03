@@ -27,7 +27,7 @@ const cost = (kind: CostEntry["kind"], usd: number, note: string, by: string): C
 export async function POST(req: Request) {
   try {
     const { email } = await requireShortsUser(req);
-    const db = await requestDb(req, adminDb());
+    const db = await requestDb(req, adminDb(), email);
     const b = (await req.json()) as Record<string, unknown>;
     const p = await getProject(db, email, b.projectId);
 

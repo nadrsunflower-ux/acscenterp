@@ -32,7 +32,7 @@ async function ytKey(db: ReturnType<typeof adminDb>, email: string, countSearch:
 export async function POST(req: Request) {
   try {
     const { email } = await requireShortsUser(req);
-    const db = await requestDb(req, adminDb());
+    const db = await requestDb(req, adminDb(), email);
     const b = (await req.json()) as Record<string, unknown>;
     switch (b.action) {
       case "yt.search": {

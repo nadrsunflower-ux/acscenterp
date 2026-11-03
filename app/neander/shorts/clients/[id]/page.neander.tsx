@@ -1,7 +1,9 @@
 "use client";
 
 // ============================================================
-//  고객사 하나 — 월별 영상 · 계약·브리프 · 제품·사진 · 게시 계정 · 월간 보고
+//  업체(고객사) 하나 — 월별 영상 · 계약·브리프 · 프로젝트 · 재무 · 계약서 · 제품·사진 · 게시 계정 · 월간 보고
+//  업체 하나에 대행 프로젝트(space) 여러 개 — 영상은 그 업체의 프로젝트 하나에 들어간다.
+//  재무 · 계약서는 재무 계약 프로젝트(PJ-…)를 이어서 읽기만 한다 (재무 권한이 있는 사람에게만).
 // ------------------------------------------------------------
 //  고친 것은 저절로 저장된다 (담당자만). 관리자 몰아보기는 읽기 전용으로 잠긴다.
 //  영상은 「영상 추가」 로 그 달 계약분을 만든다 — 제품의 확인된 사실이 재료가 되고,
@@ -11,7 +13,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Ban, ChevronLeft, ClipboardCheck, ImageIcon, KeyRound, Plug, Plus, Printer, Trash2, X } from "lucide-react";
+import { Ban, Briefcase, Check, ChevronLeft, ClipboardCheck, ExternalLink, FileSignature, ImageIcon, KeyRound, Link2, Plug, Plus, Printer, Trash2, X } from "lucide-react";
 import {
   Badge,
   Button,
@@ -49,11 +51,15 @@ import { MediaThumb, MediaUpload, useClientMedia } from "@/components/neander/sh
 import { deleteMedia, mutate, shortsGet, shortsPost } from "@/lib/neander/shorts/client";
 import { PLATFORM_LABEL, REVIEW_LABEL, currentMonth, latestRound, monthProgress, newId } from "@/lib/neander/shorts/model";
 import { splitVat } from "@/lib/neander/finance/project";
-import type { AccountView, ClientDoc, ClientView, ProjectDoc, PublishPlatform } from "@/lib/neander/shorts/types";
+import { CLIENT_DELIVERY_LABEL, type AccountView, type ClientDelivery, type ClientDoc, type ClientView, type ProjectDoc, type PublishPlatform } from "@/lib/neander/shorts/types";
+import { CONTRACT_STATUS_TEXT, clientFinanceCodes, type ClientFinanceSummary } from "@/lib/neander/shorts/agency";
+import { spaceKind, spaceOf } from "@/lib/neander/shorts/spaces";
 
 const TABS = [
   { key: "month", label: "월별 영상" },
   { key: "brief", label: "계약 · 브리프" },
+  { key: "spaces", label: "프로젝트" },
+  { key: "finance", label: "재무 · 계약서" },
   { key: "products", label: "제품 · 사진" },
   { key: "accounts", label: "게시 계정" },
 ];
@@ -147,7 +153,7 @@ function ClientWorkspace({ initial }: { initial: ClientView }) {
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <Link href="/neander/shorts/clients" className="mb-1 inline-flex items-center gap-1 text-[13px] text-nd-fg-3 hover:text-nd-fg">
-            <ChevronLeft size={14} /> 고객사
+            <ChevronLeft size={14} /> 업체 · 계약
           </Link>
           <Input aria-label="고객사 이름" value={c.name} disabled={readOnly} onChange={(e) => update((x) => void (x.name = e.target.value))} className="h-auto border-transparent bg-transparent px-0 text-nd-title font-semibold shadow-none focus:border-nd-border disabled:bg-transparent disabled:text-nd-fg" />
           <p className="mt-1 text-[13px] text-nd-fg-3">
@@ -176,7 +182,9 @@ function ClientWorkspace({ initial }: { initial: ClientView }) {
         {tab === "brief" && <BriefTab c={c} update={update} />}
         {tab === "products" && <ProductsTab c={c} update={update} />}
         {tab === "accounts" && <AccountsTab c={c} />}
+        {tab === "finance" && <FinanceTab c={c} update={update} readOnly={readOnly} />}
       </fieldset>
+      {tab === "spaces" && <SpacesTab c={c} />}
     </PageShell>
   );
 }
@@ -329,8 +337,11 @@ function MonthBoard({ c }: { c: ClientView }) {
 
 function AddVideo({ c, month, onClose, onCreated }: { c: ClientView; month: string; onClose: () => void; onCreated: (id: string) => Promise<void> }) {
   const { busy, run } = useAction();
+  const { data, space } = useShorts();
+  // 이 업체의 대행 프로젝트 — 지금 화면의 프로젝트가 그중 하나면 그것, 아니면 첫 프로젝트
+  const spaces = (data?.spaces ?? []).filter((x) => !x.archived && spaceKind(x) === "agency" && x.clientId === c.id);
   const [formats, setFormats] = useState<FormatLite[] | null>(null);
-  const [f, setF] = useState({ productId: c.products[0]?.id ?? "", formatId: "", brandTarget: "client" as "client" | "own", title: "" });
+  const [f, setF] = useState({ productId: c.products[0]?.id ?? "", formatId: "", brandTarget: (c.delivery === "file" ? "client" : "client") as "client" | "own", title: "", spaceId: spaces.find((x) => x.id === space)?.id ?? spaces[0]?.id ?? "" });
   useEffect(() => {
     shortsGet<{ formats: FormatLite[] }>("scout").then((r) => setFormats(r.formats.filter((x) => !x.archived)), () => setFormats([]));
   }, []);
@@ -344,11 +355,19 @@ function AddVideo({ c, month, onClose, onCreated }: { c: ClientView; month: stri
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>취소</Button>
-          <Button disabled={busy === "a"} onClick={() => void run("a", async () => { const r = await mutate<{ id: string }>("client.createProject", { clientId: c.id, month, ...f }); await onCreated(r.id); })}>만들기</Button>
+          <Button disabled={busy === "a" || !spaces.length} onClick={() => void run("a", async () => { const r = await mutate<{ id: string }>("client.createProject", { clientId: c.id, month, ...f }); await onCreated(r.id); })}>만들기</Button>
         </>
       }
     >
       <div className="space-y-4">
+        {!spaces.length && <InlineNotice tone="warning">이 업체의 대행 프로젝트가 없습니다 — 「프로젝트」 탭에서 먼저 만들어 주세요.</InlineNotice>}
+        {spaces.length > 1 && (
+          <Field label="프로젝트 (브랜드 · 채널)">
+            <Select value={f.spaceId} onChange={(e) => setF({ ...f, spaceId: e.target.value })}>
+              {spaces.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+            </Select>
+          </Field>
+        )}
         <Field label="제품">
           <Select value={f.productId} onChange={(e) => setF({ ...f, productId: e.target.value })}>
             <option value="">(제품 미정)</option>
@@ -488,7 +507,13 @@ function BriefTab({ c, update }: { c: ClientView; update: (fn: (x: ClientView) =
             <Field label="끝 월 (비우면 계속)"><Input size="sm" type="month" value={c.contract.endMonth ?? ""} onChange={(e) => update((x) => void (x.contract.endMonth = e.target.value || null))} /></Field>
           </FormRow>
           <FormRow className="grid-cols-1 sm:grid-cols-2">
-            <Field label="재무 프로젝트 코드" hint="입금 · 손익은 재무에서"><Input size="sm" value={c.contract.financeCode} placeholder="PJ-…" onChange={(e) => update((x) => void (x.contract.financeCode = e.target.value))} /></Field>
+            <Field label="게시 방식" hint="업체마다 다름 — 재무 계약 · 계약서는 「재무 · 계약서」 탭">
+              <Select size="sm" value={c.delivery ?? "upload"} onChange={(e) => update((x) => void (x.delivery = e.target.value as ClientDelivery))}>
+                {(Object.keys(CLIENT_DELIVERY_LABEL) as ClientDelivery[]).map((k) => (
+                  <option key={k} value={k}>{CLIENT_DELIVERY_LABEL[k]}</option>
+                ))}
+              </Select>
+            </Field>
             <Field label="고객사 담당자 이름"><Input size="sm" value={c.contactName} onChange={(e) => update((x) => void (x.contactName = e.target.value))} /></Field>
           </FormRow>
           <Field label="계약 메모"><Textarea rows={3} value={c.contract.note} onChange={(e) => update((x) => void (x.contract.note = e.target.value))} /></Field>
@@ -703,5 +728,176 @@ function ManualToken({ clientId, onClose, onDone }: { clientId: string; onClose:
         <Field label="페이지 접근 토큰"><Input type="password" autoComplete="off" value={f.token} onChange={(e) => setF({ ...f, token: e.target.value.trim() })} /></Field>
       </div>
     </Dialog>
+  );
+}
+
+// ---- 프로젝트 (이 업체의 대행 프로젝트) ---------------------------------------------
+
+function SpacesTab({ c }: { c: ClientView }) {
+  const { data, space, setSpace } = useShorts();
+  const d = data!;
+  const router = useRouter();
+  const spaces = d.spaces.filter((x) => spaceKind(x) === "agency" && x.clientId === c.id);
+  const count = (id: string) => d.projects.filter((p) => spaceOf(p) === id && !p.sample).length;
+  return (
+    <section className="space-y-3">
+      <SectionHeader
+        size="lg"
+        title="이 업체의 프로젝트"
+        hint="브랜드 · 채널마다 하나 — 고르면 기획 · 영상 · 게시 · 성과가 그 프로젝트 것으로 바뀝니다"
+        action={
+          (c.canEdit || d.admin) && (
+            <Link href={`/neander/shorts/spaces?newFor=${c.id}`} className={buttonClass("secondary")}>
+              <Plus size={16} aria-hidden /> 이 업체에 프로젝트
+            </Link>
+          )
+        }
+      />
+      {spaces.length === 0 ? (
+        <EmptyState compact icon={Briefcase} title="아직 프로젝트가 없습니다" description="브랜드(채널)마다 대행 프로젝트를 만들면 그 안에서 기획 · 영상 · 게시 · 성과를 따로 관리합니다." />
+      ) : (
+        <Card padding="none" className="divide-y divide-nd-line overflow-hidden">
+          {spaces.map((x) => (
+            <div key={x.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+              <Briefcase size={18} aria-hidden className="shrink-0 text-nd-warning-text" />
+              <div className="min-w-0 flex-1">
+                <p className="font-medium">
+                  {x.name}
+                  {x.archived && <span className="ml-2 text-[13px] text-nd-fg-3">보관</span>}
+                </p>
+                <p className="truncate text-[13px] text-nd-fg-3" title={x.description}>{x.description || "설명 없음"} · 영상 {count(x.id)}편</p>
+              </div>
+              {x.id === space ? (
+                <Badge tone="accent" size="md">지금 프로젝트</Badge>
+              ) : (
+                !x.archived && (
+                  <Button size="sm" variant="secondary" icon={Check} onClick={() => { setSpace(x.id); router.push("/neander/shorts/projects"); }}>
+                    이 프로젝트로
+                  </Button>
+                )
+              )}
+            </div>
+          ))}
+        </Card>
+      )}
+    </section>
+  );
+}
+
+// ---- 재무 · 계약서 (재무 계약 프로젝트를 이어서 읽기만) --------------------------------
+
+const wonOrDash = (n: number | null | undefined) => (n === null || n === undefined ? "—" : `${n.toLocaleString("ko-KR")}원`);
+
+function FinanceTab({ c, update, readOnly }: { c: ClientView; update: (fn: (x: ClientView) => void) => void; readOnly: boolean }) {
+  const { data } = useShorts();
+  const d = data!;
+  const { busy, run } = useAction();
+  const codes = clientFinanceCodes(c);
+  const rows: ClientFinanceSummary[] = d.clientFinance[c.id] ?? [];
+  const [options, setOptions] = useState<{ code: string; name: string; client: string; status: string }[] | null>(null);
+  const [pick, setPick] = useState("");
+  if (!d.financeAccess) {
+    return <InlineNotice tone="neutral">재무 계약 · 입금 · 계약서는 재무 권한이 있는 사람에게만 보입니다.</InlineNotice>;
+  }
+  const setCodes = (next: string[]) =>
+    update((x) => {
+      x.contract.financeCodes = next;
+      x.contract.financeCode = next[0] ?? "";
+    });
+  const load = () => void run("opt", async () => setOptions((await mutate<{ options: { code: string; name: string; client: string; status: string }[] }>("finance.options")).options));
+  return (
+    <section className="space-y-4">
+      <SectionHeader size="lg" title="재무 계약" hint="재무의 계약 프로젝트(PJ-…)를 이어 계약 금액 · 입금 · 계약서를 봅니다 — 고치기는 재무 화면에서" />
+      {!readOnly && (
+        <Card className="flex flex-wrap items-end gap-3">
+          {options === null ? (
+            <Button variant="secondary" icon={Link2} loading={busy === "opt"} onClick={load}>
+              재무 계약 프로젝트 잇기
+            </Button>
+          ) : (
+            <>
+              <Field label="재무 계약 프로젝트" className="min-w-[280px] flex-1">
+                <Select value={pick} onChange={(e) => setPick(e.target.value)}>
+                  <option value="">고르기 — 최근 것부터</option>
+                  {options
+                    .filter((o) => !codes.includes(o.code.toUpperCase()))
+                    .map((o) => (
+                      <option key={o.code} value={o.code}>
+                        {o.code} · {o.name}
+                        {o.client ? ` · ${o.client}` : ""}
+                      </option>
+                    ))}
+                </Select>
+              </Field>
+              <Button disabled={!pick} onClick={() => { setCodes([...codes, pick.toUpperCase()]); setPick(""); }}>잇기</Button>
+            </>
+          )}
+          <p className="w-full text-[13px] text-nd-fg-3">재무 프로젝트가 아직 없으면 재무 › 프로젝트에서 계약을 먼저 만드세요 (계약서 만들기도 거기에 있습니다).</p>
+        </Card>
+      )}
+      {codes.length === 0 ? (
+        <EmptyState compact icon={FileSignature} title="이은 재무 계약이 없습니다" description="재무 계약 프로젝트를 이으면 계약 금액 · 받은 돈 · 다음 받을 날 · 계약서가 여기에 보입니다." />
+      ) : (
+        codes.map((code) => {
+          const r = rows.find((x) => x.code.toUpperCase() === code);
+          return (
+            <Card key={code} className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <FileSignature size={18} aria-hidden className="text-nd-accent" />
+                <span className="font-mono text-[13px] text-nd-fg-3">{code}</span>
+                <span className="text-[16px] font-semibold">{r?.name ?? "저장 뒤 불러옵니다…"}</span>
+                {r?.startDate && <span className="text-[13px] text-nd-fg-3">{r.startDate} ~ {r.endDate ?? ""}</span>}
+                <span className="ml-auto flex gap-2">
+                  {r?.projectId && (
+                    <Link href={`/neander/finance/projects/${r.projectId}`} className="inline-flex h-8 items-center gap-1 rounded-nd-md px-3 text-[13px] font-medium text-nd-accent hover:bg-nd-accent-soft">
+                      재무에서 열기 <ExternalLink size={13} aria-hidden />
+                    </Link>
+                  )}
+                  {!readOnly && <Button size="sm" variant="ghost" icon={X} aria-label={`${code} 연결 끊기`} onClick={() => setCodes(codes.filter((x) => x !== code))} />}
+                </span>
+              </div>
+              {r && r.projectId && (
+                <>
+                  <KpiStrip columns={5}>
+                    <KpiItem label={`계약 금액 (부가세 ${r.vatMode === "included" ? "포함" : "별도"})`} value={r.contractAmount.toLocaleString("ko-KR")} unit="원" />
+                    <KpiItem label="받음" value={r.received === null ? "—" : r.received.toLocaleString("ko-KR")} unit={r.received === null ? undefined : "원"} hint={r.received === null ? "회차가 없어 셀 수 없음" : undefined} tone="success" />
+                    <KpiItem label="남음" value={r.remaining === null ? "—" : r.remaining.toLocaleString("ko-KR")} unit={r.remaining === null ? undefined : "원"} />
+                    <KpiItem label="다음 받을 날" value={r.next ? r.next.label : "—"} hint={r.next ? wonOrDash(r.next.amount) : undefined} />
+                    <KpiItem label="연체" value={String(r.overdue)} unit="건" tone={r.overdue ? "danger" : undefined} />
+                  </KpiStrip>
+                  {r.contracts.length === 0 ? (
+                    <p className="text-[13px] text-nd-fg-3">이 재무 프로젝트에 계약서가 없습니다 — 「재무에서 열기」 에서 표준 양식으로 만들거나 받은 계약서를 붙이세요.</p>
+                  ) : (
+                    <Table size="md">
+                      <thead>
+                        <tr>
+                          <Th>계약서</Th>
+                          <Th>상태</Th>
+                          <Th>체결일</Th>
+                          <Th>기간</Th>
+                          <Th align="right">금액</Th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {r.contracts.map((x) => (
+                          <Tr key={x.id}>
+                            <Td>{x.title || "(제목 없음)"}</Td>
+                            <Td><Badge tone={x.status === "signed" ? "info" : x.status === "done" ? "success" : x.status === "cancelled" ? "neutral" : "warning"} size="md">{CONTRACT_STATUS_TEXT[x.status]}</Badge></Td>
+                            <Td muted>{x.signedDate ?? "—"}</Td>
+                            <Td muted>{x.startDate ?? ""}{x.endDate ? ` ~ ${x.endDate}` : ""}</Td>
+                            <Td num>{wonOrDash(x.amount)} <span className="text-[13px] text-nd-fg-3">({x.vatMode === "included" ? "포함" : "별도"})</span></Td>
+                          </Tr>
+                        ))}
+                      </tbody>
+                    </Table>
+                  )}
+                </>
+              )}
+              {r && !r.projectId && <InlineNotice tone="warning">재무에서 「{code}」 프로젝트를 찾지 못했습니다 — 코드가 바뀌었거나 지워졌을 수 있습니다.</InlineNotice>}
+            </Card>
+          );
+        })
+      )}
+    </section>
   );
 }
