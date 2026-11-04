@@ -251,4 +251,8 @@ export const NEANDER_COL = {
   shortsChannelStats: "neander_shorts_channel_stats",
   /** 트렌드 노트 — 사람마다 비공개 카드 */
   shortsNotes: "neander_shorts_notes",
+  /** 레퍼런스 영상 컷 표 — 장면 · 대사 · 초 (문서 id = yt_{영상 id} · 프로젝트마다 · 회사 공용). shorts/cuts.ts */
+  shortsCuts: "neander_shorts_cuts",
+  /** AI STUDIO 비서 대화 — 사람마다 비공개 (재무 · 매출 비서와 같은 모양 · ai/chat-log.ts) */
+  shortsChats: "neander_shorts_chats",
 } as const;

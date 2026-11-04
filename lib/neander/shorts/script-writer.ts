@@ -15,8 +15,20 @@ import type { BeatKey, CtaPlan } from "./types";
 export type WriterKind = "coupang" | "general" | "brand";
 export const WRITER_KIND_LABEL: Record<WriterKind, string> = { coupang: "쿠팡 제휴", general: "일반 정보 (제휴 없음)", brand: "고객사 브랜드" };
 
-export type WriterRefKind = "auto" | "format" | "template" | "radar";
-export const WRITER_REF_LABEL: Record<WriterRefKind, string> = { auto: "AI 가 고르기", format: "바이럴 형식 카드", template: "성공 공식", radar: "AI 레이더 후보" };
+// cut = 레퍼런스 영상 컷 표 (shorts/cuts.ts) — 남의 잘된 쇼츠를 컷 단위로 뜯은 것. 구조만 옮기고 내용은 새로 쓴다
+export type WriterRefKind = "auto" | "format" | "template" | "radar" | "cut";
+export const WRITER_REF_LABEL: Record<WriterRefKind, string> = { auto: "AI 가 고르기", format: "바이럴 형식 카드", template: "성공 공식", radar: "AI 레이더 후보", cut: "레퍼런스 영상 컷 표" };
+/** 고르는 칸의 묶음 순서 */
+export const WRITER_REF_KINDS: Exclude<WriterRefKind, "auto">[] = ["cut", "format", "template", "radar"];
+
+/**
+ * 다른 화면이 주소로 넘기는 참고 분석 — `?ref=<kind>:<id>` (예: 컷 표의 「이 구조로 대본 쓰기」 · 형식 카드의 「이 형식으로 대본 쓰기」).
+ * 모양이 틀리면 null (그때는 「AI 가 고르기」).
+ */
+export function parseWriterRefParam(v: string | null | undefined): { kind: Exclude<WriterRefKind, "auto">; id: string } | null {
+  const m = /^(cut|format|template|radar):([\w-]{6,80})$/.exec((v ?? "").trim());
+  return m ? { kind: m[1] as Exclude<WriterRefKind, "auto">, id: m[2] } : null;
+}
 
 export type WriterStyle = "intro" | "story";
 export const WRITER_STYLE_LABEL: Record<WriterStyle, string> = { intro: "제품 소개 (리뷰형)", story: "스토리 광고" };
@@ -116,7 +128,7 @@ export interface WriterScript {
 }
 
 export interface WriterBasis {
-  kind: "format" | "template" | "radar" | "none";
+  kind: "format" | "template" | "radar" | "cut" | "none";
   id: string;
   name: string;
   /** 왜 이 분석을 골랐고 무엇을 옮겼는지 */
@@ -340,6 +352,20 @@ export function writerScriptText(sc: WriterScript, beatLabel: Record<BeatKey, st
   if (st && (st.endCard.visual || st.endCard.text)) out.push("", `엔드카드: ${st.endCard.visual}${st.endCard.text ? ` · 문구 「${st.endCard.text}」` : ""}${st.endCard.cta ? ` · ${st.endCard.cta}` : ""}`);
   out.push("", `CTA: ${sc.cta.wording}${sc.cta.keyword ? ` (키워드 ${sc.cta.keyword})` : ""}`, "", sc.description, sc.hashtags.length ? sc.hashtags.map((h) => `#${h}`).join(" ") : "");
   return out.filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n").trim();
+}
+
+/**
+ * AI 가 적은 근거(basis)를 우리가 넘긴 분석 안에서만 — 고른 분석이 하나(fixed)면 그것으로 고정(종류 · id · 이름은 우리 값),
+ * 「AI 가 고르기」 면 넘긴 목록(ids = `kind:id`)에 있는 것만 남기고 지어낸 id 는 「근거 없음」 으로 (server/script-writer.ts).
+ */
+export function checkWriterBasis(
+  basis: WriterBasis,
+  ref: { kind: WriterRefKind; id: string | null; name: string },
+  given: { mode: "fixed" | "auto"; ids: string[] },
+): WriterBasis {
+  if (given.mode === "fixed" && ref.kind !== "auto" && ref.id) return { kind: ref.kind, id: ref.id, name: ref.name || basis.name, why: basis.why };
+  if (basis.kind === "none" || !given.ids.includes(`${basis.kind}:${basis.id}`)) return { kind: "none", id: "", name: "", why: basis.kind === "none" ? basis.why : "" };
+  return basis;
 }
 
 /** 끝에서 n 개만 남긴다 (대화 · 버전) */

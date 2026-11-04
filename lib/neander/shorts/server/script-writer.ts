@@ -21,6 +21,7 @@ import {
   WRITER_MESSAGE_MAX,
   WRITER_PHOTO_MAX_CHARS,
   WRITER_THUMB_MAX_CHARS,
+  checkWriterBasis,
   cleanFacts,
   cleanStoryInput,
   keepLast,
@@ -32,6 +33,7 @@ import {
   type WriterRefKind,
   type WriterStyle,
 } from "../script-writer";
+import { cutReferenceText } from "../cuts";
 import type { FormatDoc } from "../scout";
 import type { RadarDoc } from "../radar";
 import type { Scene, ScriptLine, TemplateDoc } from "../types";
@@ -40,6 +42,7 @@ import { getClientDoc, createClientProject } from "./clients";
 import { listRadar } from "./radar-run";
 import { listFormats } from "./scout-store";
 import { createProject, listTemplates, patchProject } from "./store";
+import { getCuts, listCuts } from "./cuts";
 import { isShortsAdmin } from "./access";
 
 type WithId<T> = T & { id: string };
@@ -48,7 +51,7 @@ const newDocId = () => randomBytes(12).toString("base64url");
 const isDocId = (v: unknown): v is string => typeof v === "string" && /^[\w-]{6,60}$/.test(v);
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 const KINDS: WriterKind[] = ["coupang", "general", "brand"];
-const REF_KINDS: WriterRefKind[] = ["auto", "format", "template", "radar"];
+const REF_KINDS: WriterRefKind[] = ["auto", "format", "template", "radar", "cut"];
 
 export interface WriterPhotoInput {
   name: string;
@@ -110,10 +113,11 @@ export const getScriptSession = (db: Firestore, email: string, id: unknown) => g
 
 const line = (...xs: (string | undefined | null | false)[]) => xs.filter(Boolean).join(" · ");
 
-/** 고르는 칸의 목록 — 바이럴 형식 카드(회사 공용) · 내 성공 공식 · AI 레이더 후보(상품을 짚은 것) */
+/** 고르는 칸의 목록 — 레퍼런스 영상 컷 표(최근 30) · 바이럴 형식 카드(회사 공용) · 내 성공 공식 · AI 레이더 후보(상품을 짚은 것) */
 export async function writerReferences(db: Firestore, email: string): Promise<WriterRef[]> {
-  const [formats, templates, radar] = await Promise.all([listFormats(db).catch(() => []), listTemplates(db, email).catch(() => []), listRadar(db).catch(() => [])]);
+  const [cuts, formats, templates, radar] = await Promise.all([listCuts(db).catch(() => []), listFormats(db).catch(() => []), listTemplates(db, email).catch(() => []), listRadar(db).catch(() => [])]);
   return [
+    ...cuts.map((c): WriterRef => ({ kind: "cut", id: c.id, name: c.title || c.url, summary: line(`컷 ${c.cutCount}개`, c.durationSec ? `약 ${Math.round(c.durationSec)}초` : null, c.channel, c.hook && `훅 ${c.hook.slice(0, 40)}`) })),
     ...formats
       .filter((f) => !f.archived)
       .sort((a, b) => b.updatedAt - a.updatedAt)
@@ -172,36 +176,43 @@ function radarText(r: WithId<RadarDoc>): string {
     .join("\n");
 }
 
-/** AI 에 넘길 참고 분석 글 — 고른 것 하나는 자세히, 「AI 가 고르기」 면 목록 */
-export async function writerReferenceText(db: Firestore, email: string, ref: ScriptSessionDoc["reference"]): Promise<{ text: string; mode: "fixed" | "auto" }> {
+/**
+ * AI 에 넘길 참고 분석 글 — 고른 것 하나는 자세히, 「AI 가 고르기」 면 목록.
+ * ids = 넘긴 분석의 `kind:id` — AI 가 적은 근거(basis)가 이 안에 있을 때만 남긴다 (지어낸 id 는 버린다).
+ */
+export async function writerReferenceText(db: Firestore, email: string, ref: ScriptSessionDoc["reference"]): Promise<{ text: string; mode: "fixed" | "auto"; ids: string[] }> {
+  const fixed = (text: string) => ({ text, mode: "fixed" as const, ids: [`${ref.kind}:${ref.id}`] });
+  if (ref.kind === "cut" && ref.id) {
+    const c = await getCuts(db, ref.id).catch(() => null);
+    if (c) return fixed(cutReferenceText(c, BEAT_LABEL));
+  }
   if (ref.kind === "format" && ref.id) {
     const f = (await listFormats(db)).find((x) => x.id === ref.id);
-    if (f) return { text: formatText(f), mode: "fixed" };
+    if (f) return fixed(formatText(f));
   }
   if (ref.kind === "template" && ref.id) {
     const t = (await listTemplates(db, email)).find((x) => x.id === ref.id);
-    if (t) return { text: templateText(t), mode: "fixed" };
+    if (t) return fixed(templateText(t));
   }
   if (ref.kind === "radar" && ref.id) {
     const r = (await listRadar(db, 60)).find((x) => x.id === ref.id);
-    if (r) return { text: radarText(r), mode: "fixed" };
+    if (r) return fixed(radarText(r));
   }
-  // AI 가 고르기 — 형식 카드 12 · 성공 공식 8 · 레이더 후보 8 (짧게)
-  const [formats, templates, radar] = await Promise.all([listFormats(db).catch(() => []), listTemplates(db, email).catch(() => []), listRadar(db).catch(() => [])]);
+  // AI 가 고르기 — 컷 표 6 · 형식 카드 12 · 성공 공식 8 · 레이더 후보 8 (짧게)
+  const [cuts, formats, templates, radar] = await Promise.all([listCuts(db, 6).catch(() => []), listFormats(db).catch(() => []), listTemplates(db, email).catch(() => []), listRadar(db).catch(() => [])]);
+  const fs = formats.filter((f) => !f.archived).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 12);
+  const ts = templates.slice(0, 8);
+  const rs = radar.filter((r) => r.ai?.relevant && r.ai.product && !r.dismissed).slice(0, 8);
   const parts = [
-    ...formats
-      .filter((f) => !f.archived)
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .slice(0, 12)
-      .map((f) => `- format id=${f.id} · ${f.name} · 훅: ${f.hook.slice(0, 80)} · 흐름: ${f.structure.slice(0, 5).join(" → ").slice(0, 160)} · 이유: ${f.whyItWorks.slice(0, 100)}`),
-    ...templates.slice(0, 8).map((t) => `- template id=${t.id} · ${t.name} · 훅 방식: ${t.hookPattern.slice(0, 80)} · ${Math.round(t.totalSec)}초`),
-    ...radar
-      .filter((r) => r.ai?.relevant && r.ai.product && !r.dismissed)
-      .slice(0, 8)
-      .map((r) => `- radar id=${r.id} · ${r.ai!.product} · 평소의 ${r.multiple ?? "?"}배 · 이유: ${r.ai!.why.slice(0, 80)} · 훅: ${r.ai!.hook.slice(0, 60)}`),
+    ...cuts.map((c) => `- cut id=${c.id} · 레퍼런스 영상 컷 표 「${(c.title || c.url).slice(0, 60)}」 · 컷 ${c.cutCount}개${c.durationSec ? ` · 약 ${Math.round(c.durationSec)}초` : ""} · 훅: ${c.hook.slice(0, 80)} (구조만 옮긴다)`),
+    ...fs.map((f) => `- format id=${f.id} · ${f.name} · 훅: ${f.hook.slice(0, 80)} · 흐름: ${f.structure.slice(0, 5).join(" → ").slice(0, 160)} · 이유: ${f.whyItWorks.slice(0, 100)}`),
+    ...ts.map((t) => `- template id=${t.id} · ${t.name} · 훅 방식: ${t.hookPattern.slice(0, 80)} · ${Math.round(t.totalSec)}초`),
+    ...rs.map((r) => `- radar id=${r.id} · ${r.ai!.product} · 평소의 ${r.multiple ?? "?"}배 · 이유: ${r.ai!.why.slice(0, 80)} · 훅: ${r.ai!.hook.slice(0, 60)}`),
   ];
-  return { text: parts.join("\n"), mode: "auto" };
+  const ids = [...cuts.map((c) => `cut:${c.id}`), ...fs.map((f) => `format:${f.id}`), ...ts.map((t) => `template:${t.id}`), ...rs.map((r) => `radar:${r.id}`)];
+  return { text: parts.join("\n"), mode: "auto", ids };
 }
+
 
 // ---- 만들기 · 한 번 주고받기 ---------------------------------------------------
 
@@ -340,6 +351,7 @@ async function runTurn(
   const userMsg = { role: "user" as const, text: o.message, at: now, ...(o.newPhotoIds.length ? { photoIds: o.newPhotoIds } : {}) };
   try {
     const r = await writerTurn(input);
+    r.out.basis = checkWriterBasis(r.out.basis, s.reference, ref);
     const n = (s.versions.at(-1)?.n ?? 0) + 1;
     const patch: Partial<ScriptSessionDoc> = {
       script: r.out.script,

@@ -11,6 +11,7 @@ import "server-only";
 //    딥링크    **게시할 계정 주인의 키.** 수수료가 키 주인에게 가고, 그 사람의 파트너스에
 //              등록된 채널이어야 한다. 공유받은 계정이면 계정 주인의 키로 대신 만든다
 //              (키 자체는 서버 밖으로 나가지 않는다). 회사 키로 대신하지 않는다.
+//    (그 밖에) 아침 브리핑 「메일로 받기」 설정도 같은 문서의 briefMail 칸에 둔다 (brief-mail.ts).
 //    리포트    내 키로 내 실적만.
 //  쿠팡이 한도 초과로 막으면(429, 24시간) blockedUntil 을 적고 그때까지 부르지 않는다.
 // ============================================================
@@ -19,6 +20,7 @@ import type { Firestore } from "firebase-admin/firestore";
 import { AccessError } from "@/lib/neander/server/auth";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import type { ProfileDoc, ProfileView } from "../types";
+import { readBriefMailPref, type BriefMailPref } from "../brief-mail";
 import { CoupangApiError, coupangSearch, companyCreds, type CoupangCreds } from "./coupang";
 import { openTokens, sealTokens } from "./secret";
 import { youtubeApiKey } from "./youtube-data";
@@ -207,4 +209,34 @@ export async function verifyCoupang(db: Firestore, email: string): Promise<Profi
     }
   }
   return toProfileView(await getProfile(db, email));
+}
+
+// ---- 아침 브리핑 「메일로 받기」 (사람별 · 프로필 문서의 briefMail 칸) ---------------------
+//  프로필 문서가 아직 없는 사람은 빈 프로필과 함께 만든다 — 다른 곳(cron 의 쿠팡 실적 등)이 프로필을
+//  ProfileDoc 으로 읽으므로 briefMail 만 든 반쪽 문서를 만들지 않는다.
+
+export async function getBriefMailPref(db: Firestore, email: string): Promise<BriefMailPref> {
+  return readBriefMailPref(((await col(db).doc(email).get()).data() as { briefMail?: unknown } | undefined)?.briefMail);
+}
+
+/** 고치기 — 거래 안에서 지금 값을 읽어 f 로 바꾼다 (null 이면 그대로 둔다) */
+export async function updateBriefMailPref(db: Firestore, email: string, f: (prev: BriefMailPref) => BriefMailPref | null): Promise<BriefMailPref> {
+  const ref = col(db).doc(email);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const prev = readBriefMailPref((snap.data() as { briefMail?: unknown } | undefined)?.briefMail);
+    const next = f(prev);
+    if (!next) return prev;
+    if (snap.exists) tx.update(ref, { briefMail: next });
+    else tx.set(ref, { ...emptyProfile(email), briefMail: next });
+    return next;
+  });
+}
+
+/** 켠 사람들 (자동 실행) — 프로필은 사람 수만큼이라 통째로 읽는다 */
+export async function listBriefMailSubscribers(db: Firestore): Promise<{ email: string; pref: BriefMailPref }[]> {
+  const snap = await col(db).get();
+  return snap.docs
+    .map((d) => ({ email: d.id, pref: readBriefMailPref((d.data() as { briefMail?: unknown }).briefMail) }))
+    .filter((x) => x.pref.enabled);
 }

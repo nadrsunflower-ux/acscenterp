@@ -1,14 +1,14 @@
 "use client";
 
-// 정찰 화면 공용 조각 — 나라 · 수명 · 한국 상태 · AI 재현 배지, 배수 · 썸네일 · 올린 지, 나라 고르기
+// 정찰 화면 공용 조각 — 나라 · 수명 · 국내 상태 · AI 제작 난이도 배지, 배수 · 썸네일 · 올린 지, 나라 고르기,
+// 하위 거르기 알약 · 한국 시각 날짜 · AI 비용(원) 글자
 import { useState, type ReactNode } from "react";
 import { Film, UserRound } from "lucide-react";
 import { Badge, Select, cn, type Tone } from "@/components/neander/ui";
 import { Unknown } from "@/components/neander/shorts/parts";
+import { krwOf } from "@/lib/neander/shorts/radar";
 import {
-  AI_LEVEL_LABEL,
   COUNTRIES,
-  KOREA_LABEL,
   LANG_DEP_LABEL,
   LIFECYCLE_LABEL,
   ageDays,
@@ -26,13 +26,18 @@ const LIFE_TONE: Record<Lifecycle, Tone> = { seed: "info", rising: "success", st
 const KOREA_TONE: Record<KoreaStatus, Tone> = { unchecked: "neutral", none_in_sample: "accent", some: "info", spread: "warning" };
 const AI_TONE: Record<AiLevel, Tone> = { easy: "success", possible: "info", hard: "warning" };
 
-/** 「국내 표본에 없음」 은 표본에서 못 찾았다는 뜻 — 배지에 마우스를 올리면 그대로 알린다 */
+/** 「표본에 없음」 은 표본에서 못 찾았다는 뜻 — 배지에 마우스를 올리면 그대로 알린다 */
 const KOREA_TITLE: Record<KoreaStatus, string> = {
   unchecked: "아직 국내 검색을 하지 않았습니다",
   none_in_sample: "국내 검색 표본에서 못 찾았다는 뜻입니다 — 국내에 없다는 단정이 아닙니다",
   some: "국내 사례를 골랐거나 국내(KR) 터진 영상이 묶여 있습니다",
   spread: "국내에 이미 퍼진 것으로 표시했습니다",
 };
+
+/** 국내 퍼짐 단계 — 국내 미확인 → 표본에 없음 → 조금 → 퍼짐 (화면 꼬리표는 짧게, 근거는 따로 적는다) */
+export const KOREA_SHORT: Record<KoreaStatus, string> = { unchecked: "국내 미확인", none_in_sample: "표본에 없음", some: "국내 조금", spread: "국내 퍼짐" };
+/** AI 로 다시 만들기 얼마나 쉬운가 */
+export const AI_LEVEL_SHORT: Record<AiLevel, string> = { easy: "AI 제작 쉬움", possible: "AI 제작 보통", hard: "AI 제작 어려움" };
 
 export const LifeBadge = ({ stage, basis, size = "md" }: { stage: Lifecycle; basis?: string; size?: BadgeSize }) => (
   <span title={basis} className="inline-flex">
@@ -41,10 +46,10 @@ export const LifeBadge = ({ stage, basis, size = "md" }: { stage: Lifecycle; bas
 );
 export const KoreaBadge = ({ status, size = "md" }: { status: KoreaStatus; size?: BadgeSize }) => (
   <span title={KOREA_TITLE[status]} className="inline-flex">
-    <Badge tone={KOREA_TONE[status]} size={size}>{KOREA_LABEL[status]}</Badge>
+    <Badge tone={KOREA_TONE[status]} size={size}>{KOREA_SHORT[status]}</Badge>
   </span>
 );
-export const AiBadge = ({ level, size = "md" }: { level: AiLevel; size?: BadgeSize }) => <Badge tone={AI_TONE[level]} size={size}>{AI_LEVEL_LABEL[level]}</Badge>;
+export const AiBadge = ({ level, size = "md" }: { level: AiLevel; size?: BadgeSize }) => <Badge tone={AI_TONE[level]} size={size}>{AI_LEVEL_SHORT[level]}</Badge>;
 export const LangBadge = ({ dep, size = "md" }: { dep: LanguageDependence; size?: BadgeSize }) => (
   <Badge tone={dep === "visual" ? "success" : dep === "verbal" ? "warning" : "neutral"} size={size}>{LANG_DEP_LABEL[dep]}</Badge>
 );
@@ -157,3 +162,103 @@ export const fmtDate = (iso: string | null | undefined) => {
   const k = new Date(t + 9 * 3600_000);
   return `${k.getUTCFullYear() % 100}.${k.getUTCMonth() + 1}.${k.getUTCDate()}`;
 };
+
+// ---- 언어 · 날짜 · 돈 ------------------------------------------------------------
+
+const LANG_LABEL: Record<string, string> = {
+  ko: "한국어",
+  en: "영어",
+  ja: "일본어",
+  zh: "중국어",
+  id: "인도네시아어",
+  th: "태국어",
+  vi: "베트남어",
+  pt: "포르투갈어",
+  es: "스페인어",
+  fr: "프랑스어",
+  de: "독일어",
+};
+/** 언어 코드(ko · en · zh-Hant …) → 한국어 이름. 모르면 코드 그대로, 비었으면 「언어 모름」 */
+export const langLabel = (code: string | null | undefined) => {
+  const c = (code ?? "").trim();
+  if (!c) return "언어 모름";
+  return LANG_LABEL[c.toLowerCase().split(/[-_]/)[0]] ?? c;
+};
+
+/** 한국 시각 날짜 (2026-11-04) */
+export const kstDay = (ms: number) => new Date(ms + 9 * 3600_000).toISOString().slice(0, 10);
+
+const WEEKDAY = ["일", "월", "화", "수", "목", "금", "토"];
+/** 한국 시각 「11/4 (수)」 — time 이면 「11/4 (수) 07:06」 */
+export function fmtDay(ms: number | null | undefined, time = false): string {
+  if (!ms || !Number.isFinite(ms)) return "—";
+  const k = new Date(ms + 9 * 3600_000);
+  const d = `${k.getUTCMonth() + 1}/${k.getUTCDate()} (${WEEKDAY[k.getUTCDay()]})`;
+  return time ? `${d} ${String(k.getUTCHours()).padStart(2, "0")}:${String(k.getUTCMinutes()).padStart(2, "0")}` : d;
+}
+
+/** 달러 비용 → 「1,234원」 (어림 환산) */
+export const wonOf = (usd: number) => `${krwOf(usd).toLocaleString("ko-KR")}원`;
+
+/** 나가는 돈(AI 비용) — 빨간 글자. 달러를 어림 환산한 값이라 title 에 적는다 */
+export function AiWon({ usd, className, prefix }: { usd: number; className?: string; prefix?: string }) {
+  return (
+    <span className={cn("nd-num font-semibold text-nd-danger-text", className)} title={`$${usd.toFixed(4)} — 달러를 원으로 어림 환산 · 부가세 별도`}>
+      {prefix}
+      {wonOf(usd)}
+    </span>
+  );
+}
+
+/**
+ * 하위 거르기 알약 (묶기 전 · 형식에 묶음 · 제외 · 전체) — 같은 목록을 거를 뿐이라 탭이 아니라 눌림 단추.
+ * 좁은 화면에서는 가로로 밀어 본다.
+ */
+export function FilterPills<K extends string>({
+  items,
+  value,
+  onChange,
+  ariaLabel,
+  className,
+}: {
+  items: { key: K; label: string; count?: number }[];
+  value: K;
+  onChange: (k: K) => void;
+  ariaLabel: string;
+  className?: string;
+}) {
+  return (
+    <div role="group" aria-label={ariaLabel} className={cn("nd-scroll -mx-1 flex gap-2 overflow-x-auto px-1 pb-0.5", className)}>
+      {items.map((it) => {
+        const on = it.key === value;
+        return (
+          <button
+            key={it.key}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onChange(it.key)}
+            className={cn(
+              "inline-flex h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-nd-md border px-3.5 text-[14px] font-medium transition-colors",
+              on ? "border-nd-accent bg-nd-accent text-white" : "border-nd-line bg-nd-content text-nd-fg-2 hover:bg-nd-sunken hover:text-nd-fg",
+            )}
+          >
+            {it.label}
+            {it.count !== undefined && <span className={cn("nd-num", on ? "text-white/90" : "text-nd-fg-3")}>· {it.count.toLocaleString("ko-KR")}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** 이름 · 값 한 줄 (형식 카드의 편집 · 소리 · 화면 글자 · 왜 먹히나) — 값이 없으면 「미입력」 */
+export function SpecLine({ label, children, empty = "미입력" }: { label: string; children?: ReactNode; empty?: string }) {
+  const has = children !== undefined && children !== null && children !== "";
+  return (
+    <div className="py-2.5 text-[14px] leading-relaxed first:pt-0 last:pb-0">
+      <span className="font-semibold text-nd-fg">{label}</span>
+      <span className="text-nd-fg-3"> · </span>
+      {has ? <span className="text-nd-fg-2">{children}</span> : <span className="text-nd-fg-3">{empty}</span>}
+    </div>
+  );
+}

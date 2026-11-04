@@ -20,6 +20,7 @@ import {
   DEFAULT_SCOUT_SETTINGS,
   multipleOf,
   type AiLevel,
+  type ChannelCompare,
   type FormatDoc,
   type HitAnalysis,
   type HitDoc,
@@ -169,6 +170,27 @@ export async function updateWatch(db: Firestore, email: string, id: unknown, inp
 
 export async function writeScan(db: Firestore, id: string, scan: WatchChannelDoc["scan"], subscribers?: number | null): Promise<void> {
   await watchCol(db).doc(id).update({ scan, ...(subscribers !== undefined ? { subscribers } : {}) });
+}
+
+/**
+ * 「터진 영상 vs 평소」 마지막 비교 — 채널마다 하나 (다시 비교하면 바꿔 쓴다).
+ * 누가 · 언제는 compare.by · compare.at 에 남는다. 감시 설정을 고친 게 아니라 updatedAt · updatedBy 는 두고 간다 (writeScan 과 같다).
+ */
+export async function setWatchCompare(db: Firestore, id: string, compare: ChannelCompare): Promise<void> {
+  await watchCol(db).doc(id).update({ compare });
+}
+
+/** 영상 id 들 중 바이럴 형식 분석이 이미 있는 것 — 비교 AI 에 그 글을 같이 준다 (한 번에 읽기) */
+export async function hitAnalysesOf(db: Firestore, videoIds: string[]): Promise<Map<string, HitAnalysis>> {
+  const ids = [...new Set(videoIds.filter((v) => /^[\w-]{11}$/.test(v)))];
+  if (!ids.length) return new Map();
+  const snaps = await db.getAll(...ids.map((v) => hitsCol(db).doc(hitIdOf(v))));
+  const out = new Map<string, HitAnalysis>();
+  snaps.forEach((snap, i) => {
+    const a = (snap.data() as HitDoc | undefined)?.analysis;
+    if (a) out.set(ids[i], a);
+  });
+  return out;
 }
 
 export async function deleteWatch(db: Firestore, email: string, id: unknown): Promise<void> {

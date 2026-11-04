@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { BEAT_LABEL } from "./model";
-import { cleanFacts, cleanStoryInput, keepLast, sanitizeWriterScript, writerScriptText, writerTimeline, writerTotalSec } from "./script-writer";
+import { checkWriterBasis, cleanFacts, cleanStoryInput, keepLast, parseWriterRefParam, sanitizeWriterScript, writerScriptText, writerTimeline, writerTotalSec } from "./script-writer";
 
 const raw = {
   title: "  물막이 하나로 끝  ",
@@ -104,4 +104,36 @@ test("스토리 광고 — 이야기 · 캐릭터 시트 · 막 구조 · 컷 �
   assert.equal(si.problem, "미끄러짐");
   assert.equal(si.idea.length, 1500);
   assert.equal(si.look, "");
+});
+
+test("주소로 넘긴 참고 분석 ?ref=<kind>:<id>", () => {
+  assert.deepEqual(parseWriterRefParam("cut:yt_dQw4w9WgXcQ"), { kind: "cut", id: "yt_dQw4w9WgXcQ" });
+  assert.deepEqual(parseWriterRefParam("format:AbC123xyz_-"), { kind: "format", id: "AbC123xyz_-" });
+  assert.deepEqual(parseWriterRefParam(" radar:yt_dQw4w9WgXcQ "), { kind: "radar", id: "yt_dQw4w9WgXcQ" });
+  assert.equal(parseWriterRefParam("auto:abcdef"), null);
+  assert.equal(parseWriterRefParam("cut:"), null);
+  assert.equal(parseWriterRefParam("cut:a/b/c/d"), null);
+  assert.equal(parseWriterRefParam("hit:yt_dQw4w9WgXcQ"), null);
+  assert.equal(parseWriterRefParam(null), null);
+});
+
+test("AI 가 적은 근거 — 고른 것이면 고정 · 고르기면 넘긴 목록 안에서만", () => {
+  const ai = { kind: "format" as const, id: "made_up_id", name: "AI 이름", why: "훅 방식을 옮김" };
+  // 고른 컷 표가 있으면 AI 가 뭐라 적든 그것으로 (이름 · 종류는 우리 값, 이유는 AI 의 것)
+  assert.deepEqual(checkWriterBasis(ai, { kind: "cut", id: "yt_dQw4w9WgXcQ", name: "유리 과일" }, { mode: "fixed", ids: ["cut:yt_dQw4w9WgXcQ"] }), {
+    kind: "cut",
+    id: "yt_dQw4w9WgXcQ",
+    name: "유리 과일",
+    why: "훅 방식을 옮김",
+  });
+  // 고르기 — 목록에 없는 id 는 버린다
+  const auto = { kind: "auto" as const, id: null, name: "" };
+  assert.deepEqual(checkWriterBasis(ai, auto, { mode: "auto", ids: ["format:real_id_1", "cut:yt_dQw4w9WgXcQ"] }), { kind: "none", id: "", name: "", why: "" });
+  const ok = { kind: "cut" as const, id: "yt_dQw4w9WgXcQ", name: "유리 과일", why: "컷 순서" };
+  assert.deepEqual(checkWriterBasis(ok, auto, { mode: "auto", ids: ["format:real_id_1", "cut:yt_dQw4w9WgXcQ"] }), ok);
+  // 종류만 바꿔 같은 id 를 대면 다른 것이다
+  assert.equal(checkWriterBasis({ ...ok, kind: "radar" }, auto, { mode: "auto", ids: ["cut:yt_dQw4w9WgXcQ"] }).kind, "none");
+  // 고른 분석이 사라져 고르기로 넘어갔으면(mode auto) 목록 검사
+  assert.equal(checkWriterBasis(ai, { kind: "format", id: "gone_id_123", name: "" }, { mode: "auto", ids: [] }).kind, "none");
+  assert.deepEqual(checkWriterBasis({ kind: "none", id: "", name: "", why: "맞는 것 없음" }, auto, { mode: "auto", ids: [] }), { kind: "none", id: "", name: "", why: "맞는 것 없음" });
 });

@@ -569,7 +569,7 @@ const WRITER_SCHEMA = {
       additionalProperties: false,
       required: ["kind", "id", "name", "why"],
       properties: {
-        kind: { type: "string", enum: ["format", "template", "radar", "none"] },
+        kind: { type: "string", enum: ["format", "template", "radar", "cut", "none"] },
         id: { type: "string" },
         name: { type: "string" },
         why: { type: "string" },
@@ -754,7 +754,7 @@ export async function writerTurn(input: WriterTurnInput): Promise<{ out: WriterT
     script: sanitizeWriterScript(d.script, input.photoCount, input.style ?? "intro"),
     facts: cleanFacts(d.facts),
     basis: {
-      kind: b.kind === "format" || b.kind === "template" || b.kind === "radar" ? b.kind : "none",
+      kind: b.kind === "format" || b.kind === "template" || b.kind === "radar" || b.kind === "cut" ? b.kind : "none",
       id: typeof b.id === "string" ? b.id.slice(0, 80) : "",
       name: typeof b.name === "string" ? b.name.slice(0, 120) : "",
       why: typeof b.why === "string" ? b.why.slice(0, 500) : "",

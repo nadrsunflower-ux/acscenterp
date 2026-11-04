@@ -53,6 +53,8 @@ export interface WatchChannelDoc extends ScoutOwned {
     shortsSeen: number;
     error: string | null;
   };
+  /** 마지막 「터진 영상 vs 평소」 비교 — 회사 공용이라 누가 눌렀든 함께 본다 (예전 문서에는 없다) */
+  compare?: ChannelCompare;
 }
 
 export type BaselineBasis = "mature" | "young" | "none";
@@ -649,3 +651,254 @@ export function parseYoutubeRef(input: string): { kind: "handle" | "channel" | "
 }
 
 export const fmtMultiple = (m: number | null | undefined) => (m === null || m === undefined ? "—" : `${m >= 10 ? Math.round(m) : m.toFixed(1)}배`);
+
+// ---- 터진 영상 vs 평소 (같은 감시 채널 안) ---------------------------------------
+//  같은 채널이라 구독자 · 주제가 같다 — 터진 영상과 평소 영상의 차이는 형식(제목 · 썸네일 · 길이 · 올린 때) 쪽에서
+//  나왔을 가능성이 크다. 숫자(편수 · 중앙값 · 비율 · 요일 · 시간대)는 여기서만 계산하고, AI 는 차이를 「가설」 로만 쓴다.
+//
+//  표본 = 평소 조회수를 낸 그 표본 (올린 지 7일 넘은 최근 쇼츠 30편 — computeBaseline 의 mature).
+//  · 7일 안 영상은 조회수가 아직 차는 중이라 어느 쪽에도 넣지 않는다.
+//  · maxAgeDays(새로 터진 것만 줍는 신선도 기준)는 쓰지 않는다 — 이 비교는 그 채널의 평소 틀을 보는 것이라
+//    평소를 낸 표본과 같은 데서 골라야 「평소의 몇 배」 가 같은 뜻이 된다.
+
+/** 하루 상한 — 프로젝트마다 (한 번에 약 25원 — COMPARE_MEASURED_USD) */
+export const CHANNEL_COMPARE_DAILY_LIMIT = 20;
+export const COMPARE_MAX_HITS = 6;
+export const COMPARE_MAX_USUAL = 8;
+/** 평소 = 배수 0.6~1.5 (중앙값 근처) */
+export const COMPARE_USUAL_MIN = 0.6;
+export const COMPARE_USUAL_MAX = 1.5;
+/** 조회수가 거의 다 찬 영상만 — computeBaseline 의 「mature」 와 같은 7일 */
+export const COMPARE_MIN_AGE_DAYS = 7;
+/**
+ * 비교 한 번 실측 비용 — 2026-11-04 실제 호출 2번 평균 (Gemini 3.7 Flash · 썸네일 12~14장 + 제목 · 분석 글 ·
+ * 국내 살림 채널 둘: $0.0160 · 12초 / $0.0176 · 13초). 저장된 비교가 있으면 화면은 그 평균을 먼저 쓴다.
+ */
+export const COMPARE_MEASURED_USD = 0.017;
+
+export type CompareAspect = "title" | "thumbnail" | "length" | "hook" | "topic" | "timing" | "other";
+export const COMPARE_ASPECTS: readonly CompareAspect[] = ["title", "thumbnail", "length", "hook", "topic", "timing", "other"];
+export const COMPARE_ASPECT_LABEL: Record<CompareAspect, string> = { title: "제목", thumbnail: "썸네일", length: "길이", hook: "훅", topic: "주제", timing: "올린 때", other: "기타" };
+export type CompareStrength = "clear" | "weak";
+export const COMPARE_STRENGTH_LABEL: Record<CompareStrength, string> = { clear: "분명", weak: "약함" };
+
+/** 올린 시간대 (KST) — 0~6 · 6~12 · 12~18 · 18~24 */
+export const TIME_BANDS = ["새벽", "오전", "오후", "저녁"] as const;
+export const WEEKDAYS_KO = ["일", "월", "화", "수", "목", "금", "토"] as const;
+
+export interface CompareVideo {
+  /** YouTube 영상 id */
+  id: string;
+  title: string;
+  url: string;
+  thumbnail: string;
+  views: number;
+  multiple: number;
+  duration: number;
+  publishedAt: string;
+  /** 이 영상에 바이럴 형식 분석(HitDoc.analysis)이 있어 AI 에 그 글도 줬나 */
+  analyzed: boolean;
+}
+
+export interface CompareGroupStats {
+  n: number;
+  medianViews: number | null;
+  medianSec: number | null;
+  medianTitleLen: number | null;
+  /** 제목에 숫자 · 물음표 · 해시태그 · 이모지가 있는 편수 (비율은 화면이 n 으로 나눈다) */
+  withNumber: number;
+  withQuestion: number;
+  withHashtag: number;
+  withEmoji: number;
+  /** 올린 요일 (KST) — 일 ~ 토 편수 */
+  weekdays: number[];
+  /** 올린 시간대 (KST) — TIME_BANDS 순 편수 */
+  bands: number[];
+}
+
+export interface ChannelCompareCalc {
+  threshold: number;
+  minViews: number;
+  /** 평소 조회수 — 모르면 null (쇼츠가 모자람) */
+  baseline: number | null;
+  baselineN: number;
+  baselineBasis: BaselineBasis;
+  /** 고른 표본 — 올린 지 7일 넘은 최근 쇼츠 편수 */
+  pool: number;
+  /** 올린 지 7일 안이라 뺀 쇼츠 */
+  young: number;
+  hits: CompareVideo[];
+  usual: CompareVideo[];
+  stats: { hits: CompareGroupStats; usual: CompareGroupStats; limits: string[] };
+}
+
+/** AI 가 쓴 차이 — 가설이다. 숫자를 다시 말하지 않고 근거 영상 id 로 든다 (우리가 준 id 만 남는다) */
+export interface ChannelCompareAi {
+  differences: { aspect: CompareAspect; hit: string; usual: string; strength: CompareStrength; hitIds: string[]; usualIds: string[] }[];
+  tryNext: string[];
+  caveat: string;
+}
+
+export interface ChannelCompare extends ChannelCompareCalc {
+  at: number;
+  by: string;
+  model: string;
+  costUsd: number;
+  ai: ChannelCompareAi;
+}
+
+const DIGIT = /[0-9０-９]/;
+const QUESTION = /[?？]/;
+const HASHTAG = /(?:^|\s)#[\p{L}\p{N}_]+/u;
+// ©®™ 는 Extended_Pictographic 이지만 이모지로 쓰인 게 아니다
+const EMOJI = /(?![©®™])\p{Extended_Pictographic}/u;
+const KST_MS = 9 * 3600_000;
+
+export const titleFeatures = (title: string) => ({
+  len: [...title.trim()].length,
+  number: DIGIT.test(title),
+  question: QUESTION.test(title),
+  hashtag: HASHTAG.test(title),
+  emoji: EMOJI.test(title),
+});
+
+/** 올린 때 (KST) — 요일 0(일)~6 · 시간대 0~3. 게시일을 모르면 null */
+export function kstSlot(publishedAt: string | null | undefined): { weekday: number; hour: number; band: number } | null {
+  const t = publishedAt ? Date.parse(publishedAt) : NaN;
+  if (!Number.isFinite(t)) return null;
+  const k = new Date(t + KST_MS);
+  const hour = k.getUTCHours();
+  return { weekday: k.getUTCDay(), hour, band: Math.floor(hour / 6) };
+}
+
+/** 묶음 하나의 계산 — 편수 · 조회수 · 길이 · 제목 글자 수 중앙값 · 제목 특징 편수 · 요일 · 시간대 분포 */
+export function compareGroupStats(videos: { title: string; duration: number | null; publishedAt: string | null; views: number | null }[]): CompareGroupStats {
+  const weekdays = [0, 0, 0, 0, 0, 0, 0];
+  const bands = [0, 0, 0, 0];
+  let withNumber = 0;
+  let withQuestion = 0;
+  let withHashtag = 0;
+  let withEmoji = 0;
+  const lens: number[] = [];
+  for (const v of videos) {
+    const f = titleFeatures(v.title);
+    lens.push(f.len);
+    if (f.number) withNumber++;
+    if (f.question) withQuestion++;
+    if (f.hashtag) withHashtag++;
+    if (f.emoji) withEmoji++;
+    const slot = kstSlot(v.publishedAt);
+    if (slot) {
+      weekdays[slot.weekday]++;
+      bands[slot.band]++;
+    }
+  }
+  return {
+    n: videos.length,
+    medianViews: median(videos.flatMap((v) => (typeof v.views === "number" ? [v.views] : []))),
+    medianSec: median(videos.flatMap((v) => (typeof v.duration === "number" && v.duration > 0 ? [v.duration] : []))),
+    medianTitleLen: median(lens),
+    withNumber,
+    withQuestion,
+    withHashtag,
+    withEmoji,
+    weekdays,
+    bands,
+  };
+}
+
+/**
+ * 같은 채널 쇼츠에서 터진 쪽 · 평소 쪽을 고른다.
+ *   표본  올린 지 7일 넘은 최근 쇼츠 30편 (평소 조회수를 낸 그 표본)
+ *   터진  평소의 threshold 배 이상 · minViews 이상 — 배수 큰 순 최대 6편
+ *   평소  배수 0.6~1.5 — 1배에 가까운 순(같으면 최근) 최대 8편
+ */
+export interface CompareSets<T> {
+  baseline: ReturnType<typeof computeBaseline>;
+  pool: number;
+  young: number;
+  hits: (T & { multiple: number })[];
+  usual: (T & { multiple: number })[];
+}
+
+export function pickCompareSets<T extends { id: string; views: number | null; publishedAt: string | null }>(
+  shorts: T[],
+  s: Pick<ScoutSettings, "threshold" | "minViews">,
+  now: number,
+): CompareSets<T> {
+  const baseline = computeBaseline(shorts, now);
+  const aged = shorts
+    .filter((v) => typeof v.views === "number")
+    .map((v) => ({ v, age: ageDays(v.publishedAt, now) }))
+    .filter((x): x is { v: T; age: number } => x.age !== null);
+  const young = aged.filter((x) => x.age < COMPARE_MIN_AGE_DAYS).length;
+  const pool = aged
+    .filter((x) => x.age >= COMPARE_MIN_AGE_DAYS)
+    .sort((a, b) => a.age - b.age)
+    .slice(0, 30);
+  if (baseline.value === null) return { baseline, pool: pool.length, young, hits: [], usual: [] };
+  const withM = pool.map((x) => ({ ...x, m: multipleOf(x.v.views, baseline.value) as number }));
+  const hits = withM
+    .filter((x) => x.m >= s.threshold && (x.v.views ?? 0) >= s.minViews)
+    .sort((a, b) => b.m - a.m || a.age - b.age)
+    .slice(0, COMPARE_MAX_HITS)
+    .map((x) => ({ ...x.v, multiple: x.m }));
+  const usual = withM
+    .filter((x) => x.m >= COMPARE_USUAL_MIN && x.m <= COMPARE_USUAL_MAX)
+    .sort((a, b) => Math.abs(Math.log(a.m)) - Math.abs(Math.log(b.m)) || a.age - b.age)
+    .slice(0, COMPARE_MAX_USUAL)
+    .map((x) => ({ ...x.v, multiple: x.m }));
+  return { baseline, pool: pool.length, young, hits, usual };
+}
+
+/** 계산 결과에 함께 다는 한계 — 편수가 적거나 평소가 어림일 때 */
+export function compareLimits(hits: number, usual: number, basis: BaselineBasis): string[] {
+  const out: string[] = [];
+  if (hits === 1) out.push("터진 영상이 1편뿐 — 일반화하기 어려움");
+  else if (hits === 2) out.push("터진 영상이 2편뿐 — 차이가 우연일 수 있음");
+  if (usual > 0 && usual < 3) out.push(`평소 수준 영상이 ${usual}편뿐 — 견줄 쪽이 얇음`);
+  if (basis === "young") out.push("올린 지 7일 넘은 쇼츠가 5편이 안 돼 평소 조회수가 어림");
+  return out;
+}
+
+/** 비교를 못 하는 이유 — 할 수 있으면 null (AI 를 부르기 전에 서버 · 화면이 같이 본다) */
+export function compareBlockReason(c: Pick<ChannelCompareCalc, "baseline" | "pool" | "young" | "threshold" | "minViews" | "hits" | "usual">): string | null {
+  if (c.baseline === null) return "이 채널 최근 쇼츠가 5편이 안 돼 평소 조회수를 낼 수 없습니다.";
+  if (c.pool < 5) return `올린 지 7일 넘은 최근 쇼츠가 ${c.pool}편뿐이라 아직 견줄 수 없습니다${c.young ? ` — 7일 안 ${c.young}편은 조회수가 차는 중입니다` : ""}.`;
+  if (!c.hits.length) return `올린 지 7일 넘은 최근 쇼츠 ${c.pool}편 중 평소의 ${c.threshold}배 · 조회 ${c.minViews.toLocaleString("ko-KR")}회를 넘은 영상이 없습니다.`;
+  if (!c.usual.length) return `평소 수준(평소의 ${COMPARE_USUAL_MIN}~${COMPARE_USUAL_MAX}배) 영상이 없어 견줄 쪽이 없습니다.`;
+  return null;
+}
+
+/** 고른 영상 → 저장 · 화면용 계산 (analyzed = 형식 분석이 있는 영상 id) */
+export function compareCalcOf(
+  sets: CompareSets<{ id: string; url: string; title: string; thumbnail: string; views: number | null; publishedAt: string | null; duration: number | null }>,
+  s: Pick<ScoutSettings, "threshold" | "minViews">,
+  analyzed: ReadonlySet<string> = new Set(),
+): ChannelCompareCalc {
+  const video = (v: (typeof sets.hits)[number]): CompareVideo => ({
+    id: v.id,
+    title: v.title.slice(0, 300),
+    url: v.url,
+    thumbnail: v.thumbnail,
+    views: v.views ?? 0,
+    multiple: v.multiple,
+    duration: v.duration ?? 0,
+    publishedAt: v.publishedAt ?? "",
+    analyzed: analyzed.has(v.id),
+  });
+  const hits = sets.hits.map(video);
+  const usual = sets.usual.map(video);
+  return {
+    threshold: s.threshold,
+    minViews: s.minViews,
+    baseline: sets.baseline.value,
+    baselineN: sets.baseline.n,
+    baselineBasis: sets.baseline.basis,
+    pool: sets.pool,
+    young: sets.young,
+    hits,
+    usual,
+    stats: { hits: compareGroupStats(hits), usual: compareGroupStats(usual), limits: compareLimits(hits.length, usual.length, sets.baseline.basis) },
+  };
+}

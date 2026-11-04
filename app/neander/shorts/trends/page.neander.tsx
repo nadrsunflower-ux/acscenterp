@@ -1,30 +1,36 @@
 "use client";
 
 // ============================================================
-//  소재 발굴 — AI 레이더(매일 자동) · 국내외 검색 표본 비교 · 저장한 후보 · 반응 점수
+//  소재 발굴 — AI 레이더(매일 자동) · 플랫폼에서 직접 찾기(링크 · 국내외 검색 표본) · 저장한 소재 · 반응 점수
 // ------------------------------------------------------------
 //  · 검색 표본은 YouTube Data API(서버 키)로만 자동 수집한다. Instagram · TikTok ·
 //    샤오홍슈는 남의 게시물 검색 API 가 없어 링크 등록 · 직접 입력이다.
-//  · 숫자마다 출처(공식 API · 직접 입력 · 추정)를 붙이고, 모르는 값은 비워 둔다.
+//  · 숫자마다 출처(공식 API · 직접 입력 · 추정)를 붙이고, 모르는 값은 비워 둔다(「미확인」).
 //  · 국내에서 못 찾은 것은 「이 표본에서 못 찾음」 일 뿐 — 미확산을 단정하지 않는다.
 //  · 점수 산식과 가중치를 화면에 보여 주고, 사람이 가중치를 바꾼다.
+//  배치 (2026-11-04 AI STUDIO 목업 08): 머리 → AI 레이더(탭 · 필터 · 후보 카드) → 플랫폼에서 직접 찾기(탭) →
+//  저장한 소재(표 + 가중치). 「내가 저장한 것」 탭에서는 저장한 소재 표가 탭 안 맨 위로 올라간다.
 // ============================================================
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
+  ArrowUpRight,
   BookHeart,
   BookmarkPlus,
   Camera,
   CircleAlert,
   ExternalLink,
+  FolderOpen,
   Globe,
   Info,
   Music2,
+  PenLine,
   Plus,
   Radar,
   RefreshCw,
+  RotateCcw,
   Search,
   ShoppingBag,
   SquarePlay,
@@ -33,10 +39,8 @@ import {
 } from "lucide-react";
 import {
   Button,
-  Card,
   Checkbox,
   Dialog,
-  Disclosure,
   EmptyState,
   Field,
   FieldAction,
@@ -44,16 +48,11 @@ import {
   InlineNotice,
   Input,
   NumberInput,
-  PageHeader,
   PageShell,
   SectionHeader,
   Select,
-  Table,
-  TableScroll,
-  Td,
+  Tabs,
   Textarea,
-  Th,
-  Tr,
   buttonClass,
   cn,
   toneCls,
@@ -62,7 +61,8 @@ import {
 } from "@/components/neander/ui";
 import { isReadOnlyFor, useScoped, useShorts, type WithId } from "@/components/neander/shorts/ShortsProvider";
 import { MeasuredInput, Num, SampleTag, SourceTag, Unknown, fmtWhen, useAction } from "@/components/neander/shorts/parts";
-import { RadarPanel } from "@/components/neander/shorts/radar/RadarPanel";
+import { RecordTable, StudioCard, StudioHeader, VisibilityChip, type RecordColumn } from "@/components/neander/shorts/studio";
+import { RadarPanel, type RadarTab } from "@/components/neander/shorts/radar/RadarPanel";
 import { mutate, shortsPost } from "@/lib/neander/shorts/client";
 import {
   BROWSE_PLATFORMS,
@@ -112,13 +112,25 @@ const REGIONS = [
   { code: "GB", lang: "en", label: "영국 (GB · 영어)" },
 ];
 
+/** 탭마다 화면 설명 한 줄 */
+const HEAD: Record<RadarTab, string> = {
+  new: "반응이 큰 원본을 발견하고, 확인한 소재를 내 프로젝트로 가져오세요.",
+  saved: "저장한 내 소재를 비교하고 영상 · 대본으로 이어 가세요.",
+  out: "제외 · 무관으로 분류한 후보를 확인하고 필요하면 새 후보로 되살리세요.",
+};
+
+type SortKey = "score" | "velocity" | "recent";
+type Row = { t: WithId<TrendDoc>; s: ReturnType<typeof scoreTrend>; v: ReturnType<typeof viewVelocity>; info: number | null };
+
 export default function TrendsPage() {
-  const { data, refresh, nameOf, space } = useShorts();
+  const { data, refresh, nameOf, space, viewer } = useShorts();
   const d = data!;
   const sc = useScoped();
   const router = useRouter();
   const ask = useConfirm();
   const { busy, run } = useAction();
+  const [tab, setTab] = useState<RadarTab>("new");
+  const [findTab, setFindTab] = useState<"link" | "search">("link");
   const [editing, setEditing] = useState<WithId<TrendDoc> | "new" | null>(null);
   // 「새로 등록」 창에 미리 채울 값 (가져온 링크)
   const [draft, setDraft] = useState<TrendDraft | null>(null);
@@ -126,9 +138,9 @@ export default function TrendsPage() {
   // 북마크 「ERP에 담기」 로 열린 작은 창 — 저장하거나 닫으면 창도 닫는다
   const popup = useRef(false);
   const [weights, setWeights] = useState<ScoreWeights>(d.weights);
-  const [sort, setSort] = useState<"score" | "velocity" | "recent">("score");
+  const [sort, setSort] = useState<SortKey>("score");
 
-  const rows = useMemo(() => {
+  const rows = useMemo<Row[]>(() => {
     const list = sc.trends.map((t) => ({ t, s: scoreTrend(t, weights), v: viewVelocity(t), info: infoRequestRate(t.infoSample) }));
     return list.sort((a, b) =>
       sort === "score" ? (b.s.score ?? -1) - (a.s.score ?? -1) : sort === "velocity" ? (b.v.perDay ?? -1) - (a.v.perDay ?? -1) : b.t.updatedAt - a.t.updatedAt,
@@ -145,6 +157,7 @@ export default function TrendsPage() {
   // 나머지는 링크 · 플랫폼을 채운 직접 등록 창을 연다 (숫자는 사람이 화면에서 보고 적는다)
   const takeLink = async (text: string, product: string, title = "") => {
     setLinkNote(null);
+    setFindTab("link");
     const url = extractUrl(text);
     if (!url) return setLinkNote({ tone: "warning", text: "붙여 넣은 글에서 주소를 찾지 못했습니다." });
     const platform = platformFromUrl(url);
@@ -205,232 +218,63 @@ export default function TrendsPage() {
   // 점수 막대의 기준 — 이 목록에서 가장 높은 점수 (점수 자체에는 상한이 없다)
   const topScore = Math.max(0, ...rows.map((r) => r.s.score ?? 0));
 
+  const toProject = (t: WithId<TrendDoc>) =>
+    void run(`p-${t.id}`, async () => {
+      const r = await mutate<{ id: string }>("trend.toProject", { id: t.id, visibility: t.visibility });
+      await refresh();
+      router.push(`/neander/shorts/projects/${r.id}`);
+    });
+
+  const saved = (
+    <SavedTrends
+      rows={rows}
+      topScore={topScore}
+      me={d.me}
+      nameOf={nameOf}
+      mineOnly={viewer === "mine"}
+      sort={sort}
+      setSort={setSort}
+      weights={weights}
+      setWeights={setWeights}
+      onSaveWeights={(w) => void saveWeights(w)}
+      busy={busy}
+      onOpen={setEditing}
+      onNew={openNew}
+      onProject={toProject}
+    />
+  );
+
   return (
     <PageShell>
-      <PageHeader
-        title="소재 발굴"
-        description="반응이 큰 영상에서 다음 소재를 고르세요. 맨 위는 매일 아침 모이는 AI 레이더 후보, 아래는 직접 찾기 · 국내외 검색 비교 · 저장한 소재입니다."
-        actions={
-          <Button icon={Plus} onClick={openNew}>
-            직접 등록
-          </Button>
-        }
-      />
+      <StudioHeader kicker="AI STUDIO 워크스페이스" kickerIcon={FolderOpen} title="소재 발굴" description={HEAD[tab]} />
 
-      <RadarPanel />
+      <RadarPanel tab={tab} onTabChange={setTab} savedSlot={saved} savedCount={sc.trends.length} />
 
-      <PlatformBrowse note={linkNote} busy={busy === "take"} onTake={(text, product) => void takeLink(text, product)} />
-
-      <SearchCompare quota={d.quotas.youtubeSearch} configured={!!d.quotas.youtubeSearch.source} onSaved={refresh} />
-
-      <Disclosure
-        className="mb-8"
-        title="반응 점수 산식과 가중치"
-        meta={
-          <span className="text-[13px]">
-            좋아요 {weights.likes} · 댓글 {weights.comments} · 저장 {weights.saves} · 공유 {weights.shares} · 정보 요청 {weights.infoRequests}
-          </span>
-        }
+      <StudioCard
+        className="mb-6"
+        title="플랫폼에서 직접 찾기"
+        description="새 탭으로 열어 보고 고른 영상 링크를 가져오거나, YouTube 검색 표본을 국내 · 해외로 나란히 비교합니다"
+        action={<SaveBookmarklet />}
       >
-        <div className="space-y-4">
-          <p className="text-nd-body leading-relaxed text-nd-fg-2">
-            반응 점수 = Σ(가중치 × 조회 1,000회당 지표) ÷ Σ(쓴 가중치). 모르는 지표(비공개 저장 수 등)는 0 으로 넣지 않고 빼며, 그 가중치도 함께 뺍니다. 정보 요청은 댓글 표본이 있으면 「댓글 수 × 표본에서 정보 요청 댓글의 비율」 로 추정합니다(출처 「추정」).
-          </p>
-          <FormRow className="grid-cols-2 sm:grid-cols-5">
-            {(Object.keys(DEFAULT_WEIGHTS) as (keyof ScoreWeights)[]).map((k) => (
-              <Field key={k} label={METRIC_LABEL[k]}>
-                <NumberInput decimal value={weights[k]} onValueChange={(raw) => setWeights({ ...weights, [k]: Math.min(20, Math.max(0, Number(raw) || 0)) })} />
-              </Field>
-            ))}
-          </FormRow>
-          <div className="flex gap-2">
-            <Button size="sm" onClick={() => void saveWeights(weights)} disabled={busy === "weights"}>내 가중치로 저장</Button>
-            <Button size="sm" variant="ghost" onClick={() => void saveWeights(DEFAULT_WEIGHTS)}>기본값으로</Button>
-          </div>
+        <div className="nd-scroll -mt-2 mb-4 overflow-x-auto border-b border-nd-line">
+          <Tabs
+            ariaLabel="직접 찾기 방법"
+            value={findTab}
+            onChange={(k) => setFindTab(k as typeof findTab)}
+            items={[
+              { key: "link", label: "링크 붙여 넣기" },
+              { key: "search", label: "검색 표본 비교", hint: d.quotas.youtubeSearch.source ? `YouTube ${d.quotas.youtubeSearch.used}/${d.quotas.youtubeSearch.limit}회` : "검색 키 없음" },
+            ]}
+          />
         </div>
-      </Disclosure>
+        {findTab === "link" ? (
+          <PlatformBrowse note={linkNote} busy={busy === "take"} onTake={(text, product) => void takeLink(text, product)} onNew={openNew} />
+        ) : (
+          <SearchCompare quota={d.quotas.youtubeSearch} configured={!!d.quotas.youtubeSearch.source} onSaved={refresh} />
+        )}
+      </StudioCard>
 
-      <SectionHeader
-        size="lg"
-        title="저장한 소재"
-        hint={`${sc.trends.length}건 · 숫자는 원본 영상의 반응`}
-        action={
-          <Select size="sm" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} aria-label="정렬">
-            <option value="score">반응 점수 순</option>
-            <option value="velocity">증가 속도 순</option>
-            <option value="recent">최근 수정 순</option>
-          </Select>
-        }
-      />
-      {rows.length === 0 ? (
-        <EmptyState
-          compact
-          icon={Radar}
-          title="저장한 소재가 없습니다"
-          description="위에서 플랫폼을 열어 찾은 영상의 링크를 붙여 넣거나, YouTube 검색 표본에서 골라 저장하세요."
-          action={
-            <Button size="sm" variant="secondary" icon={Plus} onClick={openNew}>
-              직접 등록
-            </Button>
-          }
-        />
-      ) : (
-        <Card padding="none" className="overflow-hidden">
-          <TableScroll>
-            <Table size="md" minWidth={1040} className="table-fixed">
-              <colgroup>
-                <col />
-                <col className="w-[112px]" />
-                <col className="w-[132px]" />
-                <col className="w-[100px]" />
-                <col className="w-[104px]" />
-                <col className="w-[184px]" />
-                <col className="w-[120px]" />
-              </colgroup>
-              <thead>
-                <tr>
-                  <Th>소재 · 상품</Th>
-                  <Th>플랫폼 · 국가</Th>
-                  <Th align="right" title="원본 영상 조회 · 하루 증가">조회 · 증가</Th>
-                  <Th align="right" title="조회 1,000회당 가중 반응 — 산식은 위 「반응 점수 산식과 가중치」">반응 점수</Th>
-                  <Th align="right" title="댓글 표본에서 제품 정보 · 구매처 · 링크 · DM 을 묻는 댓글의 비율">정보 요청률</Th>
-                  <Th>국내 유사 콘텐츠</Th>
-                  <Th align="right">작업</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(({ t, s, v, info }) => {
-                  const dom = domesticLabel(t.domestic);
-                  const domText = splitDomestic(dom.text);
-                  const name = t.product || t.title || t.url;
-                  const sub = [t.owner !== d.me ? nameOf(t.owner) : "", t.product ? t.title : "", t.channel].filter(Boolean).join(" · ");
-                  const reactions = REACTION_KEYS.map((k) => `${METRIC_LABEL[k]} ${t.metrics[k].v === null ? "미확인" : t.metrics[k].v!.toLocaleString("ko-KR")}`).join(" · ");
-                  const knownReactions = REACTION_KEYS.filter((k) => t.metrics[k].v !== null);
-                  const unknownReactions = REACTION_KEYS.filter((k) => t.metrics[k].v === null);
-                  const scoreTitle = `${s.formula}${s.missing.length ? ` · 빠진 지표: ${s.missing.map((k) => METRIC_LABEL[k]).join(", ")}` : ""}`;
-                  return (
-                    <Tr key={t.id}>
-                      <Td className="align-top">
-                        <div className="flex min-w-0 items-start gap-3">
-                          <PlatformTile platform={t.platform} />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex min-w-0 items-center gap-2">
-                              <button type="button" className="min-w-0 truncate text-left font-semibold hover:underline" title={name} onClick={() => setEditing(t)}>
-                                {name}
-                              </button>
-                              {t.sample && <span className="shrink-0"><SampleTag /></span>}
-                            </div>
-                            {sub && (
-                              <p className="truncate text-[13px] text-nd-fg-2" title={sub}>
-                                {sub}
-                              </p>
-                            )}
-                            {/* 원본 반응 — 아는 숫자 먼저, 모르는 지표는 끝에 묶어 「미확인」 (잘려도 미확인이 보이도록 짧게) */}
-                            <p className="truncate text-[13px] text-nd-fg-3" title={`원본 반응 — ${reactions}`}>
-                              {knownReactions.map((k, j) => (
-                                <span key={k}>
-                                  {j > 0 && " · "}
-                                  {METRIC_LABEL[k]} <span className="nd-num text-nd-fg-2">{fmtCount(t.metrics[k].v)}</span>
-                                </span>
-                              ))}
-                              {unknownReactions.length > 0 && (
-                                <span>
-                                  {knownReactions.length > 0 && " · "}
-                                  {unknownReactions.map((k) => METRIC_LABEL[k]).join("·")} <Unknown />
-                                </span>
-                              )}
-                            </p>
-                          </div>
-                        </div>
-                      </Td>
-                      <Td className="align-top">
-                        <div className="flex items-baseline gap-1.5">
-                          <span className="font-medium">{PLATFORM_LABEL[t.platform]}</span>
-                          {t.country && <span className="text-[13px] text-nd-fg-3">{t.country}</span>}
-                        </div>
-                        <div className="mt-1">
-                          <SourceTag src={t.metrics.views.src} title={t.metrics.views.ref ?? "조회수 출처"} />
-                        </div>
-                      </Td>
-                      <Td num className="align-top">
-                        <div className="font-medium">
-                          <Num value={t.metrics.views.v} />
-                        </div>
-                        <div className="whitespace-nowrap text-[13px] text-nd-fg-3" title={v.label}>
-                          {v.perDay === null ? (
-                            <>
-                              증가 <Unknown title={v.label} />
-                            </>
-                          ) : (
-                            <>
-                              <span className="text-nd-fg-2">+{Math.round(v.perDay).toLocaleString("ko-KR")}</span>/일{v.basis === "since_publish" ? " 평균" : ""}
-                            </>
-                          )}
-                        </div>
-                      </Td>
-                      <Td num className="align-top" title={scoreTitle}>
-                        {s.score === null ? (
-                          <Unknown title={s.formula} />
-                        ) : (
-                          <>
-                            <div className="font-semibold">{s.score.toFixed(1)}</div>
-                            <div className="ml-auto mt-1 h-1.5 w-16 overflow-hidden rounded-full bg-nd-fg/[.08]" aria-hidden>
-                              <div className="h-full rounded-full bg-nd-accent" style={{ width: `${topScore > 0 ? Math.max(4, (s.score / topScore) * 100) : 0}%` }} />
-                            </div>
-                            {s.missing.length > 0 && <div className="mt-0.5 text-[13px] text-nd-fg-3">{s.used.length}개 지표</div>}
-                          </>
-                        )}
-                      </Td>
-                      <Td
-                        num
-                        className="align-top"
-                        title={t.infoSample.sampled ? `댓글 ${t.infoSample.sampled.toLocaleString("ko-KR")}개 표본 중 ${t.infoSample.matched === null ? "미확인" : `${t.infoSample.matched.toLocaleString("ko-KR")}개`}` : "댓글 표본 없음"}
-                      >
-                        <div className="font-medium">{info === null ? <Unknown title="댓글 표본이 없어 계산하지 않았습니다" /> : fmtPct(info, 1)}</div>
-                        <div className="text-[13px] text-nd-fg-3">{t.infoSample.sampled ? `표본 ${t.infoSample.sampled.toLocaleString("ko-KR")}개` : "표본 없음"}</div>
-                      </Td>
-                      <Td className="align-top">
-                        <DomesticPill tone={dom.tone} title={dom.text}>
-                          {domText.main}
-                        </DomesticPill>
-                        {domText.detail && <p className="mt-1 text-[13px] leading-snug text-nd-fg-3">{domText.detail}</p>}
-                      </Td>
-                      <Td align="right" className="align-top">
-                        {isReadOnlyFor(t, d.me) ? (
-                          <span className="text-[13px] text-nd-fg-3">읽기 전용</span>
-                        ) : t.projectId ? (
-                          <Button size="sm" variant="secondary" trailingIcon={ArrowRight} onClick={() => router.push(`/neander/shorts/projects/${t.projectId}`)}>영상</Button>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="soft"
-                            disabled={busy === `p-${t.id}`}
-                            onClick={() =>
-                              void run(`p-${t.id}`, async () => {
-                                const r = await mutate<{ id: string }>("trend.toProject", { id: t.id, visibility: t.visibility });
-                                await refresh();
-                                router.push(`/neander/shorts/projects/${r.id}`);
-                              })
-                            }
-                          >
-                            영상 만들기
-                          </Button>
-                        )}
-                      </Td>
-                    </Tr>
-                  );
-                })}
-              </tbody>
-            </Table>
-          </TableScroll>
-          <div className="flex items-start gap-2 border-t border-nd-line bg-nd-sunken/60 px-4 py-3 text-[13px] leading-relaxed text-nd-fg-3">
-            <Info size={15} className="mt-0.5 shrink-0" aria-hidden />
-            <p>
-              숫자는 모두 원본(참고) 영상의 반응입니다 — 우리가 만든 영상의 성과는 「성과 비교」 에서 따로 봅니다. 공개되지 않은 저장 · 공유 수는 「미확인」 으로 두고 점수에서 뺍니다. 국내 검색 표본에서 유사 콘텐츠를 못 찾은 것은 그 표본에서 못 찾았다는 뜻일 뿐, 국내 미확산을 뜻하지는 않습니다.
-            </p>
-          </div>
-        </Card>
-      )}
+      {tab !== "saved" && saved}
 
       {editing && (
         <TrendEditor
@@ -458,10 +302,270 @@ export default function TrendsPage() {
   );
 }
 
-// ---- 표 조각 ----------------------------------------------------------------
+// ---- 저장한 소재 (표 + 반응 점수 가중치) ---------------------------------------
 
 /** 원본 반응 — 소재 줄 셋째 줄에 보인다 (조회는 따로 열) */
 const REACTION_KEYS = ["likes", "comments", "saves", "shares"] as const;
+
+/** 소재를 어디서 가져왔나 — 레이더 · 검색 표본(API) · 직접 등록 */
+function originOf(t: TrendDoc): string {
+  if (t.tags.includes("AI 레이더")) return "레이더에서 저장";
+  if (t.collectedBy === "youtube_api") return t.searchContext?.query ? `검색 표본 「${t.searchContext.query}」` : "YouTube API 로 저장";
+  return "직접 등록";
+}
+
+/** 대본 작성기로 — 상품 · 메모를 미리 채운 새 대본 (대본 작성기의 기존 주소 규칙) */
+function scriptHref(t: TrendDoc): string {
+  const q = new URLSearchParams({ new: "1", product: t.product || t.title, info: [t.title !== t.product ? t.title : "", t.notes].filter(Boolean).join("\n").slice(0, 1500) });
+  return `/neander/shorts/scripts?${q}`;
+}
+
+function SavedTrends({
+  rows,
+  topScore,
+  me,
+  nameOf,
+  mineOnly,
+  sort,
+  setSort,
+  weights,
+  setWeights,
+  onSaveWeights,
+  busy,
+  onOpen,
+  onNew,
+  onProject,
+}: {
+  rows: Row[];
+  topScore: number;
+  me: string;
+  nameOf: (email: string) => string;
+  /** 「보기」 가 내 것만인가 */
+  mineOnly: boolean;
+  sort: SortKey;
+  setSort: (s: SortKey) => void;
+  weights: ScoreWeights;
+  setWeights: (w: ScoreWeights) => void;
+  onSaveWeights: (w: ScoreWeights) => void;
+  busy: string | null;
+  onOpen: (t: WithId<TrendDoc>) => void;
+  onNew: () => void;
+  onProject: (t: WithId<TrendDoc>) => void;
+}) {
+  const columns: RecordColumn<Row>[] = [
+    {
+      key: "item",
+      header: "소재 · 출처",
+      mobile: "title",
+      // 표는 글 길이대로 늘어나므로 — 폭을 비율로 정하고(max-w-0) 긴 제목은 말줄임
+      className: "md:w-[38%] md:max-w-0",
+      cell: ({ t, info }) => {
+        const name = t.product || t.title || t.url;
+        const sub = [PLATFORM_LABEL[t.platform], originOf(t), t.country, t.product ? t.title : "", t.channel].filter(Boolean).join(" · ");
+        const known = REACTION_KEYS.filter((k) => t.metrics[k].v !== null);
+        const unknown = REACTION_KEYS.filter((k) => t.metrics[k].v === null);
+        const reactions = REACTION_KEYS.map((k) => `${METRIC_LABEL[k]} ${t.metrics[k].v === null ? "미확인" : t.metrics[k].v!.toLocaleString("ko-KR")}`).join(" · ");
+        return (
+          <div className="flex min-w-0 items-start gap-3">
+            <PlatformTile platform={t.platform} />
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center gap-2">
+                <button type="button" className="min-w-0 truncate text-left text-[14px] font-semibold text-nd-fg hover:underline" title={name} onClick={() => onOpen(t)}>
+                  {name}
+                </button>
+                {t.sample && <span className="shrink-0"><SampleTag /></span>}
+              </div>
+              <p className="truncate text-[13px] font-normal text-nd-fg-2" title={sub}>
+                {sub}
+              </p>
+              <p className="truncate text-[13px] font-normal text-nd-fg-3" title={`원본 반응 — ${reactions}`}>
+                조회 <span className="nd-num text-nd-fg-2">{fmtCount(t.metrics.views.v)}</span> · 정보 요청률{" "}
+                {info === null ? <Unknown title="댓글 표본이 없어 계산하지 않았습니다" /> : <span className="nd-num text-nd-fg-2">{fmtPct(info, 1)}</span>}
+                {known.map((k) => (
+                  <span key={k}>
+                    {" · "}
+                    {METRIC_LABEL[k]} <span className="nd-num text-nd-fg-2">{fmtCount(t.metrics[k].v)}</span>
+                  </span>
+                ))}
+                {unknown.length > 0 && (
+                  <span>
+                    {" · "}
+                    {unknown.map((k) => METRIC_LABEL[k]).join("·")} <Unknown />
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+        );
+      },
+    },
+    {
+      key: "views",
+      header: "조회 · 증가",
+      align: "right",
+      className: "md:min-w-[120px]",
+      cell: ({ t, v }) => (
+        <div className="inline-flex flex-col items-end">
+          <span className="font-medium">
+            <Num value={t.metrics.views.v} />
+          </span>
+          <span className="whitespace-nowrap text-[13px] text-nd-fg-3" title={v.label}>
+            {v.perDay === null ? (
+              <>
+                증가 <Unknown title={v.label} />
+              </>
+            ) : (
+              <>
+                <span className="text-nd-fg-2">+{Math.round(v.perDay).toLocaleString("ko-KR")}</span>/일{v.basis === "since_publish" ? " 평균" : ""}
+              </>
+            )}
+          </span>
+          <span className="mt-1">
+            <SourceTag src={t.metrics.views.src} title={t.metrics.views.ref ?? "조회수 출처"} />
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: "score",
+      header: "반응 점수",
+      align: "right",
+      className: "md:min-w-[110px]",
+      cell: ({ s }) =>
+        s.score === null ? (
+          <Unknown title={s.formula} />
+        ) : (
+          <div className="inline-flex flex-col items-end" title={`${s.formula}${s.missing.length ? ` · 빠진 지표: ${s.missing.map((k) => METRIC_LABEL[k]).join(", ")}` : ""}`}>
+            <span className="text-[15px] font-semibold">{s.score.toFixed(1)}</span>
+            <span className="mt-1 h-1.5 w-16 overflow-hidden rounded-full bg-nd-fg/[.08]" aria-hidden>
+              <span className="block h-full rounded-full bg-nd-accent" style={{ width: `${topScore > 0 ? Math.max(4, (s.score / topScore) * 100) : 0}%` }} />
+            </span>
+            {s.missing.length > 0 && <span className="mt-0.5 text-[13px] text-nd-fg-3">{s.used.length}개 지표</span>}
+          </div>
+        ),
+    },
+    {
+      key: "domestic",
+      header: "국내 유사 콘텐츠",
+      mobileLabel: "국내 유사",
+      className: "md:w-[17%] md:min-w-[180px]",
+      cell: ({ t }) => {
+        const dom = domesticLabel(t.domestic);
+        const text = splitDomestic(dom.text);
+        return (
+          <div className="min-w-0">
+            <DomesticPill tone={dom.tone} title={dom.text}>
+              {text.main}
+            </DomesticPill>
+            {text.detail && <p className="mt-1 text-[13px] leading-snug text-nd-fg-3">{text.detail}</p>}
+          </div>
+        );
+      },
+    },
+    {
+      key: "vis",
+      header: "공개 범위 · 만든 사람",
+      mobileLabel: "공개 범위",
+      className: "md:min-w-[150px]",
+      cell: ({ t }) => (
+        <div className="inline-flex flex-col gap-0.5 md:items-start">
+          <VisibilityChip visibility={t.visibility} readOnly={isReadOnlyFor(t, me)} ownerName={isReadOnlyFor(t, me) ? nameOf(t.owner) : undefined} />
+          {!isReadOnlyFor(t, me) && <span className="text-[13px] text-nd-fg-3">{t.owner === me ? "내가 만듦" : nameOf(t.owner)}</span>}
+        </div>
+      ),
+    },
+    {
+      key: "next",
+      header: "다음 작업",
+      className: "md:min-w-[230px]",
+      cell: ({ t }) => (
+        <div className="inline-flex flex-wrap items-center justify-end gap-2 md:justify-start">
+          {isReadOnlyFor(t, me) ? (
+            <span className="text-[13px] text-nd-fg-3">읽기 전용</span>
+          ) : t.projectId ? (
+            <a href={`/neander/shorts/projects/${t.projectId}`} className={buttonClass("secondary", "sm")}>
+              영상 보기 <ArrowRight size={14} aria-hidden />
+            </a>
+          ) : (
+            <Button size="sm" variant="soft" disabled={busy === `p-${t.id}`} loading={busy === `p-${t.id}`} onClick={() => onProject(t)}>
+              영상 만들기
+            </Button>
+          )}
+          <a href={scriptHref(t)} className={buttonClass("ghost", "sm")} title="상품 · 메모를 채운 새 대본을 대본 작성기에서 엽니다">
+            <ArrowUpRight size={14} aria-hidden />
+            대본 작성기로
+          </a>
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <StudioCard
+      className="mb-6"
+      flush
+      title={`저장한 소재 · ${mineOnly ? "내 소재" : "보기 범위 전체"}`}
+      description={`${rows.length}건 · 숫자는 원본(참고) 영상의 반응 · 지금 프로젝트 것만${mineOnly ? "" : " · 다른 사람의 비공개 소재는 읽기 전용"}`}
+      action={
+        <Select size="sm" value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label="정렬">
+          <option value="score">반응 점수 순</option>
+          <option value="velocity">증가 속도 순</option>
+          <option value="recent">최근 수정 순</option>
+        </Select>
+      }
+    >
+      {rows.length === 0 ? (
+        <div className="px-5 pb-5 sm:px-6">
+          <EmptyState
+            compact
+            icon={Radar}
+            title="저장한 소재가 없습니다"
+            description="레이더 후보의 「소재로 저장」, 「플랫폼에서 직접 찾기」 의 링크 붙여 넣기 · YouTube 검색 표본에서 골라 저장하세요."
+            action={
+              <Button size="sm" variant="secondary" icon={Plus} onClick={onNew}>
+                소재 직접 등록
+              </Button>
+            }
+          />
+        </div>
+      ) : (
+        <div className="px-3 md:px-0">
+          <RecordTable rows={rows} columns={columns} rowKey={(r) => r.t.id} ariaLabel="저장한 소재" />
+        </div>
+      )}
+      <div className="flex items-start gap-2 px-5 py-3 text-[13px] leading-relaxed text-nd-fg-3 sm:px-6">
+        <Info size={15} className="mt-0.5 shrink-0" aria-hidden />
+        <p>
+          숫자는 모두 원본(참고) 영상의 반응입니다 — 우리가 만든 영상의 성과는 「성과 비교」 에서 따로 봅니다. 공개되지 않은 저장 · 공유 수는 「미확인」 으로 두고 점수에서 뺍니다. 국내 검색 표본에서 유사 콘텐츠를 못 찾은 것은 그 표본에서 못 찾았다는 뜻일 뿐, 국내 미확산을 뜻하지는 않습니다.
+        </p>
+      </div>
+      <div className="border-t border-nd-line px-5 py-5 sm:px-6">
+        <h4 className="text-[15px] font-semibold text-nd-fg">반응 점수 산식과 가중치</h4>
+        <p className="mt-1 text-nd-body leading-relaxed text-nd-fg-2">
+          반응 점수 = Σ(가중치 × 조회 1,000회당 지표) ÷ Σ(쓴 가중치). 미확인 지표(비공개 저장 수 등)는 0 으로 넣지 않고 빼며, 그 가중치도 함께 뺍니다. 정보 요청은 댓글 표본이 있으면 「댓글 수 × 표본에서 정보 요청 댓글의 비율」 로 추정합니다(출처 「추정」).
+        </p>
+        <FormRow className="mt-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+          {(Object.keys(DEFAULT_WEIGHTS) as (keyof ScoreWeights)[]).map((k) => (
+            <Field key={k} label={`${METRIC_LABEL[k]} 가중치`}>
+              <NumberInput decimal value={weights[k]} onValueChange={(raw) => setWeights({ ...weights, [k]: Math.min(20, Math.max(0, Number(raw) || 0)) })} />
+            </Field>
+          ))}
+        </FormRow>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-[13px] text-nd-fg-3">레이더 점수와 저장한 소재의 반응 점수는 산식이 다릅니다. 가중치는 사람마다 따로 저장됩니다.</p>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="ghost" icon={RotateCcw} onClick={() => onSaveWeights(DEFAULT_WEIGHTS)} disabled={busy === "weights"}>
+              기본값으로
+            </Button>
+            <Button variant="secondary" onClick={() => onSaveWeights(weights)} disabled={busy === "weights"} loading={busy === "weights"}>
+              내 가중치로 저장
+            </Button>
+          </div>
+        </div>
+      </div>
+    </StudioCard>
+  );
+}
 
 const PLATFORM_ICON: Record<ShortsPlatform, LucideIcon> = {
   youtube: SquarePlay,
@@ -513,7 +617,7 @@ function DomesticPill({ tone, title, children }: { tone: Tone; title: string; ch
   );
 }
 
-// ---- 플랫폼에서 직접 찾기 ------------------------------------------------------
+// ---- 플랫폼에서 직접 찾기 · 링크 붙여 넣기 --------------------------------------
 //  Instagram · TikTok · 샤오홍슈 · 더우인은 남의 게시물을 가져올 공식 API 가 없고, ERP 안에 띄울
 //  수도 없다(그 사이트들이 다른 사이트 안에 들어가는 것을 막는다). 새 탭으로 열어 사람이 보고,
 //  고른 영상의 링크만 가져온다 — 붙여 넣기 또는 북마크 「ERP에 담기」.
@@ -528,19 +632,7 @@ const BROWSE_LABEL: Record<BrowsePlatform, string> = {
   youtube: "YouTube 쇼츠",
 };
 
-/** 카드 안 단계 제목 — 「1 새 탭에서 찾기」 처럼 순서를 보인다 */
-function StepTitle({ n, children }: { n: number; children: ReactNode }) {
-  return (
-    <h3 className="mb-3 flex items-center gap-2 text-nd-section text-nd-fg">
-      <span className="nd-num inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-nd-accent-soft text-[13px] font-semibold text-nd-accent-strong" aria-hidden>
-        {n}
-      </span>
-      {children}
-    </h3>
-  );
-}
-
-function PlatformBrowse({ note, busy, onTake }: { note: LinkNote | null; busy: boolean; onTake: (text: string, product: string) => void }) {
+function PlatformBrowse({ note, busy, onTake, onNew }: { note: LinkNote | null; busy: boolean; onTake: (text: string, product: string) => void; onNew: () => void }) {
   const [term, setTerm] = useState("");
   const [zh, setZh] = useState("");
   const [paste, setPaste] = useState("");
@@ -552,71 +644,74 @@ function PlatformBrowse({ note, busy, onTake }: { note: LinkNote | null; busy: b
   };
 
   return (
-    <Card className="mb-5">
-      <SectionHeader size="lg" title="플랫폼에서 직접 찾기" hint="새 탭으로 열어 보고, 고른 영상의 링크를 가져옵니다" action={<SaveBookmarklet />} />
-      <div className="grid gap-x-6 gap-y-5 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-        <section className="min-w-0">
-          <StepTitle n={1}>새 탭에서 찾기</StepTitle>
-          <FormRow className="grid-cols-1 sm:grid-cols-2">
-            <Field label="검색어 (Instagram · TikTok · YouTube)">
-              <Input value={term} onChange={(e) => setTerm(e.target.value)} placeholder="예: 접이식 선반 · folding rack" />
-            </Field>
-            <Field label="중국어 검색어 (샤오홍슈 · 더우인)">
-              <Input lang="zh-Hans" value={zh} onChange={(e) => setZh(e.target.value)} placeholder="예: 折叠置物架" />
-            </Field>
-          </FormRow>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {BROWSE_PLATFORMS.map((p) => {
-              const q = isChinesePlatform(p) ? zh : term;
-              return (
-                <a
-                  key={p}
-                  href={browseUrl(p, q)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={buttonClass("secondary", "sm")}
-                  title={q.trim() ? `「${q.trim()}」 검색` : "탐색 화면"}
-                >
-                  {BROWSE_LABEL[p]}
-                  <span className="text-[13px] font-normal text-nd-fg-3">{q.trim() ? "검색" : "탐색"}</span>
-                  <ExternalLink size={14} aria-hidden />
-                </a>
-              );
-            })}
-          </div>
-          <p className="mt-2.5 text-[13px] leading-relaxed text-nd-fg-3">
-            검색어가 비어 있으면 각 플랫폼의 탐색 화면이 열립니다. 샤오홍슈 · 더우인은 중국어로 검색해야 결과가 나와서, 중국어 칸이 비어 있으면 탐색 화면이 열립니다.
-          </p>
-        </section>
-
-        <section className="min-w-0 border-t border-nd-line pt-5 xl:border-l xl:border-t-0 xl:pl-6 xl:pt-0">
-          <StepTitle n={2}>고른 영상 링크 가져오기</StepTitle>
-          <FormRow className="grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto]">
-            <Field label="가져온 링크" hint={pasted ? `${PLATFORM_LABEL[platformFromUrl(pasted)]} 링크` : "영상 주소 또는 앱의 「공유」 문구를 그대로"}>
-              <Input
-                value={paste}
-                onChange={(e) => setPaste(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && take()}
-                placeholder="https://www.xiaohongshu.com/explore/… · https://v.douyin.com/…"
-              />
-            </Field>
-            <FieldAction size="md">
-              <Button icon={Plus} onClick={take} disabled={busy || !paste.trim()}>
+    <div className="space-y-5">
+      <section className="min-w-0">
+        <FormRow className="grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto]">
+          <Field label="영상 링크" hint={pasted ? `${PLATFORM_LABEL[platformFromUrl(pasted)]} 링크` : "YouTube · Instagram · TikTok · 샤오홍슈 · 더우인 영상 주소, 또는 앱의 「공유」 문구 그대로"}>
+            <Input
+              value={paste}
+              onChange={(e) => setPaste(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && take()}
+              placeholder="https://www.youtube.com/shorts/… · https://www.xiaohongshu.com/explore/… · https://v.douyin.com/…"
+            />
+          </Field>
+          {/* 좁은 화면에서는 버튼이 입력칸 아래 한 줄 — 라벨 자리(빈 줄)를 비우지 않는다 */}
+          <FieldAction size="md" className="max-lg:[&>span:first-child]:hidden">
+            <div className="flex flex-wrap gap-2">
+              <Button icon={Plus} onClick={take} disabled={busy || !paste.trim()} loading={busy}>
                 소재로 등록
               </Button>
-            </FieldAction>
-          </FormRow>
-          <p className="mt-2.5 text-[13px] leading-relaxed text-nd-fg-3">
-            이미 저장한 영상이면 그 소재를 엽니다. YouTube 는 검색 키가 있으면 숫자까지 공식 API 로 받고, 나머지는 링크 · 플랫폼을 채운 직접 등록 창이 열립니다.
-          </p>
-          {note && (
-            <InlineNotice tone={note.tone} className="mt-3">
-              {note.text}
-            </InlineNotice>
-          )}
-        </section>
-      </div>
-    </Card>
+              <Button variant="secondary" icon={PenLine} onClick={onNew} title="링크 없이 숫자 · 메모를 직접 적어 소재를 만듭니다">
+                소재 직접 등록
+              </Button>
+            </div>
+          </FieldAction>
+        </FormRow>
+        <p className="mt-2.5 text-[13px] leading-relaxed text-nd-fg-3">
+          이미 저장한 영상이면 그 소재를 엽니다. YouTube 는 검색 키가 있으면 숫자까지 공식 API 로 받고, 나머지는 링크 · 플랫폼을 채운 직접 등록 창이 열립니다. 새 소재는 「나만 보기」 로 저장되며(상세에서 팀 공개로 바꿈) 공개되지 않은 지표는 미확인으로 둡니다.
+        </p>
+        {note && (
+          <InlineNotice tone={note.tone} className="mt-3">
+            {note.text}
+          </InlineNotice>
+        )}
+      </section>
+
+      <section className="min-w-0 border-t border-nd-line pt-5">
+        <h3 className="mb-3 text-[15px] font-semibold text-nd-fg">플랫폼을 새 탭으로 열어 찾기</h3>
+        <FormRow className="grid-cols-1 sm:grid-cols-2">
+          <Field label="검색어 (Instagram · TikTok · YouTube)">
+            <Input value={term} onChange={(e) => setTerm(e.target.value)} placeholder="예: 접이식 선반 · folding rack" />
+          </Field>
+          <Field label="중국어 검색어 (샤오홍슈 · 더우인)">
+            <Input lang="zh-Hans" value={zh} onChange={(e) => setZh(e.target.value)} placeholder="예: 折叠置物架" />
+          </Field>
+        </FormRow>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {BROWSE_PLATFORMS.map((p) => {
+            const q = isChinesePlatform(p) ? zh : term;
+            return (
+              <a
+                key={p}
+                href={browseUrl(p, q)}
+                target="_blank"
+                rel="noreferrer"
+                className={buttonClass("secondary", "md")}
+                title={q.trim() ? `「${q.trim()}」 검색` : "탐색 화면"}
+              >
+                <Search size={15} aria-hidden />
+                {BROWSE_LABEL[p]}
+                <span className="text-[13px] font-normal text-nd-fg-3">{q.trim() ? "검색" : "탐색"}</span>
+                <ExternalLink size={14} aria-hidden />
+              </a>
+            );
+          })}
+        </div>
+        <p className="mt-2.5 text-[13px] leading-relaxed text-nd-fg-3">
+          검색어가 비어 있으면 각 플랫폼의 탐색 화면이 열립니다. 샤오홍슈 · 더우인은 중국어로 검색해야 결과가 나와서, 중국어 칸이 비어 있으면 탐색 화면이 열립니다. 검색어는 링크로 등록할 때 상품명으로도 붙습니다.
+        </p>
+      </section>
+    </div>
   );
 }
 
@@ -693,12 +788,11 @@ function SearchCompare({ quota, configured, onSaved }: { quota: { used: number; 
     );
 
   return (
-    <Card className="mb-5">
-      <SectionHeader
-        size="lg"
-        title="검색 표본 비교 (YouTube Data API)"
-        hint={configured ? `${quota.source === "personal" ? "내 키" : "회사 키"} · 오늘 ${quota.used}/${quota.limit}회` : "검색 키 없음"}
-      />
+    <div className="min-w-0">
+      <p className="mb-3 text-[13px] text-nd-fg-2">
+        YouTube Data API 로 국내 · 해외 검색 표본을 나란히 받습니다 ·{" "}
+        <span className="nd-num font-medium text-nd-fg">{configured ? `${quota.source === "personal" ? "내 검색 키" : "회사 검색 키"} · 오늘 ${quota.used} / ${quota.limit}회` : "검색 키 없음"}</span>
+      </p>
       {!configured ? (
         <InlineNotice tone="warning" icon={CircleAlert}>
           YouTube 검색 키가 없어 자동 검색을 쓸 수 없습니다 — 내 채널·연결에서 내 검색 키를 넣거나 회사 키(NEANDER_SHORTS_YOUTUBE_API_KEY)를 설정하세요. 그 전에는 「직접 등록」 으로 링크와 숫자를 적어 주세요.
@@ -756,7 +850,7 @@ function SearchCompare({ quota, configured, onSaved }: { quota: { used: number; 
           )}
         </>
       )}
-    </Card>
+    </div>
   );
 }
 

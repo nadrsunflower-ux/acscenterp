@@ -4,18 +4,29 @@
 //  시장 트렌드 — 오늘의 브리핑 · 검색어 추이 · 채널 모니터링 · 트렌드 노트
 // ------------------------------------------------------------
 //  매일 아침 07:30 cron-market 이 채널 숫자 · 검색어 추이 · AI 브리핑을 만든다. 화면은 읽고, 사람이 고른 것을
-//  「노트에 보관」 해 트렌드 노트에 모은다(사람마다 비공개). 노트에서 바로 대본 작성기로 넘긴다.
+//  「노트에 보관」 해 트렌드 노트에 모은다(사람마다 비공개 · 프로젝트마다 따로). 노트에서 바로 대본 작성기로 넘긴다.
 //  숫자는 모두 남의 원본 · 네이버 상대값 · 채널 공개 통계다 — 우리 영상 성과와 섞지 않는다(내 채널만 따로).
+//  2026-11 목업 개편: 머리(StudioHeader) · 「다시 만들기」 옆 AI 비용(실제 오늘 쓴 돈 · 하루 상한) ·
+//  차트는 한 축 · 선 끝 이름표 · 실선/점선 · 범례 · 수치 표 · 노트는 4칸 보드(카드마다 「옮기기」 메뉴 — 모바일도).
+//  「제목 키워드」 탭 = 모은 영상 제목의 낱말 순위 (TitleTrends.tsx · AI 없음). 탭은 주소의 ?tab= 로도 연다 ·
+//  ?space= 를 주면(브리핑 메일의 「ERP 에서 보기」) 그 프로젝트로 바꿔 연다.
 // ============================================================
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  ArrowRightLeft,
+  ArrowUpRight,
   Bookmark,
   CalendarDays,
   Camera,
+  Check,
   ExternalLink,
+  EyeOff,
+  FolderOpen,
   Lightbulb,
+  MoreHorizontal,
   Newspaper,
   PenLine,
   Pin,
@@ -25,41 +36,39 @@ import {
   Sparkles,
   Trash2,
   TrendingUp,
+  Type,
   Users,
   Video,
 } from "lucide-react";
 import {
   Badge,
   Button,
-  Card,
   Dialog,
   EmptyState,
   ErrorState,
   Field,
+  FieldAction,
   FormRow,
-  InlineNotice,
+  IconButton,
   Input,
+  Menu,
   NumberInput,
-  PageHeader,
   PageShell,
-  SectionHeader,
   SegmentedControl,
   Select,
   Skeleton,
   Switch,
-  Table,
-  TableScroll,
   Tabs,
-  Td,
   Textarea,
-  Th,
-  Tr,
+  buttonClass,
   cn,
   useConfirm,
   useToast,
+  type MenuItem,
   type Tone,
 } from "@/components/neander/ui";
-import { fmtUsd, fmtWhen, useAction } from "@/components/neander/shorts/parts";
+import { Num, Unknown, fmtUsd, fmtWhen, useAction } from "@/components/neander/shorts/parts";
+import { AiCostNote, RecordTable, SaveIndicator, StudioCard, StudioHeader, StudioNotice, StudioSection, VisibilityChip, type RecordColumn, type StudioSaveState } from "@/components/neander/shorts/studio";
 import { shortsGet, shortsPost } from "@/lib/neander/shorts/client";
 import {
   BRIEF_KIND_LABEL,
@@ -83,10 +92,35 @@ import {
 import { NAVER_LABEL, USD_KRW, type NaverTrendLabel } from "@/lib/neander/shorts/radar";
 import { countryLabel } from "@/lib/neander/shorts/scout";
 import { Sparkline, TREND_COLORS, TrendLines } from "./TrendLines";
+import { TitleTrendsTab } from "./TitleTrends";
+import { useShorts } from "@/components/neander/shorts/ShortsProvider";
 
 type WithId<T> = T & { id: string };
-type ProductTrend = { id: string; product: string; keywords: string[]; label: NaverTrendLabel; change: number | null; recent: number | null; candidates: number; title: string; url: string; thumbnail: string; multiple: number | null; at: number };
-type WatchRow = { id: string; channelId: string; title: string; country: string; active: boolean; baseline: number | null; scannedAt: number | null; hits7: number; topics: string[] };
+type ProductTrend = {
+  id: string;
+  product: string;
+  keywords: string[];
+  label: NaverTrendLabel;
+  change: number | null;
+  recent: number | null;
+  candidates: number;
+  title: string;
+  url: string;
+  thumbnail: string;
+  multiple: number | null;
+  at: number;
+};
+type WatchRow = {
+  id: string;
+  channelId: string;
+  title: string;
+  country: string;
+  active: boolean;
+  baseline: number | null;
+  scannedAt: number | null;
+  hits7: number;
+  topics: string[];
+};
 interface MarketData {
   me: string;
   admin: boolean;
@@ -103,19 +137,81 @@ interface MarketData {
   notes: WithId<TrendNoteDoc>[];
 }
 type NoteDraft = Partial<Pick<TrendNoteDoc, "title" | "memo" | "snapshot" | "product" | "tags">> & { source: TrendNoteDoc["source"] };
+type SetD = (f: (x: MarketData | null) => MarketData | null) => void;
 
-const NAVER_TONE: Record<NaverTrendLabel, Tone> = { rising: "success", steady: "neutral", falling: "warning", low: "neutral" };
-const n = (v: number | null | undefined) => (v === null || v === undefined ? "—" : v.toLocaleString("ko-KR"));
-const signed = (v: number | null) => (v === null ? "—" : `${v > 0 ? "+" : v < 0 ? "-" : "±"}${Math.abs(v).toLocaleString("ko-KR")}`);
+const NAVER_TONE: Record<NaverTrendLabel, Tone> = {
+  rising: "success",
+  steady: "neutral",
+  falling: "warning",
+  low: "neutral",
+};
+const BRIEF_TONE: Record<MarketBriefItem["kind"], Tone> = {
+  product: "accent",
+  format: "neutral",
+  hit: "warning",
+  keyword: "info",
+  channel: "neutral",
+  mine: "success",
+};
+const NOTE_STATUS_TONE: Record<NoteStatus, Tone> = {
+  inbox: "accent",
+  watch: "warning",
+  script: "info",
+  done: "success",
+};
+/** 브리핑 AI 한 번 예상 — 기존 안내와 같은 범위 (모델 · 자료 양에 따라) */
+const BRIEF_ESTIMATE = "10~40원";
+const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
+/** 2026-11-04 → 11/4 (수) */
+const dayLabel = (day: string) => `${Number(day.slice(5, 7))}/${Number(day.slice(8, 10))} (${WEEK[new Date(`${day}T00:00:00Z`).getUTCDay()]})`;
+const won = (v: number) => `${Math.round(v).toLocaleString("ko-KR")}원`;
+const signed = (v: number) => `${v > 0 ? "+" : v < 0 ? "-" : "±"}${Math.abs(v).toLocaleString("ko-KR")}`;
 const deltaClass = (v: number | null) => (v === null || v === 0 ? "text-nd-fg-3" : v > 0 ? "text-nd-success-text" : "text-nd-danger-text");
+const naverShort = (l: NaverTrendLabel) => NAVER_LABEL[l].replace("국내 검색 ", "");
 
-type Tab = "brief" | "trends" | "channels" | "notes";
+/** 7일 · 30일 변화 — 기록이 그만큼 안 쌓였으면 「미확인」 (0 과 다르다) */
+function Delta({ v, unit = "" }: { v: number | null; unit?: string }) {
+  if (v === null) return <Unknown title="기록이 그만큼 쌓이지 않아 아직 모릅니다 (0 이 아닙니다)" />;
+  return (
+    <span className={cn("nd-num font-semibold", deltaClass(v))}>
+      {signed(v)}
+      {unit}
+    </span>
+  );
+}
+
+type Tab = "brief" | "titles" | "trends" | "channels" | "notes";
+const TABS: Tab[] = ["brief", "titles", "trends", "channels", "notes"];
+const TAB_DESC: Record<Tab, string> = {
+  brief: "AI 가 매일 아침 레이더 · 바이럴 형식 · 네이버 검색어 · 채널 변화를 훑어 특기할 것을 고릅니다. 근거를 확인하고 마음에 드는 것은 노트에 보관하세요.",
+  titles: "레이더 · 바이럴 형식이 모은 영상 제목에서 평소보다 두드러지게 늘어난 낱말을 채널 수로 셉니다. AI 없이 세어 비용이 들지 않습니다.",
+  trends: "분야와 상품의 국내 검색 흐름을 같은 기준으로 견줍니다. 값은 네이버 상대값이라 절대 검색량이 아닙니다.",
+  channels: "내 채널과 감시 채널의 구독자 흐름을 섞지 않고 따로 봅니다. 우리 영상 성과는 성과 비교에서 봅니다.",
+  notes: "발견한 흐름을 보관하고, 준비된 아이디어는 대본 작성기로 옮기세요.",
+};
+
+/** 주소의 ?tab= — 대시보드 · 메일의 바로 가기가 탭을 연다 */
+const tabFromUrl = (): Tab => {
+  if (typeof window === "undefined") return "brief";
+  const t = new URLSearchParams(window.location.search).get("tab") as Tab | null;
+  return t && TABS.includes(t) ? t : "brief";
+};
 
 export function MarketPage() {
   const [d, setD] = useState<MarketData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("brief");
+  const [tab, setTabState] = useState<Tab>(tabFromUrl);
+  const [editing, setEditing] = useState<WithId<TrendNoteDoc> | "new" | null>(null);
   const toast = useToast();
+  const router = useRouter();
+  const { data: shortsData, space, setSpace } = useShorts();
+  const setTab = useCallback(
+    (k: Tab) => {
+      setTabState(k);
+      router.replace(k === "brief" ? "/neander/shorts/market" : `/neander/shorts/market?tab=${k}`, { scroll: false });
+    },
+    [router],
+  );
   const load = useCallback(async () => {
     try {
       setD(await shortsGet<MarketData>("market"));
@@ -125,14 +221,25 @@ export function MarketPage() {
     }
   }, []);
   useEffect(() => {
+    // 메일의 「ERP 에서 보기」 는 ?space= 로 그 프로젝트를 연다 — 바꾸면 ShortsGate 가 이 화면을 새 프로젝트로 다시 그린다
+    const want = new URLSearchParams(window.location.search).get("space");
+    if (want) {
+      if (want !== space && shortsData?.spaces.some((x) => x.id === want && !x.archived)) return setSpace(want);
+      if (want !== space) toast.error("그 프로젝트를 볼 수 없어 지금 프로젝트로 엽니다.");
+      router.replace(tab === "brief" ? "/neander/shorts/market" : `/neander/shorts/market?tab=${tab}`, { scroll: false });
+    }
     void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load]);
 
   // 노트에 보관 — 어느 탭에서든
   const keep = useCallback(
     async (draft: NoteDraft) => {
       try {
-        const r = await shortsPost<{ note: WithId<TrendNoteDoc> }>("market", { action: "note.save", note: draft });
+        const r = await shortsPost<{ note: WithId<TrendNoteDoc> }>("market", {
+          action: "note.save",
+          note: draft,
+        });
         setD((x) => (x ? { ...x, notes: [r.note, ...x.notes] } : x));
         toast.success("트렌드 노트에 보관했습니다.");
       } catch (e) {
@@ -147,14 +254,24 @@ export function MarketPage() {
   if (!d) {
     return (
       <PageShell>
-        <PageHeader title="시장 트렌드" description="AI 가 매일 아침 시장을 훑어 특기할 것을 고르고, 검색어 추이 · 채널 변화를 모아 둡니다." />
+        <StudioHeader kicker="AI STUDIO 워크스페이스" kickerIcon={FolderOpen} title="시장 트렌드" description={TAB_DESC.brief} />
         {error ? (
-          <ErrorState title="시장 트렌드를 불러오지 못했습니다" description={error} action={<Button size="sm" variant="secondary" onClick={() => void load()}>다시 시도</Button>} />
+          <ErrorState
+            title="시장 트렌드를 불러오지 못했습니다"
+            description={error}
+            action={
+              <Button size="sm" variant="secondary" onClick={() => void load()}>
+                다시 시도
+              </Button>
+            }
+          />
         ) : (
           <div className="space-y-4" aria-busy="true">
-            <p className="sr-only" role="status">시장 트렌드를 불러오는 중…</p>
-            <Skeleton className="h-11 w-96" />
-            <Skeleton className="h-40 rounded-nd-lg" />
+            <p className="sr-only" role="status">
+              시장 트렌드를 불러오는 중…
+            </p>
+            <Skeleton className="h-11 w-full max-w-[520px]" />
+            <Skeleton className="h-48 rounded-nd-lg" />
             <Skeleton className="h-72 rounded-nd-lg" />
           </div>
         )}
@@ -163,43 +280,73 @@ export function MarketPage() {
   }
 
   const inbox = d.notes.filter((x) => x.status === "inbox").length;
+  const missing = [!d.ready.naver && "네이버 데이터랩 키", !d.ready.youtube && "회사 YouTube 키", !d.ready.ai && "OpenRouter 키"].filter(Boolean) as string[];
   return (
     <PageShell>
-      <PageHeader
+      <StudioHeader
+        kicker="AI STUDIO 워크스페이스"
+        kickerIcon={FolderOpen}
         title="시장 트렌드"
-        description="AI 가 매일 아침 레이더 · 바이럴 형식 · 네이버 검색어 · 채널 변화를 훑어 특기할 것을 고릅니다. 마음에 드는 것은 노트에 보관해 두세요."
+        description={TAB_DESC[tab]}
+        actions={
+          tab === "notes" ? (
+            <Button icon={Plus} onClick={() => setEditing("new")}>
+              새 노트
+            </Button>
+          ) : (
+            <Button variant="secondary" icon={Bookmark} onClick={() => setTab("notes")}>
+              트렌드 노트{inbox ? ` · 검토 전 ${inbox}` : ""}
+            </Button>
+          )
+        }
       />
-      {(!d.ready.naver || !d.ready.youtube || !d.ready.ai) && (
-        <InlineNotice tone="warning" className="mb-4">
-          {[!d.ready.naver && "네이버 데이터랩 키", !d.ready.youtube && "회사 YouTube 키", !d.ready.ai && "OpenRouter 키"].filter(Boolean).join(" · ")} 가 없어 일부를 건너뜁니다.
-        </InlineNotice>
+      {missing.length > 0 && (
+        <StudioNotice tone="warning" title="일부 자료를 건너뜁니다" className="mb-4">
+          {missing.join(" · ")} 가 없어 그 자료는 받지 않습니다. 배포 설정에 키를 넣으면 다음 아침부터 채워집니다.
+        </StudioNotice>
       )}
       <Tabs
-        className="mb-5"
+        className="mb-6"
         value={tab}
         onChange={(k) => setTab(k as Tab)}
         ariaLabel="시장 트렌드"
         items={[
           { key: "brief", label: "오늘의 브리핑", icon: Newspaper },
+          { key: "titles", label: "제목 키워드", icon: Type },
           { key: "trends", label: "검색어 추이", icon: TrendingUp },
-          { key: "channels", label: "채널 모니터링", icon: Users, badge: d.channels.length || undefined },
-          { key: "notes", label: "트렌드 노트", icon: Bookmark, badge: inbox || undefined, badgeLabel: "검토 전 노트" },
+          {
+            key: "channels",
+            label: "채널 모니터링",
+            icon: Users,
+            badge: d.channels.length || undefined,
+          },
+          {
+            key: "notes",
+            label: "트렌드 노트",
+            icon: Bookmark,
+            badge: inbox || undefined,
+            badgeLabel: "검토 전 노트",
+          },
         ]}
       />
       {tab === "brief" && <BriefTab d={d} setD={setD} keep={keep} isKept={isKept} onGo={setTab} />}
+      {tab === "titles" && <TitleTrendsTab />}
       {tab === "trends" && <TrendsTab d={d} setD={setD} keep={keep} isKept={isKept} />}
       {tab === "channels" && <ChannelsTab d={d} reload={load} keep={keep} isKept={isKept} />}
-      {tab === "notes" && <NotesTab d={d} setD={setD} />}
+      {tab === "notes" && <NotesTab d={d} setD={setD} editing={editing} setEditing={setEditing} />}
     </PageShell>
   );
 }
 
-type KeepProps = { keep: (n: NoteDraft) => Promise<void>; isKept: (kind: string, id: string | null) => boolean };
+type KeepProps = {
+  keep: (n: NoteDraft) => Promise<void>;
+  isKept: (kind: string, id: string | null) => boolean;
+};
 
 function KeepButton({ done, onClick }: { done: boolean; onClick: () => void }) {
   return done ? (
-    <Badge tone="success" size="md">
-      <Bookmark size={12} aria-hidden /> 보관함
+    <Badge tone="success" size="lg">
+      <Check size={14} aria-hidden /> 노트에 있음
     </Badge>
   ) : (
     <Button size="sm" variant="ghost" icon={Bookmark} onClick={onClick}>
@@ -210,11 +357,13 @@ function KeepButton({ done, onClick }: { done: boolean; onClick: () => void }) {
 
 // ---- 오늘의 브리핑 ----------------------------------------------------------------
 
-function BriefTab({ d, setD, keep, isKept, onGo }: { d: MarketData; setD: (f: (x: MarketData | null) => MarketData | null) => void; onGo: (t: Tab) => void } & KeepProps) {
+function BriefTab({ d, setD, keep, isKept, onGo }: { d: MarketData; setD: SetD; onGo: (t: Tab) => void } & KeepProps) {
   const { busy, run } = useAction();
   const [day, setDay] = useState<string | null>(null);
   const [other, setOther] = useState<MarketBriefDoc | null>(null);
   const b = day && other?.day === day ? other : d.brief;
+  const cap = d.settings.briefBudgetKrw;
+  const reached = cap > 0 && d.spentKrwToday >= cap;
   const pick = (v: string) => {
     if (v === d.brief?.day) return setDay(null);
     setDay(v);
@@ -224,114 +373,231 @@ function BriefTab({ d, setD, keep, isKept, onGo }: { d: MarketData; setD: (f: (x
     void run(
       "brief",
       async () => {
-        const r = await shortsPost<{ brief: MarketBriefDoc }>("market", { action: "brief.run" });
-        setD((x) => (x ? { ...x, brief: r.brief, briefDays: [{ day: r.brief.day, headline: r.brief.headline, at: r.brief.at }, ...x.briefDays.filter((y) => y.day !== r.brief.day)], spentKrwToday: x.spentKrwToday + Math.round(r.brief.costUsd * USD_KRW) } : x));
+        const r = await shortsPost<{ brief: MarketBriefDoc }>("market", {
+          action: "brief.run",
+        });
+        setD((x) =>
+          x
+            ? {
+                ...x,
+                brief: r.brief,
+                briefDays: [
+                  {
+                    day: r.brief.day,
+                    headline: r.brief.headline,
+                    at: r.brief.at,
+                  },
+                  ...x.briefDays.filter((y) => y.day !== r.brief.day),
+                ],
+                spentKrwToday: x.spentKrwToday + Math.round(r.brief.costUsd * USD_KRW),
+              }
+            : x,
+        );
         setDay(null);
       },
       "브리핑을 새로 만들었습니다.",
     );
+  const cost = <AiCostNote estimate={BRIEF_ESTIMATE} used={d.spentKrwToday} cap={cap} label="브리핑 AI" />;
+  const remake = (label: string, variant: "primary" | "secondary") => (
+    <Button variant={variant} icon={variant === "primary" ? Sparkles : RefreshCw} loading={busy === "brief"} disabled={!d.ready.ai || reached} onClick={make} title={`오늘 브리핑을 다시 만듭니다 (AI 한 번 약 ${BRIEF_ESTIMATE} · 하루 상한 안)`}>
+      {label}
+    </Button>
+  );
   if (!b) {
     return (
       <EmptyState
         icon={Newspaper}
         title="아직 브리핑이 없습니다"
-        description="매일 아침 07:30 에 자동으로 만들어집니다. 지금 만들 수도 있습니다 (AI 한 번 약 10~40원)."
+        description={`매일 아침 07:30 에 자동으로 만들어집니다. 지금 만들 수도 있습니다 (AI 한 번 약 ${BRIEF_ESTIMATE} · 하루 상한 ${won(cap)}).`}
         action={
-          <Button icon={Sparkles} loading={busy === "brief"} disabled={!d.ready.ai} onClick={make}>
-            지금 브리핑 만들기
-          </Button>
+          <div className="flex flex-col items-center gap-2">
+            {remake("지금 브리핑 만들기", "primary")}
+            {cost}
+          </div>
         }
       />
     );
   }
   const go = (it: MarketBriefItem) => {
     const r = it.ref;
+    const cls = "inline-flex items-center gap-1.5 text-[14px] font-medium text-nd-accent-strong hover:underline";
     if (!r) return null;
-    if (r.kind === "group") return <button type="button" className="text-[13px] font-medium text-nd-accent hover:underline" onClick={() => onGo("trends")}>검색어 추이 보기</button>;
-    if (r.kind === "format") return <a className="text-[13px] font-medium text-nd-accent hover:underline" href="/neander/shorts/scout">형식 카드 보기</a>;
-    if (r.url) return <a className="inline-flex items-center gap-1 text-[13px] font-medium text-nd-accent hover:underline" href={r.url} target="_blank" rel="noreferrer">원본 열기 <ExternalLink size={12} aria-hidden /></a>;
+    if (r.kind === "group")
+      return (
+        <button type="button" className={cls} onClick={() => onGo("trends")}>
+          <TrendingUp size={15} aria-hidden /> 검색어 추이 보기
+        </button>
+      );
+    if (r.kind === "format")
+      return (
+        <Link className={cls} href="/neander/shorts/scout">
+          <ArrowUpRight size={15} aria-hidden /> 형식 카드 보기
+        </Link>
+      );
+    if (r.url)
+      return (
+        <a className={cls} href={r.url} target="_blank" rel="noreferrer">
+          <ExternalLink size={15} aria-hidden /> 원본 열기
+        </a>
+      );
     return null;
   };
+  const thisCost = Math.round(b.costUsd * USD_KRW);
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <Select className="w-auto min-w-[200px]" value={b.day} onChange={(e) => pick(e.target.value)} aria-label="브리핑 날짜">
-            {d.briefDays.map((x) => (
-              <option key={x.day} value={x.day}>
-                {x.day}
-                {x.day === d.today ? " (오늘)" : ""}
-              </option>
-            ))}
-          </Select>
-          <span className="text-[13px] text-nd-fg-3">
-            {fmtWhen(b.at)} · {b.by === "company" ? "매일 아침 자동" : "직접 만듦"} · {b.model.split("/").pop()} · {fmtUsd(b.costUsd)}
-          </span>
+    <div className="space-y-6">
+      {/* 날짜 · 만든 방식 · 다시 만들기 (+ AI 비용) */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <FormRow className="grid-cols-1 sm:grid-cols-[220px_auto]">
+          <Field label="브리핑 날짜">
+            <Select value={b.day} onChange={(e) => pick(e.target.value)}>
+              {d.briefDays.map((x) => (
+                <option key={x.day} value={x.day}>
+                  {dayLabel(x.day)}
+                  {x.day === d.today ? " · 오늘" : ""}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <FieldAction center size="md">
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-nd-fg-3">
+              <Badge tone={b.by === "company" ? "success" : "neutral"} size="lg">
+                {b.by === "company" ? "매일 07:30 자동 생성" : "직접 만듦"}
+              </Badge>
+              <span>
+                생성 {fmtWhen(b.at)} · 해설 모델 {b.model.split("/").pop()} · 이 브리핑 약 {won(thisCost)} ({fmtUsd(b.costUsd)})
+              </span>
+            </span>
+          </FieldAction>
+        </FormRow>
+        <div className="flex flex-col items-start gap-1.5 lg:items-end lg:pt-6">
+          {remake(d.brief?.day === d.today ? "다시 만들기" : "오늘 브리핑 만들기", "secondary")}
+          {cost}
         </div>
-        <Button variant="secondary" icon={RefreshCw} loading={busy === "brief"} disabled={!d.ready.ai} onClick={make} title="오늘 브리핑을 다시 만듭니다 (AI 한 번 약 10~40원 · 하루 상한 안)">
-          다시 만들기
-        </Button>
       </div>
+      {b.day !== d.today &&
+        (b === d.brief ? (
+          <StudioNotice tone="info" title={`오늘(${dayLabel(d.today)}) 브리핑은 아직 없습니다`}>
+            가장 최근인 {dayLabel(b.day)} 브리핑을 보여 줍니다. 매일 아침 07:30 에 저절로 만들어지고, 「오늘 브리핑 만들기」 로 지금 만들 수도 있습니다.
+          </StudioNotice>
+        ) : (
+          <StudioNotice
+            tone="neutral"
+            title={`지난 브리핑(${dayLabel(b.day)})을 보고 있습니다`}
+            action={
+              <Button size="sm" variant="secondary" onClick={() => setDay(null)}>
+                최근 브리핑으로
+              </Button>
+            }
+          >
+            「{d.brief?.day === d.today ? "다시 만들기" : "오늘 브리핑 만들기"}」 는 오늘({dayLabel(d.today)}) 브리핑을 새로 만듭니다.
+          </StudioNotice>
+        ))}
 
-      <Card className="space-y-2.5">
-        <p className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-nd-accent-strong">
-          <Sparkles size={14} aria-hidden /> {b.day === d.today ? "오늘의 시장 브리핑" : `${b.day} 브리핑`}
+      <StudioCard>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone="accent" size="lg">
+            <Sparkles size={14} aria-hidden /> {b.day === d.today ? "오늘의 시장 브리핑" : `${dayLabel(b.day)} 브리핑`}
+          </Badge>
+          <Badge tone="neutral" size="lg">
+            근거 {b.items.length}개
+          </Badge>
+        </div>
+        <h2 className="mt-3 max-w-[40ch] text-[26px] font-bold leading-snug tracking-[-0.01em] text-nd-fg [overflow-wrap:anywhere]">{b.headline}</h2>
+        {b.summary.length > 0 && (
+          <ol className="mt-4 divide-y divide-nd-line rounded-nd-md border border-nd-line bg-nd-sunken/60">
+            {b.summary.map((x, i) => (
+              <li key={i} className="flex gap-3 px-4 py-3 text-nd-body text-nd-fg">
+                <span className="nd-num flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-nd-accent-soft text-[13px] font-semibold text-nd-accent-strong">{i + 1}</span>
+                <span className="[overflow-wrap:anywhere]">{x}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+        <p className="mt-3 text-[13px] leading-relaxed text-nd-fg-3">
+          넣은 자료 · 레이더 {b.inputs.radar ?? 0} · 뜨는 상품 {b.inputs.productTrends ?? 0} · 터진 영상 {b.inputs.hits ?? 0} · 형식 {b.inputs.formats ?? 0} · 검색어 묶음 {b.inputs.groups ?? 0} · 채널 {b.inputs.channels ?? 0} — AI 해설은 자료
+          숫자로만 썼고, 사실 확인은 사람이 합니다.
         </p>
-        <h2 className="text-[20px] font-bold leading-snug text-nd-fg [overflow-wrap:anywhere]">{b.headline}</h2>
-        <ul className="space-y-1">
-          {b.summary.map((x, i) => (
-            <li key={i} className="flex gap-2 text-nd-body text-nd-fg-2">
-              <span aria-hidden className="mt-[9px] h-1.5 w-1.5 shrink-0 rounded-full bg-nd-accent" />
-              <span className="[overflow-wrap:anywhere]">{x}</span>
-            </li>
-          ))}
-        </ul>
-        <p className="text-[13px] text-nd-fg-3">
-          넣은 자료 · 레이더 {b.inputs.radar ?? 0} · 뜨는 상품 {b.inputs.productTrends ?? 0} · 터진 영상 {b.inputs.hits ?? 0} · 형식 {b.inputs.formats ?? 0} · 검색어 묶음 {b.inputs.groups ?? 0} · 채널 {b.inputs.channels ?? 0} — AI 해설은 자료 숫자로만 썼고, 사실 확인은 사람이 합니다.
-        </p>
-        {b.notes.length > 0 && <p className="text-[13px] text-nd-warning-text">{b.notes.join(" · ")}</p>}
-      </Card>
+        {b.notes.length > 0 && <p className="mt-1 text-[13px] font-medium text-nd-warning-text">{b.notes.join(" · ")}</p>}
+      </StudioCard>
 
-      <div className="grid gap-3 [@container(min-width:900px)]:grid-cols-2 lg:grid-cols-2">
-        {b.items.map((it, i) => {
-          const sid = `${b.day}:${i}`;
-          return (
-            <Card key={i} padding="none" className="flex min-w-0 flex-col p-4">
-              <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-                <Badge tone={it.kind === "mine" ? "success" : it.kind === "product" ? "accent" : "neutral"} size="md">
-                  {BRIEF_KIND_LABEL[it.kind]}
-                </Badge>
-                {it.ref?.label && <span className="min-w-0 truncate text-[13px] text-nd-fg-3" title={it.ref.label}>{it.ref.label}</span>}
-              </div>
-              <h3 className="text-[16px] font-bold leading-snug text-nd-fg [overflow-wrap:anywhere]">{it.title}</h3>
-              <p className="mt-1 text-nd-body text-nd-fg-2 [overflow-wrap:anywhere]">{it.why}</p>
-              {it.numbers && <p className="nd-num mt-1.5 text-[13px] font-semibold text-nd-accent-strong [overflow-wrap:anywhere]">{it.numbers}</p>}
-              {it.action && (
-                <p className="mt-1.5 flex items-start gap-1.5 text-[13px] text-nd-fg-2">
-                  <Lightbulb size={14} className="mt-[2px] shrink-0 text-nd-accent" aria-hidden />
-                  <span className="[overflow-wrap:anywhere]">{it.action}</span>
-                </p>
-              )}
-              <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-3">
-                {go(it) ?? <span />}
-                <KeepButton
-                  done={isKept("brief", sid)}
-                  onClick={() =>
-                    void keep({
-                      title: it.title,
-                      memo: [it.why, it.action && `해 볼 것: ${it.action}`].filter(Boolean).join("\n"),
-                      snapshot: it.numbers,
-                      product: it.kind === "product" ? (it.ref?.label ?? it.title) : "",
-                      source: { kind: "brief", id: sid, url: it.ref?.url ?? null, label: `${b.day} 브리핑 · ${BRIEF_KIND_LABEL[it.kind]}` },
-                    })
-                  }
-                />
-              </div>
-            </Card>
-          );
-        })}
-      </div>
-      <p className="text-[13px] text-nd-fg-3">오늘 브리핑 AI 비용 {d.spentKrwToday.toLocaleString("ko-KR")}원 / 하루 상한 {d.settings.briefBudgetKrw.toLocaleString("ko-KR")}원</p>
+      <StudioSection title="근거를 보고, 다음 행동으로" description="원본을 확인하고 기획할 항목은 노트에 보관하세요. 보관한 숫자는 그때 값 그대로 남습니다.">
+        {b.items.length === 0 ? (
+          <EmptyState compact icon={Lightbulb} title="이 브리핑에는 항목이 없습니다" description="자료가 적은 날은 항목 없이 요약만 남습니다." />
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {b.items.map((it, i) => {
+              const sid = `${b.day}:${i}`;
+              return (
+                <article key={i} className="nd-surface flex min-w-0 flex-col rounded-nd-lg px-5 py-4 sm:px-6 sm:py-5">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <Badge tone={BRIEF_TONE[it.kind]} size="lg">
+                      {BRIEF_KIND_LABEL[it.kind]}
+                    </Badge>
+                    {it.numbers && <span className="nd-num min-w-0 text-[13px] font-semibold text-nd-fg-2 [overflow-wrap:anywhere]">{it.numbers}</span>}
+                  </div>
+                  <h3 className="mt-3 text-[17px] font-bold leading-snug text-nd-fg [overflow-wrap:anywhere]">{it.title}</h3>
+                  {it.ref?.label && (
+                    <p className="mt-0.5 truncate text-[13px] text-nd-fg-3" title={it.ref.label}>
+                      {it.ref.label}
+                    </p>
+                  )}
+                  <dl className="mt-3 space-y-1.5 text-nd-body leading-relaxed">
+                    <div className="flex gap-2">
+                      <dt className="shrink-0 font-semibold text-nd-fg">왜</dt>
+                      <dd className="min-w-0 text-nd-fg-2 [overflow-wrap:anywhere]">{it.why}</dd>
+                    </div>
+                    {it.action && (
+                      <div className="flex gap-2">
+                        <dt className="flex shrink-0 items-center gap-1 font-semibold text-nd-fg">
+                          <Lightbulb size={14} aria-hidden className="text-nd-accent" />해 볼 것
+                        </dt>
+                        <dd className="min-w-0 text-nd-fg-2 [overflow-wrap:anywhere]">{it.action}</dd>
+                      </div>
+                    )}
+                  </dl>
+                  <div className="min-h-4 flex-1" aria-hidden />
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-nd-line pt-3">
+                    {go(it) ?? <span />}
+                    <KeepButton
+                      done={isKept("brief", sid)}
+                      onClick={() =>
+                        void keep({
+                          title: it.title,
+                          memo: [it.why, it.action && `해 볼 것: ${it.action}`].filter(Boolean).join("\n"),
+                          snapshot: it.numbers,
+                          product: it.kind === "product" ? (it.ref?.label ?? it.title) : "",
+                          source: {
+                            kind: "brief",
+                            id: sid,
+                            url: it.ref?.url ?? null,
+                            label: `${b.day} 브리핑 · ${BRIEF_KIND_LABEL[it.kind]}`,
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </StudioSection>
+
+      <StudioCard>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-[15px] font-semibold text-nd-fg">
+              오늘 브리핑 AI 비용 <span className={cn("nd-num", reached && "text-nd-danger-text")}>{won(d.spentKrwToday)}</span> / 하루 상한 <span className="nd-num">{won(cap)}</span>
+            </p>
+            <p className="mt-0.5 text-[13px] text-nd-fg-3">「다시 만들기」 도 하루 상한 안 · 남은 한도 {won(Math.max(0, cap - d.spentKrwToday))} · 상한은 검색어 추이 › 자동 실행 설정에서 관리자가 바꿉니다</p>
+          </div>
+          {reached && (
+            <Badge tone="danger" size="lg">
+              상한 도달 · 내일 다시
+            </Badge>
+          )}
+        </div>
+      </StudioCard>
     </div>
   );
 }
@@ -351,7 +617,12 @@ function colorFor(groupIds: string[], selected: string[]): Record<string, string
   return out;
 }
 
-function TrendsTab({ d, setD, keep, isKept }: { d: MarketData; setD: (f: (x: MarketData | null) => MarketData | null) => void } & KeepProps) {
+type CompareRes = {
+  series: { name: string; points: { period: string; ratio: number }[] }[];
+  mode: string;
+};
+
+function TrendsTab({ d, setD, keep, isKept }: { d: MarketData; setD: SetD } & KeepProps) {
   const toast = useToast();
   const { busy, run } = useAction();
   const groupIds = d.settings.groups.map((g) => g.id);
@@ -359,18 +630,25 @@ function TrendsTab({ d, setD, keep, isKept }: { d: MarketData; setD: (f: (x: Mar
   const [range, setRange] = useState<TrendRange>("1y");
   const [unit, setUnit] = useState<"week" | "month">("week");
   const [mode, setMode] = useState<"groups" | "segments">("groups");
-  const [res, setRes] = useState<{ series: { name: string; points: { period: string; ratio: number }[] }[]; mode: string } | null>(null);
+  const [res, setRes] = useState<CompareRes | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [retry, setRetry] = useState(0);
   const pickIds = mode === "segments" ? sel.slice(0, 1) : sel.slice(0, 5);
-  const key = `${pickIds.join(",")}|${range}|${unit}|${mode}`;
+  const key = `${pickIds.join(",")}|${range}|${unit}|${mode}|${retry}`;
   useEffect(() => {
     if (!pickIds.length || !d.ready.naver) return;
     let live = true;
     setLoading(true);
     setErr(null);
-    const q = new URLSearchParams({ compare: "1", groups: pickIds.join(","), range, unit, mode });
-    shortsGet<{ series: { name: string; points: { period: string; ratio: number }[] }[]; mode: string }>(`market?${q}`)
+    const q = new URLSearchParams({
+      compare: "1",
+      groups: pickIds.join(","),
+      range,
+      unit,
+      mode,
+    });
+    shortsGet<CompareRes>(`market?${q}`)
       .then((r) => live && setRes(r))
       .catch((e) => live && setErr(e instanceof Error ? e.message : "검색어 추이를 받지 못했습니다."))
       .finally(() => live && setLoading(false));
@@ -382,14 +660,36 @@ function TrendsTab({ d, setD, keep, isKept }: { d: MarketData; setD: (f: (x: Mar
   const colors = colorFor(groupIds, pickIds);
   const lines =
     res?.mode === "segments"
-      ? res.series.map((s, i) => ({ key: `seg${i}`, name: s.name, color: TREND_COLORS[i % TREND_COLORS.length], points: s.points }))
-      : (res?.series ?? []).map((s, i) => ({ key: pickIds[i] ?? `g${i}`, name: s.name, color: colors[pickIds[i]] ?? TREND_COLORS[i % 5], points: s.points }));
+      ? res.series.map((s, i) => ({
+          key: `seg${i}`,
+          name: s.name,
+          color: TREND_COLORS[i % TREND_COLORS.length],
+          points: s.points,
+        }))
+      : (res?.series ?? []).map((s, i) => ({
+          key: pickIds[i] ?? `g${i}`,
+          name: s.name,
+          color: colors[pickIds[i]] ?? TREND_COLORS[i % 5],
+          points: s.points,
+        }));
   // 한 묶음이 압도하면(나머지가 모두 10 아래) 나머지 선은 바닥에 붙는다 — 빼고 보기를 권한다
   const dominant = (() => {
     if (res?.mode !== "groups" || lines.length < 2) return null;
-    const peaks = lines.map((l) => ({ key: l.key, name: l.name, max: Math.max(0, ...l.points.map((p) => p.ratio)) })).sort((a, b) => b.max - a.max);
+    const peaks = lines
+      .map((l) => ({
+        key: l.key,
+        name: l.name,
+        max: Math.max(0, ...l.points.map((p) => p.ratio)),
+      }))
+      .sort((a, b) => b.max - a.max);
     const second = peaks[1].max;
-    return peaks[0].max >= 90 && second < 10 ? { key: peaks[0].key, name: peaks[0].name, others: second.toLocaleString("ko-KR", { maximumFractionDigits: 1 }) } : null;
+    return peaks[0].max >= 90 && second < 10
+      ? {
+          key: peaks[0].key,
+          name: peaks[0].name,
+          others: second.toLocaleString("ko-KR", { maximumFractionDigits: 1 }),
+        }
+      : null;
   })();
   const toggle = (id: string) => {
     if (mode === "segments") return setSel([id, ...sel.filter((x) => x !== id)]);
@@ -398,110 +698,245 @@ function TrendsTab({ d, setD, keep, isKept }: { d: MarketData; setD: (f: (x: Mar
     setSel([...sel, id]);
   };
   const refresh = () =>
-    void run("series", async () => {
-      const r = await shortsPost<{ series: Record<string, GroupSeries>; notes: string[] }>("market", { action: "series.refresh" });
-      setD((x) => (x ? { ...x, series: r.series } : x));
-      if (r.notes.length) toast.error(r.notes.join(" · "));
-    }, "묶음별 추이를 새로 받았습니다.");
+    void run(
+      "series",
+      async () => {
+        const r = await shortsPost<{
+          series: Record<string, GroupSeries>;
+          notes: string[];
+        }>("market", { action: "series.refresh" });
+        setD((x) => (x ? { ...x, series: r.series } : x));
+        if (r.notes.length) toast.error(r.notes.join(" · "));
+      },
+      "묶음별 추이를 새로 받았습니다.",
+    );
+  const basis = unit === "week" ? "최근 2주 ÷ 그 전 6주" : "최근 2달 ÷ 그 전 6달";
+  const rangeUnit = (
+    <div className="flex shrink-0 flex-wrap items-center gap-2">
+      <SegmentedControl
+        ariaLabel="기간"
+        value={range}
+        onChange={(v) => setRange(v)}
+        options={(Object.keys(TREND_RANGE_LABEL) as TrendRange[]).map((r) => ({
+          value: r,
+          label: TREND_RANGE_LABEL[r],
+        }))}
+      />
+      <SegmentedControl
+        ariaLabel="단위"
+        value={unit}
+        onChange={(v) => setUnit(v)}
+        options={[
+          { value: "week", label: "주" },
+          { value: "month", label: "달" },
+        ]}
+      />
+    </div>
+  );
+  const segRows =
+    res?.mode === "segments"
+      ? lines.map((l) => ({
+          l,
+          t: groupTrend(l.points),
+          last: l.points.at(-1)?.ratio ?? null,
+        }))
+      : [];
 
   return (
-    <div className="space-y-6 [container-type:inline-size]">
-      <Card className="space-y-3">
-        <SectionHeader
-          size="lg"
-          title={mode === "groups" ? "분야 비교" : "나이 · 성별로 나눠 보기"}
-          hint={mode === "groups" ? "고른 묶음을 한 요청에 — 묶음끼리 크기를 견줄 수 있습니다" : "고른 묶음 하나를 집단마다 따로 — 집단끼리 크기는 못 견주고 오르내림만 견줍니다"}
-          action={
-            <SegmentedControl
-              ariaLabel="보기"
-              value={mode}
-              onChange={(v) => setMode(v)}
-              options={[
-                { value: "groups", label: "분야 비교" },
-                { value: "segments", label: "나이 · 성별" },
+    <div className="space-y-8">
+      <StudioCard
+        title={mode === "groups" ? "분야 비교" : "나이 · 성별로 나눠 보기"}
+        description={mode === "groups" ? "고른 묶음을 한 요청에 — 묶음끼리 크기를 견줄 수 있습니다 (5묶음까지)" : "고른 묶음 하나를 집단마다 따로 — 집단끼리 크기는 못 견주고 오르내림만 견줍니다"}
+        action={
+          <SegmentedControl
+            ariaLabel="보기"
+            value={mode}
+            onChange={(v) => setMode(v)}
+            options={[
+              { value: "groups", label: "분야 비교" },
+              { value: "segments", label: "나이 · 성별" },
+            ]}
+          />
+        }
+      >
+        {mode === "groups" ? (
+          <div className="flex flex-col gap-3 border-b border-nd-line pb-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 flex-wrap items-center gap-2" role="group" aria-label="견줄 검색어 묶음">
+              {d.settings.groups.map((g) => {
+                const on = pickIds.includes(g.id);
+                return (
+                  <button
+                    key={g.id}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => toggle(g.id)}
+                    title={g.keywords.join(", ")}
+                    className={cn(
+                      "inline-flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-[14px] font-medium transition-colors",
+                      on ? "border-nd-accent/40 bg-nd-accent-soft text-nd-accent-strong" : "border-nd-border bg-nd-content text-nd-fg-2 hover:bg-nd-sunken",
+                    )}
+                  >
+                    {on ? <Check size={14} aria-hidden /> : <Plus size={14} aria-hidden className="text-nd-fg-3" />}
+                    {on && <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colors[g.id] }} aria-hidden />}
+                    {g.name}
+                  </button>
+                );
+              })}
+            </div>
+            {rangeUnit}
+          </div>
+        ) : (
+          <FormRow className="grid-cols-1 border-b border-nd-line pb-4 sm:grid-cols-[minmax(0,360px)_auto]">
+            <Field label="검색어 묶음" hint="집단마다 따로 부르므로 한 묶음씩 봅니다">
+              <Select value={pickIds[0] ?? ""} onChange={(e) => toggle(e.target.value)}>
+                {d.settings.groups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <FieldAction size="md" center className="sm:justify-self-end">
+              {rangeUnit}
+            </FieldAction>
+          </FormRow>
+        )}
+        <div className="pt-4">
+          {!d.ready.naver ? (
+            <StudioNotice tone="warning" title="네이버 데이터랩 키가 없습니다">
+              검색어 추이를 받을 수 없습니다. 네이버 클라우드 콘솔(API HUB)에서 받은 키를 배포 설정에 넣어 주세요.
+            </StudioNotice>
+          ) : !pickIds.length ? (
+            <EmptyState compact icon={TrendingUp} title="견줄 묶음을 골라 주세요" description="위에서 묶음을 누르면 한 축에 함께 그립니다." />
+          ) : err ? (
+            <StudioNotice
+              tone="warning"
+              title="검색어 추이를 받지 못했습니다"
+              action={
+                <Button size="sm" variant="secondary" icon={RefreshCw} onClick={() => setRetry((n) => n + 1)}>
+                  다시 시도
+                </Button>
+              }
+            >
+              {err}
+            </StudioNotice>
+          ) : loading && !res ? (
+            <Skeleton className="h-[340px] rounded-nd-md" />
+          ) : (
+            <div className={cn("space-y-4", loading && "opacity-60")} aria-busy={loading || undefined}>
+              <TrendLines
+                lines={lines}
+                unit={unit}
+                note={res?.mode === "segments" ? "집단마다 그 안에서 가장 높은 구간 = 100 · 집단끼리 크기는 견주지 않습니다" : "검색 지수 · 공통 축 (고른 묶음 중 가장 높은 구간 = 100)"}
+                title={`${pickIds.map((id) => d.settings.groups.find((g) => g.id === id)?.name).join(" · ")} 검색어 추이`}
+              />
+              {res?.mode === "groups" && dominant && (
+                <StudioNotice
+                  tone="info"
+                  title={`「${dominant.name}」 이 다른 묶음보다 훨씬 많이 검색됩니다`}
+                  action={
+                    <Button size="sm" variant="secondary" icon={EyeOff} onClick={() => toggle(dominant.key)}>
+                      「{dominant.name}」 빼고 보기
+                    </Button>
+                  }
+                >
+                  나머지 선이 바닥에 붙어 보입니다 (다른 묶음은 가장 높아도 {dominant.others}). 빼면 나머지끼리 다시 100 기준으로 견줍니다.
+                </StudioNotice>
+              )}
+            </div>
+          )}
+        </div>
+        {mode === "segments" && res?.mode === "segments" && segRows.length > 0 && (
+          <div className="-mx-5 mt-5 sm:-mx-6">
+            <RecordTable
+              rows={segRows}
+              rowKey={(r) => r.l.key}
+              ariaLabel="집단별 최근 흐름"
+              columns={[
+                {
+                  key: "name",
+                  header: "집단",
+                  mobile: "title",
+                  cell: (r) => (
+                    <span className="inline-flex items-center gap-2 font-medium">
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: r.l.color }} aria-hidden />
+                      {r.l.name}
+                    </span>
+                  ),
+                },
+                {
+                  key: "last",
+                  header: "최근 값",
+                  align: "right",
+                  cell: (r) => <Num value={r.last} digits={1} />,
+                },
+                {
+                  key: "change",
+                  header: `변화 (${basis})`,
+                  mobileLabel: "변화",
+                  align: "right",
+                  cell: (r) => (r.t.change === null ? <Unknown /> : <span className="nd-num">×{r.t.change}</span>),
+                },
+                {
+                  key: "label",
+                  header: "흐름",
+                  cell: (r) => (
+                    <Badge tone={NAVER_TONE[r.t.label]} size="lg">
+                      {naverShort(r.t.label)}
+                    </Badge>
+                  ),
+                },
+                {
+                  key: "basis",
+                  header: "비교 기준",
+                  mobile: "hide",
+                  cell: () => <span className="text-[13px] text-nd-fg-3">그 집단 안의 상대값</span>,
+                },
               ]}
             />
-          }
-        />
-        <div className="flex flex-wrap items-center gap-2">
-          {d.settings.groups.map((g) => {
-            const on = pickIds.includes(g.id);
-            return (
-              <button
-                key={g.id}
-                type="button"
-                aria-pressed={on}
-                onClick={() => toggle(g.id)}
-                title={g.keywords.join(", ")}
-                className={cn("inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium transition-colors", on ? "border-nd-accent/40 bg-nd-accent-soft text-nd-accent-strong" : "border-nd-border bg-nd-content text-nd-fg-2 hover:bg-nd-sunken")}
-              >
-                {on && <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: mode === "segments" ? TREND_COLORS[0] : colors[g.id] }} aria-hidden />}
-                {g.name}
-              </button>
-            );
-          })}
-          <span className="ml-auto flex flex-wrap items-center gap-2">
-            <SegmentedControl size="sm" ariaLabel="기간" value={range} onChange={(v) => setRange(v)} options={(Object.keys(TREND_RANGE_LABEL) as TrendRange[]).map((r) => ({ value: r, label: TREND_RANGE_LABEL[r] }))} />
-            <SegmentedControl size="sm" ariaLabel="단위" value={unit} onChange={(v) => setUnit(v)} options={[{ value: "week", label: "주" }, { value: "month", label: "달" }]} />
-          </span>
-        </div>
-        {!d.ready.naver ? (
-          <InlineNotice tone="warning">네이버 데이터랩 키가 없어 검색어 추이를 받을 수 없습니다.</InlineNotice>
-        ) : !pickIds.length ? (
-          <p className="py-8 text-center text-nd-body text-nd-fg-3">위에서 묶음을 골라 주세요.</p>
-        ) : err ? (
-          <InlineNotice tone="warning">{err}</InlineNotice>
-        ) : loading && !res ? (
-          <Skeleton className="h-[280px] rounded-nd-md" />
-        ) : (
-          <div className={cn("space-y-3", loading && "opacity-60")}>
-            <TrendLines lines={lines} unit={unit} title={`${pickIds.map((id) => d.settings.groups.find((g) => g.id === id)?.name).join(" · ")} 검색어 추이`} />
-            {res?.mode === "groups" && dominant && (
-              <InlineNotice tone="info">
-                「{dominant.name}」 검색이 다른 묶음보다 훨씬 많아 나머지 선이 바닥에 붙어 보입니다 (다른 묶음은 가장 높아도 {dominant.others}). 빼면 나머지끼리 다시 100 기준으로 견줍니다.
-                <div className="mt-2">
-                  <Button size="sm" variant="secondary" onClick={() => toggle(dominant.key)}>
-                    「{dominant.name}」 빼고 보기
-                  </Button>
-                </div>
-              </InlineNotice>
-            )}
+            <p className="mt-3 px-5 text-[13px] text-nd-fg-3 sm:px-6">
+              집단마다 따로 부른 값이라 각 선은 그 집단 안에서 가장 높은 구간 = 100 입니다. 「20대 여성이 더 많이 찾는다」 는 이 그래프로 말할 수 없고, 「20대 여성에서 최근 더 오른다」 만 볼 수 있습니다.
+            </p>
           </div>
         )}
-        {mode === "segments" && <p className="text-[13px] text-nd-fg-3">집단마다 따로 부른 값이라 각 선은 그 집단 안에서 가장 높은 구간 = 100 입니다. 「20대 여성이 더 많이 찾는다」 는 이 그래프로 말할 수 없고, 「20대 여성에서 최근 더 오른다」 만 볼 수 있습니다.</p>}
-      </Card>
+      </StudioCard>
 
-      <section>
-        <SectionHeader
-          size="lg"
-          title="묶음별 최근 추세"
-          hint="최근 2주 ÷ 그 전 6주 · 매일 아침 새로 받음 (묶음마다 혼자 부른 1년 주간)"
-          action={
-            <Button size="sm" variant="secondary" icon={RefreshCw} loading={busy === "series"} disabled={!d.ready.naver} onClick={refresh}>
-              지금 받기
-            </Button>
-          }
-        />
-        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(250px,1fr))]">
+      <StudioSection
+        title="묶음별 최근 추세"
+        icon={TrendingUp}
+        description="고르지 않은 묶음도 최근 흐름을 봅니다 · 최근 2주 ÷ 그 전 6주 · 매일 아침 새로 받음 (묶음마다 혼자 부른 1년 주간)"
+        action={
+          <Button size="sm" variant="secondary" icon={RefreshCw} loading={busy === "series"} disabled={!d.ready.naver} onClick={refresh} title="네이버에서 묶음별 1년 추이를 지금 받습니다 (매일 아침 자동)">
+            지금 받기
+          </Button>
+        }
+      >
+        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]">
           {d.settings.groups.map((g) => {
             const s = d.series[g.id];
             const t = s ? groupTrend(s.points) : null;
             return (
-              <Card key={g.id} padding="none" className="min-w-0 p-3.5">
+              <div key={g.id} className="nd-surface min-w-0 rounded-nd-lg px-4 py-3.5">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="text-[15px] font-semibold text-nd-fg">{g.name}</p>
-                    <p className="truncate text-[13px] text-nd-fg-3" title={g.keywords.join(", ")}>{g.keywords.join(" · ")}</p>
+                    <p className="truncate text-[13px] text-nd-fg-3" title={g.keywords.join(", ")}>
+                      {g.keywords.join(" · ")}
+                    </p>
                   </div>
                   {t && (
-                    <Badge tone={NAVER_TONE[t.label]} size="md">
-                      {NAVER_LABEL[t.label].replace("국내 검색 ", "")}
-                      {t.change !== null ? ` ×${t.change}` : ""}
+                    <Badge tone={NAVER_TONE[t.label]} size="lg">
+                      {naverShort(t.label)}
                     </Badge>
                   )}
                 </div>
-                <div className="mt-2 flex items-end justify-between gap-2">
-                  {s ? <Sparkline values={s.points.slice(-26).map((p) => p.ratio)} width={150} height={36} /> : <span className="text-[13px] text-nd-fg-3">아직 안 받음</span>}
+                <div className="mt-3">
+                  {s ? <Sparkline values={s.points.slice(-26).map((p) => p.ratio)} width={220} height={36} className="max-w-full" /> : <span className="text-[13px] text-nd-fg-3">아직 안 받음 — 「지금 받기」 또는 내일 아침</span>}
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-2 border-t border-nd-line pt-2">
+                  <span className="text-[13px] text-nd-fg-3">
+                    최근 2주 ÷ 그 전 6주 <b className="nd-num font-semibold text-nd-fg">{t?.change !== null && t?.change !== undefined ? `×${t.change}` : "미확인"}</b>
+                  </span>
                   <KeepButton
                     done={isKept("keyword", g.id)}
                     onClick={() =>
@@ -509,16 +944,21 @@ function TrendsTab({ d, setD, keep, isKept }: { d: MarketData; setD: (f: (x: Mar
                         title: `검색어 「${g.name}」 ${t ? NAVER_LABEL[t.label] : ""}`.trim(),
                         snapshot: t ? `최근 2주 ÷ 그 전 6주 ${t.change ?? "—"} · ${d.today}` : "",
                         memo: `검색어: ${g.keywords.join(", ")}`,
-                        source: { kind: "keyword", id: g.id, url: null, label: `검색어 묶음 · ${g.name}` },
+                        source: {
+                          kind: "keyword",
+                          id: g.id,
+                          url: null,
+                          label: `검색어 묶음 · ${g.name}`,
+                        },
                       })
                     }
                   />
                 </div>
-              </Card>
+              </div>
             );
           })}
         </div>
-      </section>
+      </StudioSection>
 
       <ProductTrends d={d} keep={keep} isKept={isKept} />
       <GroupSettings d={d} setD={setD} />
@@ -529,132 +969,214 @@ function TrendsTab({ d, setD, keep, isKept }: { d: MarketData; setD: (f: (x: Mar
 function ProductTrends({ d, keep, isKept }: { d: MarketData } & KeepProps) {
   const [all, setAll] = useState(false);
   const list = all ? d.productTrends : d.productTrends.slice(0, 15);
-  return (
-    <section>
-      <SectionHeader size="lg" title="레이더 상품의 국내 검색 추이" hint="AI 레이더가 찾은 상품마다 네이버 검색 · 변화 큰 순 (같은 상품은 한 줄)" />
-      {!d.productTrends.length ? (
-        <p className="text-nd-body text-nd-fg-3">아직 국내 검색 추이가 붙은 레이더 상품이 없습니다. 레이더가 매일 아침 채웁니다.</p>
-      ) : (
-        <Card padding="none">
-          <TableScroll>
-            <Table size="md" minWidth={760}>
-              <thead>
-                <tr>
-                  <Th>상품</Th>
-                  <Th>국내 검색</Th>
-                  <Th align="right" title="최근 2주 평균 ÷ 그 전 6주 평균">변화</Th>
-                  <Th align="right">후보 영상</Th>
-                  <Th align="right" title="대표 영상의 채널 평소 대비">평소 대비</Th>
-                  <Th />
-                </tr>
-              </thead>
-              <tbody>
-                {list.map((p) => (
-                  <Tr key={p.id}>
-                    <Td className="max-w-0 w-[40%]">
-                      <div className="flex min-w-0 items-center gap-2.5">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        {p.thumbnail ? <img src={p.thumbnail} alt="" className="h-10 w-[56px] shrink-0 rounded-[6px] object-cover" referrerPolicy="no-referrer" loading="lazy" /> : null}
-                        <span className="min-w-0">
-                          <span className="block truncate font-medium" title={p.product}>{p.product}</span>
-                          <span className="block truncate text-[13px] text-nd-fg-3" title={p.keywords.join(", ")}>검색어 {p.keywords.join(" · ")}</span>
-                        </span>
-                      </div>
-                    </Td>
-                    <Td>
-                      <Badge tone={NAVER_TONE[p.label]} size="md">
-                        {NAVER_LABEL[p.label].replace("국내 검색 ", "")}
-                      </Badge>
-                    </Td>
-                    <Td num>{p.change === null ? "—" : `×${p.change}`}</Td>
-                    <Td num>{p.candidates}편</Td>
-                    <Td num>{p.multiple === null ? "—" : `${p.multiple}배`}</Td>
-                    <Td className="text-right">
-                      <KeepButton
-                        done={isKept("radar", p.id)}
-                        onClick={() =>
-                          void keep({
-                            title: p.product,
-                            product: p.product,
-                            snapshot: `국내 검색 ${NAVER_LABEL[p.label].replace("국내 검색 ", "")}${p.change !== null ? ` ×${p.change}` : ""} · 후보 ${p.candidates}편 · 평소의 ${p.multiple ?? "?"}배 · ${d.today}`,
-                            memo: `대표 영상: ${p.title}`,
-                            source: { kind: "radar", id: p.id, url: p.url, label: `레이더 · ${p.product}` },
-                          })
-                        }
-                      />
-                    </Td>
-                  </Tr>
-                ))}
-              </tbody>
-            </Table>
-          </TableScroll>
-        </Card>
-      )}
-      {d.productTrends.length > 15 && (
-        <div className="mt-2 text-center">
-          <Button size="sm" variant="ghost" onClick={() => setAll(!all)}>
-            {all ? "앞의 15개만" : `나머지 ${d.productTrends.length - 15}개 더 보기`}
-          </Button>
+  const columns: RecordColumn<ProductTrend>[] = [
+    {
+      key: "product",
+      header: "상품 · 검색어",
+      mobile: "title",
+      cell: (p) => (
+        <div className="flex min-w-0 items-center gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {p.thumbnail ? <img src={p.thumbnail} alt="" className="h-10 w-[56px] shrink-0 rounded-[6px] object-cover" referrerPolicy="no-referrer" loading="lazy" /> : null}
+          <span className="min-w-0">
+            <span className="block truncate font-semibold" title={p.product}>
+              {p.product}
+            </span>
+            <span className="block truncate text-[13px] font-normal text-nd-fg-3" title={p.keywords.join(", ")}>
+              검색어 {p.keywords.join(" · ")}
+            </span>
+          </span>
         </div>
+      ),
+    },
+    {
+      key: "label",
+      header: "국내 검색",
+      className: "w-[120px]",
+      cell: (p) => (
+        <Badge tone={NAVER_TONE[p.label]} size="lg">
+          {naverShort(p.label)}
+        </Badge>
+      ),
+    },
+    {
+      key: "change",
+      header: "변화",
+      align: "right",
+      className: "w-[100px]",
+      cell: (p) => (p.change === null ? <Unknown /> : `×${p.change}`),
+    },
+    {
+      key: "candidates",
+      header: "후보 영상",
+      align: "right",
+      className: "w-[100px]",
+      cell: (p) => `${p.candidates.toLocaleString("ko-KR")}편`,
+    },
+    {
+      key: "multiple",
+      header: "평소 대비",
+      align: "right",
+      className: "w-[100px]",
+      cell: (p) => (p.multiple === null ? <Unknown /> : `${p.multiple}배`),
+    },
+    {
+      key: "keep",
+      header: <span className="sr-only">노트</span>,
+      mobileLabel: "노트",
+      align: "right",
+      className: "w-[140px]",
+      cell: (p) => (
+        <KeepButton
+          done={isKept("radar", p.id)}
+          onClick={() =>
+            void keep({
+              title: p.product,
+              product: p.product,
+              snapshot: `국내 검색 ${naverShort(p.label)}${p.change !== null ? ` ×${p.change}` : ""} · 후보 ${p.candidates}편 · 평소의 ${p.multiple ?? "?"}배 · ${d.today}`,
+              memo: `대표 영상: ${p.title}`,
+              source: {
+                kind: "radar",
+                id: p.id,
+                url: p.url,
+                label: `레이더 · ${p.product}`,
+              },
+            })
+          }
+        />
+      ),
+    },
+  ];
+  return (
+    <StudioCard
+      flush
+      title="레이더 상품의 국내 검색 추이"
+      description="AI 레이더가 찾은 상품마다 네이버 검색 · 변화 큰 순 (같은 상품은 한 줄) · 변화 = 최근 2주 평균 ÷ 그 전 6주 평균 · 평소 대비 = 대표 영상의 채널 평소 대비"
+      bodyClassName="max-md:px-3 max-md:pb-3"
+    >
+      {!d.productTrends.length ? (
+        <div className="px-5 pb-5 sm:px-6">
+          <EmptyState compact icon={TrendingUp} title="아직 국내 검색 추이가 붙은 레이더 상품이 없습니다" description="소재 발굴의 AI 레이더가 매일 아침 채웁니다." />
+        </div>
+      ) : (
+        <>
+          <RecordTable rows={list} columns={columns} rowKey={(p) => p.id} ariaLabel="레이더 상품의 국내 검색 추이" />
+          {d.productTrends.length > 15 && (
+            <div className="border-t border-nd-line py-2 text-center">
+              <Button size="sm" variant="ghost" onClick={() => setAll(!all)}>
+                {all ? "앞의 15개만" : `나머지 ${d.productTrends.length - 15}개 더 보기`}
+              </Button>
+            </div>
+          )}
+        </>
       )}
-    </section>
+    </StudioCard>
   );
 }
 
-function GroupSettings({ d, setD }: { d: MarketData; setD: (f: (x: MarketData | null) => MarketData | null) => void }) {
+function GroupSettings({ d, setD }: { d: MarketData; setD: SetD }) {
   const { busy, run } = useAction();
-  const [rows, setRows] = useState<{ id: string; name: string; keywords: string }[]>(d.settings.groups.map((g) => ({ id: g.id, name: g.name, keywords: g.keywords.join(", ") })));
+  const [rows, setRows] = useState<{ id: string; name: string; keywords: string }[]>(
+    d.settings.groups.map((g) => ({
+      id: g.id,
+      name: g.name,
+      keywords: g.keywords.join(", "),
+    })),
+  );
   const [enabled, setEnabled] = useState(d.settings.enabled);
   const [budget, setBudget] = useState(String(d.settings.briefBudgetKrw));
   const [open, setOpen] = useState(false);
   const save = () =>
-    void run("save", async () => {
-      const groups: KeywordGroup[] = rows.map((r) => ({ id: r.id, name: r.name, keywords: r.keywords.split(",").map((k) => k.trim()).filter(Boolean) }));
-      const r = await shortsPost<{ settings: MarketSettings }>("market", { action: "settings.save", settings: { groups, enabled, briefBudgetKrw: Number(budget) || 0 } });
-      setD((x) => (x ? { ...x, settings: r.settings } : x));
-      setBudget(String(r.settings.briefBudgetKrw));
-    }, "설정을 저장했습니다 — 묶음 추이는 내일 아침부터 받습니다 (지금 받으려면 「지금 받기」).");
+    void run(
+      "save",
+      async () => {
+        const groups: KeywordGroup[] = rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          keywords: r.keywords
+            .split(",")
+            .map((k) => k.trim())
+            .filter(Boolean),
+        }));
+        const r = await shortsPost<{ settings: MarketSettings }>("market", {
+          action: "settings.save",
+          settings: { groups, enabled, briefBudgetKrw: Number(budget) || 0 },
+        });
+        setD((x) => (x ? { ...x, settings: r.settings } : x));
+        setBudget(String(r.settings.briefBudgetKrw));
+      },
+      "설정을 저장했습니다 — 묶음 추이는 내일 아침부터 받습니다 (지금 받으려면 「지금 받기」).",
+    );
   return (
-    <section>
-      <SectionHeader
-        size="lg"
-        title="검색어 묶음 · 자동 실행"
-        hint={`${d.settings.groups.length}묶음 · 매일 아침 07:30 ${d.settings.enabled ? "켜짐" : "꺼짐"} · 브리핑 하루 상한 ${d.settings.briefBudgetKrw.toLocaleString("ko-KR")}원`}
-        action={
-          <Button size="sm" variant="ghost" onClick={() => setOpen(!open)} aria-expanded={open}>
-            {open ? "닫기" : "고치기"}
-          </Button>
-        }
-      />
+    <StudioCard
+      title="검색어 묶음 · 자동 실행"
+      description="묶음 변경은 다음 수집부터 반영됩니다 · 설정은 AI STUDIO 관리자가 바꿉니다"
+      action={
+        <Button size="sm" variant={open ? "ghost" : "secondary"} onClick={() => setOpen(!open)} aria-expanded={open}>
+          {open ? "닫기" : d.admin ? "고치기" : "설정 보기"}
+        </Button>
+      }
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[14px] text-nd-fg-2">
+        <Badge tone={d.settings.enabled ? "success" : "neutral"} size="lg">
+          자동 실행 {d.settings.enabled ? "켜짐" : "꺼짐"}
+        </Badge>
+        <span>매일 아침 07:30 · 묶음 {d.settings.groups.length}개</span>
+        <span aria-hidden className="text-nd-fg-4">
+          |
+        </span>
+        <AiCostNote used={d.spentKrwToday} cap={d.settings.briefBudgetKrw} label="브리핑 AI" />
+      </div>
       {open && (
-        <Card className="space-y-2.5">
-          {!d.admin && <InlineNotice tone="neutral">설정은 AI STUDIO 관리자만 바꿉니다.</InlineNotice>}
-          <FormRow className="grid-cols-1 sm:grid-cols-[minmax(0,1fr)_200px]">
-            <Field label="매일 아침 자동 (07:30)" hint="묶음 추이 · 채널 숫자 · 브리핑을 차례로">
+        <div className="mt-4 space-y-4 border-t border-nd-line pt-4">
+          {!d.admin && (
+            <StudioNotice tone="neutral" title="읽기만 할 수 있습니다">
+              설정은 AI STUDIO 관리자만 바꿉니다.
+            </StudioNotice>
+          )}
+          <FormRow className="grid-cols-1 sm:grid-cols-2">
+            <Field label="매일 아침 자동 실행 (07:30)" hint="묶음 추이 · 채널 숫자 · 브리핑을 차례로">
               <div className="flex h-ctl-md items-center">
                 <Switch checked={enabled} disabled={!d.admin} onChange={setEnabled} label={enabled ? "켜짐" : "꺼짐"} />
               </div>
             </Field>
-            <Field label="브리핑 AI 하루 상한 (원)" hint="0 ~ 2,000 · 「다시 만들기」 포함">
+            <Field label="브리핑 AI 하루 상한 (원)" hint={`0 ~ 2,000 · 「다시 만들기」 포함 · 오늘 사용 ${won(d.spentKrwToday)}`}>
               <NumberInput value={budget} disabled={!d.admin} onValueChange={setBudget} aria-label="브리핑 AI 하루 상한" />
             </Field>
           </FormRow>
-          <p className="pt-1 text-[13px] text-nd-fg-3">묶음마다 검색어 20개까지 — 네이버는 묶음 안 검색어를 합쳐 셉니다.</p>
-          <div className="grid grid-cols-[minmax(0,140px)_minmax(0,1fr)_32px] gap-x-2 gap-y-2">
-            <span className="text-[13px] font-medium text-nd-fg-2">이름</span>
-            <span className="text-[13px] font-medium text-nd-fg-2">검색어 (쉼표로 · 20개까지)</span>
-            <span />
-            {rows.map((r, i) => (
-              <div key={i} className="contents">
-                <Input value={r.name} disabled={!d.admin} maxLength={30} aria-label={`${i + 1}번째 묶음 이름`} onChange={(e) => setRows(rows.map((x, k) => (k === i ? { ...x, name: e.target.value } : x)))} />
-                <Input value={r.keywords} disabled={!d.admin} aria-label={`${i + 1}번째 묶음 검색어`} onChange={(e) => setRows(rows.map((x, k) => (k === i ? { ...x, keywords: e.target.value } : x)))} />
-                <Button size="sm" variant="ghost" icon={Trash2} aria-label={`${r.name || `${i + 1}번째`} 묶음 빼기`} disabled={!d.admin} onClick={() => setRows(rows.filter((_, k) => k !== i))} />
-              </div>
-            ))}
+          <div>
+            <p className="mb-2 text-[13px] text-nd-fg-3">묶음마다 검색어 20개까지 — 네이버는 묶음 안 검색어를 합쳐 셉니다. 동의어를 한 묶음에 넣으세요.</p>
+            <div className="grid grid-cols-[minmax(0,140px)_minmax(0,1fr)_36px] items-center gap-x-2 gap-y-2">
+              <span className="text-[13px] font-medium text-nd-fg-2">이름</span>
+              <span className="text-[13px] font-medium text-nd-fg-2">검색어 (쉼표로 · 20개까지)</span>
+              <span />
+              {rows.map((r, i) => (
+                <div key={i} className="contents">
+                  <Input value={r.name} disabled={!d.admin} maxLength={30} aria-label={`${i + 1}번째 묶음 이름`} onChange={(e) => setRows(rows.map((x, k) => (k === i ? { ...x, name: e.target.value } : x)))} />
+                  <Input value={r.keywords} disabled={!d.admin} aria-label={`${i + 1}번째 묶음 검색어`} onChange={(e) => setRows(rows.map((x, k) => (k === i ? { ...x, keywords: e.target.value } : x)))} />
+                  <IconButton icon={Trash2} label={`${r.name || `${i + 1}번째`} 묶음 빼기`} disabled={!d.admin} onClick={() => setRows(rows.filter((_, k) => k !== i))} />
+                </div>
+              ))}
+            </div>
           </div>
           {d.admin && (
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="secondary" icon={Plus} disabled={rows.length >= 12} onClick={() => setRows([...rows, { id: `g${Date.now().toString(36)}`, name: "", keywords: "" }])}>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={Plus}
+                disabled={rows.length >= 12}
+                onClick={() =>
+                  setRows([
+                    ...rows,
+                    {
+                      id: `g${Date.now().toString(36)}`,
+                      name: "",
+                      keywords: "",
+                    },
+                  ])
+                }
+              >
                 묶음 더하기
               </Button>
               <Button size="sm" loading={busy === "save"} onClick={save}>
@@ -662,173 +1184,273 @@ function GroupSettings({ d, setD }: { d: MarketData; setD: (f: (x: MarketData | 
               </Button>
             </div>
           )}
-        </Card>
+        </div>
       )}
-    </section>
+    </StudioCard>
   );
 }
 
 // ---- 채널 모니터링 --------------------------------------------------------------------
+
+type WatchView = {
+  w: WatchRow;
+  s: WithId<ChannelStatDoc> | null;
+  subs7: number | null;
+  subs30: number | null;
+};
 
 function ChannelsTab({ d, reload, keep, isKept }: { d: MarketData; reload: () => Promise<void> } & KeepProps) {
   const toast = useToast();
   const { busy, run } = useAction();
   const mine = d.channels.filter((c) => c.mine);
   const statsByWatch = new Map(d.channels.filter((c) => c.watchId).map((c) => [c.watchId!, c]));
-  const rows = d.watch
+  const rows: WatchView[] = d.watch
     .filter((w) => w.active)
     .map((w) => {
       const s = statsByWatch.get(w.id) ?? d.channels.find((c) => c.platform === "youtube" && c.externalId === w.channelId) ?? null;
-      return { w, s, subs7: s ? channelDelta(s.history, 7, "subs") : null, subs30: s ? channelDelta(s.history, 30, "subs") : null };
+      return {
+        w,
+        s,
+        subs7: s ? channelDelta(s.history, 7, "subs") : null,
+        subs30: s ? channelDelta(s.history, 30, "subs") : null,
+      };
     })
     .sort((a, b) => (b.subs7 ?? -Infinity) - (a.subs7 ?? -Infinity) || b.w.hits7 - a.w.hits7);
   const days = Math.max(0, ...d.channels.map((c) => channelTrackedDays(c.history)));
+  const lastAt = Math.max(0, ...d.channels.map((c) => c.updatedAt || 0));
   const snap = () =>
     void run("snap", async () => {
-      const r = await shortsPost<{ youtube: number; instagram: number; notes: string[] }>("market", { action: "channels.snapshot" });
+      const r = await shortsPost<{
+        youtube: number;
+        instagram: number;
+        notes: string[];
+      }>("market", { action: "channels.snapshot" });
       await reload();
       toast.success(`오늘 숫자를 받았습니다 — 유튜브 ${r.youtube}곳 · 인스타 ${r.instagram}곳`);
       if (r.notes.length) toast.error(r.notes.join(" · "));
     });
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-[13px] text-nd-fg-3">
-          {days ? `기록 ${days}일째` : "아직 기록 전"} · 매일 아침 한 번 숫자를 남깁니다 — 7일 · 30일 변화는 기록이 그만큼 쌓여야 나옵니다.
-        </p>
-        <Button size="sm" variant="secondary" icon={RefreshCw} loading={busy === "snap"} onClick={snap}>
-          지금 숫자 받기
-        </Button>
-      </div>
-
-      <section>
-        <SectionHeader size="lg" title="내 채널" hint="연결한 유튜브 · 인스타 계정 (내 채널 · 연결에서)" />
-        {!mine.length ? (
-          <p className="text-nd-body text-nd-fg-3">아직 기록이 없습니다 — 「지금 숫자 받기」 를 누르거나 내일 아침을 기다려 주세요.</p>
+  const columns: RecordColumn<WatchView>[] = [
+    {
+      key: "channel",
+      header: "채널 · 나라",
+      mobile: "title",
+      cell: ({ w }) => (
+        <span className="block min-w-0">
+          <a href={`https://www.youtube.com/channel/${w.channelId}`} target="_blank" rel="noreferrer" className="block truncate font-semibold hover:underline" title={w.title}>
+            {w.title}
+          </a>
+          <span className="block truncate text-[13px] font-normal text-nd-fg-3">
+            {countryLabel(w.country)}
+            {w.topics.length > 0 ? ` · ${w.topics.join(" · ")}` : ""}
+          </span>
+        </span>
+      ),
+    },
+    {
+      key: "subs",
+      header: "구독자",
+      align: "right",
+      cell: ({ s }) => (s ? <Num value={s.history.at(-1)?.subs} /> : <span className="text-nd-fg-3">기록 전</span>),
+    },
+    {
+      key: "delta",
+      header: "7일 · 30일 변화",
+      align: "right",
+      cell: ({ subs7, subs30 }) =>
+        subs7 === null && subs30 === null ? (
+          <Unknown title="기록이 7일 넘게 쌓이지 않아 아직 모릅니다 (0 이 아닙니다)" />
         ) : (
-          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
+          <span className="inline-flex flex-col items-end leading-snug">
+            <span>
+              <span className="mr-1 text-[13px] text-nd-fg-3">7일</span>
+              <Delta v={subs7} />
+            </span>
+            <span className="text-[13px]">
+              <span className="mr-1 text-nd-fg-3">30일</span>
+              <Delta v={subs30} />
+            </span>
+          </span>
+        ),
+    },
+    {
+      key: "trend",
+      header: "최근 추이",
+      mobile: "hide",
+      className: "w-[140px]",
+      cell: ({ s }) => (s ? <Sparkline values={s.history.slice(-30).map((h) => h.subs)} width={120} height={28} /> : null),
+    },
+    {
+      key: "hits",
+      header: "터진 영상 7일",
+      align: "right",
+      cell: ({ w }) => (w.hits7 ? <b className="nd-num text-nd-accent-strong">{w.hits7}편</b> : <span className="nd-num">0편</span>),
+    },
+    {
+      key: "baseline",
+      header: "평소 조회",
+      align: "right",
+      cell: ({ w }) => <Num value={w.baseline === null ? null : Math.round(w.baseline)} />,
+    },
+    {
+      key: "keep",
+      header: <span className="sr-only">노트</span>,
+      mobileLabel: "노트",
+      align: "right",
+      className: "w-[140px]",
+      cell: ({ w, s, subs7 }) => (
+        <KeepButton
+          done={isKept("channel", w.id)}
+          onClick={() =>
+            void keep({
+              title: `채널 「${w.title}」`,
+              snapshot: `구독자 ${s?.history.at(-1)?.subs?.toLocaleString("ko-KR") ?? "—"} · 7일 ${subs7 === null ? "—" : signed(subs7)} · 터진 영상 7일 ${w.hits7}편 · ${d.today}`,
+              source: {
+                kind: "channel",
+                id: w.id,
+                url: `https://www.youtube.com/channel/${w.channelId}`,
+                label: `감시 채널 · ${w.title}`,
+              },
+            })
+          }
+        />
+      ),
+    },
+  ];
+  return (
+    <div className="space-y-8">
+      <StudioSection
+        title="내 채널"
+        icon={Video}
+        description="연결한 유튜브 · 인스타 계정의 구독자 흐름 (내 채널 · 연결에서) · 영상 성과는 성과 비교에서"
+        action={
+          <Button size="sm" variant="secondary" icon={RefreshCw} loading={busy === "snap"} onClick={snap} title="유튜브 · 인스타 공개 숫자를 지금 받습니다 (매일 아침 자동)">
+            지금 숫자 받기
+          </Button>
+        }
+      >
+        {!mine.length ? (
+          <EmptyState compact icon={Video} title="아직 내 채널 기록이 없습니다" description="「지금 숫자 받기」 를 누르거나 내일 아침을 기다려 주세요. 계정은 내 채널 · 연결에서 붙입니다." />
+        ) : (
+          <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
             {mine.map((c) => {
               const last = c.history.at(-1);
               const s7 = channelDelta(c.history, 7, "subs");
               const s30 = channelDelta(c.history, 30, "subs");
               return (
-                <Card key={c.id} padding="none" className="min-w-0 p-4">
-                  <div className="flex items-center gap-2.5">
+                <div key={c.id} className="nd-surface flex min-w-0 flex-col rounded-nd-lg px-5 py-4">
+                  <div className="flex items-center gap-3">
                     {c.thumbnail ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={c.thumbnail} alt="" className="h-10 w-10 rounded-full object-cover" referrerPolicy="no-referrer" />
+                      <img src={c.thumbnail} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" referrerPolicy="no-referrer" />
                     ) : (
-                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-nd-fg/[.06] text-nd-fg-3">{c.platform === "youtube" ? <Video size={18} /> : <Camera size={18} />}</span>
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-nd-fg/[.06] text-nd-fg-3">{c.platform === "youtube" ? <Video size={18} /> : <Camera size={18} />}</span>
                     )}
                     <div className="min-w-0">
-                      <p className="truncate text-[15px] font-semibold text-nd-fg" title={c.name}>{c.name}</p>
-                      <p className="text-[13px] text-nd-fg-3">{c.platform === "youtube" ? "유튜브" : "인스타그램"} · 기록 {channelTrackedDays(c.history)}일째</p>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex items-end justify-between gap-2">
-                    <div>
-                      <p className="text-[13px] text-nd-fg-3">{c.platform === "youtube" ? "구독자" : "팔로워"}</p>
-                      <p className="nd-num text-[26px] font-bold leading-tight text-nd-fg">{n(last?.subs)}</p>
-                      <p className="nd-num text-[13px]">
-                        <span className={deltaClass(s7)}>7일 {signed(s7)}</span> · <span className={deltaClass(s30)}>30일 {signed(s30)}</span>
+                      <p className="truncate text-[16px] font-semibold text-nd-fg" title={c.name}>
+                        {c.name}
+                      </p>
+                      <p className="text-[13px] text-nd-fg-3">
+                        {c.platform === "youtube" ? "유튜브" : "인스타그램"} · 기록 {channelTrackedDays(c.history)}일째
                       </p>
                     </div>
-                    <Sparkline values={c.history.slice(-30).map((h) => h.subs)} width={110} height={40} />
                   </div>
-                  <p className="nd-num mt-2 text-[13px] text-nd-fg-3">
-                    {c.platform === "youtube" ? `총 조회 ${n(last?.views)} · 영상 ${n(last?.posts)}편` : `게시물 ${n(last?.posts)}개`}
+                  <div className="mt-4 flex items-end justify-between gap-3">
+                    <div>
+                      <p className="text-[13px] text-nd-fg-3">{c.platform === "youtube" ? "구독자" : "팔로워"}</p>
+                      <p className="nd-num text-[30px] font-bold leading-tight tracking-[-0.02em] text-nd-fg">
+                        <Num value={last?.subs} />
+                        {last?.subs !== null && last?.subs !== undefined && <span className="ml-0.5 text-[14px] font-medium tracking-normal text-nd-fg-2">명</span>}
+                      </p>
+                    </div>
+                    <Sparkline values={c.history.slice(-30).map((h) => h.subs)} width={130} height={44} color={c.platform === "youtube" ? TREND_COLORS[0] : TREND_COLORS[2]} />
+                  </div>
+                  <div className="mt-3 flex items-center justify-between border-t border-nd-line pt-2.5 text-[14px]">
+                    <span>
+                      <span className="mr-1 text-nd-fg-3">7일</span>
+                      <Delta v={s7} unit="명" />
+                    </span>
+                    <span>
+                      <span className="mr-1 text-nd-fg-3">30일</span>
+                      <Delta v={s30} unit="명" />
+                    </span>
+                  </div>
+                  <p className="nd-num mt-1.5 text-[13px] text-nd-fg-3">
+                    {c.platform === "youtube" ? (
+                      <>
+                        총 조회 <Num value={last?.views} /> · 영상 <Num value={last?.posts} unit="편" />
+                      </>
+                    ) : (
+                      <>
+                        게시물 <Num value={last?.posts} unit="개" />
+                      </>
+                    )}
                   </p>
-                </Card>
+                </div>
               );
             })}
           </div>
         )}
-      </section>
+      </StudioSection>
 
-      <section>
-        <SectionHeader size="lg" title="감시 채널" hint="바이럴 형식에 등록한 채널 · 7일 구독자 증가 큰 순 · 남의 채널 공개 통계" />
-        {!rows.length ? (
-          <p className="text-nd-body text-nd-fg-3">켜 둔 감시 채널이 없습니다 — 바이럴 형식 › 감시 채널에서 넣으세요.</p>
-        ) : (
-          <Card padding="none">
-            <TableScroll>
-              <Table size="md" minWidth={980}>
-                <thead>
-                  <tr>
-                    <Th>채널</Th>
-                    <Th>나라</Th>
-                    <Th align="right">구독자</Th>
-                    <Th align="right">7일</Th>
-                    <Th align="right">30일</Th>
-                    <Th>추이</Th>
-                    <Th align="right" title="최근 7일에 바이럴 형식이 찾은 터진 영상 수">터진 영상 7일</Th>
-                    <Th align="right" title="최근 쇼츠 조회수 중앙값">평소 조회</Th>
-                    <Th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map(({ w, s, subs7, subs30 }) => {
-                    const last = s?.history.at(-1);
-                    return (
-                      <Tr key={w.id}>
-                        <Td className="max-w-0 w-[26%]">
-                          <a href={`https://www.youtube.com/channel/${w.channelId}`} target="_blank" rel="noreferrer" className="block truncate font-medium hover:underline" title={w.title}>
-                            {w.title}
-                          </a>
-                          {w.topics.length > 0 && <span className="block truncate text-[13px] text-nd-fg-3">{w.topics.join(" · ")}</span>}
-                        </Td>
-                        <Td>{countryLabel(w.country)}</Td>
-                        <Td num>{s ? n(last?.subs) : <span className="text-nd-fg-3">기록 전</span>}</Td>
-                        <Td num>
-                          <span className={deltaClass(subs7)}>{signed(subs7)}</span>
-                        </Td>
-                        <Td num>
-                          <span className={deltaClass(subs30)}>{signed(subs30)}</span>
-                        </Td>
-                        <Td>{s ? <Sparkline values={s.history.slice(-30).map((h) => h.subs)} width={90} height={26} /> : null}</Td>
-                        <Td num>{w.hits7 ? <b className="text-nd-accent-strong">{w.hits7}편</b> : "0"}</Td>
-                        <Td num>{n(w.baseline === null ? null : Math.round(w.baseline))}</Td>
-                        <Td className="text-right">
-                          <KeepButton
-                            done={isKept("channel", w.id)}
-                            onClick={() =>
-                              void keep({
-                                title: `채널 「${w.title}」`,
-                                snapshot: `구독자 ${n(last?.subs)} · 7일 ${signed(subs7)} · 터진 영상 7일 ${w.hits7}편 · ${d.today}`,
-                                source: { kind: "channel", id: w.id, url: `https://www.youtube.com/channel/${w.channelId}`, label: `감시 채널 · ${w.title}` },
-                              })
-                            }
-                          />
-                        </Td>
-                      </Tr>
-                    );
-                  })}
-                </tbody>
-              </Table>
-            </TableScroll>
-          </Card>
-        )}
-      </section>
+      <StudioCard
+        flush
+        title="감시 채널"
+        description="바이럴 형식에 등록한 채널 · 7일 구독자 증가 큰 순 · 남의 채널 공개 통계"
+        action={
+          <Link href="/neander/shorts/scout" className={buttonClass("ghost", "sm", "gap-1.5")}>
+            <ArrowUpRight size={15} aria-hidden /> 감시 채널 관리
+          </Link>
+        }
+        bodyClassName="max-md:px-3 max-md:pb-3"
+      >
+        <RecordTable
+          rows={rows}
+          columns={columns}
+          rowKey={(r) => r.w.id}
+          ariaLabel="감시 채널"
+          empty={
+            <div className="px-5 pb-5 sm:px-6">
+              <EmptyState compact icon={Users} title="켜 둔 감시 채널이 없습니다" description="바이럴 형식 › 감시 채널에서 넣으세요." />
+            </div>
+          }
+        />
+      </StudioCard>
+
+      <StudioNotice tone="info" title="숫자의 출처">
+        {days ? `기록 ${days}일째` : "아직 기록 전"}
+        {lastAt ? ` · 마지막 수집 ${fmtWhen(lastAt)}` : ""} · 매일 아침 07:30 한 번 · 유튜브 · 인스타 공개 통계. 구독자 숨김이나 수집 실패는 「미확인」 으로 보입니다 (0 이 아닙니다). 7일 · 30일 변화는 기록이 그만큼 쌓여야 나옵니다.
+      </StudioNotice>
     </div>
   );
 }
 
 // ---- 트렌드 노트 ----------------------------------------------------------------------
 
-
-function NotesTab({ d, setD }: { d: MarketData; setD: (f: (x: MarketData | null) => MarketData | null) => void }) {
+function NotesTab({ d, setD, editing, setEditing }: { d: MarketData; setD: SetD; editing: WithId<TrendNoteDoc> | "new" | null; setEditing: (x: WithId<TrendNoteDoc> | "new" | null) => void }) {
   const toast = useToast();
   const ask = useConfirm();
   const router = useRouter();
   const [q, setQ] = useState("");
   const [tag, setTag] = useState("");
-  const [editing, setEditing] = useState<WithId<TrendNoteDoc> | "new" | null>(null);
   const tags = [...new Set(d.notes.flatMap((x) => x.tags))].sort();
-  const shown = d.notes.filter((x) => (!tag || x.tags.includes(tag)) && (!q.trim() || [x.title, x.memo, x.snapshot, x.source.label].some((s) => s.toLowerCase().includes(q.trim().toLowerCase()))));
+  const shown = d.notes
+    .filter((x) => (!tag || x.tags.includes(tag)) && (!q.trim() || [x.title, x.memo, x.snapshot, x.source.label].some((s) => s.toLowerCase().includes(q.trim().toLowerCase()))))
+    .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt);
   const save = async (id: string | null, patch: Record<string, unknown>) => {
     try {
-      const r = await shortsPost<{ note: WithId<TrendNoteDoc> }>("market", { action: "note.save", id, note: patch });
-      setD((x) => (x ? { ...x, notes: id ? x.notes.map((y) => (y.id === id ? r.note : y)) : [r.note, ...x.notes] } : x));
+      const r = await shortsPost<{ note: WithId<TrendNoteDoc> }>("market", {
+        action: "note.save",
+        id,
+        note: patch,
+      });
+      setD((x) =>
+        x
+          ? {
+              ...x,
+              notes: id ? x.notes.map((y) => (y.id === id ? r.note : y)) : [r.note, ...x.notes],
+            }
+          : x,
+      );
       return r.note;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "노트를 저장하지 못했습니다.");
@@ -836,7 +1458,15 @@ function NotesTab({ d, setD }: { d: MarketData; setD: (f: (x: MarketData | null)
     }
   };
   const del = async (x: WithId<TrendNoteDoc>) => {
-    if (!(await ask({ title: "이 노트를 지울까요?", message: x.title, confirmLabel: "지우기", tone: "danger" }))) return;
+    if (
+      !(await ask({
+        title: "이 노트를 지울까요?",
+        message: x.title,
+        confirmLabel: "지우기",
+        tone: "danger",
+      }))
+    )
+      return;
     try {
       await shortsPost("market", { action: "note.delete", id: x.id });
       setD((y) => (y ? { ...y, notes: y.notes.filter((z) => z.id !== x.id) } : y));
@@ -846,49 +1476,86 @@ function NotesTab({ d, setD }: { d: MarketData; setD: (f: (x: MarketData | null)
     }
   };
   const toScript = (x: WithId<TrendNoteDoc>) => {
-    const q = new URLSearchParams({ new: "1", product: x.product || x.title, info: [x.snapshot, x.memo].filter(Boolean).join("\n").slice(0, 1500) });
+    const q = new URLSearchParams({
+      new: "1",
+      product: x.product || x.title,
+      info: [x.snapshot, x.memo].filter(Boolean).join("\n").slice(0, 1500),
+    });
     void save(x.id, { status: "script" });
     router.push(`/neander/shorts/scripts?${q}`);
   };
+  // 지금 열린 노트는 저장 뒤 새 값으로 (상태 · 고정을 바꿔도 창이 옛 값을 붙들지 않게)
+  const current = editing && editing !== "new" ? (d.notes.find((x) => x.id === editing.id) ?? editing) : editing;
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[220px] flex-1">
-          <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-nd-fg-3" aria-hidden />
-          <Input className="pl-9" value={q} onChange={(e) => setQ(e.target.value)} placeholder="제목 · 메모 · 숫자 검색" aria-label="노트 검색" />
-        </div>
-        {tags.length > 0 && (
-          <Select className="w-auto" value={tag} onChange={(e) => setTag(e.target.value)} aria-label="태그">
-            <option value="">모든 태그</option>
-            {tags.map((t) => (
-              <option key={t} value={t}>
-                #{t}
-              </option>
-            ))}
-          </Select>
-        )}
-        <Button icon={Plus} onClick={() => setEditing("new")}>
-          새 노트
-        </Button>
-      </div>
+      <StudioNotice tone="info" title="내 트렌드 노트" action={<VisibilityChip visibility="private" />}>
+        기본은 나만 보기입니다. 이 프로젝트의 노트만 모이고, 준비되면 「대본으로」 를 눌러 대본 작성기로 넘깁니다. 카드의 「옮기기」 로 칸을 바꿉니다.
+      </StudioNotice>
+      {d.notes.length > 0 && (
+        <FormRow className="grid-cols-1 sm:grid-cols-[minmax(0,1fr)_200px]">
+          <div className="relative min-w-0">
+            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-nd-fg-3" aria-hidden />
+            <Input className="pl-9" value={q} onChange={(e) => setQ(e.target.value)} placeholder="제목 · 메모 · 숫자 검색" aria-label="노트 검색" />
+          </div>
+          {tags.length > 0 ? (
+            <Select value={tag} onChange={(e) => setTag(e.target.value)} aria-label="태그">
+              <option value="">모든 태그</option>
+              {tags.map((t) => (
+                <option key={t} value={t}>
+                  #{t}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <span />
+          )}
+        </FormRow>
+      )}
       {!d.notes.length ? (
-        <EmptyState icon={Bookmark} title="아직 보관한 노트가 없습니다" description="브리핑 · 검색어 추이 · 레이더 상품 · 채널에서 「노트에 보관」 을 누르면 여기 모입니다. 나만 봅니다." />
+        <EmptyState
+          icon={Bookmark}
+          title="아직 보관한 노트가 없습니다"
+          description="브리핑 · 검색어 추이 · 레이더 상품 · 채널에서 「노트에 보관」 을 누르면 여기 모입니다. 나만 봅니다."
+          action={
+            <Button icon={Plus} onClick={() => setEditing("new")}>
+              새 노트
+            </Button>
+          }
+        />
       ) : (
-        <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(250px,1fr))]">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {NOTE_STATUSES.map((st) => {
             const col = shown.filter((x) => x.status === st);
             return (
-              <section key={st} aria-label={NOTE_STATUS_LABEL[st]} className="min-w-0 rounded-nd-lg bg-nd-fg/[.03] p-2.5">
-                <p className="mb-2 flex items-center justify-between px-1 text-[13px] font-semibold text-nd-fg-2">
-                  <span>{NOTE_STATUS_LABEL[st]}</span>
-                  <span className="nd-num text-nd-fg-3">{col.length}</span>
-                </p>
-                <div className="space-y-2">
+              <section key={st} aria-label={NOTE_STATUS_LABEL[st]} className="nd-surface flex min-w-0 flex-col rounded-nd-lg p-3 xl:min-h-[420px]">
+                <div className="mb-2.5 flex items-center justify-between gap-2 px-1.5 pt-1">
+                  <h3 className="flex items-center gap-2 text-[15px] font-bold text-nd-fg">
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "h-2 w-2 rounded-full",
+                        {
+                          inbox: "bg-nd-accent",
+                          watch: "bg-nd-warning",
+                          script: "bg-nd-info",
+                          done: "bg-nd-success",
+                        }[st],
+                      )}
+                    />
+                    {NOTE_STATUS_LABEL[st]} <span className="nd-num text-nd-fg-3">· {col.length}</span>
+                  </h3>
+                  {st === "inbox" && (
+                    <Button size="sm" variant="ghost" icon={Plus} onClick={() => setEditing("new")}>
+                      노트 추가
+                    </Button>
+                  )}
+                </div>
+                <div className="space-y-2.5">
                   {col.map((x) => (
-                    <NoteCard key={x.id} x={x} onOpen={() => setEditing(x)} onScript={() => toScript(x)} onPin={() => void save(x.id, { pinned: !x.pinned })} />
+                    <NoteCard key={x.id} x={x} onOpen={() => setEditing(x)} onScript={() => toScript(x)} onPin={() => void save(x.id, { pinned: !x.pinned })} onMove={(s) => void save(x.id, { status: s })} onDelete={() => void del(x)} />
                   ))}
-                  {!col.length && <p className="px-1 py-3 text-center text-[13px] text-nd-fg-3">없음</p>}
+                  {!col.length && <p className="rounded-nd-md border border-dashed border-nd-line px-3 py-6 text-center text-[13px] text-nd-fg-3">{q || tag ? "찾는 노트가 이 칸에 없습니다" : "이 칸에 노트가 없습니다"}</p>}
                 </div>
               </section>
             );
@@ -896,11 +1563,12 @@ function NotesTab({ d, setD }: { d: MarketData; setD: (f: (x: MarketData | null)
         </div>
       )}
       <NoteDialog
-        note={editing}
+        note={current}
         onClose={() => setEditing(null)}
         onSave={async (id, patch) => {
           const r = await save(id, patch);
           if (r && !id) setEditing(r);
+          return !!r;
         }}
         onDelete={(x) => void del(x)}
         onScript={(x) => toScript(x)}
@@ -909,43 +1577,75 @@ function NotesTab({ d, setD }: { d: MarketData; setD: (f: (x: MarketData | null)
   );
 }
 
-function NoteCard({ x, onOpen, onScript, onPin }: { x: WithId<TrendNoteDoc>; onOpen: () => void; onScript: () => void; onPin: () => void }) {
+function NoteCard({ x, onOpen, onScript, onPin, onMove, onDelete }: { x: WithId<TrendNoteDoc>; onOpen: () => void; onScript: () => void; onPin: () => void; onMove: (s: NoteStatus) => void; onDelete: () => void }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const [menu, setMenu] = useState(false);
+  const items: MenuItem[] = [
+    { type: "label", key: "l", label: "칸 옮기기" },
+    ...NOTE_STATUSES.map((s): MenuItem => ({
+      key: s,
+      label: NOTE_STATUS_LABEL[s],
+      icon: ArrowRightLeft,
+      checked: x.status === s,
+      disabled: x.status === s,
+      onSelect: () => onMove(s),
+    })),
+    { type: "separator", key: "s1" },
+    {
+      key: "pin",
+      label: x.pinned ? "고정 풀기" : "위에 고정",
+      icon: Pin,
+      onSelect: onPin,
+    },
+    { key: "open", label: "노트 열기", icon: PenLine, onSelect: onOpen },
+    {
+      key: "del",
+      label: "지우기",
+      icon: Trash2,
+      danger: true,
+      onSelect: onDelete,
+    },
+  ];
   return (
-    <Card padding="none" className="min-w-0 p-3">
+    <article className="min-w-0 rounded-nd-md border border-nd-line bg-nd-content p-3.5 shadow-nd-card">
       <div className="flex items-start gap-2">
-        <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
-          <p className="line-clamp-2 text-nd-body font-semibold text-nd-fg [overflow-wrap:anywhere]">{x.title}</p>
-        </button>
-        <button type="button" onClick={onPin} aria-pressed={x.pinned} aria-label={x.pinned ? "고정 풀기" : "위에 고정"} className={cn("shrink-0 rounded p-0.5", x.pinned ? "text-nd-accent" : "text-nd-fg-4 hover:text-nd-fg-2")}>
-          <Pin size={14} fill={x.pinned ? "currentColor" : "none"} />
-        </button>
-      </div>
-      <p className="mt-1 flex flex-wrap items-center gap-1 text-[13px] text-nd-fg-3">
-        <Badge tone="neutral" size="sm">
+        <Badge tone="neutral" size="lg" className="shrink-0">
           {NOTE_SOURCE_LABEL[x.source.kind]}
         </Badge>
-        {x.source.url ? (
-          <a href={x.source.url} target="_blank" rel="noreferrer" className="min-w-0 truncate hover:underline" title={x.source.label}>
-            {x.source.label}
-          </a>
-        ) : (
-          <span className="min-w-0 truncate" title={x.source.label}>{x.source.label}</span>
-        )}
-      </p>
-      {x.snapshot && <p className="nd-num mt-1 text-[13px] font-medium text-nd-accent-strong [overflow-wrap:anywhere]">{x.snapshot}</p>}
-      {x.memo && <p className="mt-1 line-clamp-3 whitespace-pre-line text-[13px] text-nd-fg-2 [overflow-wrap:anywhere]">{x.memo}</p>}
-      {x.tags.length > 0 && <p className="mt-1 text-[13px] text-nd-accent-strong">{x.tags.map((t) => `#${t}`).join(" ")}</p>}
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <span className="text-[12px] text-nd-fg-3">{fmtWhen(x.updatedAt)}</span>
+        <span className="flex-1" />
+        <button
+          type="button"
+          onClick={onPin}
+          aria-pressed={x.pinned}
+          aria-label={x.pinned ? "고정 풀기" : "위에 고정"}
+          title={x.pinned ? "고정 풀기" : "위에 고정"}
+          className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-[7px] md:h-7 md:w-7", x.pinned ? "text-nd-accent" : "text-nd-fg-4 hover:bg-nd-sunken hover:text-nd-fg-2")}
+        >
+          <Pin size={15} fill={x.pinned ? "currentColor" : "none"} />
+        </button>
+        <IconButton ref={ref} icon={MoreHorizontal} label={`「${x.title}」 옮기기 · 더 보기`} size="sm" className="max-md:h-9 max-md:w-9" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((v) => !v)} />
+        <Menu open={menu} onClose={() => setMenu(false)} anchorRef={ref} placement="bottom-end" items={items} />
+      </div>
+      <button type="button" onClick={onOpen} className="mt-2 block w-full min-w-0 text-left">
+        <span className="line-clamp-2 text-[15px] font-bold leading-snug text-nd-fg [overflow-wrap:anywhere] hover:underline">{x.title}</span>
+        {x.memo && <span className="mt-1 line-clamp-3 whitespace-pre-line text-[13px] leading-relaxed text-nd-fg-2 [overflow-wrap:anywhere]">{x.memo}</span>}
+      </button>
+      {x.snapshot && <p className="nd-num mt-1.5 text-[13px] font-medium text-nd-accent-strong [overflow-wrap:anywhere]">{x.snapshot}</p>}
+      {x.tags.length > 0 && <p className="mt-1 text-[13px] text-nd-fg-2">{x.tags.map((t) => `#${t}`).join(" ")}</p>}
+      <div className="mt-3 flex items-center justify-between gap-2 border-t border-nd-line pt-2.5">
+        <span className="min-w-0 truncate text-[13px] text-nd-fg-3" title={x.source.label}>
+          {fmtWhen(x.updatedAt)}
+          {x.source.label ? ` · ${x.source.label}` : ""}
+        </span>
         <Button size="sm" variant="ghost" icon={PenLine} onClick={onScript} title="이 노트로 대본 작성기를 엽니다 (제품 이름 · 숫자 · 메모를 채워서)">
           대본으로
         </Button>
       </div>
-    </Card>
+    </article>
   );
 }
 
-/** 노트 고치기 — 칸을 벗어나면 저장 (새 노트는 제목을 적고 벗어나면 만든다) */
+/** 노트 고치기 — 칸을 벗어나면 저장 (새 노트는 제목을 적고 벗어나면 만든다) · 저장 상태를 조용히 */
 function NoteDialog({
   note,
   onClose,
@@ -955,37 +1655,83 @@ function NoteDialog({
 }: {
   note: WithId<TrendNoteDoc> | "new" | null;
   onClose: () => void;
-  onSave: (id: string | null, patch: Record<string, unknown>) => Promise<void>;
+  onSave: (id: string | null, patch: Record<string, unknown>) => Promise<boolean>;
   onDelete: (x: WithId<TrendNoteDoc>) => void;
   onScript: (x: WithId<TrendNoteDoc>) => void;
 }) {
   const x = note && note !== "new" ? note : null;
   const [f, setF] = useState({ title: "", memo: "", tags: "", product: "" });
+  const [state, setState] = useState<{
+    s: StudioSaveState;
+    at: number | null;
+    retry: (() => void) | null;
+  }>({ s: "saved", at: null, retry: null });
   useEffect(() => {
-    setF({ title: x?.title ?? "", memo: x?.memo ?? "", tags: (x?.tags ?? []).join(" "), product: x?.product ?? "" });
+    setF({
+      title: x?.title ?? "",
+      memo: x?.memo ?? "",
+      tags: (x?.tags ?? []).join(" "),
+      product: x?.product ?? "",
+    });
+    setState({ s: "saved", at: x?.updatedAt ?? null, retry: null });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [x?.id]);
+  const push = (id: string | null, patch: Record<string, unknown>) => {
+    const go = () => {
+      setState((p) => ({ ...p, s: "saving" }));
+      void onSave(id, patch).then((ok) => setState(ok ? { s: "saved", at: Date.now(), retry: null } : { s: "error", at: null, retry: go }));
+    };
+    go();
+  };
   const commit = (k: "title" | "memo" | "tags" | "product") => {
     const v = f[k];
     if (!x) {
-      if (k === "title" && v.trim()) void onSave(null, { title: v, memo: f.memo, tags: f.tags, product: f.product, source: { kind: "manual", id: null, url: null, label: "직접 적음" } });
+      if (k === "title" && v.trim())
+        push(null, {
+          title: v,
+          memo: f.memo,
+          tags: f.tags,
+          product: f.product,
+          source: { kind: "manual", id: null, url: null, label: "직접 적음" },
+        });
       return;
     }
     const prev = k === "tags" ? x.tags.join(" ") : x[k];
-    if (v !== prev) void onSave(x.id, { [k]: v });
+    if (v !== prev) push(x.id, { [k]: v });
   };
   return (
-    <Dialog open={!!note} onClose={onClose} size="md" title={x ? "노트" : "새 노트"} description={x ? `${NOTE_SOURCE_LABEL[x.source.kind]} · ${x.source.label}` : "제목을 적고 칸을 벗어나면 만들어집니다"}>
-      <div className="space-y-3">
+    <Dialog
+      open={!!note}
+      onClose={onClose}
+      size="md"
+      title={x ? "트렌드 노트" : "새 노트"}
+      description={x ? `${NOTE_SOURCE_LABEL[x.source.kind]} · ${x.source.label || "직접 적음"}` : "제목을 적고 칸을 벗어나면 만들어집니다"}
+      footer={
+        <>
+          {x && (
+            <Button variant="ghost" icon={Trash2} onClick={() => onDelete(x)} className="mr-auto">
+              지우기
+            </Button>
+          )}
+          <Button variant="secondary" onClick={onClose}>
+            닫기
+          </Button>
+          {x && (
+            <Button icon={PenLine} onClick={() => onScript(x)}>
+              대본 작성기로
+            </Button>
+          )}
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-nd-md bg-nd-sunken px-3 py-2">
+          <VisibilityChip visibility="private" />
+          {(x || state.s !== "saved") && <SaveIndicator state={state.s} savedAt={state.at} onRetry={state.retry ?? undefined} />}
+        </div>
         <Field label="제목">
-          <Input value={f.title} maxLength={120} onChange={(e) => setF({ ...f, title: e.target.value })} onBlur={() => commit("title")} />
+          <Input value={f.title} maxLength={120} autoFocus={!x} onChange={(e) => setF({ ...f, title: e.target.value })} onBlur={() => commit("title")} />
         </Field>
-        {x?.snapshot && (
-          <p className="nd-num rounded-nd-md bg-nd-sunken px-3 py-2 text-[13px] text-nd-fg-2">
-            <CalendarDays size={13} className="mr-1 inline" aria-hidden />
-            보관할 때 숫자 · {x.snapshot}
-          </p>
-        )}
         <Field label="메모">
           <Textarea rows={5} value={f.memo} maxLength={3000} onChange={(e) => setF({ ...f, memo: e.target.value })} onBlur={() => commit("memo")} />
         </Field>
@@ -993,31 +1739,40 @@ function NoteDialog({
           <Field label="태그 (띄어쓰기로)">
             <Input value={f.tags} onChange={(e) => setF({ ...f, tags: e.target.value })} onBlur={() => commit("tags")} placeholder="예: 주방 다이소 겨울" />
           </Field>
-          <Field label="대본 작성기에 넘길 제품 이름">
-            <Input value={f.product} maxLength={120} onChange={(e) => setF({ ...f, product: e.target.value })} onBlur={() => commit("product")} />
-          </Field>
-        </FormRow>
-        {x && (
-          <div className="flex flex-wrap items-center gap-2 border-t border-nd-line pt-3">
-            <Select className="w-auto" value={x.status} onChange={(e) => void onSave(x.id, { status: e.target.value })} aria-label="상태">
+          <Field label="상태" hint={x ? undefined : "새 노트는 「검토 전」 에 들어갑니다"}>
+            <Select value={x?.status ?? "inbox"} disabled={!x} onChange={(e) => x && push(x.id, { status: e.target.value })}>
               {NOTE_STATUSES.map((s) => (
                 <option key={s} value={s}>
                   {NOTE_STATUS_LABEL[s]}
                 </option>
               ))}
             </Select>
-            <span className="ml-auto flex gap-2">
-              <Button size="sm" variant="secondary" icon={PenLine} onClick={() => onScript(x)}>
-                대본 작성기로
-              </Button>
-              <Button size="sm" variant="ghost" icon={Trash2} onClick={() => onDelete(x)}>
-                지우기
-              </Button>
-            </span>
+          </Field>
+        </FormRow>
+        <Field label="대본 작성기에 넘길 제품 이름" hint="비우면 노트 제목을 넘깁니다">
+          <Input value={f.product} maxLength={120} onChange={(e) => setF({ ...f, product: e.target.value })} onBlur={() => commit("product")} />
+        </Field>
+        {x && (
+          <div className="rounded-nd-md border border-nd-line bg-nd-sunken/60 px-4 py-3">
+            <p className="text-[14px] font-semibold text-nd-fg">원문 근거</p>
+            <p className="mt-0.5 text-[14px] text-nd-fg-2 [overflow-wrap:anywhere]">
+              {NOTE_SOURCE_LABEL[x.source.kind]} · {x.source.label || "직접 적음"} · 보관 {fmtWhen(x.createdAt)}
+            </p>
+            {x.snapshot && (
+              <p className="nd-num mt-1.5 flex items-start gap-1.5 text-[13px] text-nd-fg-2 [overflow-wrap:anywhere]">
+                <CalendarDays size={14} className="mt-[2px] shrink-0" aria-hidden />
+                보관할 때 숫자 · {x.snapshot}
+              </p>
+            )}
+            {x.source.url && (
+              <a href={x.source.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1.5 text-[14px] font-medium text-nd-accent-strong hover:underline">
+                <ExternalLink size={14} aria-hidden /> 근거 열기
+              </a>
+            )}
           </div>
         )}
+        <p className="text-[13px] text-nd-fg-3">칸을 벗어나면 저절로 저장됩니다.</p>
       </div>
     </Dialog>
   );
 }
-

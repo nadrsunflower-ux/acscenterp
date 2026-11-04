@@ -2,20 +2,25 @@
 
 // ============================================================
 //  바이럴 형식 — 나라별 감시 채널에서 평소보다 크게 터진 쇼츠를 모아 형식 카드로 묶고,
-//  해외에서 떠오르는데 국내 표본엔 아직 없는 형식을 주간 보고로 뽑는다.
+//  해외에서 떠오르는데 국내 표본엔 아직 없는 형식을 주간 보고로 뽑는다. (2026-11-04 목업 09)
 // ------------------------------------------------------------
 //  · 바이럴 판정 = 그 채널 평소(최근 쇼츠 조회수 중앙값)의 몇 배인가 — 조회수 크기가 아니다.
 //  · AI 는 YouTube 영상을 직접 보고 형식을 뽑는다 (한 편 약 10원). 결과는 관찰 · 가설이다.
-//  · 정찰 자료는 회사 공용이다. 화면 위 「보기」(내 것 · 전체)와 상관없이 모두 보인다.
+//  · 정찰 자료는 프로젝트마다 따로(요청이 지금 프로젝트로 간다) · 그 안에서는 회사 공용이다 —
+//    화면 위 「보기」(내 것 · 전체)와 상관없이 모두 보인다.
+//  · 배치: 제목 → 자동 수집 띠(마지막 실행 · 최근 실행 금액 · 오늘 누적 · 설정 · 지금 돌리기)
+//    → (설정 구간) → 탭 4개(주간 보고 · 터진 영상 · 형식 카드 · 감시 채널).
 //  · 실행 네 가지(전체 자동화 · 채널만 훑기 · 보고 새로 만들기 · AI 요약 다시)는 여기서 한 번에 돌린다 —
-//    도는 동안 서로 막고, 상태 바와 주간 보고가 같은 동작을 쓴다.
+//    도는 동안 서로 막고, 띠 · 주간 보고 · 설정이 같은 동작을 쓴다.
 // ============================================================
 
 import { useState } from "react";
-import { Info } from "lucide-react";
-import { Badge, Button, CountBadge, ErrorState, InlineNotice, LoadingState, PageHeader, PageShell, Tabs, useToast } from "@/components/neander/ui";
+import Link from "next/link";
+import { FolderOpen } from "lucide-react";
+import { Badge, Button, ErrorState, LoadingState, PageShell, Tabs, buttonClass, useToast } from "@/components/neander/ui";
 import { useAction } from "@/components/neander/shorts/parts";
-import { AutoPanel, useScoutAuto, type ScoutRunActions } from "@/components/neander/shorts/scout/AutoPanel";
+import { StudioHeader, StudioNotice } from "@/components/neander/shorts/studio";
+import { AutoPanel, AutoSettingsSection, useScoutAuto, type ScoutPanel, type ScoutRunActions } from "@/components/neander/shorts/scout/AutoPanel";
 import { ChannelsTab } from "@/components/neander/shorts/scout/ChannelsTab";
 import { FormatsTab } from "@/components/neander/shorts/scout/FormatsTab";
 import { HitsTab } from "@/components/neander/shorts/scout/HitsTab";
@@ -27,14 +32,25 @@ import type { ScoutAutoSummary } from "@/lib/neander/shorts/scout-auto";
 
 type Tab = "report" | "hits" | "formats" | "channels";
 
-const DESCRIPTION = "반응이 큰 원본 영상에서 재사용할 구성을 찾으세요.";
+/** 탭마다 한 줄 설명 — 지금 이 화면에서 할 일 */
+const DESCRIPTION: Record<Tab | "settings", string> = {
+  report: "해외 · 국내에서 반응이 큰 형식을 찾고 우리 영상의 구조로 옮기세요.",
+  hits: "평소보다 크게 반응한 원본을 분석하고 형식에 묶으세요.",
+  formats: "반복되는 편집 · 소리 · 화면 글자의 구조를 대본에 적용하세요.",
+  channels: "나라와 주제별로 참고할 채널을 모으고 자동으로 지켜보세요.",
+  settings: "자동 수집 범위와 AI 비용 상한을 관리하세요.",
+};
 
 const SharedBadge = () => (
-  <span className="inline-flex" title="정찰 자료는 회사 공용입니다 — 화면 위 「보기」(내 것 · 전체)와 상관없이 모두 보입니다">
+  <span className="inline-flex" title="정찰 자료는 이 프로젝트 안에서 회사 공용입니다 — 화면 위 「보기」(내 것 · 전체)와 상관없이 모두 보입니다">
     <Badge tone="accent" size="lg">
       회사 공용
     </Badge>
   </span>
+);
+
+const Header = ({ description }: { description: string }) => (
+  <StudioHeader kicker="AI STUDIO 워크스페이스 · 기획" kickerIcon={FolderOpen} title="바이럴 형식" titleSuffix={<SharedBadge />} description={description} />
 );
 
 export default function ScoutPage() {
@@ -43,6 +59,7 @@ export default function ScoutPage() {
   const toast = useToast();
   const { busy, run } = useAction();
   const [tab, setTab] = useState<Tab>("report");
+  const [panel, setPanel] = useState<ScoutPanel>(null);
   const [formatId, setFormatId] = useState<string | null>(null);
   // 고른 보고 주 — null 이면 가장 최근
   const [week, setWeek] = useState<string | null>(null);
@@ -50,9 +67,17 @@ export default function ScoutPage() {
   if (!d) {
     return (
       <PageShell>
-        <PageHeader title="바이럴 형식" titleSuffix={<SharedBadge />} description={DESCRIPTION} />
+        <Header description={DESCRIPTION.report} />
         {error ? (
-          <ErrorState title="정찰 자료를 불러오지 못했습니다" description={error} action={<Button size="sm" variant="secondary" onClick={() => void refresh()}>다시 시도</Button>} />
+          <ErrorState
+            title="정찰 자료를 불러오지 못했습니다"
+            description={error}
+            action={
+              <Button size="sm" variant="secondary" onClick={() => void refresh()}>
+                다시 시도
+              </Button>
+            }
+          />
         ) : (
           <LoadingState label="정찰 자료를 불러오는 중" />
         )}
@@ -115,49 +140,41 @@ export default function ScoutPage() {
     hasNarrative: !!report?.narrative,
   };
 
+  const keyLink = (
+    <Link href="/neander/shorts/accounts" className={buttonClass("secondary", "sm")}>
+      내 채널 · 연결로
+    </Link>
+  );
+
   return (
     <PageShell>
-      <PageHeader title="바이럴 형식" titleSuffix={<SharedBadge />} description={DESCRIPTION} />
+      <Header description={panel === "settings" ? DESCRIPTION.settings : DESCRIPTION[tab]} />
 
       {!keyReady ? (
-        <InlineNotice tone="warning" className="mb-4">
-          YouTube 검색 키가 없어 채널을 넣거나 훑을 수 없습니다 — 「내 채널 · 연결」 에서 개인 키를 넣거나 회사 키(NEANDER_SHORTS_YOUTUBE_API_KEY)를 설정하세요. 키 없이도 틱톡 · 더우인 영상 등록과 형식 카드는 쓸 수 있습니다.
-        </InlineNotice>
+        <StudioNotice tone="warning" title="YouTube 검색 키가 없습니다" action={keyLink} className="mb-4">
+          채널을 넣거나 훑을 수 없습니다 — 「내 채널 · 연결」 에서 개인 키를 넣거나 회사 키(NEANDER_SHORTS_YOUTUBE_API_KEY)를 설정하세요. 키 없이도 틱톡 · 더우인 영상 등록과 형식 카드는 쓸 수 있습니다.
+        </StudioNotice>
       ) : !d.companyKey ? (
-        <InlineNotice tone="info" className="mb-4">
-          회사 YouTube 키(NEANDER_SHORTS_YOUTUBE_API_KEY)가 없어 매일 아침 자동 훑기 · 자동 분석은 돌지 않습니다. 지금은 「채널만 훑기」 를 누를 때만 내 키로 훑습니다.
-        </InlineNotice>
+        <StudioNotice tone="info" title="매일 아침 자동 훑기 · 자동 분석이 돌지 않습니다" className="mb-4">
+          회사 YouTube 키(NEANDER_SHORTS_YOUTUBE_API_KEY)가 없습니다. 지금은 「채널만 훑기」 를 누를 때만 내 키로 훑습니다.
+        </StudioNotice>
       ) : null}
 
-      <AutoPanel auto={auto} actions={actions} companyKey={d.companyKey} />
+      <AutoPanel auto={auto} actions={actions} d={d} panel={panel} onPanel={setPanel} />
+
+      {panel === "settings" && <AutoSettingsSection auto={auto} d={d} refresh={refresh} actions={actions} onClose={() => setPanel(null)} />}
 
       <Tabs
         className="mb-5"
         items={[
           { key: "report", label: "주간 보고" },
-          {
-            key: "hits",
-            label: (
-              <span className="inline-flex items-center gap-1.5">
-                터진 영상
-                {unassigned > 0 && (
-                  <>
-                    <CountBadge count={unassigned} max={999} tone={tab === "hits" ? "accent" : "neutral"} label={`형식에 묶기 전 ${unassigned}편`} />
-                    <span aria-hidden className="inline-flex items-center gap-0.5 text-[13px] font-medium text-nd-accent" title="형식 카드에 아직 묶지 않은 영상 수 — 전체 기간 · 지금 기준">
-                      묶기 전
-                      <Info size={13} className="text-nd-fg-3" />
-                    </span>
-                  </>
-                )}
-              </span>
-            ),
-          },
-          { key: "formats", label: "형식 카드", badge: d.formats.filter((f) => !f.archived).length || undefined },
-          { key: "channels", label: "감시 채널", badge: d.channels.filter((c) => c.active).length || undefined },
+          { key: "hits", label: "터진 영상", badge: unassigned || undefined, badgeLabel: `형식에 묶기 전 ${unassigned}편` },
+          { key: "formats", label: "형식 카드", badge: d.formats.filter((f) => !f.archived).length || undefined, badgeLabel: "보관하지 않은 형식 카드" },
+          { key: "channels", label: "감시 채널", badge: d.channels.filter((c) => c.active).length || undefined, badgeLabel: "켜 둔 감시 채널" },
         ]}
         value={tab}
         onChange={(k) => setTab(k as Tab)}
-        ariaLabel="정찰"
+        ariaLabel="바이럴 형식"
       />
 
       {tab === "report" && (
@@ -167,6 +184,7 @@ export default function ScoutPage() {
           report={report}
           setWeek={setWeek}
           actions={actions}
+          last={auto.data?.last ?? null}
           onOpenFormat={openFormat}
           onOpenFormats={() => {
             setFormatId(null);
@@ -175,9 +193,9 @@ export default function ScoutPage() {
           onOpenHits={() => setTab("hits")}
         />
       )}
-      {tab === "hits" && <HitsTab d={d} refresh={refresh} onOpenFormat={openFormat} />}
+      {tab === "hits" && <HitsTab d={d} refresh={refresh} onOpenFormat={openFormat} last={auto.data?.last ?? null} />}
       {tab === "formats" && <FormatsTab d={d} refresh={refresh} openId={formatId} setOpenId={setFormatId} onOpenHits={() => setTab("hits")} />}
-      {tab === "channels" && <ChannelsTab d={d} refresh={refresh} />}
+      {tab === "channels" && <ChannelsTab d={d} refresh={refresh} onOpenSettings={() => setPanel("settings")} />}
     </PageShell>
   );
 }

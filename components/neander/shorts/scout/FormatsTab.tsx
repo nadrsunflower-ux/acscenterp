@@ -1,9 +1,16 @@
 "use client";
 
-// 형식 카드 — 터진 영상을 「어떻게 만들었나」 로 묶은 것. 나라별 처음 본 날 · 국내 확인 · 시차.
-// 카드 내용은 고치는 대로 저장한다 (저장 버튼 없음).
+// ============================================================
+//  형식 카드 — 터진 영상을 「어떻게 만들었나」 로 묶은 것. (2026-11-04 목업 09-scout-formats)
+// ------------------------------------------------------------
+//  카드마다 같은 구조: 이름 · 국내 퍼짐(근거 함께) · AI 제작 난이도 · 요약 → 편집 · 소리 · 화면 글자 · 왜 먹히나
+//  → 나라 · 처음 본 날 · 배수 · 시차 → 예시 영상들(실제 썸네일 · 컷 표) → 국내 근거 · 자세히 · 이 형식으로 대본 쓰기(?ref=format:<id>).
+//  앞의 몇 장은 카드로, 나머지는 「나머지 형식」 표로. 카드를 누르면 고치는 창(고치는 대로 저장).
+//  국내 퍼짐: 국내 미확인 → 표본에 없음 → 조금 → 퍼짐 — 표본에 없다는 것만으로 국내 미확산을 단정하지 않는다.
+// ============================================================
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ExternalLink, Info, Layers, Plus, Search, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { ExternalLink, Info, Layers, PenLine, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import {
   Badge,
   Button,
@@ -17,29 +24,33 @@ import {
   Input,
   Select,
   Switch,
-  Table,
-  TableScroll,
-  Td,
   Textarea,
-  Th,
-  Tr,
+  buttonClass,
   useConfirm,
 } from "@/components/neander/ui";
 import { Num, Unknown, fmtWhen, useAction } from "@/components/neander/shorts/parts";
 import { useShorts } from "@/components/neander/shorts/ShortsProvider";
+import { RecordTable, StudioCard, StudioNotice, type RecordColumn } from "@/components/neander/shorts/studio";
+import { CutsButton } from "@/components/neander/shorts/cuts/CutSheet";
 import { PLATFORM_LABEL, fmtCount } from "@/lib/neander/shorts/model";
 import {
-  AI_LEVEL_LABEL,
   KOREA_LABEL,
   LANG_DEP_LABEL,
   RISK_LABEL,
   countryLabel,
   formatStats,
+  koreaEvidence,
   type FormatDoc,
+  type HitDoc,
   type ScoutRisk,
 } from "@/lib/neander/shorts/scout";
-import { AiBadge, CountryTag, KoreaBadge, LangBadge, LifeBadge, Multiple, VideoThumb, fmtAgo, fmtDate } from "./bits";
+import { AI_LEVEL_SHORT, AiBadge, CountryTag, KoreaBadge, LangBadge, LifeBadge, Multiple, SpecLine, VideoThumb, fmtAgo, fmtDate } from "./bits";
 import { scout, type ScoutData, type WithId } from "./useScout";
+
+/** 카드로 크게 보일 수 — 나머지는 표 */
+const CARD_MAX = 6;
+
+type Row = { f: WithId<FormatDoc>; s: ReturnType<typeof formatStats>; hits: WithId<HitDoc>[] };
 
 export function FormatsTab({
   d,
@@ -57,11 +68,14 @@ export function FormatsTab({
   const { busy, run } = useAction();
   const [showArchived, setShowArchived] = useState(false);
   const now = Date.now();
-  const rows = useMemo(
+  const rows: Row[] = useMemo(
     () =>
       d.formats
         .filter((f) => showArchived || !f.archived)
-        .map((f) => ({ f, s: formatStats(f, d.hits.filter((h) => h.formatId === f.id), now) }))
+        .map((f) => {
+          const hits = d.hits.filter((h) => h.formatId === f.id);
+          return { f, s: formatStats(f, hits, now), hits: hits.filter((h) => h.status !== "dismissed").sort((a, b) => (b.multiple ?? -1) - (a.multiple ?? -1)) };
+        })
         .sort((a, b) => (a.s.life.stage === "rising" ? 0 : 1) - (b.s.life.stage === "rising" ? 0 : 1) || (b.s.medianMultiple ?? 0) - (a.s.medianMultiple ?? 0)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [d.formats, d.hits, showArchived],
@@ -70,6 +84,8 @@ export function FormatsTab({
   const live = d.hits.filter((h) => h.status !== "dismissed");
   const linked = live.filter((h) => h.formatId).length;
   const unassigned = d.hits.filter((h) => h.status === "new").length;
+  const cards = rows.slice(0, CARD_MAX);
+  const rest = rows.slice(CARD_MAX);
 
   const create = () =>
     run("new", async () => {
@@ -78,15 +94,49 @@ export function FormatsTab({
       setOpenId(r.id);
     });
 
+  const restCols: RecordColumn<Row>[] = [
+    {
+      key: "name",
+      header: "형식",
+      mobile: "title",
+      className: "w-[34%] max-w-0",
+      cell: ({ f }) => (
+        <button type="button" className="block w-full min-w-0 text-left" onClick={() => setOpenId(f.id)}>
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate font-semibold hover:underline" title={f.name}>
+              {f.name}
+            </span>
+            {f.archived && <Badge tone="neutral" size="lg">보관</Badge>}
+          </span>
+          <span className="line-clamp-1 text-[13px] font-normal text-nd-fg-3" title={f.summary || undefined}>
+            {f.summary || "요약 미입력"}
+          </span>
+        </button>
+      ),
+    },
+    { key: "korea", header: "국내 상태", cell: ({ s }) => <KoreaBadge status={s.korea} size="lg" /> },
+    { key: "ai", header: "AI 제작 난이도", cell: ({ f }) => <AiBadge level={f.aiFeasibility.level} size="lg" /> },
+    { key: "ex", header: "예시", align: "right", cell: ({ s }) => <span className="nd-num">{s.examples}편</span> },
+    { key: "mult", header: "배수 중앙값", align: "right", cell: ({ s }) => <Multiple value={s.medianMultiple} /> },
+    { key: "basis", header: "근거", className: "max-w-[320px]", cell: ({ f, s }) => <span className="line-clamp-2 text-[13px] text-nd-fg-2">{koreaEvidence(s.korea, f.korea).text}</span> },
+  ];
+
   return (
-    <div>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <p className="min-w-0 flex-1 text-nd-body text-nd-fg-2">소재가 아니라 「어떻게 만들었나」 로 묶습니다. 같은 카드에 여러 나라 영상이 쌓이면 나라별 처음 본 날과 한국에 나타난 날의 시차가 계산됩니다.</p>
-        <div className="flex shrink-0 items-center gap-3">
-          <Switch size="sm" checked={showArchived} onChange={setShowArchived} label="보관한 카드도" />
-          <Button icon={Plus} onClick={() => void create()} disabled={busy === "new"}>카드 직접 만들기</Button>
+    <div className="space-y-4">
+      <StudioNotice tone="info" title="국내 확산 상태는 근거와 함께">
+        국내 미확인 → 표본에 없음 → 조금 → 퍼짐. 「{KOREA_LABEL.none_in_sample}」 은 국내 검색 표본에서 못 찾았다는 뜻일 뿐 — 그것만으로 국내 미확산을 단정하지 않습니다. 국내(KR) 터진 영상이 카드에 묶이면 저절로 「조금」 이 됩니다.
+      </StudioNotice>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="min-w-0 flex-1 basis-[320px] text-nd-body text-nd-fg-2">소재가 아니라 「어떻게 만들었나」 로 묶습니다. 같은 카드에 여러 나라 영상이 쌓이면 나라별 처음 본 날과 한국에 나타난 날의 시차가 계산됩니다.</p>
+        <div className="flex shrink-0 flex-wrap items-center gap-3">
+          <Switch checked={showArchived} onChange={setShowArchived} label="보관한 카드도" />
+          <Button icon={Plus} onClick={() => void create()} disabled={busy === "new"}>
+            카드 직접 만들기
+          </Button>
         </div>
       </div>
+
       {rows.length === 0 ? (
         <EmptyState
           compact
@@ -95,111 +145,175 @@ export function FormatsTab({
           description="터진 영상을 AI 로 분석한 뒤 「새 형식 카드로」 를 누르면 카드가 생깁니다. 직접 적어도 됩니다."
           action={
             <>
-              {onOpenHits && <Button size="sm" variant="secondary" onClick={onOpenHits}>터진 영상 보기</Button>}
-              <Button size="sm" icon={Plus} onClick={() => void create()} disabled={busy === "new"}>카드 직접 만들기</Button>
+              {onOpenHits && (
+                <Button size="sm" variant="secondary" onClick={onOpenHits}>
+                  터진 영상 보기
+                </Button>
+              )}
+              <Button size="sm" icon={Plus} onClick={() => void create()} disabled={busy === "new"}>
+                카드 직접 만들기
+              </Button>
             </>
           }
         />
       ) : (
         <>
-          <Card padding="none">
-            <TableScroll>
-              <Table size="md" minWidth={1080}>
-                <thead>
-                  <tr>
-                    <Th>형식 · 훅 · 흐름</Th>
-                    <Th>수명</Th>
-                    <Th title="나라별로 이 형식을 처음 본 날 (처음 본 순)">나라 · 처음 본 날</Th>
-                    <Th align="right" title="이 카드에 묶인 영상 (제외한 것 빼고)">묶인 영상</Th>
-                    <Th align="right">배수 중앙값</Th>
-                    <Th>한국</Th>
-                    <Th align="right" title="해외에서 처음 본 날 → 한국에 처음 나타난 날">시차</Th>
-                    <Th>AI 재현 · 언어</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map(({ f, s }) => (
-                    <Tr key={f.id} className={f.archived ? "opacity-60" : undefined}>
-                      <Td className="w-[34%] max-w-0">
-                        <button type="button" className="group block w-full min-w-0 text-left" onClick={() => setOpenId(f.id)}>
-                          <span className="flex min-w-0 items-center gap-2">
-                            <span className="truncate font-semibold group-hover:underline" title={f.name}>{f.name}</span>
-                            {f.archived && <Badge tone="neutral">보관</Badge>}
-                          </span>
-                          <span className={f.summary ? "line-clamp-2 text-[13px] text-nd-fg-2" : "block text-[13px] text-nd-fg-3"} title={f.summary || undefined}>{f.summary || "설명 없음"}</span>
-                          {f.hook && (
-                            <span className="mt-1 block truncate text-[13px] text-nd-fg-3" title={f.hook}>
-                              <span className="font-medium text-nd-fg-2">훅</span> {f.hook}
-                            </span>
-                          )}
-                          {f.structure.length > 0 && (
-                            <span className="block truncate text-[13px] text-nd-fg-3" title={f.structure.map((x, i) => `${i + 1}. ${x}`).join("\n")}>
-                              <span className="font-medium text-nd-fg-2">흐름 {f.structure.length}단계</span> {f.structure.join(" → ")}
-                            </span>
-                          )}
-                        </button>
-                      </Td>
-                      <Td><LifeBadge stage={s.life.stage} basis={s.life.basis} size="lg" /></Td>
-                      <Td>
-                        {s.countries.length ? (
-                          <ul className="space-y-0.5">
-                            {s.countries.slice(0, 4).map((c) => (
-                              <li key={c.code} className="flex items-baseline gap-2 whitespace-nowrap" title={`${countryLabel(c.code)} — 처음 본 날 ${fmtDate(c.firstSeen)} · ${c.n}편`}>
-                                <span className={c.code === "KR" ? "font-medium text-nd-accent-strong" : undefined}>{countryLabel(c.code)}</span>
-                                <span className="nd-num text-[13px] text-nd-fg-3">{fmtDate(c.firstSeen)}</span>
-                              </li>
-                            ))}
-                            {s.countries.length > 4 && <li className="text-[13px] text-nd-fg-3">외 {s.countries.length - 4}곳</li>}
-                          </ul>
-                        ) : (
-                          <span className="text-nd-fg-3">나라 모름</span>
-                        )}
-                      </Td>
-                      <Td num>{s.examples}<span className="ml-0.5 text-nd-fg-3">편</span></Td>
-                      <Td num className="text-[15px]"><Multiple value={s.medianMultiple} /></Td>
-                      <Td>
-                        <KoreaBadge status={s.korea} size="lg" />
-                        {f.korea.matches.length > 0 && <span className="mt-1 block text-[13px] text-nd-fg-3">고른 국내 사례 {f.korea.matches.length}편</span>}
-                      </Td>
-                      <Td num>
-                        {s.lagDays === null ? (
-                          <span className="text-nd-fg-3" title="해외 영상과 국내 영상이 같은 카드에 함께 묶이면 계산됩니다">—</span>
-                        ) : (
-                          <>{s.lagDays}<span className="ml-0.5 text-nd-fg-3">일</span></>
-                        )}
-                      </Td>
-                      <Td>
-                        <div className="flex flex-col items-start gap-1">
-                          <AiBadge level={f.aiFeasibility.level} />
-                          <LangBadge dep={f.languageDependence} />
-                        </div>
-                      </Td>
-                    </Tr>
-                  ))}
-                </tbody>
-              </Table>
-            </TableScroll>
-          </Card>
-          <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-nd-md bg-nd-fg/[.04] px-4 py-2.5 text-[13px] text-nd-fg-2">
+          <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
+            {cards.map((r) => (
+              <FormatCard key={r.f.id} row={r} onOpen={() => setOpenId(r.f.id)} onOpenHits={onOpenHits} />
+            ))}
+          </div>
+
+          {rest.length > 0 && (
+            <StudioCard flush title={`나머지 형식 · ${rest.length}개`} description="배수 · 떠오름 순으로 앞의 카드 다음 것 — 누르면 자세히 봅니다">
+              <RecordTable rows={rest} columns={restCols} rowKey={(r) => r.f.id} onRowClick={(r) => setOpenId(r.f.id)} ariaLabel="나머지 형식" className="pb-1 max-md:px-4 max-md:pb-4" rowClassName={(r) => (r.f.archived ? "opacity-70" : undefined)} />
+            </StudioCard>
+          )}
+
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-nd-md bg-nd-fg/[.04] px-4 py-2.5 text-[13px] text-nd-fg-2">
             <Info size={15} className="shrink-0 text-nd-fg-3" aria-hidden />
-            <span>터진 영상 {live.length}편 중 <b className="nd-num">{linked}</b>편이 형식 카드에 묶여 있습니다</span>
+            <span>
+              터진 영상 {live.length}편 중 <b className="nd-num">{linked}</b>편이 형식 카드에 묶여 있습니다
+            </span>
             {unassigned > 0 && (
               <>
                 <span className="text-nd-fg-3">·</span>
                 {onOpenHits ? (
-                  <button type="button" className="text-nd-accent hover:underline" onClick={onOpenHits}>묶기 전 {unassigned}편은 「터진 영상」 탭에서</button>
+                  <button type="button" className="text-nd-accent hover:underline" onClick={onOpenHits}>
+                    묶기 전 {unassigned}편은 「터진 영상」 탭에서
+                  </button>
                 ) : (
                   <span>묶기 전 {unassigned}편은 「터진 영상」 탭에서</span>
                 )}
               </>
             )}
-            <span className="text-nd-fg-3">·</span>
-            <span>「{KOREA_LABEL.none_in_sample}」 은 국내 미유행 확정이 아닙니다</span>
           </div>
         </>
       )}
       {open && <FormatDialog key={open.id} d={d} f={open} refresh={refresh} onClose={() => setOpenId(null)} />}
     </div>
+  );
+}
+
+/** 형식 카드 하나 — 모든 카드가 같은 구조 */
+function FormatCard({ row: { f, s, hits }, onOpen, onOpenHits }: { row: Row; onOpen: () => void; onOpenHits?: () => void }) {
+  const ev = koreaEvidence(s.korea, f.korea);
+  const examples = hits.slice(0, 3);
+  return (
+    <article className={`nd-surface flex min-w-0 flex-col rounded-nd-lg px-5 py-4 sm:px-6 sm:py-5 ${f.archived ? "opacity-80" : ""}`} aria-label={`형식 카드 ${f.name}`}>
+      <header className="flex items-start justify-between gap-3">
+        <h3 className="min-w-0">
+          <button type="button" onClick={onOpen} className="line-clamp-2 break-words text-left text-[17px] font-semibold leading-snug text-nd-fg hover:underline" title={f.name}>
+            {f.name}
+          </button>
+        </h3>
+        <Button variant="ghost" icon={Pencil} onClick={onOpen} className="shrink-0">
+          자세히 · 고치기
+        </Button>
+      </header>
+
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+        <KoreaBadge status={s.korea} size="lg" />
+        {ev.ai && (
+          <span className="inline-flex" title="국내 검색 표본의 제목 · 설명을 AI 가 보고 고른 결과입니다 (영상은 보지 않음)">
+            <Badge tone="neutral" size="lg">AI 판단</Badge>
+          </span>
+        )}
+        <AiBadge level={f.aiFeasibility.level} size="lg" />
+        <LifeBadge stage={s.life.stage} basis={s.life.basis} size="lg" />
+        <LangBadge dep={f.languageDependence} size="lg" />
+        {f.archived && <Badge tone="neutral" size="lg">보관</Badge>}
+        {f.risks.map((r) => (
+          <Badge key={r} tone="warning" size="lg">
+            주의 · {RISK_LABEL[r]}
+          </Badge>
+        ))}
+      </div>
+
+      <p className={`mt-3 break-keep text-[16px] font-semibold leading-snug ${f.summary ? "text-nd-fg" : "text-nd-fg-3"}`}>{f.summary || "요약 미입력 — 「자세히 · 고치기」 에서 한 줄 설명을 적으세요"}</p>
+      {f.hook && (
+        <p className="mt-1 text-[14px] text-nd-fg-2">
+          <span className="font-medium text-nd-fg">훅(첫 2초)</span> · {f.hook}
+        </p>
+      )}
+
+      <div className="mt-3 divide-y divide-nd-line rounded-nd-md border border-nd-line bg-nd-sunken/60 px-4 py-3">
+        {f.structure.length > 0 && <SpecLine label={`흐름 ${f.structure.length}단계`}>{f.structure.map((x) => x.trim().replace(/^\d+[.)]\s*/, "")).join(" → ")}</SpecLine>}
+        <SpecLine label="편집">{f.editing}</SpecLine>
+        <SpecLine label="소리">{f.sound}</SpecLine>
+        <SpecLine label="화면 글자">{f.textOverlay}</SpecLine>
+        <SpecLine label="왜 먹히나">{f.whyItWorks}</SpecLine>
+      </div>
+
+      <p className="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-nd-fg-3">
+        <span>묶인 영상 {s.examples}편</span>
+        <span aria-hidden>·</span>
+        <span>
+          배수 중앙값 <Multiple value={s.medianMultiple} />
+        </span>
+        {s.countries.length > 0 && (
+          <>
+            <span aria-hidden>·</span>
+            <span>
+              처음 본 날{" "}
+              {s.countries.slice(0, 3).map((c, i) => (
+                <span key={c.code}>
+                  {i > 0 && " · "}
+                  <span className={c.code === "KR" ? "font-medium text-nd-accent-strong" : "text-nd-fg-2"}>{countryLabel(c.code)}</span> <span className="nd-num">{fmtDate(c.firstSeen)}</span>
+                </span>
+              ))}
+              {s.countries.length > 3 && ` 외 ${s.countries.length - 3}곳`}
+            </span>
+          </>
+        )}
+        {s.lagDays !== null && (
+          <>
+            <span aria-hidden>·</span>
+            <span>
+              해외 → 한국 <span className="nd-num">{s.lagDays}</span>일
+            </span>
+          </>
+        )}
+      </p>
+
+      <div className="mt-4 border-t border-nd-line pt-3">
+        <p className="mb-2 text-[14px] font-semibold text-nd-fg">예시 영상 · {s.examples}편</p>
+        {examples.length ? (
+          <ul className="grid grid-cols-3 gap-2.5">
+            {examples.map((h) => (
+              <li key={h.id} className="min-w-0">
+                <a href={h.url} target="_blank" rel="noreferrer" className="group block min-w-0" title={h.title || h.url}>
+                  <VideoThumb hq src={h.thumbnail} duration={h.duration} label={PLATFORM_LABEL[h.platform]} className="aspect-[4/5] w-full rounded-nd-md" />
+                  <span className="mt-1 block truncate text-[13px] text-nd-fg-2 group-hover:underline">{h.title || h.url}</span>
+                  <span className="block truncate text-[13px] text-nd-fg-3">
+                    {countryLabel(h.country)} · <Multiple value={h.multiple} />
+                  </span>
+                </a>
+                {/* 이 예시를 컷 전환 단위로 — YouTube 영상만 */}
+                <CutsButton size="sm" url={h.url} title={h.title} durationSec={h.duration} className="-ml-2.5 mt-0.5" />
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-[13px] text-nd-fg-3">
+            아직 묶인 영상이 없습니다.{" "}
+            {onOpenHits && (
+              <button type="button" className="font-medium text-nd-accent hover:underline" onClick={onOpenHits}>
+                터진 영상에서 묶기
+              </button>
+            )}
+          </p>
+        )}
+      </div>
+
+      <footer className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-4">
+        <span className="min-w-0 flex-1 basis-[200px] text-[13px] text-nd-fg-2">{ev.text}</span>
+        <Link href={`/neander/shorts/scripts?ref=${encodeURIComponent(`format:${f.id}`)}`} className={buttonClass("secondary", "md", "shrink-0 gap-1.5")} title="대본 작성기 새 대본 — 「참고할 분석」 에 이 형식 카드를 골라 둡니다">
+          <PenLine size={16} aria-hidden />
+          이 형식으로 대본 쓰기
+        </Link>
+      </footer>
+    </article>
   );
 }
 
@@ -301,9 +415,9 @@ function FormatDialog({ d, f, refresh, onClose }: { d: ScoutData; f: WithId<Form
             <Field label="형식 이름">
               <Input size="sm" value={draft.name} onChange={(e) => set({ name: e.target.value })} />
             </Field>
-            <Field label="AI 재현">
+            <Field label="AI 제작 난이도">
               <Select size="sm" value={draft.aiFeasibility.level} onChange={(e) => set({ aiFeasibility: { ...draft.aiFeasibility, level: e.target.value as Draft["aiFeasibility"]["level"] } })}>
-                {Object.entries(AI_LEVEL_LABEL).map(([k, v]) => (
+                {Object.entries(AI_LEVEL_SHORT).map(([k, v]) => (
                   <option key={k} value={k}>{v}</option>
                 ))}
               </Select>

@@ -27,10 +27,17 @@ import { kstDay, listRadar } from "@/lib/neander/shorts/server/radar-run";
 import { listHits, listWatch } from "@/lib/neander/shorts/server/scout-store";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import { youtubeApiKey } from "@/lib/neander/shorts/server/youtube-data";
+import { titleTrends } from "@/lib/neander/shorts/server/title-trends";
+import { getBriefMailState, listBriefDigests, previewBriefMail, saveBriefMailPref, sendBriefMailTest } from "@/lib/neander/shorts/server/brief-mail";
+import { publicOrigin } from "@/lib/neander/mail/server/track";
 
 // 시장 트렌드 — 브리핑 · 검색어 추이 · 채널 모니터링 · 트렌드 노트 (shorts/market.ts)
 //   GET  전체 · ?brief=<날짜> · ?compare=1&groups=a,b&range=1y&unit=week&mode=groups|segments
 //   POST settings.save(관리자) · run · brief.run · series.refresh · channels.snapshot · note.save · note.delete
+//        titles.get(제목 키워드 · 읽기 · shorts/title-trends.ts)
+//        briefs.list(대시보드 — 볼 수 있는 모든 프로젝트의 오늘 브리핑 · 읽기)
+//        briefmail.get · briefmail.preview(읽기 · 보내지 않음) · briefmail.save · briefmail.test(내게쓰기 한 통 — 사람이 누를 때만)
+//        브리핑 · 메일 동작은 프로젝트를 넘나들어(사람별) 고른 프로젝트 머리글과 상관없이 처리한다 (shorts/brief-mail.ts)
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
@@ -92,12 +99,30 @@ export async function GET(req: Request) {
   }
 }
 
+/** 메일 속 「ERP 에서 보기」 주소의 앞 — 배포 주소 (로컬은 요청 주소 그대로) */
+const originOf = (req: Request) => publicOrigin(req) ?? new URL(req.url).origin;
+
 export async function POST(req: Request) {
   try {
     const { email } = await requireShortsUser(req);
-    const db = await requestDb(req, adminDb(), email);
     const b = (await req.json()) as Record<string, unknown>;
+    // 사람별 · 모든 프로젝트 — 지금 고른 프로젝트로 감싸지 않는다 (권한은 listSpacesFor 가 프로젝트마다 본다)
     switch (b.action) {
+      case "briefs.list":
+        return json(await listBriefDigests(adminDb(), email));
+      case "briefmail.get":
+        return json({ state: await getBriefMailState(adminDb(), email) });
+      case "briefmail.preview":
+        return json({ preview: await previewBriefMail(adminDb(), email, originOf(req), b.draft ?? undefined) });
+      case "briefmail.save":
+        return json({ state: await saveBriefMailPref(adminDb(), email, b.pref) });
+      case "briefmail.test":
+        return json({ sent: await sendBriefMailTest(adminDb(), email, originOf(req)), state: await getBriefMailState(adminDb(), email) });
+    }
+    const db = await requestDb(req, adminDb(), email);
+    switch (b.action) {
+      case "titles.get":
+        return json(await titleTrends(db, b));
       case "settings.save":
         if (!isShortsAdmin(email)) throw new AccessError(403, "시장 트렌드 설정은 AI STUDIO 관리자만 바꿉니다.");
         return json({ settings: await saveMarketSettings(db, email, b.settings) });

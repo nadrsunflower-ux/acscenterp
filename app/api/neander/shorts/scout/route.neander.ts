@@ -1,9 +1,9 @@
 import { adminDb } from "@/lib/neander/server/admin";
-import { requestDb } from "@/lib/neander/shorts/server/space-db";
+import { requestDb, stampSpace } from "@/lib/neander/shorts/server/space-db";
 import { isShortsAdmin, requireShortsUser } from "@/lib/neander/shorts/server/access";
 import { fail, json } from "@/lib/neander/shorts/server/http";
 import { youtubeKeyFor } from "@/lib/neander/shorts/server/profiles";
-import { SCOUT_VIDEO_MODELS } from "@/lib/neander/shorts/server/scout-ai";
+import { SCOUT_VIDEO_MODELS, compareChannelVideos } from "@/lib/neander/shorts/server/scout-ai";
 import { analyzeHit, buildWeeklyReport, narrateWeeklyReport, scanDue } from "@/lib/neander/shorts/server/scout-run";
 import {
   addManualHit,
@@ -16,6 +16,8 @@ import {
   getFormat,
   getHit,
   getScoutSettings,
+  getWatch,
+  hitAnalysesOf,
   listFormats,
   listHits,
   listReports,
@@ -24,6 +26,7 @@ import {
   saveFormat,
   saveScoutSettings,
   setKoreanComments,
+  setWatchCompare,
   updateHit,
   updateWatch,
   upsertHitFromApi,
@@ -39,7 +42,19 @@ import {
   youtubeSearch,
   youtubeVideos,
 } from "@/lib/neander/shorts/server/youtube-data";
-import { computeBaseline, isShortLike, koreanCommentCount, languageOf, parseYoutubeRef, type KoreaStatus } from "@/lib/neander/shorts/scout";
+import {
+  CHANNEL_COMPARE_DAILY_LIMIT,
+  compareBlockReason,
+  compareCalcOf,
+  computeBaseline,
+  isShortLike,
+  koreanCommentCount,
+  languageOf,
+  parseYoutubeRef,
+  pickCompareSets,
+  type ChannelCompare,
+  type KoreaStatus,
+} from "@/lib/neander/shorts/scout";
 
 // 바이럴 형식 정찰 — 감시 채널 · 터진 영상 · 형식 카드 · 주간 보고 (회사 공용)
 // 공식 API 숫자(src "api")는 여기서 서버가 받아 적을 때만 생긴다.
@@ -48,6 +63,27 @@ export const maxDuration = 120;
 
 const kstDay = () => new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
 type Db = ReturnType<typeof adminDb>;
+
+/** 「터진 영상 vs 평소」 하루 횟수 — 계수기는 감싸지 않은 설정 컬렉션에 있어 프로젝트가 갈리지 않는다 → 키에 프로젝트 id */
+const compareQuotaKey = (db: Db) => `scoutcmp_${stampSpace(db)}_${kstDay()}`;
+
+/**
+ * 감시 채널 하나의 「터진 vs 평소」 계산 — 훑기와 같은 길(업로드 목록 + 통계, 채널 하나에 약 2단위 · search 한도 안 씀).
+ * 숫자는 여기서만 나온다. 이미 형식 분석이 있는 영상은 그 분석을 같이 돌려준다 (AI 에 줄 글).
+ */
+async function compareCalcFor(db: Db, email: string, id: unknown) {
+  const w = await getWatch(db, id);
+  const key = await ytKey(db, email, false);
+  const [settings, uploads] = await Promise.all([getScoutSettings(db), youtubeRecentUploads(w.channelId, key)]);
+  const shorts = (await youtubeVideos(uploads.map((u) => u.id), key))
+    .filter((v) => isShortLike(v.duration))
+    .map((v) => ({ id: v.id, url: v.url, title: v.title, thumbnail: v.thumbnail, views: v.views, publishedAt: v.publishedAt || null, duration: v.duration }));
+  const now = Date.now();
+  const sets = pickCompareSets(shorts, settings, now);
+  const analyses = await hitAnalysesOf(db, [...sets.hits, ...sets.usual].map((v) => v.id));
+  const calc = compareCalcOf(sets, settings, new Set(analyses.keys()));
+  return { w, calc, analyses, blocked: compareBlockReason(calc) };
+}
 
 /** 검색 키 (개인 → 회사). search.list 를 쓰는 동작만 하루 횟수를 센다 */
 async function ytKey(db: Db, email: string, countSearch: boolean): Promise<string> {
@@ -72,9 +108,10 @@ export async function GET(req: Request) {
       getScoutSettings(db),
       youtubeKeyFor(db, email),
     ]);
-    const [searchUsed, aiToday] = await Promise.all([
+    const [searchUsed, aiToday, compareUsed] = await Promise.all([
       readQuota(db, yk.source === "personal" ? `ytsearch_${email}_${kstDay()}` : `ytsearch_${kstDay()}`),
       readQuota(db, `scoutai_${kstDay()}`),
+      readQuota(db, compareQuotaKey(db)),
     ]);
     return json({
       me: email,
@@ -84,7 +121,11 @@ export async function GET(req: Request) {
       formats,
       reports,
       settings,
-      quotas: { youtubeSearch: { used: searchUsed, limit: YT_SEARCH_DAILY_LIMIT, source: yk.source }, autoAnalyzeToday: aiToday },
+      quotas: {
+        youtubeSearch: { used: searchUsed, limit: YT_SEARCH_DAILY_LIMIT, source: yk.source },
+        autoAnalyzeToday: aiToday,
+        channelCompare: { used: compareUsed, limit: CHANNEL_COMPARE_DAILY_LIMIT },
+      },
       companyKey: !!process.env.NEANDER_SHORTS_YOUTUBE_API_KEY?.trim(),
       models: SCOUT_VIDEO_MODELS,
     });
@@ -141,6 +182,31 @@ export async function POST(req: Request) {
           only: typeof b.id === "string" ? b.id : undefined,
         });
         return json(r);
+      }
+      case "watch.compare.preview": {
+        // 읽기만 — 계산표와 「비교할 수 있나」 를 AI 를 부르기 전에 보인다 (저장하지 않는다)
+        const { calc, blocked } = await compareCalcFor(db, email, b.id);
+        return json({ calc, blocked, used: await readQuota(db, compareQuotaKey(db)), limit: CHANNEL_COMPARE_DAILY_LIMIT });
+      }
+      case "watch.compare": {
+        // 터진 영상 vs 평소 — 계산은 코드, 차이는 AI 가설. 감시 채널은 회사 공용이라 결과도 함께 본다
+        const { w, calc, analyses, blocked } = await compareCalcFor(db, email, b.id);
+        if (blocked) throw new Error(blocked);
+        const q = await takeQuota(db, compareQuotaKey(db), CHANNEL_COMPARE_DAILY_LIMIT);
+        if (!q.ok) throw new Error(`오늘 이 프로젝트에서 「터진 영상 vs 평소」 를 ${CHANNEL_COMPARE_DAILY_LIMIT}번 썼습니다. 내일 다시 해 주세요.`);
+        const withText = (v: (typeof calc.hits)[number]) => {
+          const a = analyses.get(v.id);
+          return { ...v, analysis: a ? { formatName: a.formatName, hook: a.hook, structure: a.structure } : null };
+        };
+        const r = await compareChannelVideos({
+          channel: { title: w.title, country: w.country, topics: w.topics },
+          threshold: calc.threshold,
+          hits: calc.hits.map(withText),
+          usual: calc.usual.map(withText),
+        });
+        const compare: ChannelCompare = { ...calc, at: Date.now(), by: email, model: r.model, costUsd: r.costUsd, ai: r.ai };
+        await setWatchCompare(db, w.id, compare);
+        return json({ compare, used: q.used, limit: CHANNEL_COMPARE_DAILY_LIMIT });
       }
 
       // ---- 터진 영상 ----

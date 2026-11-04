@@ -35,6 +35,7 @@ export const SCOPED_COLLECTIONS: ReadonlySet<string> = new Set([
   NEANDER_COL.shortsChannelStats,
   NEANDER_COL.shortsNotes,
   NEANDER_COL.shortsScripts,
+  NEANDER_COL.shortsCuts,
 ]);
 
 export const scopedCollectionName = (name: string, spaceId: string) => (spaceId !== DEFAULT_SPACE_ID && SCOPED_COLLECTIONS.has(name) ? `${name}__${spaceId}` : name);

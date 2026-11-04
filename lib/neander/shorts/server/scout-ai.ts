@@ -12,7 +12,7 @@ import "server-only";
 // ============================================================
 
 import { DEFAULT_FIN_AI_MODEL, isFinAiModelId } from "@/lib/neander/ai/models";
-import type { HitAnalysis, ScoutReportDoc } from "../scout";
+import { COMPARE_ASPECTS, WEEKDAYS_KO, kstSlot, type ChannelCompareAi, type CompareAspect, type CompareVideo, type HitAnalysis, type ScoutReportDoc } from "../scout";
 import type { Fetcher } from "./platforms";
 
 const OR = "https://openrouter.ai/api/v1";
@@ -44,7 +44,8 @@ type Completion = {
   usage?: { cost?: number };
 };
 
-async function complete(body: object, timeoutMs: number): Promise<{ content: string; finish: string; costUsd: number }> {
+/** OpenRouter 한 번 — 컷 표(cuts) · 채널 비교 · 홈페이지 브리프도 이 길을 같이 쓴다 (헤더 · 오류 문구 · 비용 읽기 한곳) */
+export async function complete(body: object, timeoutMs: number): Promise<{ content: string; finish: string; costUsd: number }> {
   let res: Response;
   try {
     res = await fetcher(`${OR}/chat/completions`, {
@@ -235,7 +236,7 @@ export async function narrateReport(input: { model?: unknown; report: ScoutRepor
 
 // ---- 자동화 (scout-auto-run.ts) — 글 모델 · 하루 몇 번 · 한 번에 몇 원 -------------------------
 
-async function completeJson<T>(system: string, user: string, name: string, schema: object, maxTokens: number): Promise<{ data: T; costUsd: number; model: string }> {
+export async function completeJson<T>(system: string, user: string, name: string, schema: object, maxTokens: number): Promise<{ data: T; costUsd: number; model: string }> {
   const model = DEFAULT_FIN_AI_MODEL;
   const out = await complete(
     {
@@ -334,4 +335,158 @@ export async function judgeKoreaSample(input: {
   const out = await completeJson<{ matchIds: string[]; reason: string }>(system, user, "korea_sample", schema, 1200);
   const known = new Set(input.results.map((r) => r.id));
   return { matchIds: out.data.matchIds.filter((id) => known.has(id)), reason: out.data.reason.slice(0, 300), costUsd: out.costUsd, model: out.model };
+}
+
+// ---- 감시 채널 「터진 영상 vs 평소」 — 같은 채널 안에서 무엇이 달랐나 (가설) ---------------------------
+//  영상은 보지 않는다 (비용 · 시간 — 열네 편을 다 보면 한 번에 백 원이 넘는다). 제목 · 썸네일 그림 · 길이 ·
+//  올린 때 · 이미 있는 형식 분석 글로만 견준다. 편수 · 중앙값 · 비율은 scout.ts 가 계산해 화면에 따로 보이고,
+//  AI 에게는 숫자를 다시 말하지 말라고 한다 (틀릴 수 있다). 근거 id 는 우리가 준 것만 남긴다.
+//  모델: 기본 글 모델(DEFAULT_FIN_AI_MODEL = Gemini 3.7 Flash)이 이미지를 받는다
+//  (OpenRouter 모델 목록 input_modalities 에 image · 2026-11-04 확인).
+
+export type CompareAiVideo = CompareVideo & { analysis?: Pick<HitAnalysis, "formatName" | "hook" | "structure"> | null };
+
+const COMPARE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["differences", "tryNext", "caveat"],
+  properties: {
+    differences: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["aspect", "hit", "usual", "strength", "hitIds", "usualIds"],
+        properties: {
+          aspect: { type: "string", enum: [...COMPARE_ASPECTS] },
+          hit: S,
+          usual: S,
+          strength: { type: "string", enum: ["clear", "weak"] },
+          hitIds: { type: "array", items: S },
+          usualIds: { type: "array", items: S },
+        },
+      },
+    },
+    tryNext: { type: "array", items: S },
+    caveat: S,
+  },
+};
+
+const COMPARE_SYSTEM = `너는 한국의 숏폼 영상 기획사에서 쇼츠를 분석하는 사람이다. 한 YouTube 채널 안에서 「그 채널 평소의 몇 배로 터진 영상」 과 「평소 수준 영상」 을 견주어, 터진 쪽에 있는 만드는 방식의 차이를 찾는다. 같은 채널이라 구독자 · 다루는 분야가 같으니 차이는 제목 · 썸네일 · 길이 · 훅 · 다룬 소재 · 올린 때에서 찾는다.
+
+원칙:
+- 영상은 보지 못한다. 근거는 제목 · 썸네일 그림 · 길이 · 올린 때 · (있으면) 형식 분석 글뿐이다. 보이지 않는 것을 지어내지 않는다.
+- 각 썸네일은 바로 앞 줄 [id] 영상의 것이다.
+- differences 는 2~6개. 터진 쪽 여러 편에 보이고 평소 쪽에는 드문 특징만 쓴다. 뚜렷한 차이가 없으면 억지로 만들지 않는다 (1개여도 된다).
+  · aspect: title(제목) · thumbnail(썸네일) · length(길이) · hook(훅 — 분석 글이 있을 때만) · topic(다룬 소재) · timing(올린 요일 · 시간) · other
+  · hit: 터진 쪽의 특징 한 문장. usual: 평소 쪽은 어떤지 한 문장.
+  · strength: 터진 쪽 대부분에 있고 평소 쪽 대부분에 없으면 clear, 일부에서만 보이거나 반례가 있으면 weak.
+  · hitIds · usualIds: 그 특징을 보여 주는 영상의 id (위에 준 h1 · u3 같은 id 만).
+- 편수 · 조회수 · 배수 · 초 · 비율 같은 셈한 숫자를 글에 다시 쓰지 않는다 — 숫자는 화면이 따로 계산해 보인다. 근거는 id 로 든다. (제목 속 숫자를 인용하는 것은 된다.)
+- tryNext: 이 채널을 참고해 우리 쇼츠에서 다음에 시험해 볼 것 2~3개. 한 줄씩, 무엇을 어떻게 바꿔 볼지 구체적으로. 특정 브랜드 이름은 쓰지 않는다.
+- caveat: 이번 비교의 한계 한 줄 (영상을 보지 않음 · 편수가 적음 · 우연일 수 있음 등 이번 자료에 맞게).
+- 한국어로 쓴다. 영상 제목을 인용할 때는 원문 그대로 짧게.`;
+
+/** 썸네일은 YouTube 이미지 서버 주소만 보낸다 — 세로 화면이 덜 잘리는 큰 것(hqdefault)으로 */
+const ytThumbForAi = (u: string): string | null => {
+  if (!/^https:\/\/i\.ytimg\.com\/vi\/[\w-]{11}\/[\w]+\.jpg$/.test(u)) return null;
+  return u.replace(/\/(mq|sd|)default\.jpg$/, "/hqdefault.jpg");
+};
+
+const slotText = (iso: string) => {
+  const k = kstSlot(iso);
+  return k ? `${WEEKDAYS_KO[k.weekday]} ${k.hour}시(한국)` : "모름";
+};
+
+function compareLine(id: string, side: "터진" | "평소", v: CompareAiVideo): string {
+  const head = `[${id}] ${side} · 평소의 ${v.multiple}배 · 길이 ${v.duration ? `${Math.round(v.duration)}초` : "모름"} · 올린 때 ${slotText(v.publishedAt)} · 제목 「${v.title.slice(0, 150)}」`;
+  const a = v.analysis;
+  if (!a) return head;
+  const flow = a.structure.slice(0, 6).map((x) => x.slice(0, 60)).join(" → ");
+  return `${head}\n  형식 분석(AI 가 영상을 보고 쓴 글): ${a.formatName.slice(0, 60)} · 훅 ${a.hook.slice(0, 160)}${flow ? ` · 흐름 ${flow}` : ""}`;
+}
+
+export async function compareChannelVideos(input: {
+  channel: { title: string; country: string; topics: string[] };
+  threshold: number;
+  hits: CompareAiVideo[];
+  usual: CompareAiVideo[];
+}): Promise<{ ai: ChannelCompareAi; costUsd: number; model: string }> {
+  if (!input.hits.length || !input.usual.length) throw new Error("터진 영상과 평소 영상이 모두 있어야 비교합니다.");
+  const model = DEFAULT_FIN_AI_MODEL;
+  const hits = input.hits.slice(0, 6).map((v, i) => ({ key: `h${i + 1}`, v }));
+  const usual = input.usual.slice(0, 8).map((v, i) => ({ key: `u${i + 1}`, v }));
+  const content: object[] = [
+    {
+      type: "text",
+      text: [
+        `채널: ${input.channel.title || "?"} · 나라 ${input.channel.country || "?"}${input.channel.topics.length ? ` · 분야 ${input.channel.topics.slice(0, 6).join(", ")}` : ""}`,
+        `터진 = 그 채널 평소 조회수의 ${input.threshold}배 이상 · 평소 = 평소의 0.6~1.5배. 아래 영상마다 한 줄 + 썸네일.`,
+      ].join("\n"),
+    },
+  ];
+  for (const [side, list] of [["터진", hits], ["평소", usual]] as const) {
+    for (const { key, v } of list) {
+      content.push({ type: "text", text: compareLine(key, side, v) });
+      const img = ytThumbForAi(v.thumbnail);
+      if (img) content.push({ type: "image_url", image_url: { url: img } });
+    }
+  }
+  const out = await complete(
+    {
+      model,
+      max_tokens: 4000,
+      provider: { require_parameters: true },
+      messages: [
+        { role: "system", content: COMPARE_SYSTEM },
+        { role: "user", content },
+      ],
+      response_format: { type: "json_schema", json_schema: { name: "channel_compare", strict: true, schema: COMPARE_SCHEMA } },
+      usage: { include: true },
+    },
+    90_000,
+  );
+  let raw: { differences?: unknown; tryNext?: unknown; caveat?: unknown };
+  try {
+    raw = JSON.parse(out.content);
+  } catch {
+    throw new Error(out.finish === "length" ? "AI 응답이 너무 길어 잘렸습니다." : "AI 응답 형식을 읽지 못했습니다.");
+  }
+  return { ai: sanitizeCompare(raw, hits, usual), costUsd: out.costUsd, model };
+}
+
+/** 받은 답 다듬기 — 목록에 없는 id 는 버리고(짧은 id · 영상 id 둘 다 받는다) · 길이 · 개수를 자른다 */
+function sanitizeCompare(
+  raw: { differences?: unknown; tryNext?: unknown; caveat?: unknown },
+  hits: { key: string; v: CompareAiVideo }[],
+  usual: { key: string; v: CompareAiVideo }[],
+): ChannelCompareAi {
+  const clip = (x: unknown, n: number) => (typeof x === "string" ? x.trim().slice(0, n) : "");
+  const idMap = (list: { key: string; v: CompareAiVideo }[]) => new Map(list.flatMap(({ key, v }) => [[key, v.id], [v.id.toLowerCase(), v.id]] as [string, string][]));
+  const hitMap = idMap(hits);
+  const usualMap = idMap(usual);
+  const ids = (x: unknown, map: Map<string, string>) => [
+    ...new Set((Array.isArray(x) ? x : []).flatMap((y) => {
+      const id = map.get(String(y).trim().replace(/^\[|\]$/g, "").toLowerCase());
+      return id ? [id] : [];
+    })),
+  ];
+  const differences = (Array.isArray(raw.differences) ? raw.differences : [])
+    .map((d) => {
+      const r = (d && typeof d === "object" ? d : {}) as Record<string, unknown>;
+      const hitIds = ids(r.hitIds, hitMap);
+      return {
+        aspect: (COMPARE_ASPECTS as readonly string[]).includes(String(r.aspect)) ? (r.aspect as CompareAspect) : ("other" as CompareAspect),
+        hit: clip(r.hit, 300),
+        usual: clip(r.usual, 300),
+        // 터진 쪽 근거 영상이 하나도 없으면 「분명」 이라 할 수 없다
+        strength: r.strength === "clear" && hitIds.length ? ("clear" as const) : ("weak" as const),
+        hitIds,
+        usualIds: ids(r.usualIds, usualMap),
+      };
+    })
+    .filter((d) => d.hit)
+    .slice(0, 6);
+  const tryNext = (Array.isArray(raw.tryNext) ? raw.tryNext : []).map((x) => clip(x, 200)).filter(Boolean).slice(0, 3);
+  return { differences, tryNext, caveat: clip(raw.caveat, 300) };
 }

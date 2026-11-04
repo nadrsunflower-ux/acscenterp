@@ -31,6 +31,7 @@ export function ScoutFeed({
   refresh,
   onOpenFormat,
   onDetail,
+  size = "sm",
 }: {
   d: ScoutData;
   hits: WithId<HitDoc>[];
@@ -38,6 +39,8 @@ export function ScoutFeed({
   onOpenFormat: (id: string) => void;
   /** 「자세히 · 묶기」 — 부르는 화면의 영상 창을 연다 (드로어는 닫는다) */
   onDetail: (id: string) => void;
+  /** 단추 크기 — 옆 입력칸 높이에 맞춘다 */
+  size?: "sm" | "md";
 }) {
   const [start, setStart] = useState<string | null>(null);
   const { last, onSeen } = useFeedResume(FEED_LAST_KEY);
@@ -49,15 +52,15 @@ export function ScoutFeed({
     <>
       {resumeIdx > 0 ? (
         <span className="inline-flex flex-wrap gap-2">
-          <Button size="sm" icon={GalleryVerticalEnd} onClick={() => setStart(last!.id)} title={`쇼츠처럼 보기에서 마지막으로 본 영상(${resumeIdx + 1}번째)부터 이어서 봅니다`}>
+          <Button size={size} icon={GalleryVerticalEnd} onClick={() => setStart(last!.id)} title={`쇼츠처럼 보기에서 마지막으로 본 영상(${resumeIdx + 1}번째)부터 이어서 봅니다`}>
             이어 보기 · <span className="nd-num">{resumeIdx + 1}</span>번째
           </Button>
-          <Button size="sm" variant="secondary" onClick={() => setStart(hits[0].id)}>
+          <Button size={size} variant="secondary" onClick={() => setStart(hits[0].id)}>
             처음부터
           </Button>
         </span>
       ) : (
-        <Button size="sm" variant="secondary" icon={GalleryVerticalEnd} disabled={!hits.length} onClick={() => setStart(hits[0]?.id ?? null)}>
+        <Button size={size} variant="secondary" icon={GalleryVerticalEnd} disabled={!hits.length} onClick={() => setStart(hits[0]?.id ?? null)}>
           쇼츠처럼 보기
         </Button>
       )}

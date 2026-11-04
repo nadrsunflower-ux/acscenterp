@@ -4,7 +4,14 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_SCOUT_SETTINGS,
   buildReport,
+  compareBlockReason,
+  compareCalcOf,
+  compareGroupStats,
+  compareLimits,
   computeBaseline,
+  kstSlot,
+  pickCompareSets,
+  titleFeatures,
   formatStats,
   hitNoteState,
   isShortLike,
@@ -298,4 +305,109 @@ test("터진 영상 메모 — 분석이 지금 메모를 반영했는지", () =
   assert.equal(hitNoteState({ note: "손 클로즈업이 핵심", analysis: a("훅만 보면 됨") }), "stale");
   assert.equal(hitNoteState({ note: "훅만 보면 됨", analysis: a() }), "stale"); // 메모 없이 분석했던 것 (예전 분석)
   assert.equal(hitNoteState({ note: "", analysis: a("지운 메모") }), "stale");
+});
+
+// ---- 터진 영상 vs 평소 (같은 감시 채널 안) ----
+
+const short = (id: string, views: number | null, age: number, extra: Partial<{ title: string; duration: number }> = {}) => ({
+  id,
+  url: `https://www.youtube.com/watch?v=${id}`,
+  title: extra.title ?? `영상 ${id}`,
+  thumbnail: `https://i.ytimg.com/vi/${id}/mqdefault.jpg`,
+  views,
+  publishedAt: daysAgo(age),
+  duration: extra.duration ?? 30,
+});
+
+test("터진 vs 평소 고르기 — 평소를 낸 표본(7일 넘은 것)에서 · 배수 큰 순 · 1배 가까운 순", () => {
+  const vids = [
+    short("a1", 1000, 8),
+    short("a2", 1000, 9),
+    short("a3", 1000, 10),
+    short("a4", 1100, 11),
+    short("a5", 900, 12),
+    short("a6", 1200, 13),
+    short("a7", 800, 14),
+    short("a8", 1000, 15),
+    short("h1", 5000, 16),
+    short("h2", 30000, 20),
+    short("y1", 100000, 2), // 올린 지 이틀 — 어느 쪽에도 안 넣는다
+    short("nv", null, 9), // 조회수 비공개
+  ];
+  const r = pickCompareSets(vids, { threshold: 3, minViews: 1000 }, NOW);
+  assert.equal(r.baseline.value, 1000);
+  assert.equal(r.pool, 10);
+  assert.equal(r.young, 1);
+  assert.deepEqual(r.hits.map((h) => [h.id, h.multiple]), [["h2", 30], ["h1", 5]]);
+  // 1배 넷(최근 순) → 1.1 → 0.9 → 1.2 → 0.8
+  assert.deepEqual(r.usual.map((u) => u.id), ["a1", "a2", "a3", "a8", "a4", "a5", "a6", "a7"]);
+  // 조회 하한 — 배수가 커도 minViews 밑이면 터진 쪽에서 뺀다
+  assert.deepEqual(pickCompareSets(vids, { threshold: 3, minViews: 10_000 }, NOW).hits.map((h) => h.id), ["h2"]);
+  // 평소를 모르면 둘 다 비운다
+  const few = pickCompareSets(vids.slice(0, 3), { threshold: 3, minViews: 0 }, NOW);
+  assert.equal(few.baseline.value, null);
+  assert.equal(few.hits.length + few.usual.length, 0);
+});
+
+test("터진 쪽 최대 6편 · 평소 쪽 최대 8편", () => {
+  const vids = [...Array.from({ length: 20 }, (_, i) => short(`u${i}`, 1000, 8 + i)), ...Array.from({ length: 9 }, (_, i) => short(`h${i}`, 10_000 + i * 1000, 8 + i))];
+  const r = pickCompareSets(vids, { threshold: 3, minViews: 0 }, NOW);
+  assert.equal(r.hits.length, 6);
+  assert.equal(r.usual.length, 8);
+  assert.equal(r.hits[0].id, "h8");
+});
+
+test("제목 특징 — 숫자 · 물음표 · 해시태그 · 이모지 (™ 는 이모지 아님)", () => {
+  assert.deepEqual(titleFeatures("다이소 3천원 꿀템 #shorts"), { len: 18, number: true, question: false, hashtag: true, emoji: false });
+  assert.deepEqual(titleFeatures("이거 진짜 돼? 🤯"), { len: 10, number: false, question: true, hashtag: false, emoji: true });
+  assert.equal(titleFeatures("Brand™ review").emoji, false);
+  assert.equal(titleFeatures("Top#1 hack").hashtag, false); // 낱말 가운데 # 는 해시태그가 아니다
+});
+
+test("올린 때는 한국 시각 — 날짜가 넘어가는 시각", () => {
+  assert.deepEqual(kstSlot("2026-10-30T12:30:00Z"), { weekday: 5, hour: 21, band: 3 }); // KST 10/30(금) 21:30 저녁
+  assert.deepEqual(kstSlot("2026-10-29T16:00:00Z"), { weekday: 5, hour: 1, band: 0 }); // KST 10/30(금) 01:00 새벽
+  assert.equal(kstSlot(""), null);
+});
+
+test("묶음 계산 — 중앙값 · 제목 특징 편수 · 요일 · 시간대", () => {
+  const s = compareGroupStats([
+    { title: "다이소 3천원 꿀템 #shorts", duration: 30, publishedAt: "2026-10-30T12:30:00Z", views: 5000 },
+    { title: "이거 진짜 돼? 🤯", duration: 50, publishedAt: "2026-10-29T16:00:00Z", views: 9000 },
+    { title: "그냥 정리", duration: 40, publishedAt: "2026-10-27T03:00:00Z", views: 7000 }, // KST 10/27(화) 12:00 오후
+  ]);
+  assert.equal(s.n, 3);
+  assert.equal(s.medianViews, 7000);
+  assert.equal(s.medianSec, 40);
+  assert.equal(s.medianTitleLen, 10);
+  assert.deepEqual([s.withNumber, s.withQuestion, s.withHashtag, s.withEmoji], [1, 1, 1, 1]);
+  assert.deepEqual(s.weekdays, [0, 0, 1, 0, 0, 2, 0]);
+  assert.deepEqual(s.bands, [1, 0, 1, 1]);
+  const empty = compareGroupStats([]);
+  assert.equal(empty.n, 0);
+  assert.equal(empty.medianViews, null);
+});
+
+test("한계 · 막는 이유 — 터진 1편이면 「일반화하기 어려움」", () => {
+  assert.deepEqual(compareLimits(1, 8, "mature"), ["터진 영상이 1편뿐 — 일반화하기 어려움"]);
+  assert.deepEqual(compareLimits(4, 2, "young"), ["평소 수준 영상이 2편뿐 — 견줄 쪽이 얇음", "올린 지 7일 넘은 쇼츠가 5편이 안 돼 평소 조회수가 어림"]);
+  assert.deepEqual(compareLimits(3, 5, "mature"), []);
+  const base = { baseline: 1000, pool: 20, young: 0, threshold: 3, minViews: 10_000, hits: [{}], usual: [{}] } as unknown as Parameters<typeof compareBlockReason>[0];
+  assert.equal(compareBlockReason(base), null);
+  assert.match(compareBlockReason({ ...base, baseline: null }) ?? "", /평소 조회수를 낼 수 없습니다/);
+  assert.match(compareBlockReason({ ...base, pool: 1, young: 49 }) ?? "", /쇼츠가 1편뿐이라 아직 견줄 수 없습니다 — 7일 안 49편은 조회수가 차는 중/);
+  assert.match(compareBlockReason({ ...base, hits: [] }) ?? "", /쇼츠 20편 중 평소의 3배 · 조회 10,000회를 넘은 영상이 없습니다/);
+  assert.match(compareBlockReason({ ...base, usual: [] }) ?? "", /견줄 쪽이 없습니다/);
+});
+
+test("저장용 계산 — 분석 있는 영상 표시 · 한계 함께", () => {
+  const vids = [...Array.from({ length: 8 }, (_, i) => short(`u${i}`, 1000, 8 + i)), short("h1", 9000, 9, { title: "3초 만에 끝 #shorts", duration: 21 })];
+  const sets = pickCompareSets(vids, { threshold: 3, minViews: 0 }, NOW);
+  const c = compareCalcOf(sets, { threshold: 3, minViews: 0 }, new Set(["h1"]));
+  assert.equal(c.baseline, 1000);
+  assert.equal(c.hits.length, 1);
+  assert.deepEqual({ id: c.hits[0].id, analyzed: c.hits[0].analyzed, multiple: c.hits[0].multiple, duration: c.hits[0].duration }, { id: "h1", analyzed: true, multiple: 9, duration: 21 });
+  assert.equal(c.usual.every((u) => !u.analyzed), true);
+  assert.equal(c.stats.hits.withNumber, 1);
+  assert.deepEqual(c.stats.limits, ["터진 영상이 1편뿐 — 일반화하기 어려움"]);
 });
