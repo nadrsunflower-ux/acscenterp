@@ -14,19 +14,25 @@ const lists = new Map<string, MediaView[]>();
 export function useProjectMedia(projectId: string) {
   const [media, setMedia] = useState<MediaView[]>(lists.get(projectId) ?? []);
   const [loading, setLoading] = useState(!lists.has(projectId));
+  // 처음 받기가 실패하면 머무는 오류로 (부른 쪽의 refresh 는 예전처럼 실패를 그대로 던진다)
+  const [error, setError] = useState<string | null>(null);
   const refresh = useCallback(async () => {
     try {
       const m = await listProjectMedia(projectId);
       lists.set(projectId, m);
       setMedia(m);
+      setError(null);
     } finally {
       setLoading(false);
     }
   }, [projectId]);
-  useEffect(() => {
-    void refresh();
+  const retry = useCallback(() => {
+    void refresh().catch((e) => setError(e instanceof Error ? e.message : "파일 목록을 받지 못했습니다."));
   }, [refresh]);
-  return { media, loading, refresh };
+  useEffect(() => {
+    retry();
+  }, [retry]);
+  return { media, loading, refresh, error, retry };
 }
 
 /** 고객사 자료 (제품 실사진) */

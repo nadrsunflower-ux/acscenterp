@@ -10,6 +10,9 @@
 // ============================================================
 import type { LucideIcon } from "lucide-react";
 import {
+  Building2,
+  CircleUserRound,
+  FileSignature,
   ArrowLeftRight,
   Bot,
   Boxes,
@@ -218,7 +221,9 @@ export const SHORTS_NAV: NavGroup[] = [
       // 채널 하나 = 프로젝트 (살림설계사무소 · AI 쿠팡 채널 …) — 위 툴바에서 고르면 아래 메뉴가 그 프로젝트 것으로
       { href: "/neander/shorts/spaces", label: "프로젝트", icon: FolderKanban },
       // 브랜드 대행 업체 — 계약 · 브리프 · 대행 프로젝트 · 재무 계약 · 계약서 · 월 N편 · 승인 · 월간 보고
-      { href: "/neander/shorts/clients", label: "업체 · 계약", icon: Briefcase },
+      { href: "/neander/shorts/clients", label: "업체", icon: Building2 },
+      // 업체마다의 계약 조건 · 재무 계약(받을 돈 · 연체) · 계약서를 한 표로 — 고치는 곳은 업체 상세 「재무 · 계약서」
+      { href: "/neander/shorts/contracts", label: "계약", icon: FileSignature },
       // 촬영 · 미팅 · 마감 + 게시 예약 · 고객 검토 · 업체 계약 · 받을 돈이 저절로 모이는 달력
       { href: "/neander/shorts/calendar", label: "일정", icon: CalendarDays },
     ],
@@ -252,7 +257,9 @@ export const SHORTS_NAV: NavGroup[] = [
     label: "사람별",
     items: [
       { href: "/neander/shorts/team", label: "사용자별 현황", icon: Users },
-      { href: "/neander/shorts/accounts", label: "내 채널 · 연결", icon: Plug },
+      // 같은 계정 관리 화면의 두 구간 — 내 채널(게시 계정 · 프로젝트 귀속) · 연결(키 · 토큰 · 서버 준비)
+      { href: "/neander/shorts/accounts", label: "내 채널", icon: CircleUserRound, exact: true },
+      { href: "/neander/shorts/accounts/connect", label: "연결", icon: Plug },
     ],
   },
 ];

@@ -7,6 +7,8 @@
 //  플레이어는 보고 있는 칸에만 띄우고 앞뒤 두 칸까지만 그린다. 칸 안의 정보는 화면마다 renderSlide 로.
 //  마지막으로 본 영상을 브라우저에 기억해 「이어 보기」 를 한다(useFeedResume).
 //  2026-11-02 AI 레이더(RadarPanel)에서 떼어 냄 — 동작은 그대로.
+//  2026-11-04 목업 개편: 제목 아래 한 줄(subtitle) · 단축키 안내는 드로어 아래 띠로 · 영상 밑 한 줄(videoFooter).
+//  모두 선택 사항이라 바이럴 형식(scout/ScoutFeed)은 고칠 것 없이 그대로 쓴다.
 // ============================================================
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -70,6 +72,12 @@ export interface FeedSlideArgs<T> {
   onPick: (id: string) => void;
   /** 이 칸으로 넘긴다 (썸네일을 눌렀을 때) */
   onFocus: () => void;
+  /** 몇 번째 칸인가 (0부터) · 전체 칸 수 — 영상 밑 「1 / 4」 */
+  index: number;
+  total: number;
+  /** 다음 · 이전 칸으로 넘긴다 */
+  onNext: () => void;
+  onPrev: () => void;
 }
 
 /**
@@ -87,6 +95,7 @@ export function ShortsFeedSheet<T extends { id: string }>({
   emptyTitle = "넘겨 볼 영상이 없습니다",
   emptyDescription = "필터를 풀거나 다른 탭을 고르세요.",
   onKey,
+  subtitle,
 }: {
   /** 처음 보여 줄 영상 id (null = 닫힘) */
   startId: string | null;
@@ -100,6 +109,8 @@ export function ShortsFeedSheet<T extends { id: string }>({
   emptyDescription?: string;
   /** 화면마다 더 받는 키 (예: 레이더의 1 · 2 · 0 촬영 표시) — 처리했으면 true */
   onKey?: (key: string, item: T, e: KeyboardEvent) => boolean;
+  /** 제목 아래 한 줄 (예: 「AI 레이더 · 마지막 위치에서 이어 보기」) */
+  subtitle?: ReactNode;
 }) {
   const width = useFeedWidth();
   const [active, setActive] = useState(0);
@@ -220,27 +231,29 @@ export function ShortsFeedSheet<T extends { id: string }>({
       width={width}
       ariaLabel={ariaLabel}
       title={
-        <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span>쇼츠처럼 보기</span>
-          <span className="nd-num text-[13px] font-normal text-nd-fg-2" aria-live="polite">
-            {groups.length ? `${cur + 1} / ${groups.length}` : "0 / 0"}
+        <span className="flex flex-col gap-1">
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>쇼츠처럼 보기</span>
+            <span className="nd-num text-[13px] font-normal text-nd-fg-2" aria-live="polite">
+              {groups.length ? `${cur + 1} / ${groups.length}` : "0 / 0"}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <IconButton icon={ChevronUp} label="이전 (↑)" variant="secondary" size="sm" data-feed-key disabled={cur <= 0} onClick={() => go(-1)} />
+              <IconButton icon={ChevronDown} label="다음 (↓)" variant="secondary" size="sm" data-feed-key disabled={cur >= groups.length - 1} onClick={() => go(1)} />
+              <IconButton
+                icon={ChevronsUp}
+                label="처음으로"
+                variant="secondary"
+                size="sm"
+                data-feed-key
+                disabled={cur <= 0}
+                onClick={() => {
+                  if (scroller.current) scroller.current.scrollTop = 0;
+                }}
+              />
+            </span>
           </span>
-          <span className="inline-flex items-center gap-1">
-            <IconButton icon={ChevronUp} label="이전 (↑)" variant="secondary" size="sm" data-feed-key disabled={cur <= 0} onClick={() => go(-1)} />
-            <IconButton icon={ChevronDown} label="다음 (↓)" variant="secondary" size="sm" data-feed-key disabled={cur >= groups.length - 1} onClick={() => go(1)} />
-            <IconButton
-              icon={ChevronsUp}
-              label="처음으로"
-              variant="secondary"
-              size="sm"
-              data-feed-key
-              disabled={cur <= 0}
-              onClick={() => {
-                if (scroller.current) scroller.current.scrollTop = 0;
-              }}
-            />
-          </span>
-          <span className="hidden text-[13px] font-normal text-nd-fg-3 md:inline">{hint}</span>
+          {subtitle && <span className="text-[13px] font-normal text-nd-fg-3">{subtitle}</span>}
         </span>
       }
     >
@@ -249,35 +262,50 @@ export function ShortsFeedSheet<T extends { id: string }>({
           <EmptyState compact icon={GalleryVerticalEnd} title={emptyTitle} description={emptyDescription} />
         </div>
       ) : (
-        <div ref={setScroller} onScroll={onScroll} data-shorts-feed data-feed-key className="h-full snap-y snap-mandatory overflow-y-auto overscroll-contain">
-          {groups.map((g, idx) => {
-            const near = Math.abs(idx - cur) <= 2;
-            const item = g.items.find((x) => x.id === picked[g.key]) ?? g.items[0];
-            return (
-              <section key={g.key} data-feed-slide={idx} aria-label={`${idx + 1}번째`} className="h-full snap-start snap-always">
-                {near &&
-                  renderSlide({
-                    item,
-                    group: g.items,
-                    active: idx === cur,
-                    onPick: (id) => setPicked((p) => ({ ...p, [g.key]: id })),
-                    onFocus: () => go(idx - activeRef.current),
-                  })}
-              </section>
-            );
-          })}
+        <div className="flex h-full min-h-0 flex-col">
+          <div ref={setScroller} onScroll={onScroll} data-shorts-feed data-feed-key className="min-h-0 flex-1 snap-y snap-mandatory overflow-y-auto overscroll-contain">
+            {groups.map((g, idx) => {
+              const near = Math.abs(idx - cur) <= 2;
+              const item = g.items.find((x) => x.id === picked[g.key]) ?? g.items[0];
+              return (
+                <section key={g.key} data-feed-slide={idx} aria-label={`${idx + 1}번째`} className="h-full snap-start snap-always">
+                  {near &&
+                    renderSlide({
+                      item,
+                      group: g.items,
+                      active: idx === cur,
+                      onPick: (id) => setPicked((p) => ({ ...p, [g.key]: id })),
+                      onFocus: () => go(idx - activeRef.current),
+                      index: idx,
+                      total: groups.length,
+                      onNext: () => go(1),
+                      onPrev: () => go(-1),
+                    })}
+                </section>
+              );
+            })}
+          </div>
+          {/* 단축키 안내 — 드로어 아래에 늘 (손가락으로 넘기는 좁은 화면에서는 뺀다) */}
+          <p data-feed-hint className="hidden shrink-0 border-t border-nd-line bg-nd-sunken/70 px-5 py-2.5 text-right text-[13px] text-nd-fg-2 sm:block">
+            단축키 · {hint}
+          </p>
         </div>
       )}
     </Sheet>
   );
 }
 
-/** 쇼츠 한 칸 — 왼쪽 세로 영상, 오른쪽(좁으면 아래) 정보 */
-export function FeedSlideLayout({ video, children }: { video: ReactNode; children: ReactNode }) {
+/** 쇼츠 한 칸 — 왼쪽 세로 영상(+ 밑 한 줄), 오른쪽(좁으면 아래) 정보 */
+export function FeedSlideLayout({ video, children, videoFooter }: { video: ReactNode; children: ReactNode; videoFooter?: ReactNode }) {
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-4 pt-0 sm:flex-row sm:gap-5">
-      <div className="flex min-h-0 flex-1 items-center justify-center sm:h-full sm:flex-none">
-        <div className="relative aspect-[9/16] h-full max-w-full overflow-hidden rounded-nd-lg bg-black">{video}</div>
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 sm:h-full sm:flex-none">
+        {/* 영상 밑 한 줄이 있으면 그만큼 영상 높이를 줄인다 (9:16 은 그대로) */}
+        <div className="relative aspect-[9/16] max-w-full overflow-hidden rounded-nd-lg bg-black" style={{ height: videoFooter ? "calc(100% - 44px)" : "100%" }}>
+          {video}
+        </div>
+        {/* [contain:inline-size] — 밑 줄의 글자가 영상보다 넓어도 칸 폭은 영상 폭 그대로 */}
+        {videoFooter && <div className="flex h-9 w-full min-w-0 shrink-0 items-center [contain:inline-size]">{videoFooter}</div>}
       </div>
       <div className="flex max-h-[46%] min-w-0 flex-col gap-3 overflow-y-auto sm:h-full sm:max-h-none sm:flex-1">{children}</div>
     </div>

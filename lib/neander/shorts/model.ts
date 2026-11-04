@@ -214,8 +214,9 @@ export function fmtCount(n: number | null | undefined): string {
   return n.toLocaleString("ko-KR");
 }
 
+// 소수점 뒤의 0 만 지운다 — 예전 식(/\.?0+$/)은 자릿수 0 일 때 정수 끝의 0 까지 지워 0 → 「%」 · 50% → 「5%」 가 됐다
 export const fmtPct = (r: number | null, digits = 2) =>
-  r === null || !Number.isFinite(r) ? "—" : `${(r * 100).toFixed(digits).replace(/\.?0+$/, "")}%`;
+  r === null || !Number.isFinite(r) ? "—" : `${(r * 100).toFixed(digits).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "")}%`;
 
 export function fmtSec(sec: number | null | undefined): string {
   if (sec === null || sec === undefined || !Number.isFinite(sec)) return "—";

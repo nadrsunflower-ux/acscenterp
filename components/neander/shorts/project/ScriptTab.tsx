@@ -8,11 +8,17 @@
 //
 //  URL 은 읽지 않는다. 분석의 근거는 화면에 그대로 적는다 — 「붙여 넣은 대본」 ·
 //  「사람이 적은 장면 시각」 · 「URL 미열람」. 대본만 붙여 넣었으면 시각 칸은 비어 있다.
+//
+//  2026-11 목업 개편(12-video): 작업 가까이 —
+//   [공식 · 생성 설정 | 확인된 사실] → 대본 · 자막 표 → 과장 문구 검사(빨간 물결 밑줄) → CTA
+//   → 참고 영상 · 구성 분석(버전 기록 · 성공 공식으로 저장). 생성 버튼 옆에 예상 비용.
+//   AI 대본에는 하루 상한 로직이 없다 — 상한을 지어내 그리지 않는다.
 // ============================================================
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, FileText, History, Plus, Save, Sparkles, Trash2, WandSparkles } from "lucide-react";
-import { BLUE_RAMP, Badge, Button, Card, Dialog, EmptyState, Field, FormRow, IconButton, InlineNotice, Input, NumberInput, SectionHeader, Select, Table, TableScroll, Td, Textarea, Th, Tr, useConfirm } from "@/components/neander/ui";
+import Link from "next/link";
+import { ArrowDown, ArrowUp, CircleAlert, FileText, History, Pencil, Plus, Save, Sparkles, Trash2, WandSparkles } from "lucide-react";
+import { BLUE_RAMP, Badge, Button, Dialog, EmptyState, Field, FormRow, IconButton, Input, NumberInput, Select, Table, TableScroll, Td, Textarea, Th, Tr, buttonClass, cn, useConfirm } from "@/components/neander/ui";
 import { mutate, shortsPost } from "@/lib/neander/shorts/client";
 import { BEAT_LABEL, CTA_LABEL, draftFromTemplate, emptyAnalysis, emptyBeat, fmtSec, newId, parseTimingNotes, scanClaims } from "@/lib/neander/shorts/model";
 import { FIN_AI_MODELS, DEFAULT_FIN_AI_MODEL } from "@/lib/neander/ai/models";
@@ -20,6 +26,7 @@ import type { BeatKey, CtaType, FormulaAnalysis, ProjectDoc, TemplateDoc, Versio
 import { spaceOf } from "@/lib/neander/shorts/spaces";
 import { useShorts, type WithId } from "../ShortsProvider";
 import { fmtUsd, fmtWhen, useAction } from "../parts";
+import { AiCostNote, StudioCard, StudioNotice } from "../studio";
 import type { Draft } from "../useProjectDraft";
 
 const BEAT_KEYS = Object.keys(BEAT_LABEL) as BeatKey[];
@@ -37,7 +44,11 @@ export function ScriptTab({ draft }: { draft: Draft }) {
   const aiReady = d.status.openrouter.configured;
   const template = d.templates.find((t) => t.id === p.templateId) ?? null;
   const a = p.analysis;
-  const flags = useMemo(() => scanClaims(p.script.lines.map((l) => `${l.text}\n${l.caption}`).join("\n"), p.facts), [p.script.lines, p.facts]);
+  // 고객사 영상은 그 업체의 금지 표현도 함께 찾는다 (화면 검사 · 게시 전 점검과 같은 목록)
+  const banned = useMemo(() => (p.kind === "brand" ? d.clients.find((c) => c.id === p.clientId)?.brief.banned ?? [] : []), [p.kind, p.clientId, d.clients]);
+  const flags = useMemo(() => scanClaims(p.script.lines.map((l) => `${l.text}\n${l.caption}`).join("\n"), p.facts, banned), [p.script.lines, p.facts, banned]);
+  // 줄마다 걸린 표현 — 표의 표시 · 아래 검사 칸의 빨간 밑줄
+  const lineFlags = useMemo(() => p.script.lines.map((l) => scanClaims(`${l.text}\n${l.caption}`, p.facts, banned)), [p.script.lines, p.facts, banned]);
   // 줄마다 화면 시각 — 자막 시각이 있으면 그것, 없으면 연결한 장면의 타임라인 위치
   const lineTimes = useMemo(() => {
     const scenes = new Map<string, { start: number; end: number }>();
@@ -66,180 +77,280 @@ export function ScriptTab({ draft }: { draft: Draft }) {
     }, ok);
 
   const addLine = () => update((x) => void x.script.lines.push({ id: newId("ln_"), beat: "demo", text: "", caption: "", sceneId: null }));
+  // 예상 비용 — 기본 모델(Gemini Flash)은 보통 $0.01 아래 (실제 비용은 끝난 뒤 이 영상의 비용 기록에 붙는다)
+  const modelOpt = FIN_AI_MODELS.find((m) => m.id === model);
+  const estimate = model === DEFAULT_FIN_AI_MODEL ? "보통 $0.01 아래" : `${modelOpt?.label ?? "이 모델"} — 기본 모델보다 비쌈`;
+  const spentText = p.costs.filter((c) => c.kind === "ai_text").reduce((n, c) => n + (c.usd ?? 0), 0);
+  const chars = p.script.lines.reduce((n, l) => n + l.text.length, 0);
 
   return (
-    <div className="space-y-10">
-      {/* ---- 참고 자료 ---- */}
-      <section>
-        <SectionHeader size="lg" title="참고 자료" hint="잘된 쇼츠의 대본과 장면 시각" action={<Button size="sm" variant="secondary" icon={History} onClick={() => setHistoryOpen(true)}>버전 기록</Button>} />
-        <Card className="space-y-4">
-          <FormRow className="grid-cols-1 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-            <Field label="참고 영상 URL" hint="링크는 기록일 뿐 — 서버가 열어 보지 않습니다">
-              <Input value={p.reference.url} onChange={(e) => update((x) => void (x.reference.url = e.target.value))} placeholder="https://www.youtube.com/watch?v=…" />
-            </Field>
-            <Field label="제목"><Input value={p.reference.title} onChange={(e) => update((x) => void (x.reference.title = e.target.value))} /></Field>
-          </FormRow>
-          <FormRow className="grid-cols-1 lg:grid-cols-2">
-            <Field label="대본 · 자막 (붙여 넣기)" hint="영상을 보고 받아 적거나 자막을 복사해 넣으세요">
-              <Textarea rows={7} value={p.reference.transcript} onChange={(e) => update((x) => void (x.reference.transcript = e.target.value))} />
-            </Field>
-            <Field label="장면 시각 메모" hint="한 줄에 하나: 0:00-0:02 후킹 컷 2 / 0:02-0:06 문제 제기 …">
-              <Textarea rows={7} value={p.reference.timing} onChange={(e) => update((x) => void (x.reference.timing = e.target.value))} placeholder={"0:00-0:02 후킹 (손으로 휙 펼침) 컷 2\n0:02-0:06 문제 제기 · 좁은 주방\n0:06-0:15 제품 등장 · 사용 장면\n0:15-0:20 댓글 키워드 CTA"} />
-            </Field>
-          </FormRow>
-        </Card>
-      </section>
+    <div className="space-y-6">
+      {!aiReady && (
+        <StudioNotice tone="neutral" title="AI 를 쓸 수 없습니다">
+          OPENROUTER_API_KEY 가 없어 AI 분석 · 대본은 쓸 수 없습니다. 공식 초안 · 시각 메모로 표를 만들고 직접 채울 수 있습니다.
+        </StudioNotice>
+      )}
 
-      {/* ---- 구성 분석 ---- */}
-      <section>
-        <SectionHeader
-          size="lg"
-          title="구성 분석"
-          hint={a ? (a.by === "ai" ? `AI 분석 · ${a.model ?? ""}` : a.model ? `AI 초안을 사람이 고침 · ${a.model}` : "사람이 작성") : "아직 없음"}
-        />
-        <div className="mb-3 flex flex-wrap gap-2">
-          <Button size="sm" variant="secondary" disabled={!p.reference.timing.trim()} onClick={() => {
-            const { beats, cuts } = parseTimingNotes(p.reference.timing);
-            if (!beats.length) return;
-            update((x) => {
-              const total = Math.max(...beats.map((b) => b.endSec ?? 0));
-              x.analysis = {
-                ...(x.analysis ?? emptyAnalysis()),
-                basis: [...new Set([...(x.analysis?.basis ?? []), "timing" as const])],
-                urlRead: false,
-                refs: x.reference.url ? [{ url: x.reference.url, title: x.reference.title }] : [],
-                beats,
-                totalSec: total,
-                cutCount: cuts || beats.length,
-                avgShotSec: Math.round((total / Math.max(1, cuts || beats.length)) * 10) / 10,
-                productRevealSec: beats.find((b) => b.key === "reveal")?.startSec ?? null,
-                by: "manual",
-              };
-            });
-          }}>
-            시각 메모로 표 만들기 (AI 없이)
-          </Button>
-          <Button size="sm" icon={WandSparkles} disabled={!aiReady || busy === "analyze" || !(p.reference.transcript.trim() || p.reference.timing.trim())} onClick={() => void ai("analyze", {}, "구성을 분석했습니다 (붙여 넣은 글 기준).")}>
-            AI 로 분석
-          </Button>
-        </div>
-        {!aiReady && <InlineNotice tone="neutral" className="mb-3">OPENROUTER_API_KEY 가 없어 AI 분석 · 대본은 쓸 수 없습니다. 시각 메모로 표를 만들고 직접 채울 수 있습니다.</InlineNotice>}
-        {a ? <AnalysisEditor a={a} onChange={(fn) => update((x) => { if (x.analysis) fn(x.analysis); })} /> : <p className="rounded-nd-md border border-dashed border-nd-strong px-4 py-4 text-nd-body text-nd-fg-3">참고 자료를 넣고 분석하면 후킹 · 문제 · 제품 등장 · CTA 의 순서와 타이밍이 표로 나옵니다.</p>}
-        {a && a.beats.length > 0 && (
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <SaveTemplate projectId={p.id} defaultName={`${p.product || p.title} 공식`} onSaved={async (id) => { await refresh(); update((x) => void (x.templateId = id)); }} flush={flush} />
-            <span className="text-[13px] text-nd-fg-3">시각을 비율로 바꿔 저장합니다 — 길이가 다른 영상에도 옮겨 쓸 수 있습니다.</span>
+      {/* ---- 공식 · 생성 설정 | 확인된 사실 ---- */}
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+        <StudioCard title="공식 · 생성 설정" description={template ? `공식: ${template.name}` : "공식 없이 — 성공 공식을 고르면 구성 순서 · 타이밍을 옮겨 씁니다"}>
+          <div className="space-y-4">
+            <FormRow className="grid-cols-1 sm:grid-cols-2">
+              <Field label="적용할 성공 공식">
+                <Select value={p.templateId ?? ""} onChange={(e) => update((x) => void (x.templateId = e.target.value || null))}>
+                  <option value="">(공식 없음)</option>
+                  {d.templates
+                    .filter((t) => spaceOf(t) === spaceOf(p) || t.id === p.templateId)
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                </Select>
+              </Field>
+              <Field label="AI 모델">
+                <Select value={model} onChange={(e) => setModel(e.target.value)}>
+                  {FIN_AI_MODELS.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label} · {m.note}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="영상 길이 (초)">
+                <NumberInput value={targetSec} onValueChange={(r) => setTargetSec(Math.min(90, Math.max(10, Number(r) || 30)))} />
+              </Field>
+              <Field label="이 상품이 푸는 문제">
+                <Input value={problem} onChange={(e) => setProblem(e.target.value)} placeholder="예: 좁은 주방에 둘 곳이 없음" />
+              </Field>
+            </FormRow>
+            {template && <TemplateTimeline t={template} targetSec={targetSec} />}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="secondary"
+                icon={FileText}
+                disabled={!template}
+                title={!template ? "성공 공식을 먼저 고르세요" : undefined}
+                onClick={async () => {
+                  if (p.script.lines.length && !(await ask({ title: "대본을 새로 만들까요?", message: "지금 대본과 장면을 공식 초안으로 바꿉니다. 지금 것은 버전 기록에 남습니다.", confirmLabel: "바꾸기" }))) return;
+                  await run("tpl", async () => {
+                    await flush();
+                    if (p.script.lines.length) await mutate("version.save", { projectId: p.id, kind: "script", note: "공식 초안 전 모습" });
+                    const draftOut = draftFromTemplate(template!, { product: p.product, problem, facts: p.facts, keyword: p.cta.keyword, targetSec });
+                    update((x) => {
+                      x.script.lines = draftOut.lines;
+                      x.scenes = draftOut.scenes;
+                      x.subtitles = { cues: [], edited: false };
+                      x.cta = { ...template!.cta, keyword: x.cta.keyword || template!.cta.keyword };
+                    });
+                  });
+                }}
+              >
+                공식으로 초안 (AI 없이 · 확인된 사실만)
+              </Button>
+              <Button
+                icon={Sparkles}
+                loading={busy === "script"}
+                disabled={!aiReady || busy === "script" || !p.product.trim()}
+                title={!p.product.trim() ? "소스 탭에서 상품 이름을 먼저 적어 주세요" : undefined}
+                onClick={async () => {
+                  if (p.script.lines.length && !(await ask({ title: "AI 로 대본을 새로 만들까요?", message: "지금 대본과 장면은 버전 기록에 남고, 새 대본 · 장면으로 바뀝니다. 비용은 보통 $0.01 아래입니다.", confirmLabel: "만들기" }))) return;
+                  await ai("script", { targetSec, problem }, "AI 대본을 만들었습니다 — 확인된 사실 밖의 말이 없는지 읽어 보세요.");
+                }}
+              >
+                AI 로 대본 · 스토리보드
+              </Button>
+            </div>
+            <div className="space-y-1">
+              <AiCostNote label="AI 대본" estimate={estimate} />
+              {aiReady && <p className="text-[13px] text-nd-fg-3">이 영상의 AI 글 비용 합 {fmtUsd(spentText)} · 쓴 비용은 끝난 뒤 영상의 비용 기록에 붙습니다.</p>}
+            </div>
+            <p className="text-[13px] leading-relaxed text-nd-fg-3">
+              AI 에는 「확인된 사실」 만 넘기고, 가격 · 할인 · 순위 · 효능 · 후기 · 거짓 품절 표현과 구매와 무관한 클릭 부탁을 금지합니다. 결과에서도 아래 검사가 한 번 더 찾습니다.
+            </p>
           </div>
-        )}
-      </section>
+        </StudioCard>
 
-      {/* ---- 새 대본 ---- */}
-      <section>
-        <SectionHeader size="lg" title="새 대본 · 스토리보드" hint={template ? `공식: ${template.name}` : "공식 없이"} />
-        <Card className="space-y-4">
-          <FormRow className="grid-cols-1 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,0.5fr)_minmax(0,1.5fr)]">
-            <Field label="적용할 성공 공식">
-              <Select value={p.templateId ?? ""} onChange={(e) => update((x) => void (x.templateId = e.target.value || null))}>
-                <option value="">(공식 없음)</option>
-                {d.templates.filter((t) => spaceOf(t) === spaceOf(p) || t.id === p.templateId).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </Select>
-            </Field>
-            <Field label="AI 모델">
-              <Select value={model} onChange={(e) => setModel(e.target.value)}>
-                {FIN_AI_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label} · {m.note}</option>)}
-              </Select>
-            </Field>
-            <Field label="길이 (초)"><NumberInput value={targetSec} onValueChange={(r) => setTargetSec(Math.min(90, Math.max(10, Number(r) || 30)))} /></Field>
-            <Field label="이 상품이 푸는 문제"><Input value={problem} onChange={(e) => setProblem(e.target.value)} placeholder="예: 좁은 주방에 둘 곳이 없음" /></Field>
-          </FormRow>
-          {template && <TemplateTimeline t={template} targetSec={targetSec} />}
-          <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" disabled={!template} onClick={async () => {
-              if (p.script.lines.length && !(await ask({ title: "대본을 새로 만들까요?", message: "지금 대본과 장면을 공식 초안으로 바꿉니다. 지금 것은 버전 기록에 남습니다.", confirmLabel: "바꾸기" }))) return;
-              await run("tpl", async () => {
-                await flush();
-                if (p.script.lines.length) await mutate("version.save", { projectId: p.id, kind: "script", note: "공식 초안 전 모습" });
-                const draftOut = draftFromTemplate(template!, { product: p.product, problem, facts: p.facts, keyword: p.cta.keyword, targetSec });
-                update((x) => {
-                  x.script.lines = draftOut.lines;
-                  x.scenes = draftOut.scenes;
-                  x.subtitles = { cues: [], edited: false };
-                  x.cta = { ...template!.cta, keyword: x.cta.keyword || template!.cta.keyword };
-                });
-              });
-            }}>
-              공식으로 초안 (AI 없이 · 확인된 사실만)
-            </Button>
-            <Button icon={Sparkles} disabled={!aiReady || busy === "script" || !p.product.trim()} onClick={async () => {
-              if (p.script.lines.length && !(await ask({ title: "AI 로 대본을 새로 만들까요?", message: "지금 대본과 장면은 버전 기록에 남고, 새 대본 · 장면으로 바뀝니다. 비용은 보통 $0.01 아래입니다.", confirmLabel: "만들기" }))) return;
-              await ai("script", { targetSec, problem }, "AI 대본을 만들었습니다 — 확인된 사실 밖의 말이 없는지 읽어 보세요.");
-            }}>
-              AI 로 대본 · 스토리보드
-            </Button>
+        <StudioCard
+          title="확인된 사실"
+          description="대본 · AI 가 쓸 수 있는 것은 여기 적힌 사실뿐입니다"
+          action={
+            <Link href={`/neander/shorts/projects/${p.id}?tab=sources`} replace scroll={false} className={buttonClass("secondary", "sm", "gap-1.5")}>
+              <Pencil size={14} aria-hidden />
+              소스 탭에서 고치기
+            </Link>
+          }
+        >
+          <div className="space-y-4">
+            {p.facts.length ? (
+              <ul className="space-y-1.5 text-nd-body text-nd-fg">
+                {p.facts.map((f, i) => (
+                  <li key={i} className="flex gap-2">
+                    <span aria-hidden className="mt-[9px] h-1.5 w-1.5 shrink-0 rounded-full bg-nd-fg-3" />
+                    <span className="min-w-0 break-keep">{f}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-nd-body text-nd-fg-3">아직 적은 사실이 없습니다. 소스 탭의 「확인된 사실」 에 상품 설명서 · 상세 페이지에서 확인한 것을 적어 주세요.</p>
+            )}
+            {flags.length > 0 ? (
+              <StudioNotice tone="warning" title={`표현 ${flags.length}개를 확인해 주세요`}>
+                {flags.slice(0, 3).map((f) => `「${f.phrase}」 ${f.message}`).join(" · ")}
+                {flags.length > 3 ? ` 외 ${flags.length - 3}개` : ""}
+              </StudioNotice>
+            ) : null}
+            <p className="text-[13px] text-nd-fg-3">검사 대상: 대본(읽을 말) · 화면 자막{banned.length ? ` · 고객사 금지 표현 ${banned.length}개` : ""} — 게시 문구는 게시 전 점검에서 한 번 더 봅니다.</p>
           </div>
-          <p className="text-[13px] text-nd-fg-3">
-            AI 에는 「확인된 사실」 만 넘기고, 가격 · 할인 · 순위 · 효능 · 후기 · 거짓 품절 표현과 구매와 무관한 클릭 부탁을 금지합니다. 결과에서도 아래 검사가 한 번 더 찾습니다.
-          </p>
-        </Card>
-      </section>
+        </StudioCard>
+      </div>
 
-      {/* ---- 대본 줄 ---- */}
-      <section>
-        <SectionHeader
-          size="lg"
-          title="대본"
-          hint={`${p.script.lines.length}줄 · ${p.script.lines.reduce((n, l) => n + l.text.length, 0)}자${p.scenes.length ? ` · 장면 ${p.scenes.length}개` : ""}`}
-          action={<Button size="sm" variant="secondary" icon={Plus} onClick={addLine}>줄 추가</Button>}
-        />
-        {flags.length > 0 && (
-          <InlineNotice tone="warning" className="mb-3">
-            확인할 표현: {flags.map((f) => `「${f.phrase}」(${f.message})`).join(" · ")}
-          </InlineNotice>
-        )}
+      {/* ---- 대본 · 자막 ---- */}
+      <StudioCard
+        flush
+        title="대본 · 자막"
+        description={`${p.script.lines.length}줄 · ${chars.toLocaleString("ko-KR")}자${p.scenes.length ? ` · 장면 ${p.scenes.length}개` : ""}`}
+        action={
+          <Button size="sm" variant="secondary" icon={Plus} onClick={addLine}>
+            줄 추가
+          </Button>
+        }
+      >
         {p.script.lines.length === 0 ? (
-          <EmptyState compact icon={FileText} title="대본이 없습니다" description="위에서 공식 초안이나 AI 대본을 만들거나, 줄을 직접 추가하세요." action={<Button size="sm" variant="secondary" icon={Plus} onClick={addLine}>줄 추가</Button>} />
+          <div className="px-5 pb-5 sm:px-6">
+            <EmptyState
+              compact
+              icon={FileText}
+              title="대본이 없습니다"
+              description="위에서 공식 초안이나 AI 대본을 만들거나, 줄을 직접 추가하세요."
+              action={
+                <Button size="sm" variant="secondary" icon={Plus} onClick={addLine}>
+                  줄 추가
+                </Button>
+              }
+            />
+          </div>
         ) : (
-          <Card padding="none">
+          <>
+            {/* 모바일 — 줄마다 카드 (같은 입력칸 · 같은 동작) */}
+            <ol className="space-y-2.5 px-4 pb-1 md:hidden" aria-label="대본 줄">
+              {p.script.lines.map((l, i) => {
+                const tm = lineTimes.get(l.id) ?? null;
+                const lf = lineFlags[i] ?? [];
+                return (
+                  <li key={l.id} className={cn("rounded-nd-lg border border-nd-line bg-nd-content p-3.5", lf.length > 0 && "border-nd-danger/40 bg-nd-danger-soft/30")}>
+                    <div className="mb-2.5 flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-1.5 text-[13px] font-semibold text-nd-fg">
+                        {lf.length > 0 && <CircleAlert size={14} aria-label={`확인할 표현 ${lf.length}개`} className="text-nd-danger-text" />}
+                        {i + 1}번 줄
+                        <span className="nd-num font-normal text-nd-fg-3">{tm ? `${fmtClock(tm.start)}–${fmtClock(tm.end)}` : "시각 —"}</span>
+                      </span>
+                      <span className="flex">
+                        <IconButton icon={ArrowUp} label="위로" disabled={i === 0} onClick={() => update((x) => void x.script.lines.splice(i - 1, 0, x.script.lines.splice(i, 1)[0]))} />
+                        <IconButton icon={ArrowDown} label="아래로" disabled={i === p.script.lines.length - 1} onClick={() => update((x) => void x.script.lines.splice(i + 1, 0, x.script.lines.splice(i, 1)[0]))} />
+                        <IconButton icon={Trash2} label="줄 지우기" onClick={() => update((x) => void x.script.lines.splice(i, 1))} />
+                      </span>
+                    </div>
+                    <div className="space-y-3">
+                      <FormRow className="grid-cols-2">
+                        <Field label="구성">
+                          <Select value={l.beat} onChange={(e) => update((x) => void (x.script.lines[i].beat = e.target.value as BeatKey))}>
+                            {BEAT_KEYS.map((k) => (
+                              <option key={k} value={k}>
+                                {BEAT_LABEL[k]}
+                              </option>
+                            ))}
+                          </Select>
+                        </Field>
+                        <Field label="연결 장면">
+                          <Select value={l.sceneId ?? ""} onChange={(e) => update((x) => void (x.script.lines[i].sceneId = e.target.value || null))}>
+                            <option value="">(연결 안 됨)</option>
+                            {p.scenes.map((sc, si) => (
+                              <option key={sc.id} value={sc.id}>
+                                #{si + 1} {sc.label || sc.kind}
+                              </option>
+                            ))}
+                          </Select>
+                        </Field>
+                      </FormRow>
+                      <Field label="읽을 말 (내레이션)">
+                        <Input value={l.text} onChange={(e) => update((x) => void (x.script.lines[i].text = e.target.value))} />
+                      </Field>
+                      <Field label="화면 자막 (비우면 같은 말)">
+                        <Input value={l.caption} placeholder={l.text} onChange={(e) => update((x) => void (x.script.lines[i].caption = e.target.value))} />
+                      </Field>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+            <div className="hidden md:block">
             <TableScroll>
               <Table size="md" minWidth={1000}>
                 <thead>
                   <tr>
-                    <Th className="w-10" align="right">#</Th>
-                    <Th className="w-[8.5rem]">구간</Th>
-                    <Th className="w-24" align="right">시각</Th>
+                    <Th className="w-12 pl-5" align="right">
+                      #
+                    </Th>
+                    <Th className="w-24" align="right">
+                      구간
+                    </Th>
+                    <Th className="w-[8.5rem]">구성</Th>
                     <Th className="min-w-[14rem]">읽을 말 (내레이션)</Th>
                     <Th className="min-w-[14rem]">화면 자막 (비우면 같은 말)</Th>
                     <Th className="w-44">연결 장면</Th>
-                    <Th className="w-[7.5rem]">작업</Th>
+                    <Th className="w-[7.5rem] pr-5">작업</Th>
                   </tr>
                 </thead>
                 <tbody>
                   {p.script.lines.map((l, i) => {
                     const tm = lineTimes.get(l.id) ?? null;
+                    const lf = lineFlags[i] ?? [];
                     return (
-                      <Tr key={l.id} hover={false}>
-                        <Td num muted>{i + 1}</Td>
-                        <Td>
-                          <Select value={l.beat} aria-label="구간" onChange={(e) => update((x) => void (x.script.lines[i].beat = e.target.value as BeatKey))}>
-                            {BEAT_KEYS.map((k) => <option key={k} value={k}>{BEAT_LABEL[k]}</option>)}
-                          </Select>
+                      <Tr key={l.id} hover={false} className={cn(lf.length > 0 && "bg-nd-danger-soft/40")}>
+                        <Td num muted className="pl-5">
+                          <span className="inline-flex items-center gap-1">
+                            {lf.length > 0 && <CircleAlert size={14} aria-label={`확인할 표현 ${lf.length}개`} className="text-nd-danger-text" />}
+                            {i + 1}
+                          </span>
                         </Td>
                         <Td num className="whitespace-nowrap">
                           {tm ? (
-                            <span title={tm.by}>{fmtClock(tm.start)}–{fmtClock(tm.end)}</span>
+                            <span title={tm.by}>
+                              {fmtClock(tm.start)}–{fmtClock(tm.end)}
+                            </span>
                           ) : (
-                            <span className="text-nd-fg-3" title="장면에 연결하면 시각이 나옵니다">—</span>
+                            <span className="text-nd-fg-3" title="장면에 연결하면 시각이 나옵니다">
+                              —
+                            </span>
                           )}
                         </Td>
-                        <Td><Input value={l.text} aria-label="읽을 말" title={l.text} onChange={(e) => update((x) => void (x.script.lines[i].text = e.target.value))} /></Td>
-                        <Td><Input value={l.caption} aria-label="자막" title={l.caption || l.text} placeholder={l.text} onChange={(e) => update((x) => void (x.script.lines[i].caption = e.target.value))} /></Td>
                         <Td>
-                          <Select aria-label="연결 장면" value={l.sceneId ?? ""} onChange={(e) => update((x) => void (x.script.lines[i].sceneId = e.target.value || null))}>
-                            <option value="">(연결 안 됨)</option>
-                            {p.scenes.map((s, si) => <option key={s.id} value={s.id}>#{si + 1} {s.label || s.kind}</option>)}
+                          <Select value={l.beat} aria-label="구성" onChange={(e) => update((x) => void (x.script.lines[i].beat = e.target.value as BeatKey))}>
+                            {BEAT_KEYS.map((k) => (
+                              <option key={k} value={k}>
+                                {BEAT_LABEL[k]}
+                              </option>
+                            ))}
                           </Select>
                         </Td>
                         <Td>
+                          <Input value={l.text} aria-label="읽을 말" title={l.text} onChange={(e) => update((x) => void (x.script.lines[i].text = e.target.value))} />
+                        </Td>
+                        <Td>
+                          <Input value={l.caption} aria-label="자막" title={l.caption || l.text} placeholder={l.text} onChange={(e) => update((x) => void (x.script.lines[i].caption = e.target.value))} />
+                        </Td>
+                        <Td>
+                          <Select aria-label="연결 장면" value={l.sceneId ?? ""} onChange={(e) => update((x) => void (x.script.lines[i].sceneId = e.target.value || null))}>
+                            <option value="">(연결 안 됨)</option>
+                            {p.scenes.map((s, si) => (
+                              <option key={s.id} value={s.id}>
+                                #{si + 1} {s.label || s.kind}
+                              </option>
+                            ))}
+                          </Select>
+                        </Td>
+                        <Td className="pr-5">
                           <div className="flex">
                             <IconButton icon={ArrowUp} label="위로" disabled={i === 0} onClick={() => update((x) => void x.script.lines.splice(i - 1, 0, x.script.lines.splice(i, 1)[0]))} />
                             <IconButton icon={ArrowDown} label="아래로" disabled={i === p.script.lines.length - 1} onClick={() => update((x) => void x.script.lines.splice(i + 1, 0, x.script.lines.splice(i, 1)[0]))} />
@@ -252,46 +363,242 @@ export function ScriptTab({ draft }: { draft: Draft }) {
                 </tbody>
               </Table>
             </TableScroll>
-          </Card>
+            </div>
+            <p className="px-5 py-3 text-[13px] text-nd-fg-3 sm:px-6">시각은 자막 시각이 있으면 그것을, 없으면 연결한 장면의 타임라인 위치를 보여 줍니다 (편집·출력 탭에서 맞춥니다).</p>
+          </>
         )}
-        {p.script.lines.length > 0 && (
-          <p className="mt-2 text-[13px] text-nd-fg-3">시각은 자막 시각이 있으면 그것을, 없으면 연결한 장면의 타임라인 위치를 보여 줍니다 (편집·출력 탭에서 맞춥니다).</p>
+      </StudioCard>
+
+      {/* ---- 과장 문구 검사 ---- */}
+      <StudioCard
+        title="과장 문구 검사"
+        description="빨간 물결 밑줄이 확인할 표현입니다 — 확인된 사실에 같은 말이 있으면 넘어갑니다"
+        action={
+          flags.length ? (
+            <Badge tone="warning" size="lg">
+              확인 필요 {flags.length}
+            </Badge>
+          ) : (
+            <Badge tone="success" size="lg">
+              의심 표현 없음
+            </Badge>
+          )
+        }
+      >
+        {lineFlags.some((x) => x.length) ? (
+          <ul className="divide-y divide-nd-line">
+            {p.script.lines.map((l, i) => {
+              const lf = lineFlags[i] ?? [];
+              if (!lf.length) return null;
+              const phrases = lf.map((f) => f.phrase);
+              return (
+                <li key={l.id} className="py-3 first:pt-0 last:pb-0">
+                  <p className="mb-1 text-[13px] font-medium text-nd-fg-2">
+                    {i + 1}번 줄 · {BEAT_LABEL[l.beat]}
+                  </p>
+                  {l.text && (
+                    <p className="text-nd-body text-nd-fg">
+                      <span className="mr-1.5 text-[13px] text-nd-fg-3">읽을 말</span>
+                      <Underlined text={l.text} phrases={phrases} />
+                    </p>
+                  )}
+                  {l.caption && (
+                    <p className="text-nd-body text-nd-fg">
+                      <span className="mr-1.5 text-[13px] text-nd-fg-3">자막</span>
+                      <Underlined text={l.caption} phrases={phrases} />
+                    </p>
+                  )}
+                  <ul className="mt-1 space-y-0.5">
+                    {lf.map((f, k) => (
+                      <li key={k} className="text-[13px] text-nd-danger-text">
+                        「{f.phrase}」 — {f.message}
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="text-nd-body text-nd-fg-3">{p.script.lines.length ? "의심 표현을 찾지 못했습니다 (사람의 확인을 대신하지 않습니다)." : "대본을 쓰면 여기서 가격 · 할인 · 효능 · 후기 · 클릭 유도 표현을 찾아 줍니다."}</p>
         )}
-      </section>
+        <p className="mt-3 text-[13px] text-nd-fg-3">제품 규격 · 가격 · 효능은 확인된 사실만 씁니다. 바꿀 말은 위 「대본 · 자막」 표에서 고칩니다.</p>
+      </StudioCard>
 
       {/* ---- CTA ---- */}
-      <section>
-        <SectionHeader size="lg" title="CTA (정보 요청 · 클릭)" hint="자발적인 정보 요청과 제휴 링크 클릭을 겨냥합니다" />
-        <Card className="space-y-3">
+      <StudioCard title="CTA (정보 요청 · 클릭)" description="자발적인 정보 요청과 제휴 링크 클릭을 겨냥합니다">
+        <div className="space-y-3">
           <FormRow className="grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,3fr)]">
             <Field label="방식">
               <Select value={p.cta.type} onChange={(e) => update((x) => void (x.cta.type = e.target.value as CtaType))}>
-                {(Object.keys(CTA_LABEL) as CtaType[]).map((k) => <option key={k} value={k}>{CTA_LABEL[k]}</option>)}
+                {(Object.keys(CTA_LABEL) as CtaType[]).map((k) => (
+                  <option key={k} value={k}>
+                    {CTA_LABEL[k]}
+                  </option>
+                ))}
               </Select>
             </Field>
-            <Field label="키워드"><Input value={p.cta.keyword} onChange={(e) => update((x) => void (x.cta.keyword = e.target.value))} placeholder="예: 선반" /></Field>
-            <Field label="게시 문구에 넣을 CTA"><Input value={p.cta.wording} onChange={(e) => update((x) => void (x.cta.wording = e.target.value))} placeholder="제품 정보가 궁금하면 댓글에 「선반」 남겨 주세요" /></Field>
+            <Field label="키워드">
+              <Input value={p.cta.keyword} onChange={(e) => update((x) => void (x.cta.keyword = e.target.value))} placeholder="예: 선반" />
+            </Field>
+            <Field label="게시 문구에 넣을 CTA">
+              <Input value={p.cta.wording} onChange={(e) => update((x) => void (x.cta.wording = e.target.value))} placeholder="제품 정보가 궁금하면 댓글에 「선반」 남겨 주세요" />
+            </Field>
           </FormRow>
-          <p className="text-[13px] text-nd-fg-3">
-            DM 은 먼저 요청한 사람에게만 보내고, 답장 첫 줄에도 고지 문구를 넣습니다 (쿠팡 운영정책 — 동의 없는 DM 금지). 자동 클릭 · 무차별 광고 DM 기능은 없습니다.
-          </p>
-        </Card>
-      </section>
+          <p className="text-[13px] text-nd-fg-3">DM 은 먼저 요청한 사람에게만 보내고, 답장 첫 줄에도 고지 문구를 넣습니다 (쿠팡 운영정책 — 동의 없는 DM 금지). 자동 클릭 · 무차별 광고 DM 기능은 없습니다.</p>
+        </div>
+      </StudioCard>
 
-      {historyOpen && <VersionHistory projectId={p.id} onClose={() => setHistoryOpen(false)} onRestore={(v) => {
-        update((x) => {
-          if (v.kind === "reference") x.reference = v.data as ProjectDoc["reference"];
-          if (v.kind === "analysis") x.analysis = v.data as FormulaAnalysis | null;
-          if (v.kind === "script") {
-            const s = v.data as { lines?: ProjectDoc["script"]["lines"]; script?: ProjectDoc["script"]; scenes?: ProjectDoc["scenes"] };
-            x.script = s.script ?? { lines: s.lines ?? [] };
-            if (s.scenes) x.scenes = s.scenes;
-          }
-        });
-        setHistoryOpen(false);
-      }} flush={flush} />}
-      {d.status.openrouter.configured && <p className="text-[13px] text-nd-fg-3">이 영상의 AI 글 비용 합: {fmtUsd(p.costs.filter((c) => c.kind === "ai_text").reduce((n, c) => n + (c.usd ?? 0), 0))}</p>}
+      {/* ---- 참고 영상 · 구성 분석 ---- */}
+      <StudioCard
+        title="참고 영상 · 구성 분석"
+        description="잘된 쇼츠의 대본과 장면 시각으로 구성을 뽑아 성공 공식으로 저장합니다"
+        action={
+          <Button size="sm" variant="secondary" icon={History} onClick={() => setHistoryOpen(true)}>
+            버전 기록
+          </Button>
+        }
+      >
+        <div className="space-y-4">
+          <FormRow className="grid-cols-1 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+            <Field label="참고 영상 URL" hint="링크는 기록일 뿐 — 서버가 열어 보지 않습니다">
+              <Input value={p.reference.url} onChange={(e) => update((x) => void (x.reference.url = e.target.value))} placeholder="https://www.youtube.com/watch?v=…" />
+            </Field>
+            <Field label="참고 제목">
+              <Input value={p.reference.title} onChange={(e) => update((x) => void (x.reference.title = e.target.value))} />
+            </Field>
+          </FormRow>
+          <FormRow className="grid-cols-1 lg:grid-cols-2">
+            <Field label="대본 · 자막 (붙여 넣기)" hint="영상을 보고 받아 적거나 자막을 복사해 넣으세요">
+              <Textarea rows={6} value={p.reference.transcript} onChange={(e) => update((x) => void (x.reference.transcript = e.target.value))} />
+            </Field>
+            <Field label="장면 시각 메모" hint="한 줄에 하나: 0:00-0:02 후킹 컷 2 / 0:02-0:06 문제 제기 …">
+              <Textarea
+                rows={6}
+                value={p.reference.timing}
+                onChange={(e) => update((x) => void (x.reference.timing = e.target.value))}
+                placeholder={"0:00-0:02 후킹 (손으로 휙 펼침) 컷 2\n0:02-0:06 문제 제기 · 좁은 주방\n0:06-0:15 제품 등장 · 사용 장면\n0:15-0:20 댓글 키워드 CTA"}
+              />
+            </Field>
+          </FormRow>
+
+          <div className="border-t border-nd-line pt-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <div className="min-w-0">
+                <h4 className="text-nd-section font-semibold text-nd-fg">구성 분석</h4>
+                <p className="text-[13px] text-nd-fg-3">{a ? (a.by === "ai" ? `AI 분석 · ${a.model ?? ""}` : a.model ? `AI 초안을 사람이 고침 · ${a.model}` : "사람이 작성") : "아직 없음"}</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={!p.reference.timing.trim()}
+                  onClick={() => {
+                    const { beats, cuts } = parseTimingNotes(p.reference.timing);
+                    if (!beats.length) return;
+                    update((x) => {
+                      const total = Math.max(...beats.map((b) => b.endSec ?? 0));
+                      x.analysis = {
+                        ...(x.analysis ?? emptyAnalysis()),
+                        basis: [...new Set([...(x.analysis?.basis ?? []), "timing" as const])],
+                        urlRead: false,
+                        refs: x.reference.url ? [{ url: x.reference.url, title: x.reference.title }] : [],
+                        beats,
+                        totalSec: total,
+                        cutCount: cuts || beats.length,
+                        avgShotSec: Math.round((total / Math.max(1, cuts || beats.length)) * 10) / 10,
+                        productRevealSec: beats.find((b) => b.key === "reveal")?.startSec ?? null,
+                        by: "manual",
+                      };
+                    });
+                  }}
+                >
+                  시각 메모로 표 만들기 (AI 없이)
+                </Button>
+                <Button
+                  size="sm"
+                  icon={WandSparkles}
+                  loading={busy === "analyze"}
+                  disabled={!aiReady || busy === "analyze" || !(p.reference.transcript.trim() || p.reference.timing.trim())}
+                  onClick={() => void ai("analyze", {}, "구성을 분석했습니다 (붙여 넣은 글 기준).")}
+                >
+                  AI 로 분석
+                </Button>
+                <AiCostNote compact estimate={estimate} />
+              </div>
+            </div>
+            {a ? (
+              <AnalysisEditor
+                a={a}
+                onChange={(fn) =>
+                  update((x) => {
+                    if (x.analysis) fn(x.analysis);
+                  })
+                }
+              />
+            ) : (
+              <p className="rounded-nd-md border border-dashed border-nd-strong px-4 py-4 text-nd-body text-nd-fg-3">참고 자료를 넣고 분석하면 후킹 · 문제 · 제품 등장 · CTA 의 순서와 타이밍이 표로 나옵니다.</p>
+            )}
+            {a && a.beats.length > 0 && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <SaveTemplate
+                  projectId={p.id}
+                  defaultName={`${p.product || p.title} 공식`}
+                  onSaved={async (id) => {
+                    await refresh();
+                    update((x) => void (x.templateId = id));
+                  }}
+                  flush={flush}
+                />
+                <span className="text-[13px] text-nd-fg-3">시각을 비율로 바꿔 저장합니다 — 길이가 다른 영상에도 옮겨 쓸 수 있습니다.</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </StudioCard>
+
+      {historyOpen && (
+        <VersionHistory
+          projectId={p.id}
+          onClose={() => setHistoryOpen(false)}
+          onRestore={(v) => {
+            update((x) => {
+              if (v.kind === "reference") x.reference = v.data as ProjectDoc["reference"];
+              if (v.kind === "analysis") x.analysis = v.data as FormulaAnalysis | null;
+              if (v.kind === "script") {
+                const s = v.data as { lines?: ProjectDoc["script"]["lines"]; script?: ProjectDoc["script"]; scenes?: ProjectDoc["scenes"] };
+                x.script = s.script ?? { lines: s.lines ?? [] };
+                if (s.scenes) x.scenes = s.scenes;
+              }
+            });
+            setHistoryOpen(false);
+          }}
+          flush={flush}
+        />
+      )}
     </div>
+  );
+}
+
+/** 글 속 확인할 표현에 빨간 물결 밑줄 (대소문자 무시) */
+function Underlined({ text, phrases }: { text: string; phrases: string[] }) {
+  const list = [...new Set(phrases.filter(Boolean))].sort((x, y) => y.length - x.length);
+  if (!list.length) return <>{text}</>;
+  const esc = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`(${list.map(esc).join("|")})`, "gi");
+  const parts = text.split(re);
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 === 1 ? (
+          <mark key={i} className="bg-transparent text-nd-danger-text underline decoration-nd-danger decoration-wavy decoration-[1.5px] underline-offset-4">
+            {part}
+          </mark>
+        ) : (
+          <span key={i}>{part}</span>
+        ),
+      )}
+    </>
   );
 }
 
@@ -299,7 +606,7 @@ function AnalysisEditor({ a, onChange }: { a: FormulaAnalysis; onChange: (fn: (a
   const timed = a.beats.filter((b) => b.startSec !== null && b.endSec !== null && b.endSec > b.startSec);
   const total = a.totalSec ?? Math.max(0, ...timed.map((b) => b.endSec ?? 0));
   return (
-    <Card className="space-y-4">
+    <div className="space-y-4 rounded-nd-md border border-nd-line bg-nd-sunken/50 p-4">
       <div className="flex flex-wrap gap-1.5">
         {a.basis.includes("transcript") && <Badge tone="info">근거: 붙여 넣은 대본</Badge>}
         {a.basis.includes("timing") && <Badge tone="info">근거: 사람이 적은 장면 시각</Badge>}
@@ -371,7 +678,7 @@ function AnalysisEditor({ a, onChange }: { a: FormulaAnalysis; onChange: (fn: (a
       </div>
       <Field label="한계 · 메모"><Textarea rows={2} value={a.notes} onChange={(e) => onChange((x) => void (x.notes = e.target.value))} /></Field>
       {a.by === "ai" && <p className="text-[13px] text-nd-fg-3">AI 비용 {fmtUsd(a.costUsd ?? null)} · 고치면 「사람이 고침」 으로 바뀝니다.</p>}
-    </Card>
+    </div>
   );
 }
 
@@ -412,7 +719,7 @@ function BeatBar({ title, note, total, segs, marker }: { title: string; note: st
                 title={`${b.label} · ${fmtClock(b.from)}–${fmtClock(b.to)}`}
               >
                 <span className="truncate text-[13px] font-semibold">{b.label}</span>
-                <span className="nd-num truncate text-[12px] text-nd-fg-2">{fmtClock(b.from)}–{fmtClock(b.to)}</span>
+                <span className="nd-num truncate text-[13px] text-nd-fg-2">{fmtClock(b.from)}–{fmtClock(b.to)}</span>
               </div>
             );
           })}
@@ -421,7 +728,7 @@ function BeatBar({ title, note, total, segs, marker }: { title: string; note: st
           <span aria-hidden className="absolute -bottom-1 -top-1 w-0.5 rounded bg-nd-accent" style={{ left: `${(marker / total) * 100}%` }} title={`제품 등장 ${fmtSec(marker)}`} />
         )}
       </div>
-      <div className="nd-num mt-1 flex justify-between text-[12px] text-nd-fg-3">
+      <div className="nd-num mt-1 flex justify-between text-[13px] text-nd-fg-3">
         <span>0:00</span>
         <span>{fmtClock(total)}</span>
       </div>
@@ -480,7 +787,7 @@ function VersionHistory({ projectId, onClose, onRestore, flush }: { projectId: s
             <li key={v.id} className="flex items-center gap-3 px-3 py-2">
               <Badge size="sm">{KIND[v.kind]}</Badge>
               <span className="min-w-0 flex-1 truncate text-nd-body">{v.note}</span>
-              <span className="text-nd-caption text-nd-fg-3">{v.by.split("@")[0]} · {fmtWhen(v.at)}</span>
+              <span className="text-[13px] text-nd-fg-3">{v.by.split("@")[0]} · {fmtWhen(v.at)}</span>
               <Button size="sm" variant="ghost" onClick={() => setView(v)}>보기</Button>
               <Button size="sm" variant="secondary" onClick={() => onRestore(v)}>되돌리기</Button>
             </li>
@@ -488,7 +795,7 @@ function VersionHistory({ projectId, onClose, onRestore, flush }: { projectId: s
         </ul>
       )}
       {view && (
-        <pre className="nd-scroll mt-3 max-h-72 overflow-auto rounded-nd-md bg-nd-fg/[.04] p-3 text-nd-caption">{JSON.stringify(view.data, null, 2)}</pre>
+        <pre className="nd-scroll mt-3 max-h-72 overflow-auto rounded-nd-md bg-nd-fg/[.04] p-3 text-[13px]">{JSON.stringify(view.data, null, 2)}</pre>
       )}
     </Dialog>
   );

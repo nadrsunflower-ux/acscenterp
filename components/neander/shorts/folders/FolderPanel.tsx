@@ -6,7 +6,8 @@
 //  · 맨 위 「전체 영상」 은 시스템 줄(굵게 · 영상 아이콘 · 더보기 없음), 아래가 사용자 폴더(폴더 아이콘 · 들여쓰기).
 //  · 폴더 이름 = 그 폴더를 연다 / 화살표 = 펼치기 · 접기만 / 더보기(⋯) = 이 안에 새 폴더 · 이름 바꾸기 · 지우기
 //    (마우스를 올리거나 Tab 으로 닿으면 보이고, 터치 화면에서는 늘 보인다).
-//  · 「새 폴더」 버튼은 한 곳 — 지금 고른 폴더 안에 만든다 (만들 자리를 버튼 아래에 적는다).
+//  · 「새 폴더」 버튼은 한 곳(칸 맨 아래) — 지금 고른 폴더 안에 만든다 (만들 자리를 버튼 아래에 적는다).
+//  · 2026-11 목업 개편: 칸 제목은 「폴더」, 바깥 흰 카드는 영상 화면이 씌운다.
 //  · 오른쪽 목록의 영상을 끌어 폴더 줄에 놓으면 옮긴다. 「전체 영상」 에 놓으면 폴더 밖으로.
 //    접힌 폴더 위에 잠시 머물면 펼친다.
 //  · 중첩 목록 + 링크/버튼으로 만든다 (role=tree 는 화살표 키 탐색을 다 갖추지 않으면 오히려 방해 — Q 와 같다).
@@ -136,7 +137,7 @@ export function FolderPanel(props: FolderPanelProps) {
                 >
                   {selected ? <FolderOpen size={17} aria-hidden className="shrink-0" /> : <Folder size={17} aria-hidden className="shrink-0 text-nd-fg-3" />}
                   <span className={cn("min-w-0 flex-1 truncate text-nd-body", selected && "font-semibold")}>{f.name}</span>
-                  <span className="nd-num shrink-0 text-[13px] text-nd-fg-3" title={`${n.toLocaleString("ko-KR")}편 · 하위 폴더 포함`}>
+                  <span className={cn("nd-num shrink-0 text-[13px]", selected ? "font-medium" : "text-nd-fg-3")} title={`${n.toLocaleString("ko-KR")}편 · 하위 폴더 포함`}>
                     {n.toLocaleString("ko-KR")}
                   </span>
                 </button>
@@ -155,10 +156,10 @@ export function FolderPanel(props: FolderPanelProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="shrink-0 px-4 pb-2 pt-4">
-        <h2 className="text-nd-section font-semibold text-nd-fg">영상</h2>
+      <div className="shrink-0 px-4 pb-2 pt-4 sm:px-5">
+        <h2 className="text-[16px] font-semibold leading-snug text-nd-fg">폴더</h2>
       </div>
-      <div className="shrink-0 px-2">
+      <div className="shrink-0 px-2 sm:px-3">
         <div
           {...dropProps("all")}
           className={cn(
@@ -177,29 +178,30 @@ export function FolderPanel(props: FolderPanelProps) {
           >
             <Clapperboard size={17} aria-hidden className="shrink-0" />
             <span className="min-w-0 flex-1 truncate text-nd-body font-semibold">전체 영상</span>
-            <span className="nd-num shrink-0 text-[13px] text-nd-fg-3">{counts.all.toLocaleString("ko-KR")}</span>
+            <span className={cn("nd-num shrink-0 text-[13px]", active === null ? "font-medium" : "text-nd-fg-3")}>{counts.all.toLocaleString("ko-KR")}</span>
           </button>
         </div>
       </div>
-      {!readOnly && (
-        <div className="shrink-0 px-3 pb-2 pt-2">
-          <Button variant="secondary" size="sm" icon={FolderPlus} className="w-full" onClick={() => props.onCreate(active)}>
-            새 폴더
-          </Button>
-          <p className="mt-1 truncate px-1 text-[13px] text-nd-fg-3" title={where ?? undefined}>
-            {where ? `「${where}」 안에 추가` : "맨 위에 추가"}
-          </p>
-        </div>
-      )}
-      <nav aria-label="영상 폴더" className="nd-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+      <nav aria-label="영상 폴더" className="nd-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-0.5 sm:px-3">
         {hasFolders ? (
           branch(null, 0)
         ) : (
-          <p className="px-3 py-4 text-[13px] leading-relaxed text-nd-fg-3">
-            아직 폴더가 없습니다. 「새 폴더」 로 시리즈 · 상품군 · 고객사별로 묶어 보세요. 영상을 끌어 폴더에 놓으면 옮겨집니다.
+          <p className="px-3 py-3 text-[13px] leading-relaxed text-nd-fg-3">
+            아직 폴더가 없습니다. 「새 폴더」 로 시리즈 · 상품군 · 고객사별로 묶어 보세요.
           </p>
         )}
       </nav>
+      {!readOnly && (
+        <div className="shrink-0 border-t border-nd-line px-4 pb-4 pt-3 sm:px-5">
+          <Button variant="secondary" size="sm" icon={FolderPlus} className="w-full" onClick={() => props.onCreate(active)}>
+            새 폴더
+          </Button>
+          <p className="mt-1.5 truncate text-[13px] text-nd-fg-3" title={where ?? undefined}>
+            {where ? `「${where}」 안에 만듭니다` : "맨 위에 만듭니다"}
+          </p>
+          <p className="mt-0.5 text-[13px] leading-relaxed text-nd-fg-3">영상을 끌어 폴더에 놓으면 옮겨집니다.</p>
+        </div>
+      )}
     </div>
   );
 }

@@ -457,3 +457,15 @@ test("일반 영상: 제휴 링크 · 대가 표시가 있으면 프로그램 �
   const checks = Object.fromEntries(Object.entries(sys).map(([k, v]) => [k, { system: v, user: userOk }]));
   assert.deepEqual(complianceBlockers(checks, GENERAL_COMPLIANCE_ITEMS).map((b) => b.key), ["noPaidRelation"]);
 });
+
+import { fmtPct } from "./model";
+
+test("fmtPct — 소수점 뒤 0 만 지운다 (자릿수 0 이어도 정수의 0 은 남는다)", () => {
+  assert.equal(fmtPct(0), "0%");
+  assert.equal(fmtPct(0, 0), "0%");
+  assert.equal(fmtPct(0.5, 0), "50%");
+  assert.equal(fmtPct(0.1, 0), "10%");
+  assert.equal(fmtPct(0.123), "12.3%");
+  assert.equal(fmtPct(1), "100%");
+  assert.equal(fmtPct(null), "—");
+});

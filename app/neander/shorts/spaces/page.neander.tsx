@@ -1,7 +1,7 @@
 "use client";
 
 // ============================================================
-//  AI STUDIO 프로젝트 — 채널 하나의 기획 단위 (shorts/spaces.ts)
+//  AI STUDIO 프로젝트 — 채널 하나의 기획 단위 (shorts/spaces.ts) · 2026-11 목업 02 개편
 // ------------------------------------------------------------
 //  프로젝트를 고르면 시장 트렌드 · 소재 발굴 · 바이럴 형식 · 성공 공식 · 영상 · 대본 · 게시 · 성과가
 //  그 프로젝트 것으로 바뀐다(위 툴바의 「프로젝트」). 대시보드는 모든 프로젝트를 본다.
@@ -9,43 +9,55 @@
 //    자체 운영 — 우리 채널. 팀 공용 — 누구나 만들고 고친다.
 //    대행     — 계약 업체(고객사)의 브랜드. 업체 하나에 프로젝트 여러 개. 관리자 · 그 업체 담당자만 본다.
 //  보관 · 되살리기는 AI STUDIO 관리자만.
+//  주소로 여는 창: ?newFor=<업체 id> (그 업체로 새 프로젝트) · ?edit=<프로젝트 id> (대시보드의 「고치기」)
 // ============================================================
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Archive, ArchiveRestore, Briefcase, Camera, Check, FolderKanban, Pencil, Plus, SquarePlay } from "lucide-react";
-import { Badge, Button, Card, Checkbox, Dialog, EmptyState, Field, Input, PageHeader, PageShell, SectionHeader, SegmentedControl, Select, Textarea, cn } from "@/components/neander/ui";
+import { Archive, ArchiveRestore, ArrowUpRight, Building2, FolderOpen, FolderKanban, Info, Pencil, Plus } from "lucide-react";
+import { Badge, Button, Checkbox, Dialog, EmptyState, Field, FormRow, Input, PageShell, Select, Textarea, buttonClass } from "@/components/neander/ui";
+import { Won } from "@/components/neander/shorts/agency-ui/won";
 import { useShorts } from "@/components/neander/shorts/ShortsProvider";
 import { useAction } from "@/components/neander/shorts/parts";
+import { StudioCard, StudioHeader, StudioNotice, StudioSection } from "@/components/neander/shorts/studio";
+import { SPACE_DEFAULT_KIND_LABEL, SPACE_STYLE_LABEL, SpaceSummaryCard, type SpaceCardStat } from "@/components/neander/shorts/agency-ui/space-card";
+import { vatText } from "@/components/neander/shorts/agency-ui/finance";
 import { mutate } from "@/lib/neander/shorts/client";
-import { PLATFORM_LABEL } from "@/lib/neander/shorts/model";
+import { projectTotals } from "@/lib/neander/shorts/model";
 import { DEFAULT_SPACE_ID, PRODUCTION_LABEL, SPACE_KIND_LABEL, newSpaceDefaults, spaceKind, spaceOf, type SpaceKind, type SpaceProduction, type SpaceView } from "@/lib/neander/shorts/spaces";
 import type { ClientView } from "@/lib/neander/shorts/types";
 
 type Draft = { name: string; description: string; production: SpaceProduction; defaultKind: "coupang" | "general"; writerStyle: "intro" | "story"; archived: boolean; kind: SpaceKind; clientId: string; newClient: string };
-const KIND_LABEL = { coupang: "쿠팡 제휴", general: "일반 정보" } as const;
 const STYLE_LABEL = { intro: "제품 소개(리뷰형)", story: "스토리 광고" } as const;
-const CLIENT_STATUS = { active: "진행 중", paused: "잠시 멈춤", ended: "종료" } as const;
+const CLIENT_STATUS = { active: ["진행 중", "success"], paused: ["잠시 멈춤", "warning"], ended: ["종료", "neutral"] } as const;
 const NEW_CLIENT = "__new";
-type Stat = { videos: number; published: number; accounts: { name: string; platform: "youtube" | "instagram" }[] };
-const GRID = "grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(min(100%,360px),1fr))]";
+const GRID = "grid gap-4 lg:grid-cols-2";
 
 export default function SpacesPage() {
   const { data, space, setSpace, refresh } = useShorts();
   const d = data!;
   const router = useRouter();
+  const { busy, run } = useAction();
   const [editing, setEditing] = useState<SpaceView | { new: true; clientId?: string } | null>(null);
   // 업체 화면의 「이 업체에 프로젝트」 → ?newFor=<업체 id> 로 와서 그 업체로 새 프로젝트 창을 연다
+  // 대시보드의 「고치기」 → ?edit=<프로젝트 id> 로 와서 그 프로젝트의 고치기 창을 연다
   useEffect(() => {
-    const id = new URLSearchParams(window.location.search).get("newFor");
+    const q = new URLSearchParams(window.location.search);
+    const id = q.get("newFor");
+    const edit = q.get("edit");
     if (id && d.clients.some((c) => c.id === id)) setEditing({ new: true, clientId: id });
+    else if (edit) {
+      const s = d.spaces.find((x) => x.id === edit);
+      if (s) setEditing(s);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const live = d.spaces.filter((s) => !s.archived);
   const own = live.filter((s) => spaceKind(s) === "own");
   const agency = live.filter((s) => spaceKind(s) === "agency");
   const archived = d.spaces.filter((s) => s.archived);
+  const clientName = useMemo(() => new Map(d.clients.map((c) => [c.id, c.name])), [d.clients]);
   // 대행은 업체별로 — 프로젝트가 아직 없는 업체도 보인다
   const byClient = useMemo(() => {
     const ids = [...new Set([...d.clients.map((c) => c.id), ...agency.map((s) => s.clientId ?? "")])].filter(Boolean);
@@ -55,61 +67,98 @@ export default function SpacesPage() {
   }, [d.clients, agency]);
   // 모든 프로젝트의 자료로 센다 (data 는 볼 수 있는 전체)
   const stats = useMemo(() => {
-    const m = new Map<string, Stat>();
-    const projSpace = new Map(d.projects.map((p) => [p.id, spaceOf(p)]));
-    for (const s of d.spaces) m.set(s.id, { videos: 0, published: 0, accounts: [] });
-    for (const p of d.projects) if (!p.sample) m.get(spaceOf(p)) && m.get(spaceOf(p))!.videos++;
-    for (const x of d.publications)
-      if (x.status === "published") {
-        const sid = projSpace.get(x.projectId);
-        if (sid && m.get(sid)) m.get(sid)!.published++;
-      }
-    for (const a of d.accounts) m.get(spaceOf(a))?.accounts.push({ name: a.externalName, platform: a.platform });
+    const m = new Map<string, SpaceCardStat>();
+    for (const s of d.spaces) {
+      const agencySpace = spaceKind(s) === "agency";
+      const ps = d.projects.filter((p) => !p.sample && spaceOf(p) === s.id);
+      const ids = new Set(ps.map((p) => p.id));
+      const pubs = d.publications.filter((x) => ids.has(x.projectId));
+      const views = ps.map((p) => projectTotals(d.metrics.filter((x) => x.projectId === p.id)).views).filter((v): v is number => v !== null);
+      const review = ps.reduce((n, p) => n + p.scenes.filter((sc) => sc.kind === "ai" && sc.ai?.status === "review").length, 0);
+      const making = ps.filter((p) => p.stage !== "published" && p.stage !== "archived");
+      const latest = [...making].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+      m.set(s.id, {
+        videos: ps.length,
+        inProgress: making.length,
+        published: pubs.filter((x) => x.status === "published").length,
+        views: views.length ? views.reduce((a, b) => a + b, 0) : null,
+        attention: pubs.filter((x) => x.status === "uncertain" || x.status === "failed").length + review,
+        accounts: d.accounts.filter((a) => spaceOf(a) === s.id && (agencySpace || !a.clientId)).map((a) => ({ name: a.externalName, platform: a.platform, reauth: a.status === "needs_reauth" })),
+        latest: latest ? { id: latest.id, title: latest.title, stage: latest.stage } : null,
+      });
+    }
     return m;
   }, [d]);
   const go = (id: string, href = "/neander/shorts/market") => {
     setSpace(id);
     router.push(href);
   };
-  const card = (s: SpaceView) => <SpaceCard key={s.id} s={s} current={s.id === space} stat={stats.get(s.id)} onEdit={() => setEditing(s)} onOpen={s.archived ? undefined : () => go(s.id)} />;
+  const card = (s: SpaceView) => (
+    <SpaceSummaryCard
+      key={s.id}
+      s={s}
+      stat={stats.get(s.id)!}
+      current={s.id === space}
+      onEdit={() => setEditing(s)}
+      onOpen={s.archived ? undefined : () => go(s.id)}
+    />
+  );
+  const restore = (s: SpaceView) =>
+    void run(
+      `restore-${s.id}`,
+      async () => {
+        // 고치기 창의 「보관」 끄기와 같은 요청 — 보관만 푼다
+        await mutate<{ space: SpaceView }>("space.update", { id: s.id, space: { name: s.name, description: s.description, production: s.production, defaultKind: s.defaultKind, writerStyle: s.writerStyle, archived: false } });
+        await refresh();
+      },
+      `「${s.name}」 을 되살렸습니다.`,
+    );
 
   return (
     <PageShell>
-      <PageHeader
+      <StudioHeader
+        kicker="AI STUDIO 워크스페이스"
+        kickerIcon={FolderOpen}
         title="프로젝트"
-        description="채널 하나 = 프로젝트. 위 툴바에서 프로젝트를 고르면 시장 트렌드 · 소재 발굴 · 바이럴 형식 · 성공 공식 · 영상 · 대본 · 게시 · 성과가 그 프로젝트 것으로 바뀝니다. 대시보드는 모든 프로젝트를 봅니다."
+        description="채널별 방향과 제작 기본값을 관리하세요. 자체 운영과 대행을 나눠 보여 줍니다."
         actions={
           <Button icon={Plus} onClick={() => setEditing({ new: true })}>
             새 프로젝트
           </Button>
         }
       />
+      <StudioNotice tone="info" title="프로젝트는 채널 하나의 기획 단위입니다" className="mb-7">
+        위 툴바에서 프로젝트를 고르면 시장 트렌드 · 소재 발굴 · 바이럴 형식 · 성공 공식 · 영상 · 대본 · 게시 · 성과가 그 프로젝트 것으로 바뀝니다. 대시보드는 모든 프로젝트를 합쳐 보여 줍니다.
+      </StudioNotice>
 
-      <section>
-        <SectionHeader size="lg" title={SPACE_KIND_LABEL.own} hint="우리 채널 — 쿠팡 수수료 · 광고 수익 · 팀 공용" />
+      <StudioSection title={SPACE_KIND_LABEL.own} description="우리 채널 — 쿠팡 수수료 · 광고 수익 · 프로젝트 설정은 팀 공용">
         <div className={GRID}>{own.map(card)}</div>
-      </section>
+      </StudioSection>
 
-      <section className="mt-10">
-        <SectionHeader size="lg" title="대행 · 업체별" hint="계약한 업체의 브랜드를 맡아 운영 — AI STUDIO 관리자와 그 업체 담당자만 봅니다" action={<Link href="/neander/shorts/clients" className="text-[13px] font-medium text-nd-accent hover:underline">업체 · 계약 목록</Link>} />
+      <StudioSection
+        className="mt-10"
+        title="대행 · 업체별"
+        description="계약한 업체의 브랜드를 맡아 운영 — AI STUDIO 관리자와 그 업체 담당자만 계약 · 브리프를 볼 수 있습니다."
+        action={
+          <Link href="/neander/shorts/clients" className={buttonClass("ghost", "sm", "gap-1.5")}>
+            <ArrowUpRight size={15} aria-hidden />
+            업체 · 계약 목록
+          </Link>
+        }
+      >
         {byClient.length === 0 ? (
-          <EmptyState compact icon={Briefcase} title="아직 계약 업체가 없습니다" description="「새 프로젝트」 에서 종류를 「대행」 으로 고르고 업체를 새로 만드세요. 업체 하나에 프로젝트를 여러 개 둘 수 있습니다." />
+          <EmptyState compact icon={Building2} title="아직 계약 업체가 없습니다" description="「새 프로젝트」 에서 종류를 「대행」 으로 고르고 업체를 새로 만드세요. 업체 하나에 프로젝트를 여러 개 둘 수 있습니다." />
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-5">
             {byClient.map(({ client, id, spaces }) => (
-              <div key={id} className="rounded-nd-lg border border-nd-border bg-nd-sunken/40 p-4">
-                <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <Briefcase size={18} aria-hidden className="text-nd-accent" />
-                  <h2 className="text-[17px] font-semibold">{client?.name ?? "(볼 수 없는 업체)"}</h2>
-                  {client && <Badge tone={client.status === "active" ? "success" : "neutral"} size="md">{CLIENT_STATUS[client.status]}</Badge>}
-                  {client && (
-                    <span className="text-[13px] text-nd-fg-3">
-                      월 {client.contract.videosPerMonth}편{client.contract.monthlyFeeKrw !== null ? ` · ${client.contract.monthlyFeeKrw.toLocaleString("ko-KR")}원(부가세 ${client.contract.vat === "included" ? "포함" : "별도"})` : ""} · {client.contract.startMonth}~{client.contract.endMonth ?? ""}
-                    </span>
-                  )}
-                  <span className="ml-auto flex gap-2">
+              <StudioCard
+                key={id}
+                title={client?.name ?? "(볼 수 없는 업체)"}
+                action={
+                  <>
                     {client && (
-                      <Link href={`/neander/shorts/clients/${id}`} className="inline-flex h-8 items-center rounded-nd-md px-3 text-[13px] font-medium text-nd-accent hover:bg-nd-accent-soft">
+                      <Link href={`/neander/shorts/clients/${id}`} className={buttonClass("secondary", "sm", "gap-1.5")}>
+                        <Building2 size={15} aria-hidden />
                         업체 · 계약 보기
                       </Link>
                     )}
@@ -118,24 +167,73 @@ export default function SpacesPage() {
                         이 업체에 프로젝트
                       </Button>
                     )}
-                  </span>
-                </div>
-                {spaces.length ? <div className={GRID}>{spaces.map(card)}</div> : <p className="text-nd-body text-nd-fg-3">이 업체의 프로젝트가 아직 없습니다 — 「이 업체에 프로젝트」 로 브랜드(채널)마다 만드세요.</p>}
-              </div>
+                  </>
+                }
+              >
+                {client && (
+                  <div className="-mt-1 mb-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-nd-line pb-4 text-[14px] text-nd-fg-2">
+                    <Badge tone={CLIENT_STATUS[client.status][1]} size="lg">
+                      {CLIENT_STATUS[client.status][0]}
+                    </Badge>
+                    <span>월 {client.contract.videosPerMonth}편</span>
+                    {client.contract.monthlyFeeKrw !== null && (
+                      <span className="inline-flex items-baseline gap-1.5">
+                        <b className="font-semibold">
+                          월 <Won value={client.contract.monthlyFeeKrw} flow="income" />
+                        </b>
+                        <span className="text-[13px] text-nd-fg-3">{vatText(client.contract.vat)}</span>
+                      </span>
+                    )}
+                    <span className="nd-num ml-auto text-[13px] text-nd-fg-3">
+                      계약 {client.contract.startMonth} ~ {client.contract.endMonth ?? "끝 월 없음"}
+                    </span>
+                  </div>
+                )}
+                {spaces.length ? (
+                  <div className={GRID}>{spaces.map(card)}</div>
+                ) : (
+                  <p className="text-nd-body text-nd-fg-3">이 업체의 프로젝트가 아직 없습니다 — 「이 업체에 프로젝트」 로 브랜드(채널)마다 만드세요.</p>
+                )}
+              </StudioCard>
             ))}
           </div>
         )}
-      </section>
+      </StudioSection>
 
       {archived.length > 0 && (
-        <section className="mt-10">
-          <SectionHeader title="보관한 프로젝트" hint="목록 · 자동 실행에서 빠졌고 자료는 그대로입니다" />
-          <div className={GRID}>{archived.map(card)}</div>
-        </section>
+        <StudioSection className="mt-10" title="보관한 프로젝트" description={d.admin ? "목록 · 자동 실행에서 빠졌고 자료는 그대로입니다. 관리자는 다시 쓸 수 있게 되살릴 수 있습니다." : "목록 · 자동 실행에서 빠졌고 자료는 그대로입니다. 되살리기는 관리자만 합니다."}>
+          <StudioCard flush>
+            <ul className="divide-y divide-nd-line">
+              {archived.map((s) => (
+                <li key={s.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5 sm:px-6">
+                  <Archive size={18} aria-hidden className="shrink-0 text-nd-fg-3" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[15px] font-semibold text-nd-fg">{s.name}</p>
+                    <p className="truncate text-[13px] text-nd-fg-3">
+                      {SPACE_KIND_LABEL[spaceKind(s)]}
+                      {spaceKind(s) === "agency" && s.clientId ? ` · ${clientName.get(s.clientId) ?? "업체"}` : ""} · 영상 {stats.get(s.id)?.videos ?? 0}편 · {PRODUCTION_LABEL[s.production]}
+                    </p>
+                  </div>
+                  <span className="flex shrink-0 gap-2">
+                    <Button size="sm" variant="ghost" icon={Pencil} onClick={() => setEditing(s)}>
+                      고치기
+                    </Button>
+                    {d.admin && (
+                      <Button size="sm" variant="secondary" icon={ArchiveRestore} loading={busy === `restore-${s.id}`} onClick={() => restore(s)}>
+                        되살리기
+                      </Button>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </StudioCard>
+        </StudioSection>
       )}
       <SpaceDialog
         target={editing}
         admin={d.admin}
+        adminCount={d.access ? new Set([...d.access.admins, ...d.access.fixedAdmins]).size : null}
         clients={d.clients.filter((c) => c.canEdit || d.admin)}
         onClose={() => setEditing(null)}
         onSaved={async (saved, created) => {
@@ -147,70 +245,18 @@ export default function SpacesPage() {
   );
 }
 
-function SpaceCard({ s, current, stat, onEdit, onOpen }: { s: SpaceView; current: boolean; stat?: Stat; onEdit: () => void; onOpen?: () => void }) {
-  const agency = spaceKind(s) === "agency";
-  return (
-    <Card className={cn("flex flex-col gap-3", current && "ring-2 ring-nd-accent/50", s.archived && "opacity-70")}>
-      <div className="flex items-start gap-3">
-        <span className={cn("mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-nd-md", agency ? "bg-nd-warning-soft text-nd-warning-text" : "bg-nd-accent-soft text-nd-accent-strong")}>
-          {agency ? <Briefcase size={20} aria-hidden /> : <FolderKanban size={20} aria-hidden />}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="truncate text-[17px] font-semibold">{s.name}</h2>
-            <Badge tone={agency ? "warning" : "neutral"} size="md">{SPACE_KIND_LABEL[spaceKind(s)]}</Badge>
-            {current && <Badge tone="accent" size="md">지금 프로젝트</Badge>}
-            {s.archived && <Badge tone="neutral" size="md">보관</Badge>}
-          </div>
-          <p className="text-[13px] text-nd-fg-3">
-            {PRODUCTION_LABEL[s.production]}
-            {agency ? " · 새 영상 브랜드 대행" : ` · 새 영상 ${KIND_LABEL[s.defaultKind]}`} · 대본 {STYLE_LABEL[s.writerStyle]}
-          </p>
-        </div>
-      </div>
-      <p className="min-h-[2.5rem] text-nd-body leading-relaxed text-nd-fg-2">{s.description || <span className="text-nd-fg-3">설명 없음 — 「고치기」 에서 어떤 채널인지 적어 두면 AI 가 소재를 고를 때 참고합니다.</span>}</p>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-nd-fg-2">
-        <span>
-          영상 <b className="nd-num">{stat?.videos ?? 0}</b>편
-        </span>
-        <span>
-          게시 <b className="nd-num">{stat?.published ?? 0}</b>건
-        </span>
-        {stat?.accounts.length ? (
-          stat.accounts.map((a) => (
-            <span key={`${a.platform}${a.name}`} className="inline-flex items-center gap-1">
-              {a.platform === "youtube" ? <SquarePlay size={14} aria-hidden /> : <Camera size={14} aria-hidden />}
-              <span className="sr-only">{PLATFORM_LABEL[a.platform]}</span>
-              {a.name}
-            </span>
-          ))
-        ) : (
-          <span className="text-nd-fg-3">연결 계정 없음 — 이 프로젝트를 고른 채 「내 채널 · 연결」 에서 연결</span>
-        )}
-      </div>
-      <div className="mt-auto flex flex-wrap gap-2 pt-1">
-        {onOpen && !current && (
-          <Button size="sm" variant="secondary" icon={Check} onClick={onOpen}>
-            이 프로젝트로
-          </Button>
-        )}
-        <Button size="sm" variant="ghost" icon={Pencil} onClick={onEdit}>
-          고치기
-        </Button>
-      </div>
-    </Card>
-  );
-}
-
 function SpaceDialog({
   target,
   admin,
+  adminCount,
   clients,
   onClose,
   onSaved,
 }: {
   target: SpaceView | { new: true; clientId?: string } | null;
   admin: boolean;
+  /** AI STUDIO 관리자 수 — 관리자에게만 알 수 있다 */
+  adminCount: number | null;
   clients: ClientView[];
   onClose: () => void;
   onSaved: (s: SpaceView, created: boolean) => Promise<void>;
@@ -257,82 +303,124 @@ function SpaceDialog({
       },
       isNew ? "새 프로젝트를 만들었습니다 — 지금 프로젝트로 바꿨습니다." : "프로젝트를 고쳤습니다.",
     );
+  const agency = f?.kind === "agency";
+  const clientLabel = f && agency ? (clients.find((c) => c.id === f.clientId)?.name ?? (f.clientId === NEW_CLIENT ? "새 업체" : "업체")) : "";
   return (
     <Dialog
       open={target !== null}
       onClose={onClose}
+      size="lg"
       title={isNew ? "새 프로젝트" : "프로젝트 고치기"}
-      description="채널 하나 = 프로젝트. 기획 · 영상 · 게시 · 성과가 프로젝트마다 따로 쌓입니다."
+      description="채널의 방향과 제작 기본값을 정합니다. 기획 · 영상 · 게시 · 성과가 프로젝트마다 따로 쌓입니다."
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
-            닫기
+          <Button variant="secondary" onClick={onClose}>
+            취소
           </Button>
-          <Button loading={busy === "save"} onClick={save} disabled={!f?.name.trim() || (needsClientName && !f?.newClient.trim())}>
-            {isNew ? "만들기" : "저장"}
+          <Button icon={isNew ? Plus : undefined} loading={busy === "save"} onClick={save} disabled={!f?.name.trim() || (needsClientName && !f?.newClient.trim())}>
+            {isNew ? "프로젝트 만들기" : "저장"}
           </Button>
         </>
       }
     >
       {f && (
-        <div className="space-y-4">
-          {isNew ? (
-            <Field label="종류" hint={f.kind === "agency" ? "계약 업체의 브랜드 — 관리자와 그 업체 담당자만 봅니다. 나중에 바꿀 수 없습니다." : "우리 채널 — 팀 공용. 나중에 바꿀 수 없습니다."}>
-              <SegmentedControl
-                ariaLabel="프로젝트 종류"
-                value={f.kind}
-                onChange={(v) => setF({ ...f, kind: v as SpaceKind })}
-                options={(["own", "agency"] as const).map((x) => ({ value: x, label: SPACE_KIND_LABEL[x] }))}
-              />
-            </Field>
-          ) : (
-            <p className="text-[13px] text-nd-fg-3">
-              종류: {SPACE_KIND_LABEL[f.kind]}
-              {f.kind === "agency" ? ` · 업체 「${clients.find((c) => c.id === f.clientId)?.name ?? "?"}」` : ""} (만든 뒤에는 바꾸지 않습니다)
-            </p>
+        <div className="space-y-5">
+          {agency && (
+            <StudioNotice tone="info" title="대행 프로젝트는 계약 정보를 함께 보호합니다">
+              {adminCount ? `AI STUDIO 관리자 ${adminCount}명과` : "AI STUDIO 관리자와"} 이 업체 담당자만 볼 수 있습니다.
+            </StudioNotice>
           )}
-          {isNew && f.kind === "agency" && (
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="계약 업체">
-                <Select value={f.clientId} onChange={(e) => setF({ ...f, clientId: e.target.value })}>
-                  {clients.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
+          {isNew ? (
+            <FormRow className="grid-cols-1 sm:grid-cols-2">
+              <Field label="프로젝트 종류" hint={agency ? "계약 업체의 브랜드 — 만든 뒤에는 바꿀 수 없습니다" : "우리 채널 · 팀 공용 — 만든 뒤에는 바꿀 수 없습니다"}>
+                <Select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value as SpaceKind })}>
+                  {(["own", "agency"] as const).map((x) => (
+                    <option key={x} value={x}>
+                      {SPACE_KIND_LABEL[x]}
                     </option>
                   ))}
-                  <option value={NEW_CLIENT}>+ 새 업체 만들기</option>
                 </Select>
               </Field>
-              {needsClientName && (
-                <Field label="새 업체 이름" hint="계약 · 브리프 · 제품 · 재무 계약은 만든 뒤 업체 화면에서">
-                  <Input value={f.newClient} maxLength={80} onChange={(e) => setF({ ...f, newClient: e.target.value })} placeholder="예: 주식회사 ○○" />
+              {agency ? (
+                <Field label="계약 업체">
+                  <Select value={f.clientId} onChange={(e) => setF({ ...f, clientId: e.target.value })}>
+                    {clients.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                    <option value={NEW_CLIENT}>+ 새 업체 만들기</option>
+                  </Select>
                 </Field>
+              ) : (
+                <div aria-hidden className="hidden sm:block" />
               )}
-            </div>
+            </FormRow>
+          ) : (
+            <p className="flex items-start gap-2 rounded-nd-md bg-nd-sunken px-3.5 py-2.5 text-[14px] text-nd-fg-2">
+              <Info size={16} aria-hidden className="mt-0.5 shrink-0 text-nd-fg-3" />
+              <span>
+                종류: <b className="font-semibold">{SPACE_KIND_LABEL[f.kind]}</b>
+                {agency ? ` · 업체 「${clientLabel}」` : ""} — 만든 뒤에는 바꾸지 않습니다.
+              </span>
+            </p>
           )}
-          <Field label="이름" hint={f.kind === "agency" ? "브랜드 · 채널 이름 (업체 하나에 여러 개)" : "채널 이름 (나중에 바꿀 수 있음)"}>
-            <Input value={f.name} maxLength={40} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder={f.kind === "agency" ? "브랜드 · 채널 이름" : "채널 표시 이름"} />
+          {needsClientName && (
+            <Field label="새 업체 이름" hint="계약 · 브리프 · 제품 · 재무 계약은 만든 뒤 업체 화면에서 채웁니다">
+              <Input value={f.newClient} maxLength={80} onChange={(e) => setF({ ...f, newClient: e.target.value })} placeholder="예: 주식회사 ○○" />
+            </Field>
+          )}
+          <Field label="프로젝트 이름" hint={agency ? "브랜드 · 채널 이름 (업체 하나에 여러 개)" : "채널 이름 (나중에 바꿀 수 있음)"}>
+            <Input value={f.name} maxLength={40} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder={agency ? "브랜드 · 채널 이름" : "채널 표시 이름"} />
           </Field>
-          <Field label="어떤 채널인가" hint="주제 · 시청자 · 톤 — AI 가 레이더 상품을 고르고 아침 브리핑을 쓸 때 참고합니다">
+          <Field label="어떤 채널인가 · AI 가 참고" hint="주제 · 시청자 · 톤을 적으면 AI 가 레이더 상품을 고르고 아침 브리핑을 쓸 때 참고합니다">
             <Textarea rows={4} value={f.description} maxLength={1000} onChange={(e) => setF({ ...f, description: e.target.value })} placeholder="예: 20~40대 여성 대상 주방용품 브랜드 — 깔끔 · 실용 · 따뜻한 톤" />
           </Field>
-          <Field label="만드는 방식">
-            <SegmentedControl
-              ariaLabel="만드는 방식"
-              value={f.production}
-              onChange={(v) => setF({ ...f, ...(isNew ? newSpaceDefaults(v as SpaceProduction) : { production: v as SpaceProduction }) })}
-              options={(Object.keys(PRODUCTION_LABEL) as SpaceProduction[]).map((p) => ({ value: p, label: PRODUCTION_LABEL[p] }))}
-            />
-          </Field>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {f.kind === "own" && (
+          <FormRow className="grid-cols-1 sm:grid-cols-2">
+            <Field label="만드는 방식" hint={isNew ? "바꾸면 대본 기본 방식이 맞춰집니다 (직접 촬영 → 제품 소개 · AI 생성 → 스토리 광고)" : undefined}>
+              <Select value={f.production} onChange={(e) => setF({ ...f, ...(isNew ? newSpaceDefaults(e.target.value as SpaceProduction) : { production: e.target.value as SpaceProduction }) })}>
+                {(Object.keys(PRODUCTION_LABEL) as SpaceProduction[]).map((p) => (
+                  <option key={p} value={p}>
+                    {PRODUCTION_LABEL[p]}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            {agency ? (
+              <Field label="새 영상 기본 종류" hint="대행 프로젝트의 영상은 고객사 브랜드 영상입니다">
+                <div className="flex h-ctl-md items-center rounded-nd-md border border-nd-line bg-nd-sunken px-3 text-[14px] text-nd-fg-2">고객사 브랜드</div>
+              </Field>
+            ) : (
               <Field label="새 영상 기본 종류">
-                <SegmentedControl ariaLabel="새 영상 기본 종류" value={f.defaultKind} onChange={(v) => setF({ ...f, defaultKind: v as Draft["defaultKind"] })} options={(["coupang", "general"] as const).map((x) => ({ value: x, label: KIND_LABEL[x] }))} />
+                <Select value={f.defaultKind} onChange={(e) => setF({ ...f, defaultKind: e.target.value as Draft["defaultKind"] })}>
+                  {(["coupang", "general"] as const).map((x) => (
+                    <option key={x} value={x}>
+                      {SPACE_DEFAULT_KIND_LABEL[x]}
+                    </option>
+                  ))}
+                </Select>
               </Field>
             )}
+          </FormRow>
+          <FormRow className="grid-cols-1 sm:grid-cols-2">
             <Field label="대본 작성기 기본 방식">
-              <SegmentedControl ariaLabel="대본 기본 방식" value={f.writerStyle} onChange={(v) => setF({ ...f, writerStyle: v as Draft["writerStyle"] })} options={(["intro", "story"] as const).map((x) => ({ value: x, label: STYLE_LABEL[x] }))} />
+              <Select value={f.writerStyle} onChange={(e) => setF({ ...f, writerStyle: e.target.value as Draft["writerStyle"] })}>
+                {(["intro", "story"] as const).map((x) => (
+                  <option key={x} value={x}>
+                    {STYLE_LABEL[x]}
+                  </option>
+                ))}
+              </Select>
             </Field>
+          </FormRow>
+          <div className="rounded-nd-md border border-nd-line bg-nd-sunken/60 px-4 py-3">
+            <p className="flex items-center gap-1.5 text-[14px] font-semibold text-nd-fg">
+              <FolderKanban size={15} aria-hidden className="text-nd-fg-3" />
+              적용 범위
+            </p>
+            <p className="mt-1 text-[13px] leading-relaxed text-nd-fg-2">
+              이 프로젝트에서 새로 만드는 영상에 기본값({agency ? "고객사 브랜드" : SPACE_DEFAULT_KIND_LABEL[f.defaultKind]} · {PRODUCTION_LABEL[f.production]} · 대본 {SPACE_STYLE_LABEL[f.writerStyle]})이 적용됩니다. 이미 만든 영상은 바뀌지 않습니다.
+            </p>
           </div>
           {editingSpace && admin && editingSpace.id !== DEFAULT_SPACE_ID && (
             <Checkbox
