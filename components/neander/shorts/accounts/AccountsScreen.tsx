@@ -18,7 +18,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { CalendarClock, HardDrive, KeyRound, Link2, Plug, Server, Trash2, UserCircle2, X } from "lucide-react";
 import { Badge, Button, Dialog, Disclosure, Field, Input, cn, useToast } from "@/components/neander/ui";
 import { useShorts } from "@/components/neander/shorts/ShortsProvider";
-import { CoupangKeyCard, CoupangSubIdsCard, MyChannelSet, YoutubeKeyCard, useSpaceLabel } from "@/components/neander/shorts/MyChannelSet";
+import { CoupangKeyCard, CoupangSubIdsCard, MyChannelSet, YoutubeKeyCard, useProjectAccounts, useSpaceLabel } from "@/components/neander/shorts/MyChannelSet";
 import { useAction } from "@/components/neander/shorts/parts";
 import { RecordTable, SpaceKindBadge, StageFlow, StudioCard, StudioHeader, StudioNotice, StudioSection, type FlowStep, type RecordColumn } from "@/components/neander/shorts/studio";
 import { clearMediaCache, mutate } from "@/lib/neander/shorts/client";
@@ -64,8 +64,8 @@ export function AccountsScreen({ focus }: { focus?: "connect" }) {
     };
   }, [focus]);
 
-  // 계정 준비 순서 — 실제 연결 상태로 끝남 · 지금 · 남음을 정한다
-  const mine = d.accounts.filter((a) => a.mine);
+  // 계정 준비 순서 — 실제 연결 상태로 끝남 · 지금 · 남음을 정한다 (지금 프로젝트의 내 계정 기준)
+  const { mine } = useProjectAccounts();
   const own = mine.filter((a) => !a.clientId);
   const mineIds = new Set(mine.map((a) => a.id));
   const appReady = (s.youtubeOAuth.configured || s.meta.configured) && s.tokenKey.configured;
@@ -143,7 +143,7 @@ export function AccountsScreen({ focus }: { focus?: "connect" }) {
         kicker="사람별"
         kickerIcon={UserCircle2}
         title="내 채널 · 연결"
-        description="내 게시 계정과 쿠팡 키를 연결하고, 계정이 속한 프로젝트와 함께 게시할 팀원을 정합니다. 토큰 · 키는 서버에서 암호화되어 화면으로 오지 않습니다 — 모든 사람의 현황은 「사용자별 현황」 에서 봅니다."
+        description="지금 프로젝트에 붙은 내 게시 계정과 쿠팡 키를 연결하고, 함께 게시할 팀원을 정합니다. 다른 프로젝트의 계정은 「게시 계정」 아래에 접혀 있습니다. 토큰 · 키는 서버에서 암호화되어 화면으로 오지 않습니다 — 모든 사람의 현황은 「사용자별 현황」 에서 봅니다."
       />
 
       {oauthError && (

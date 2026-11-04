@@ -36,7 +36,7 @@ import {
   UserPlus,
   type LucideIcon,
 } from "lucide-react";
-import { Badge, Button, Checkbox, Dialog, EmptyState, Field, FieldAction, FormRow, IconButton, Input, Select, buttonClass, cn, useConfirm, type Tone } from "@/components/neander/ui";
+import { Badge, Button, Checkbox, Dialog, Disclosure, EmptyState, Field, FieldAction, FormRow, IconButton, Input, Select, buttonClass, cn, useConfirm, type Tone } from "@/components/neander/ui";
 import { useAppData } from "@/components/neander/app-data";
 import { mutate, shortsPost } from "@/lib/neander/shorts/client";
 import { PLATFORM_LABEL } from "@/lib/neander/shorts/model";
@@ -72,6 +72,23 @@ export function useSpaceLabel() {
   return { name: sp?.name ?? "살림설계사무소", kind, client, label: [kind === "agency" ? "대행" : "자체 운영", client, sp?.name ?? "살림설계사무소"].filter(Boolean).join(" · ") };
 }
 
+/**
+ * 내 게시 계정을 지금 프로젝트 것과 다른 프로젝트 것으로 나눈다 — 프로젝트를 고른 화면에서
+ * 다른 채널의 계정까지 「연결됨」 으로 세면 어느 채널이 붙어 있는지 헷갈린다 (2026-11-04 사용자).
+ */
+export function useProjectAccounts() {
+  const { data, space } = useShorts();
+  const d = data!;
+  const spId = space || DEFAULT_SPACE_ID;
+  const all = d.accounts.filter((a) => a.mine);
+  return {
+    spId,
+    mine: all.filter((a) => spaceOf(a) === spId),
+    elsewhere: all.filter((a) => spaceOf(a) !== spId),
+    shared: d.accounts.filter((a) => !a.mine && a.canPublish && spaceOf(a) === spId),
+  };
+}
+
 export function MyChannelSet({ onManualInstagram }: { onManualInstagram: () => void }) {
   const { data, refresh, nameOf } = useShorts();
   const d = data!;
@@ -79,10 +96,19 @@ export function MyChannelSet({ onManualInstagram }: { onManualInstagram: () => v
   const s = d.status;
   const here = useSpaceLabel();
   const profile = d.profiles.find((x) => x.owner === d.me);
-  const mine = d.accounts.filter((a) => a.mine);
-  const shared = d.accounts.filter((a) => !a.mine && a.canPublish);
+  const { mine, elsewhere, shared } = useProjectAccounts();
   const yt = mine.filter((a) => a.platform === "youtube");
   const ig = mine.filter((a) => a.platform === "instagram");
+  const spaceName = (a: AccountView) => d.spaces.find((x) => x.id === spaceOf(a))?.name ?? "다른 프로젝트";
+  /** 카드 아래 한 줄 — 같은 플랫폼의 다른 프로젝트 계정 (있을 때만) */
+  const elseLine = (platform: "youtube" | "instagram") => {
+    const list = elsewhere.filter((a) => a.platform === platform);
+    return list.length ? (
+      <span className="mt-1 block text-nd-fg-3">
+        다른 프로젝트 {list.length}개: {list.map((a) => (a.externalName === spaceName(a) ? a.externalName : `${a.externalName}(${spaceName(a)})`)).join(", ")}
+      </span>
+    ) : null;
+  };
   const c = profile?.coupang;
   const coupangSt = STATUS[c?.status ?? "none"];
   const y = profile?.youtubeKey;
@@ -125,8 +151,13 @@ export function MyChannelSet({ onManualInstagram }: { onManualInstagram: () => v
           icon={SquarePlay}
           title="YouTube 게시"
           badge={<Badge size="lg" tone={ytState.tone}>{ytState.label}</Badge>}
-          headline={yt.length ? <span className="block truncate" title={names(yt)}>{names(yt)}</span> : "연결한 채널 없음"}
-          detail={yt.length ? `${nameOf(d.me)} · ${ytState.reauth ? "인증 만료 — 예약 실행 전에 다시 연결" : "게시 가능"}` : "게시하려면 연결이 필요합니다."}
+          headline={yt.length ? <span className="block truncate" title={names(yt)}>{names(yt)}</span> : "이 프로젝트에 연결한 채널 없음"}
+          detail={
+            <>
+              {yt.length ? `${nameOf(d.me)} · ${ytState.reauth ? "인증 만료 — 예약 실행 전에 다시 연결" : "게시 가능"}` : "게시하려면 연결이 필요합니다."}
+              {elseLine("youtube")}
+            </>
+          }
           note={ytBlocked}
           actions={connectButton("youtube", yt, ytState, ytBlocked)}
         />
@@ -134,8 +165,13 @@ export function MyChannelSet({ onManualInstagram }: { onManualInstagram: () => v
           icon={Camera}
           title="Instagram 게시"
           badge={<Badge size="lg" tone={igState.tone}>{igState.label}</Badge>}
-          headline={ig.length ? <span className="block truncate" title={names(ig)}>{names(ig)}</span> : "연결한 계정 없음"}
-          detail={ig.length ? `${nameOf(d.me)} · ${igState.reauth ? "인증 만료 — 예약 실행 전에 다시 연결" : "게시 가능"}` : "프로페셔널 계정을 연결해야 게시할 수 있습니다."}
+          headline={ig.length ? <span className="block truncate" title={names(ig)}>{names(ig)}</span> : "이 프로젝트에 연결한 계정 없음"}
+          detail={
+            <>
+              {ig.length ? `${nameOf(d.me)} · ${igState.reauth ? "인증 만료 — 예약 실행 전에 다시 연결" : "게시 가능"}` : "프로페셔널 계정을 연결해야 게시할 수 있습니다."}
+              {elseLine("instagram")}
+            </>
+          }
           note={igBlocked}
           actions={
             <>
@@ -190,7 +226,7 @@ export function MyChannelSet({ onManualInstagram }: { onManualInstagram: () => v
       <StudioCard
         id="my-accounts"
         title="게시 계정"
-        description={`내가 연결한 계정 · YouTube ${yt.length} · Instagram ${ig.length} — 프로젝트를 옮기고, 쿠팡 채널 아이디와 함께 게시할 팀원을 정합니다`}
+        description={`「${here.name}」 프로젝트의 내 계정 · YouTube ${yt.length} · Instagram ${ig.length} — 프로젝트를 옮기고, 쿠팡 채널 아이디와 함께 게시할 팀원을 정합니다`}
         className="scroll-mt-24"
         flush
       >
@@ -198,13 +234,28 @@ export function MyChannelSet({ onManualInstagram }: { onManualInstagram: () => v
           <div className="px-5 pb-5 sm:px-6">
             <EmptyState
               icon={Plug}
-              title="아직 연결한 내 게시 계정이 없습니다"
-              description="게시는 미연결 상태입니다. 아래 「계정 준비 순서」 대로 계정과 개발자 앱을 만든 뒤 위 카드에서 연결하세요. 계정이 없어도 소재 발굴 · 대본 · 출력 · 다운로드는 모두 쓸 수 있습니다."
+              title="이 프로젝트에 연결한 내 게시 계정이 없습니다"
+              description={
+                elsewhere.length
+                  ? "위 카드에서 이 프로젝트의 채널을 연결하거나, 아래 「다른 프로젝트의 내 계정」 에서 계정을 이 프로젝트로 옮기세요."
+                  : "게시는 미연결 상태입니다. 아래 「계정 준비 순서」 대로 계정과 개발자 앱을 만든 뒤 위 카드에서 연결하세요. 계정이 없어도 소재 발굴 · 대본 · 출력 · 다운로드는 모두 쓸 수 있습니다."
+              }
               compact
             />
           </div>
         ) : (
           <AccountsTable accounts={mine} profile={profile} spaces={d.spaces} onChanged={refresh} />
+        )}
+        {elsewhere.length > 0 && (
+          <div className="border-t border-nd-line px-4 py-3 sm:px-5">
+            <Disclosure
+              title={`다른 프로젝트의 내 계정 ${elsewhere.length}개`}
+              description="그 프로젝트를 고르면 위에 보입니다 — 여기서 이 프로젝트로 옮길 수도 있습니다"
+              meta={<span className="text-[13px] text-nd-fg-3">{[...new Set(elsewhere.map(spaceName))].join(" · ")}</span>}
+            >
+              <AccountsTable accounts={elsewhere} profile={profile} spaces={d.spaces} onChanged={refresh} />
+            </Disclosure>
+          </div>
         )}
         {shared.length > 0 && (
           <p className="border-t border-nd-line px-5 py-3 text-[13px] leading-relaxed text-nd-fg-3 sm:px-6">
