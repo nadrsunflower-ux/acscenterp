@@ -1886,7 +1886,7 @@ function FeedSlide({
 
 function RadarSettingsForm({ settings, admin, onSaved }: { settings: RadarSettings; admin: boolean; onSaved: () => Promise<void> }) {
   const { busy, run } = useAction();
-  const [f, setF] = useState({ ...settings, keywordsText: settings.keywords.join("\n") });
+  const [f, setF] = useState({ ...settings });
   return (
     <div className="space-y-4">
       <p className="text-nd-body leading-relaxed text-nd-fg-2">
@@ -1895,9 +1895,9 @@ function RadarSettingsForm({ settings, admin, onSaved }: { settings: RadarSettin
       </p>
       {!admin && <InlineNotice tone="neutral">설정은 AI STUDIO 관리자만 바꿉니다.</InlineNotice>}
       <Switch checked={f.enabled} disabled={!admin} onChange={(v) => setF({ ...f, enabled: v })} label="매일 아침 자동으로 훑기" />
-      <Field label="검색어 (한 줄에 하나 · 하나에 YouTube 검색 1회)">
-        <Textarea rows={5} disabled={!admin} value={f.keywordsText} onChange={(e) => setF({ ...f, keywordsText: e.target.value })} />
-      </Field>
+      <p className="text-nd-body text-nd-fg-2">
+        검색어는 맨 위 「조사 키워드」 막대에서 고칩니다 — 지금 {settings.keywords.length}개{settings.keywords.length ? ` (${settings.keywords.slice(0, 5).join(", ")}${settings.keywords.length > 5 ? " …" : ""})` : ""}.
+      </p>
       <FormRow className="grid-cols-2 sm:grid-cols-4">
         <Field label="최근 며칠"><NumberInput disabled={!admin} value={f.days} onValueChange={(r) => setF({ ...f, days: Number(r) || 0 })} /></Field>
         <Field label="최소 조회수"><NumberInput disabled={!admin} value={f.minViews} onValueChange={(r) => setF({ ...f, minViews: Number(r) || 0 })} /></Field>
@@ -1912,8 +1912,9 @@ function RadarSettingsForm({ settings, admin, onSaved }: { settings: RadarSettin
             void run(
               "s",
               async () => {
-                const { keywordsText, ...rest } = f;
-                await shortsPost("radar", { action: "settings.save", settings: { ...rest, keywords: keywordsText.split(/[\n,]/) } });
+                // 검색어는 보내지 않는다 — 조사 키워드 막대가 정본이다 (서버는 빠진 값을 그대로 둔다)
+                const { keywords: _k, ...rest } = f;
+                await shortsPost("radar", { action: "settings.save", settings: rest });
                 await onSaved();
               },
               "레이더 설정을 저장했습니다.",

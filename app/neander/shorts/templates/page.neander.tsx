@@ -18,6 +18,7 @@ import { Badge, Button, Dialog, EmptyState, Field, FormRow, Input, PageShell, Se
 import { isReadOnlyFor, useScoped, useShorts, type WithId } from "@/components/neander/shorts/ShortsProvider";
 import { Num, Unknown, useAction } from "@/components/neander/shorts/parts";
 import { RecordTable, StudioCard, StudioHeader, StudioNotice, VisibilityChip, type RecordColumn } from "@/components/neander/shorts/studio";
+import { KeywordBar } from "@/components/neander/shorts/KeywordBar";
 import { mutate } from "@/lib/neander/shorts/client";
 import { BEAT_LABEL, CTA_LABEL, compareBy, projectTotals, fmtPct, type CompareRow } from "@/lib/neander/shorts/model";
 import type { BeatKey, PerfSource, TemplateDoc } from "@/lib/neander/shorts/types";
@@ -158,6 +159,7 @@ export default function TemplatesPage() {
         title="성공 공식"
         description="잘된 영상의 구성과 타이밍을 저장해 다른 상품에 적용하세요. 영상의 「공식·대본」 탭에서 구성 분석을 공식으로 저장하고, 새 영상에서 고릅니다."
       />
+      <KeywordBar use="성공 공식은 키워드로 조사하지 않고 분석한 레퍼런스에서 만듭니다 — 여기서는 보고 고치기만 합니다." />
       {sc.templates.length === 0 ? (
         <EmptyState
           compact

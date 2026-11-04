@@ -1,7 +1,7 @@
 // AI STUDIO 프로젝트(채널 단위) — 순수 함수 검증 · npm run shorts:test
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_SPACE, DEFAULT_SPACE_ID, isSpaceId, newSpaceDefaults, sanitizeSpace, sortSpaces, spaceOf } from "./spaces";
+import { DEFAULT_SPACE, DEFAULT_SPACE_ID, isSpaceId, isSpaceRunning, newSpaceDefaults, sanitizeSpace, sortSpaces, spaceAccounts, spaceOf } from "./spaces";
 
 test("프로젝트 소속 — spaceId 가 없으면 처음부터 있던 「살림설계사무소」", () => {
   assert.equal(spaceOf({}), DEFAULT_SPACE_ID);
@@ -71,4 +71,19 @@ test("업체 재무 계약 코드 · 계약 기간", async () => {
   assert.equal(inContract({ contract: { ...base, financeCode: "" } }, "2026-12"), true);
   assert.equal(inContract({ contract: { ...base, financeCode: "" } }, "2027-05"), false);
   assert.equal(inContract({ contract: { ...base, financeCode: "", endMonth: null } }, "2030-01"), true);
+});
+
+test("운영 중 · 준비 중 — 이 프로젝트에 붙은 게시 계정이 있으면 운영 중", () => {
+  const own = { id: "spabc123xy", kind: "own" as const };
+  const agency = { id: "spagency12", kind: "agency" as const };
+  const accounts = [
+    { spaceId: "spabc123xy", clientId: null },
+    { spaceId: "spagency12", clientId: "c1" },
+    { spaceId: "spabc123xy", clientId: "c1" }, // 자체 운영 프로젝트에 잘못 붙은 고객사 계정 — 세지 않는다
+    {}, // spaceId 없음 — 살림 것
+  ];
+  assert.equal(spaceAccounts(own, accounts).length, 1);
+  assert.equal(spaceAccounts(agency, accounts).length, 1); // 대행은 고객사 계정까지
+  assert.equal(isSpaceRunning({ id: DEFAULT_SPACE_ID, kind: "own" }, accounts), true);
+  assert.equal(isSpaceRunning({ id: "spnochannel", kind: "own" }, accounts), false);
 });

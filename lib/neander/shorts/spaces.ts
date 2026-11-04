@@ -82,6 +82,22 @@ export function canSeeSpace(s: Pick<SpaceDoc, "kind" | "clientId">, email: strin
 /** 자료가 어느 프로젝트의 것인가 — spaceId 가 없으면 처음부터 있던 「살림설계사무소」 */
 export const spaceOf = (d: { spaceId?: string | null } | null | undefined): string => d?.spaceId || DEFAULT_SPACE_ID;
 
+/**
+ * 이 프로젝트에 붙은 게시 계정 — 자체 운영은 우리 계정만, 대행은 그 프로젝트에 붙은 고객사 계정까지.
+ * 하나라도 있으면 실제 채널이 있는 「운영 중」, 없으면 기획만 있고 채널이 아직 없는 「준비 중」 이다
+ * (프로젝트 화면 · 대시보드 · 위 툴바의 프로젝트 고르기가 같은 기준으로 나눈다).
+ */
+export function spaceAccounts<A extends { spaceId?: string | null; clientId?: string | null }>(
+  s: Pick<SpaceDoc, "kind"> & { id: string },
+  accounts: A[],
+): A[] {
+  const agency = spaceKind(s) === "agency";
+  return accounts.filter((a) => spaceOf(a) === s.id && (agency || !a.clientId));
+}
+
+export const isSpaceRunning = (s: Pick<SpaceDoc, "kind"> & { id: string }, accounts: { spaceId?: string | null; clientId?: string | null }[]) =>
+  spaceAccounts(s, accounts).length > 0;
+
 /** 프로젝트 id — 기본은 salim, 새로 만든 것은 sp + 영숫자 */
 export const isSpaceId = (v: unknown): v is string => typeof v === "string" && (v === DEFAULT_SPACE_ID || /^sp[a-z0-9]{6,20}$/.test(v));
 

@@ -44,7 +44,7 @@ import { MorningBriefCard } from "@/components/neander/shorts/market/BriefMail";
 import { fmtDateStr, fmtDayKst, overdueLines, rollupFinance, vatText, wonText } from "@/components/neander/shorts/agency-ui/finance";
 import { PLATFORM_LABEL, REVIEW_LABEL, STAGE_LABEL, currentMonth, latestRound, monthProgress, projectTotals } from "@/lib/neander/shorts/model";
 import { inContract } from "@/lib/neander/shorts/agency";
-import { spaceKind, spaceOf, type SpaceView } from "@/lib/neander/shorts/spaces";
+import { spaceAccounts, spaceKind, spaceOf, type SpaceView } from "@/lib/neander/shorts/spaces";
 import { todayStrKST } from "@/lib/neander/format";
 import type { AccountView, JobKind, MetricSnapshotView, ProjectDoc, ProjectStage, PublicationView, PublishPlatform } from "@/lib/neander/shorts/types";
 import type { WithId } from "@/components/neander/shorts/ShortsProvider";
@@ -89,7 +89,6 @@ export default function ShortsDashboard() {
   const stats = useMemo(() => {
     const m = new Map<string, SpaceStat>();
     for (const x of live) {
-      const agency = spaceKind(x) === "agency";
       const ps = real.filter((p) => spaceOf(p) === x.id);
       const ids = new Set(ps.map((p) => p.id));
       const pubs = sc.publications.filter((p) => ids.has(p.projectId));
@@ -103,15 +102,18 @@ export default function ShortsDashboard() {
         published: pubs.filter((p) => p.status === "published").length,
         views: views.length ? views.reduce((a, b) => a + b, 0) : null,
         attention: pubs.filter((p) => p.status === "uncertain" || p.status === "failed").length + review,
-        // 자체 운영은 우리 계정만, 대행은 그 프로젝트에 붙은 고객사 계정까지
-        accounts: d.accounts.filter((a) => spaceOf(a) === x.id && (agency || !a.clientId)).map((a) => ({ name: a.externalName, platform: a.platform, reauth: a.status === "needs_reauth" })),
+        // 자체 운영은 우리 계정만, 대행은 그 프로젝트에 붙은 고객사 계정까지 (spaces.ts)
+        accounts: spaceAccounts(x, d.accounts).map((a) => ({ name: a.externalName, platform: a.platform, reauth: a.status === "needs_reauth" })),
         latest: latest ? { id: latest.id, title: latest.title, stage: latest.stage } : null,
         waiting: ps.filter((p) => p.review?.state === "waiting").length,
       });
     }
     return m;
   }, [live, real, sc.publications, snapsBy, d.accounts]);
-  const ownSpaces = live.filter((x) => spaceKind(x) === "own");
+  // 실제 채널이 있는 것(연결 계정이 있다)을 앞에, 채널이 아직 없는 「준비 중」 을 뒤에
+  const ownSpaces = live
+    .filter((x) => spaceKind(x) === "own")
+    .sort((a, b) => Number((stats.get(b.id)?.accounts.length ?? 0) > 0) - Number((stats.get(a.id)?.accounts.length ?? 0) > 0));
 
   // ---- 대행은 업체마다 — 이번 달 제작 · 승인 대기 · 재무 계약(권한이 있을 때) · 그 아래 프로젝트
   const agencyGroups = useMemo(() => {

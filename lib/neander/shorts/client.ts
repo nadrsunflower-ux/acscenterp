@@ -17,7 +17,10 @@ let currentSpace = "";
 export const setShortsSpace = (id: string) => {
   currentSpace = id;
 };
-const spaceHeader = (): Record<string, string> => (currentSpace ? { [SPACE_HEADER]: currentSpace } : {});
+const spaceHeader = (space?: string): Record<string, string> => {
+  const id = space ?? currentSpace;
+  return id ? { [SPACE_HEADER]: id } : {};
+};
 
 async function token(): Promise<string> {
   const user = getNeanderAuth().currentUser;
@@ -44,8 +47,9 @@ async function readError(res: Response): Promise<ShortsApiError> {
   }
 }
 
-export async function shortsGet<T>(path: string): Promise<T> {
-  const res = await fetch(`/api/neander/shorts/${path}`, { headers: { Authorization: `Bearer ${await token()}`, ...spaceHeader() }, cache: "no-store" });
+/** opts.space — 지금 고른 프로젝트가 아닌 프로젝트에 묻는다 (프로젝트 › 고치기 창) */
+export async function shortsGet<T>(path: string, opts: { space?: string } = {}): Promise<T> {
+  const res = await fetch(`/api/neander/shorts/${path}`, { headers: { Authorization: `Bearer ${await token()}`, ...spaceHeader(opts.space) }, cache: "no-store" });
   if (!res.ok) throw await readError(res);
   return (await res.json()) as T;
 }
@@ -57,10 +61,10 @@ export async function shortsBlob(path: string, signal?: AbortSignal): Promise<Bl
   return res.blob();
 }
 
-export async function shortsPost<T>(path: string, body: object): Promise<T> {
+export async function shortsPost<T>(path: string, body: object, opts: { space?: string } = {}): Promise<T> {
   const res = await fetch(`/api/neander/shorts/${path}`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${await token()}`, "Content-Type": "application/json", ...spaceHeader() },
+    headers: { Authorization: `Bearer ${await token()}`, "Content-Type": "application/json", ...spaceHeader(opts.space) },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw await readError(res);

@@ -20,6 +20,7 @@ import { FolderOpen } from "lucide-react";
 import { Badge, Button, ErrorState, LoadingState, PageShell, Tabs, buttonClass, useToast } from "@/components/neander/ui";
 import { useAction } from "@/components/neander/shorts/parts";
 import { StudioHeader, StudioNotice } from "@/components/neander/shorts/studio";
+import { KeywordBar } from "@/components/neander/shorts/KeywordBar";
 import { AutoPanel, AutoSettingsSection, useScoutAuto, type ScoutPanel, type ScoutRunActions } from "@/components/neander/shorts/scout/AutoPanel";
 import { ChannelsTab } from "@/components/neander/shorts/scout/ChannelsTab";
 import { FormatsTab } from "@/components/neander/shorts/scout/FormatsTab";
@@ -149,6 +150,7 @@ export default function ScoutPage() {
   return (
     <PageShell>
       <Header description={panel === "settings" ? DESCRIPTION.settings : DESCRIPTION[tab]} />
+      <KeywordBar use="한국 감시 채널은 소재 발굴이 이 키워드로 찾은 영상 중 크게 터진 것의 채널로 채웁니다 (해외 검색어는 자동 설정에서)." />
 
       {!keyReady ? (
         <StudioNotice tone="warning" title="YouTube 검색 키가 없습니다" action={keyLink} className="mb-4">

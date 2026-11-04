@@ -62,6 +62,7 @@ import {
 import { isReadOnlyFor, useScoped, useShorts, type WithId } from "@/components/neander/shorts/ShortsProvider";
 import { MeasuredInput, Num, SampleTag, SourceTag, Unknown, fmtWhen, useAction } from "@/components/neander/shorts/parts";
 import { RecordTable, StudioCard, StudioHeader, VisibilityChip, type RecordColumn } from "@/components/neander/shorts/studio";
+import { KeywordBar } from "@/components/neander/shorts/KeywordBar";
 import { RadarPanel, type RadarTab } from "@/components/neander/shorts/radar/RadarPanel";
 import { mutate, shortsPost } from "@/lib/neander/shorts/client";
 import {
@@ -247,6 +248,7 @@ export default function TrendsPage() {
   return (
     <PageShell>
       <StudioHeader kicker="AI STUDIO 워크스페이스" kickerIcon={FolderOpen} title="소재 발굴" description={HEAD[tab]} />
+      <KeywordBar use="AI 레이더가 매일 아침 이 키워드로 유튜브 쇼츠를 훑어 반응 큰 상품 후보를 모읍니다 (키워드 하나에 검색 1회)." />
 
       <RadarPanel tab={tab} onTabChange={setTab} savedSlot={saved} savedCount={sc.trends.length} />
 

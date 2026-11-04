@@ -23,9 +23,11 @@ import { useAction } from "@/components/neander/shorts/parts";
 import { StudioCard, StudioHeader, StudioNotice, StudioSection } from "@/components/neander/shorts/studio";
 import { SPACE_DEFAULT_KIND_LABEL, SPACE_STYLE_LABEL, SpaceSummaryCard, type SpaceCardStat } from "@/components/neander/shorts/agency-ui/space-card";
 import { vatText } from "@/components/neander/shorts/agency-ui/finance";
-import { mutate } from "@/lib/neander/shorts/client";
+import { mutate, shortsGet, shortsPost } from "@/lib/neander/shorts/client";
+import { MAX_PROJECT_KEYWORDS } from "@/lib/neander/shorts/keywords";
+import { KeywordChips, type KeywordsResponse } from "@/components/neander/shorts/KeywordBar";
 import { projectTotals } from "@/lib/neander/shorts/model";
-import { DEFAULT_SPACE_ID, PRODUCTION_LABEL, SPACE_KIND_LABEL, newSpaceDefaults, spaceKind, spaceOf, type SpaceKind, type SpaceProduction, type SpaceView } from "@/lib/neander/shorts/spaces";
+import { DEFAULT_SPACE_ID, PRODUCTION_LABEL, SPACE_KIND_LABEL, newSpaceDefaults, spaceAccounts, spaceKind, spaceOf, type SpaceKind, type SpaceProduction, type SpaceView } from "@/lib/neander/shorts/spaces";
 import type { ClientView } from "@/lib/neander/shorts/types";
 
 type Draft = { name: string; description: string; production: SpaceProduction; defaultKind: "coupang" | "general"; writerStyle: "intro" | "story"; archived: boolean; kind: SpaceKind; clientId: string; newClient: string };
@@ -69,7 +71,6 @@ export default function SpacesPage() {
   const stats = useMemo(() => {
     const m = new Map<string, SpaceCardStat>();
     for (const s of d.spaces) {
-      const agencySpace = spaceKind(s) === "agency";
       const ps = d.projects.filter((p) => !p.sample && spaceOf(p) === s.id);
       const ids = new Set(ps.map((p) => p.id));
       const pubs = d.publications.filter((x) => ids.has(x.projectId));
@@ -83,12 +84,15 @@ export default function SpacesPage() {
         published: pubs.filter((x) => x.status === "published").length,
         views: views.length ? views.reduce((a, b) => a + b, 0) : null,
         attention: pubs.filter((x) => x.status === "uncertain" || x.status === "failed").length + review,
-        accounts: d.accounts.filter((a) => spaceOf(a) === s.id && (agencySpace || !a.clientId)).map((a) => ({ name: a.externalName, platform: a.platform, reauth: a.status === "needs_reauth" })),
+        accounts: spaceAccounts(s, d.accounts).map((a) => ({ name: a.externalName, platform: a.platform, reauth: a.status === "needs_reauth" })),
         latest: latest ? { id: latest.id, title: latest.title, stage: latest.stage } : null,
       });
     }
     return m;
   }, [d]);
+  // 실제 채널이 있는 것(연결 계정이 있다)을 앞에 — 기획만 있고 채널이 아직 없는 것은 따로 묶는다
+  const running = (list: SpaceView[]) => list.filter((s) => (stats.get(s.id)?.accounts.length ?? 0) > 0);
+  const preparing = (list: SpaceView[]) => list.filter((s) => (stats.get(s.id)?.accounts.length ?? 0) === 0);
   const go = (id: string, href = "/neander/shorts/market") => {
     setSpace(id);
     router.push(href);
@@ -132,7 +136,15 @@ export default function SpacesPage() {
       </StudioNotice>
 
       <StudioSection title={SPACE_KIND_LABEL.own} description="우리 채널 — 쿠팡 수수료 · 광고 수익 · 프로젝트 설정은 팀 공용">
-        <div className={GRID}>{own.map(card)}</div>
+        {running(own).length > 0 && <div className={GRID}>{running(own).map(card)}</div>}
+        {preparing(own).length > 0 && (
+          <>
+            <h3 className={`mb-2.5 flex items-baseline gap-2 text-[15px] font-semibold text-nd-fg-2 ${running(own).length ? "mt-8" : ""}`}>
+              준비 중 <span className="text-[14px] font-normal text-nd-fg-3">— 아직 채널이 없는 프로젝트 {preparing(own).length}개 · 채널을 만들어 「연결」 에서 계정을 붙이면 위로 올라갑니다</span>
+            </h3>
+            <div className={GRID}>{preparing(own).map(card)}</div>
+          </>
+        )}
       </StudioSection>
 
       <StudioSection
@@ -190,7 +202,7 @@ export default function SpacesPage() {
                   </div>
                 )}
                 {spaces.length ? (
-                  <div className={GRID}>{spaces.map(card)}</div>
+                  <div className={GRID}>{[...running(spaces), ...preparing(spaces)].map(card)}</div>
                 ) : (
                   <p className="text-nd-body text-nd-fg-3">이 업체의 프로젝트가 아직 없습니다 — 「이 업체에 프로젝트」 로 브랜드(채널)마다 만드세요.</p>
                 )}
@@ -280,6 +292,29 @@ function SpaceDialog({
     setF(init);
   }
   const needsClientName = isNew && f?.kind === "agency" && f.clientId === NEW_CLIENT;
+  // 조사 키워드 — 기획 네 화면 위 막대와 같은 목록 (shorts/keywords.ts). 고치는 프로젝트의 것을 따로 받는다
+  const [kw, setKw] = useState<{ list: string[]; loaded: string[] } | null>(null);
+  useEffect(() => {
+    if (k === null) return;
+    if (isNew) {
+      setKw({ list: [], loaded: [] });
+      return;
+    }
+    let off = false;
+    setKw(null);
+    shortsGet<KeywordsResponse>("keywords", { space: editingSpace!.id })
+      .then((r) => !off && setKw({ list: r.keywords, loaded: r.keywords }))
+      .catch(() => !off && setKw(null));
+    return () => {
+      off = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [k]);
+  /** 키워드가 바뀌었으면 그 프로젝트에 저장 (관리자만 — 서버도 막는다) */
+  const saveKeywords = async (spaceId: string) => {
+    if (!admin || !kw || kw.list.join("\n") === kw.loaded.join("\n")) return;
+    await shortsPost("keywords", { keywords: kw.list }, { space: spaceId });
+  };
   const save = () =>
     void run(
       "save",
@@ -288,6 +323,7 @@ function SpaceDialog({
         if (!isNew && !editingSpace) return;
         if (!isNew) {
           const r = await mutate<{ space: SpaceView }>("space.update", { id: editingSpace!.id, space: f });
+          await saveKeywords(r.space.id);
           await onSaved(r.space, false);
           onClose();
           return;
@@ -298,6 +334,7 @@ function SpaceDialog({
           clientId = f.clientId === NEW_CLIENT ? (await mutate<{ id: string }>("client.save", { client: { name: f.newClient.trim() } })).id : f.clientId;
         }
         const r = await mutate<{ space: SpaceView }>("space.create", { space: { ...f, clientId } });
+        await saveKeywords(r.space.id);
         await onSaved(r.space, true);
         onClose();
       },
@@ -376,6 +413,21 @@ function SpaceDialog({
           <Field label="어떤 채널인가 · AI 가 참고" hint="주제 · 시청자 · 톤을 적으면 AI 가 레이더 상품을 고르고 아침 브리핑을 쓸 때 참고합니다">
             <Textarea rows={4} value={f.description} maxLength={1000} onChange={(e) => setF({ ...f, description: e.target.value })} placeholder="예: 20~40대 여성 대상 주방용품 브랜드 — 깔끔 · 실용 · 따뜻한 톤" />
           </Field>
+          <div>
+            <p className="mb-1.5 text-[14px] font-medium text-nd-fg">
+              조사 키워드
+              {kw && <span className="nd-num ml-1.5 font-normal text-nd-fg-3">{kw.list.length}/{MAX_PROJECT_KEYWORDS}</span>}
+            </p>
+            {kw ? (
+              <KeywordChips value={kw.list} onChange={(list) => setKw({ ...kw, list })} editable={admin} />
+            ) : (
+              <p className="text-[14px] text-nd-fg-3">불러오는 중…</p>
+            )}
+            <p className="mt-1.5 text-[13px] leading-relaxed text-nd-fg-3">
+              소재 발굴(유튜브 검색) · 시장 트렌드(네이버 추이 · 앞 12개) · 바이럴 형식(한국 채널)이 이 키워드로 매일 아침 조사합니다. 기획 네 화면 위 막대와 같은 목록입니다
+              {admin ? "." : " — 고치기는 AI STUDIO 관리자만 합니다."}
+            </p>
+          </div>
           <FormRow className="grid-cols-1 sm:grid-cols-2">
             <Field label="만드는 방식" hint={isNew ? "바꾸면 대본 기본 방식이 맞춰집니다 (직접 촬영 → 제품 소개 · AI 생성 → 스토리 광고)" : undefined}>
               <Select value={f.production} onChange={(e) => setF({ ...f, ...(isNew ? newSpaceDefaults(e.target.value as SpaceProduction) : { production: e.target.value as SpaceProduction }) })}>

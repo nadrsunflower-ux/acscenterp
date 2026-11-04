@@ -10,7 +10,7 @@ import { FolderKanban, Users } from "lucide-react";
 import { Select } from "@/components/neander/ui";
 import { ToolbarPortal, useShellOptional } from "@/components/neander/shell/context";
 import { useAppData } from "@/components/neander/app-data";
-import { spaceKind } from "@/lib/neander/shorts/spaces";
+import { isSpaceRunning, spaceKind } from "@/lib/neander/shorts/spaces";
 import { useShorts } from "./ShortsProvider";
 
 const MANAGE = "__manage";
@@ -52,6 +52,9 @@ export function ShortsSpaceSwitch({ inline = false }: { inline?: boolean } = {})
   const router = useRouter();
   const docked = useDocked();
   const list = (data?.spaces ?? []).filter((x) => !x.archived);
+  // 채널이 아직 없는 프로젝트는 이름 뒤에 「준비 중」 — 실제로 돌고 있는 채널과 섞여 보이지 않게 (spaces.ts)
+  const accounts = data?.accounts ?? [];
+  const label = (x: (typeof list)[number]) => (isSpaceRunning(x, accounts) ? x.name : `${x.name} · 준비 중`);
   // 대행은 업체마다 묶어서 (업체 이름순)
   const agencyGroups = [...new Set(list.filter((x) => spaceKind(x) === "agency").map((x) => x.clientId ?? ""))]
     .map((clientId) => ({ clientId, name: data?.clients.find((c) => c.id === clientId)?.name ?? "업체", spaces: list.filter((x) => spaceKind(x) === "agency" && (x.clientId ?? "") === clientId) }))
@@ -68,9 +71,10 @@ export function ShortsSpaceSwitch({ inline = false }: { inline?: boolean } = {})
           <optgroup label="자체 운영">
             {list
               .filter((x) => spaceKind(x) === "own")
+              .sort((a, b) => Number(isSpaceRunning(b, accounts)) - Number(isSpaceRunning(a, accounts)))
               .map((x) => (
                 <option key={x.id} value={x.id}>
-                  {x.name}
+                  {label(x)}
                 </option>
               ))}
           </optgroup>
@@ -78,7 +82,7 @@ export function ShortsSpaceSwitch({ inline = false }: { inline?: boolean } = {})
             <optgroup key={g.clientId} label={`대행 · ${g.name}`}>
               {g.spaces.map((x) => (
                 <option key={x.id} value={x.id}>
-                  {x.name}
+                  {label(x)}
                 </option>
               ))}
             </optgroup>

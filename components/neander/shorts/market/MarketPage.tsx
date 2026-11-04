@@ -29,7 +29,6 @@ import {
   Plus,
   RefreshCw,
   Sparkles,
-  Trash2,
   TrendingUp,
   Type,
   Users,
@@ -43,7 +42,6 @@ import {
   Field,
   FieldAction,
   FormRow,
-  IconButton,
   Input,
   NumberInput,
   PageShell,
@@ -59,6 +57,7 @@ import {
 } from "@/components/neander/ui";
 import { Num, Unknown, fmtUsd, fmtWhen, useAction } from "@/components/neander/shorts/parts";
 import { AiCostNote, RecordTable, StudioCard, StudioHeader, StudioNotice, StudioSection, type RecordColumn } from "@/components/neander/shorts/studio";
+import { KeywordBar } from "@/components/neander/shorts/KeywordBar";
 import { shortsGet, shortsPost } from "@/lib/neander/shorts/client";
 import {
   BRIEF_KIND_LABEL,
@@ -289,6 +288,7 @@ export function MarketPage() {
           )
         }
       />
+      <KeywordBar use="네이버 검색어 추이 · 아침 브리핑이 이 키워드로 시장을 봅니다." onSaved={() => void load()} />
       {missing.length > 0 && (
         <StudioNotice tone="warning" title="일부 자료를 건너뜁니다" className="mb-4">
           {missing.join(" · ")} 가 없어 그 자료는 받지 않습니다. 배포 설정에 키를 넣으면 다음 아침부터 채워집니다.
@@ -1065,13 +1065,14 @@ function ProductTrends({ d, keep, isKept }: { d: MarketData } & KeepProps) {
 
 function GroupSettings({ d, setD }: { d: MarketData; setD: SetD }) {
   const { busy, run } = useAction();
-  const [rows, setRows] = useState<{ id: string; name: string; keywords: string }[]>(
-    d.settings.groups.map((g) => ({
-      id: g.id,
-      name: g.name,
-      keywords: g.keywords.join(", "),
-    })),
-  );
+  const toRows = (groups: KeywordGroup[]) => groups.map((g) => ({ id: g.id, name: g.name, keywords: g.keywords.join(", ") }));
+  const [rows, setRows] = useState<{ id: string; name: string; keywords: string }[]>(toRows(d.settings.groups));
+  // 묶음은 맨 위 「조사 키워드」 막대가 정한다 — 막대에서 고치면 여기도 그 목록으로
+  const groupsKey = d.settings.groups.map((g) => `${g.id}:${g.keywords.join(",")}`).join("|");
+  useEffect(() => {
+    setRows(toRows(d.settings.groups));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupsKey]);
   const [enabled, setEnabled] = useState(d.settings.enabled);
   const [budget, setBudget] = useState(String(d.settings.briefBudgetKrw));
   const [open, setOpen] = useState(false);
@@ -1134,40 +1135,27 @@ function GroupSettings({ d, setD }: { d: MarketData; setD: SetD }) {
             </Field>
           </FormRow>
           <div>
-            <p className="mb-2 text-[13px] text-nd-fg-3">묶음마다 검색어 20개까지 — 네이버는 묶음 안 검색어를 합쳐 셉니다. 동의어를 한 묶음에 넣으세요.</p>
-            <div className="grid grid-cols-[minmax(0,140px)_minmax(0,1fr)_36px] items-center gap-x-2 gap-y-2">
-              <span className="text-[13px] font-medium text-nd-fg-2">이름</span>
-              <span className="text-[13px] font-medium text-nd-fg-2">검색어 (쉼표로 · 20개까지)</span>
-              <span />
-              {rows.map((r, i) => (
-                <div key={i} className="contents">
-                  <Input value={r.name} disabled={!d.admin} maxLength={30} aria-label={`${i + 1}번째 묶음 이름`} onChange={(e) => setRows(rows.map((x, k) => (k === i ? { ...x, name: e.target.value } : x)))} />
-                  <Input value={r.keywords} disabled={!d.admin} aria-label={`${i + 1}번째 묶음 검색어`} onChange={(e) => setRows(rows.map((x, k) => (k === i ? { ...x, keywords: e.target.value } : x)))} />
-                  <IconButton icon={Trash2} label={`${r.name || `${i + 1}번째`} 묶음 빼기`} disabled={!d.admin} onClick={() => setRows(rows.filter((_, k) => k !== i))} />
-                </div>
-              ))}
-            </div>
+            <p className="mb-2 text-[13px] text-nd-fg-3">
+              묶음은 맨 위 「조사 키워드」 의 앞 12개입니다 — 더하고 지우는 것은 막대에서 합니다. 여기서는 키워드마다 비슷한 말을 더할 수 있습니다
+              (네이버가 묶음 안 검색어를 합쳐 셉니다 · 20개까지).
+            </p>
+            {rows.length === 0 ? (
+              <p className="text-[14px] text-nd-fg-3">아직 묶음이 없습니다 — 맨 위 막대에서 키워드를 넣으면 생깁니다.</p>
+            ) : (
+              <div className="grid grid-cols-[minmax(0,160px)_minmax(0,1fr)] items-center gap-x-3 gap-y-2">
+                <span className="text-[13px] font-medium text-nd-fg-2">키워드</span>
+                <span className="text-[13px] font-medium text-nd-fg-2">같이 셀 검색어 (쉼표로)</span>
+                {rows.map((r, i) => (
+                  <div key={r.id} className="contents">
+                    <span className="truncate text-[14px] font-medium text-nd-fg">{r.name}</span>
+                    <Input value={r.keywords} disabled={!d.admin} aria-label={`「${r.name}」 묶음 검색어`} onChange={(e) => setRows(rows.map((x, k) => (k === i ? { ...x, keywords: e.target.value } : x)))} />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           {d.admin && (
             <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                variant="secondary"
-                icon={Plus}
-                disabled={rows.length >= 12}
-                onClick={() =>
-                  setRows([
-                    ...rows,
-                    {
-                      id: `g${Date.now().toString(36)}`,
-                      name: "",
-                      keywords: "",
-                    },
-                  ])
-                }
-              >
-                묶음 더하기
-              </Button>
               <Button size="sm" loading={busy === "save"} onClick={save}>
                 저장
               </Button>
