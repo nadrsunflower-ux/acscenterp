@@ -5,12 +5,14 @@ import {
   applyPicks,
   checkSiteUrl,
   checkSuggestion,
+  cleanPastedText,
   colorCandidates,
   defaultPicks,
   evidenceFound,
   extractSite,
   isPrivateAddress,
   pickCount,
+  plainChars,
   prefillSiteUrl,
   type BrandSitePreview,
   type RawBrandSuggestion,
@@ -227,4 +229,30 @@ test("주소 미리 채우기 — 영상 주소가 아닌 참고 자료 → 제�
   assert.equal(prefillSiteUrl({ brief: brief({ references: ["https://www.youtube.com/watch?v=x", "https://brand.co.kr/about"] }), products: [] }), "https://brand.co.kr/about");
   assert.equal(prefillSiteUrl({ brief: brief({ references: ["https://youtu.be/x"] }), products: [product({ url: "https://smartstore.naver.com/a/products/1" })] }), "https://smartstore.naver.com/a/products/1");
   assert.equal(prefillSiteUrl({ brief: brief(), products: [product()] }), "");
+});
+
+test("붙여 넣은 글 — 줄은 살리고 공백 · 빈 줄 겹침을 줄이고 12,000자에서 자른다", () => {
+  const a = cleanPastedText("  스텐 선반\r\n\r\n\r\n\r\n폭\t40cm   높이 35cm\u00a0 \n\n끝  ");
+  assert.deepEqual(a, { text: "스텐 선반\n\n폭 40cm 높이 35cm\n\n끝", truncated: false });
+  const b = cleanPastedText("가".repeat(12_500));
+  assert.equal(b.text.length, 12_000);
+  assert.equal(b.truncated, true);
+  assert.deepEqual(cleanPastedText(undefined), { text: "", truncated: false });
+  assert.equal(plainChars("[이미지: 로고] 스텐 선반 폭 40cm"), 9, "꺾쇠 표시 · 공백은 세지 않는다");
+});
+
+test("넣기 — 붙여 넣은 글이면 메모 · 읽은 날 줄이 「붙여 넣은 글」 로, 주소가 없으면 참고 자료를 늘리지 않는다", () => {
+  const pv = { ...preview(), source: "paste" as const, url: "", finalUrl: "", colors: [] };
+  const x = { brief: brief({ notes: "" }), products: [] as ClientProduct[] };
+  const picks = defaultPicks(x, pv.suggestion);
+  applyPicks(x, pv, picks, "2026-11-04", () => "pd_new");
+  assert.equal(x.products[0].note, "붙여 넣은 글 기준 · 확인 필요 · 2026-11-04 / 업체 주장: 국내 1위라고 함");
+  assert.equal(x.products[0].url, "");
+  assert.deepEqual(x.brief.references, []);
+  assert.equal(x.brief.notes, "붙여 넣은 글에서 읽음 2026-11-04");
+  // 주소를 함께 적었으면 그 주소를 남긴다
+  const y = { brief: brief({ notes: "" }), products: [] as ClientProduct[] };
+  applyPicks(y, { ...pv, url: "https://brand.co.kr/p/1", finalUrl: "https://brand.co.kr/p/1" }, { ...picks, products: [] }, "2026-11-04");
+  assert.deepEqual(y.brief.references, ["https://brand.co.kr/p/1"]);
+  assert.equal(y.brief.notes, "붙여 넣은 글에서 읽음 2026-11-04 — https://brand.co.kr/p/1");
 });

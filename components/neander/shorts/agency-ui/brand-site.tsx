@@ -4,6 +4,7 @@
 //  업체 「계약 · 브리프」 탭 — 홈페이지 · 상세페이지 주소로 브리프 칸 채우기
 // ------------------------------------------------------------
 //  주소를 넣고 누르면 서버가 그 페이지 한 장을 읽어 「제안」 만 돌려준다 (저장 없음 · AI 한 번).
+//  화면을 스크립트로 그리는 사이트처럼 서버가 글을 못 읽으면 「글 붙여 넣기」 — 브라우저에서 보이는 글을 복사해 넣는다.
 //  결과 창에서 칸마다 지금 값 · 제안 · 근거 문장을 보고 고른 것만 넣는다.
 //  기본은 비어 있는 칸만 골라 둔다 — 사람이 이미 쓴 칸을 AI 가 덮지 않게.
 //  넣기는 이 화면의 update(...) (1.2초 뒤 자동 저장) 로만 한다. 담당자가 아니면 막는다.
@@ -11,17 +12,21 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { Globe, Quote, Sparkles } from "lucide-react";
-import { Badge, Button, Checkbox, Dialog, Field, FieldAction, FormRow, Input, cn, useToast } from "@/components/neander/ui";
+import { Badge, Button, Checkbox, Dialog, Field, FieldAction, FormRow, Input, SegmentedControl, Textarea, cn, useToast } from "@/components/neander/ui";
 import { useAction } from "@/components/neander/shorts/parts";
 import { AiCostNote, StudioNotice } from "@/components/neander/shorts/studio";
 import { shortsGet, shortsPost } from "@/lib/neander/shorts/client";
 import {
   BRAND_SITE_DAILY_LIMIT,
   BRAND_SITE_EST_KRW,
+  BRAND_SITE_MIN_TEXT,
+  BRAND_SITE_TEXT_MAX,
   applyPicks,
+  cleanPastedText,
   defaultPicks,
   hasMessage,
   pickCount,
+  plainChars,
   prefillSiteUrl,
   sameProduct,
   type BrandSitePicks,
@@ -34,6 +39,9 @@ import type { ClientView } from "@/lib/neander/shorts/types";
 /** 읽기만 하는 동작 (이름이 .preview) — 저장하지 않는다 */
 export const previewBrandSite = (clientId: string, url: string) =>
   shortsPost<{ preview: BrandSitePreview }>("brand-site", { action: "site.preview", clientId, url }).then((r) => r.preview);
+/** 붙여 넣은 글로 같은 제안 (이름이 .preview — 저장하지 않는다) */
+export const previewBrandText = (clientId: string, text: string, url: string) =>
+  shortsPost<{ preview: BrandSitePreview }>("brand-site", { action: "text.preview", clientId, text, url }).then((r) => r.preview);
 const loadBrandSiteQuota = () => shortsGet<{ quota: { used: number; limit: number } }>("brand-site").then((r) => r.quota);
 
 const fmtUsd = (v: number) => `$${v < 0.01 ? v.toFixed(4) : v.toFixed(3)}`;
@@ -42,6 +50,11 @@ export function BrandSiteFill({ c, update }: { c: ClientView; update: (fn: (x: C
   const toast = useToast();
   const { busy, run } = useAction();
   const [url, setUrl] = useState(() => prefillSiteUrl(c));
+  const [mode, setMode] = useState<"page" | "paste">("page");
+  const [pasted, setPasted] = useState("");
+  /** 주소로 읽다가 「글이 거의 없음」 으로 막힌 주소 — 붙여 넣기로 넘어가자고 권한다 */
+  const [thin, setThin] = useState<string | null>(null);
+  const pastedChars = plainChars(cleanPastedText(pasted).text);
   const [quota, setQuota] = useState<{ used: number; limit: number } | null>(null);
   const [preview, setPreview] = useState<BrandSitePreview | null>(null);
   useEffect(() => {
@@ -55,8 +68,22 @@ export function BrandSiteFill({ c, update }: { c: ClientView; update: (fn: (x: C
       : null;
   const go = () => {
     if (blocked || !url.trim() || busy) return;
+    setThin(null);
     void run("read", async () => {
-      const p = await previewBrandSite(c.id, url.trim());
+      try {
+        const p = await previewBrandSite(c.id, url.trim());
+        setQuota(p.quota);
+        setPreview(p);
+      } catch (e) {
+        if (e instanceof Error && e.message.includes("읽을 글이 거의 없습니다")) setThin(url.trim());
+        throw e;
+      }
+    });
+  };
+  const goPaste = () => {
+    if (blocked || pastedChars < BRAND_SITE_MIN_TEXT || busy) return;
+    void run("read", async () => {
+      const p = await previewBrandText(c.id, pasted, url.trim());
       setQuota(p.quota);
       setPreview(p);
     });
@@ -72,6 +99,40 @@ export function BrandSiteFill({ c, update }: { c: ClientView; update: (fn: (x: C
           </p>
         </div>
       </div>
+      <SegmentedControl
+        size="sm"
+        ariaLabel="읽는 방법"
+        value={mode}
+        onChange={setMode}
+        options={[
+          { value: "page", label: "주소로 읽기" },
+          { value: "paste", label: "글 붙여 넣기" },
+        ]}
+      />
+      {mode === "paste" ? (
+        <div className="space-y-3">
+          <p className="text-[13px] leading-relaxed text-nd-fg-3">
+            화면을 스크립트로 그리는 사이트(쇼핑몰 · 상세페이지가 이미지인 곳)는 서버가 글을 못 읽습니다. 브라우저에서 그 페이지의 글을 전체 선택 · 복사해 넣어 주세요 — 근거 검사는 붙여 넣은 이 글로 합니다.
+          </p>
+          <Field label={`페이지 글 (${BRAND_SITE_MIN_TEXT}자 이상 · ${BRAND_SITE_TEXT_MAX.toLocaleString("ko-KR")}자에서 자름)`}>
+            <Textarea rows={6} value={pasted} disabled={!c.canEdit} onChange={(e) => setPasted(e.target.value)} placeholder="회사 소개 · 제품 설명 · 특징 부분을 붙여 넣어 주세요" className="w-full" />
+          </Field>
+          <FormRow className="grid-cols-[minmax(0,1fr)_auto]">
+            <Field label="그 페이지 주소 (선택 · 참고 자료에 남김)">
+              <Input size="sm" type="url" inputMode="url" value={url} disabled={!c.canEdit} placeholder="https://…" onChange={(e) => setUrl(e.target.value)} />
+            </Field>
+            <FieldAction>
+              <Button size="sm" icon={Sparkles} loading={busy === "read"} disabled={!!blocked || pastedChars < BRAND_SITE_MIN_TEXT || busy === "read"} onClick={goPaste}>
+                글로 제안 받기
+              </Button>
+            </FieldAction>
+          </FormRow>
+          <p className="nd-num text-[13px] text-nd-fg-3">
+            지금 {pastedChars.toLocaleString("ko-KR")}자{pastedChars < BRAND_SITE_MIN_TEXT ? ` — ${BRAND_SITE_MIN_TEXT}자 이상이어야 합니다` : ""}
+          </p>
+        </div>
+      ) : (
+      <>
       <FormRow className="grid-cols-[minmax(0,1fr)_auto]">
         <Field label="홈페이지 · 상세페이지 주소">
           <Input
@@ -96,6 +157,16 @@ export function BrandSiteFill({ c, update }: { c: ClientView; update: (fn: (x: C
           </Button>
         </FieldAction>
       </FormRow>
+      {thin === url.trim() && (
+        <StudioNotice tone="warning" title="이 페이지는 서버가 글을 거의 못 읽었습니다">
+          화면을 스크립트로 그리거나 글이 이미지에만 있는 페이지일 수 있습니다.{" "}
+          <button type="button" className="font-semibold text-nd-accent underline-offset-2 hover:underline" onClick={() => setMode("paste")}>
+            글 붙여 넣기로 하기
+          </button>
+        </StudioNotice>
+      )}
+      </>
+      )}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <AiCostNote estimate={`약 ${BRAND_SITE_EST_KRW}원 (실측 기준)`} used={quota ? `${quota.used.toLocaleString("ko-KR")}번` : undefined} cap={`${limit.toLocaleString("ko-KR")}번`} />
         {blocked && <span className="text-[13px] font-medium text-nd-warning-text">{blocked}</span>}
@@ -212,7 +283,7 @@ function BrandSiteDialog({ c, p, onClose, onApply }: { c: ClientView; p: BrandSi
       open
       onClose={onClose}
       size="xl"
-      title="홈페이지에서 읽은 제안"
+      title={p.source === "paste" ? "붙여 넣은 글로 만든 제안" : "홈페이지에서 읽은 제안"}
       description="고른 것만 브리프 · 제품에 들어갑니다. 제안은 AI 가 페이지 글로 만든 것이라 확인한 뒤 넣어 주세요."
       footer={
         <>
@@ -229,10 +300,13 @@ function BrandSiteDialog({ c, p, onClose, onApply }: { c: ClientView; p: BrandSi
       <div className="space-y-6">
         <div className="space-y-1.5 rounded-nd-md bg-nd-sunken/70 px-4 py-3 text-[13px] text-nd-fg-2">
           <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-            <span className="text-nd-fg-3">읽은 주소</span>
-            <a href={p.finalUrl} target="_blank" rel="noreferrer noopener" className="min-w-0 break-all text-nd-accent hover:underline">
-              {p.finalUrl}
-            </a>
+            <span className="text-nd-fg-3">{p.source === "paste" ? "읽은 글" : "읽은 주소"}</span>
+            {p.source === "paste" && <span>사람이 붙여 넣은 글{p.finalUrl ? " ·" : " (주소 없음)"}</span>}
+            {p.finalUrl && (
+              <a href={p.finalUrl} target="_blank" rel="noreferrer noopener" className="min-w-0 break-all text-nd-accent hover:underline">
+                {p.finalUrl}
+              </a>
+            )}
           </div>
           {(p.page.title || p.page.siteName) && (
             <div className="break-words">

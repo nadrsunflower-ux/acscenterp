@@ -4,7 +4,6 @@ import { adminDb } from "@/lib/neander/server/admin";
 import { getMarketSettings, runMarketDaily } from "@/lib/neander/shorts/server/market";
 import { forEachSpace } from "@/lib/neander/shorts/server/space-db";
 import { sendBriefMails } from "@/lib/neander/shorts/server/brief-mail";
-import { publicOrigin } from "@/lib/neander/mail/server/track";
 
 // ============================================================
 //  시장 트렌드 주기 실행 — 매일 07:30 KST (vercel.json · Authorization: Bearer <CRON_SECRET>)
@@ -13,6 +12,13 @@ import { publicOrigin } from "@/lib/neander/mail/server/track";
 //  모든 프로젝트 브리핑을 만든 뒤 「메일로 받기」 를 켠 사람마다 한 통 (내게쓰기 · server/brief-mail.ts).
 //  메일에 몫을 남기려고 프로젝트 실행은 240초 안에서 나눈다.
 // ============================================================
+
+/**
+ * 메일 속 「ERP 에서 보기」 주소 — 주기 실행 요청의 호스트를 쓰지 않는다. Vercel 크론은 배포마다 붙는 주소로
+ * 올 수 있고, 그 주소는 Vercel 로그인 뒤에 있어 받은 사람이 눌러도 ERP 가 안 열린다.
+ * 회의록 노션 보관(meetings/server/archive.ts)과 같은 운영 주소. 바꿔야 하면 NEANDER_PUBLIC_ORIGIN.
+ */
+const ERP_ORIGIN = (process.env.NEANDER_PUBLIC_ORIGIN ?? "").trim().replace(/\/+$/, "") || "https://neander-erp.vercel.app";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -37,6 +43,6 @@ export async function GET(req: Request) {
     return runMarketDaily(sdb, { by: "company", deadline, settings: s });
   });
   // 한 사람의 실패가 브리핑 결과를 깨지 않게 — 메일 전체가 실패해도 응답은 낸다
-  const briefMail = await sendBriefMails(adminDb(), { deadline: started + 292_000, origin: publicOrigin(req) ?? new URL(req.url).origin }).catch((e) => (e instanceof Error ? e.message : String(e)));
+  const briefMail = await sendBriefMails(adminDb(), { deadline: started + 292_000, origin: ERP_ORIGIN }).catch((e) => (e instanceof Error ? e.message : String(e)));
   return NextResponse.json({ ...out, "메일로 받기": briefMail });
 }

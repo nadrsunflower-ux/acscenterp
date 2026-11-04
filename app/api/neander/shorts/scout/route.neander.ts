@@ -4,7 +4,7 @@ import { isShortsAdmin, requireShortsUser } from "@/lib/neander/shorts/server/ac
 import { fail, json } from "@/lib/neander/shorts/server/http";
 import { youtubeKeyFor } from "@/lib/neander/shorts/server/profiles";
 import { SCOUT_VIDEO_MODELS, compareChannelVideos } from "@/lib/neander/shorts/server/scout-ai";
-import { analyzeHit, buildWeeklyReport, narrateWeeklyReport, scanDue } from "@/lib/neander/shorts/server/scout-run";
+import { analyzeHit, autoAnalyzeQuotaKey, buildWeeklyReport, narrateWeeklyReport, scanDue } from "@/lib/neander/shorts/server/scout-run";
 import {
   addManualHit,
   addWatch,
@@ -110,7 +110,7 @@ export async function GET(req: Request) {
     ]);
     const [searchUsed, aiToday, compareUsed] = await Promise.all([
       readQuota(db, yk.source === "personal" ? `ytsearch_${email}_${kstDay()}` : `ytsearch_${kstDay()}`),
-      readQuota(db, `scoutai_${kstDay()}`),
+      readQuota(db, autoAnalyzeQuotaKey(db)),
       readQuota(db, compareQuotaKey(db)),
     ]);
     return json({

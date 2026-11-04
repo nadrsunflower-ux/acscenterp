@@ -30,6 +30,8 @@ import {
   BRAND_SITE_MIN_TEXT,
   checkSiteUrl,
   checkSuggestion,
+  cleanPastedText,
+  plainChars,
   colorCandidates,
   extractSite,
   isPrivateAddress,
@@ -302,18 +304,52 @@ export async function previewBrandSite(db: Firestore, email: string, input: { cl
   const site = extractSite(page.html);
   const colors = colorCandidates(page.html);
   // 글이 거의 없으면 AI 를 부르지 않는다 (돈만 들고 지어낼 거리만 준다)
-  const plain = site.text.replace(/\[[^\]]+\]/g, "").replace(/\s+/g, "");
-  if (plain.length < BRAND_SITE_MIN_TEXT)
-    throw new Error(`이 페이지에서 읽을 글이 거의 없습니다 (${plain.length}자) — 화면을 스크립트로 그리거나 글이 이미지에만 있는 페이지일 수 있습니다. 회사 소개 · 제품 상세페이지 주소로 다시 해 보세요.`);
+  const plain = plainChars(site.text);
+  if (plain < BRAND_SITE_MIN_TEXT)
+    throw new Error(`이 페이지에서 읽을 글이 거의 없습니다 (${plain}자) — 화면을 스크립트로 그리거나 글이 이미지에만 있는 페이지일 수 있습니다. 회사 소개 · 제품 상세페이지 주소로 다시 하거나, 「글 붙여 넣기」 로 페이지 글을 복사해 넣어 주세요.`);
   const q = await takeQuota(db, brandSiteQuotaKey(), BRAND_SITE_DAILY_LIMIT);
   if (!q.ok) throw new Error(`오늘 홈페이지 읽기를 ${BRAND_SITE_DAILY_LIMIT}번 다 썼습니다 (회사 전체 하루 상한). 내일 다시 해 주세요.`);
   const ai = await suggestBriefFromSite({ text: site.text, clientName: c.name, url: page.url });
   return {
+    source: "page",
     url: first.url.href,
     finalUrl: page.url,
     readAt: Date.now(),
     page: { title: site.title || site.ogTitle, siteName: site.siteName, description: site.description || site.ogDescription, chars: site.text.length, truncated: site.truncated || page.cut },
     colors,
+    suggestion: ai.suggestion,
+    dropped: ai.dropped,
+    costUsd: ai.costUsd,
+    costKrw: krwOf(ai.costUsd),
+    model: ai.model,
+    quota: { used: q.used, limit: BRAND_SITE_DAILY_LIMIT },
+  };
+}
+
+/**
+ * text.preview — 사람이 붙여 넣은 페이지 글로 같은 제안을 만든다 (저장 없음 · AI 한 번).
+ * 다이소몰처럼 화면을 스크립트로 그리는 사이트는 서버가 글을 못 읽는다 — 브라우저에서 보이는 글을 복사해 넣는 길.
+ * 밖으로 나가는 요청이 없으니 주소 검사 · 가져오기는 하지 않는다. 함께 적은 주소는 참고 자료에 남길 때만 쓴다.
+ */
+export async function previewBrandText(db: Firestore, email: string, input: { clientId?: unknown; text?: unknown; url?: unknown }): Promise<BrandSitePreview> {
+  const c = await getClientForEdit(db, email, input.clientId);
+  const { text, truncated } = cleanPastedText(input.text);
+  const plain = plainChars(text);
+  if (plain < BRAND_SITE_MIN_TEXT) throw new Error(`붙여 넣은 글이 너무 짧습니다 (${plain}자) — 회사 소개 · 제품 설명이 들어간 부분을 ${BRAND_SITE_MIN_TEXT}자 이상 넣어 주세요.`);
+  const asked = String(input.url ?? "").trim().slice(0, 2000);
+  const checked = asked ? checkSiteUrl(/^https?:\/\//i.test(asked) ? asked : `https://${asked}`) : null;
+  if (checked && !checked.ok) throw new Error(`함께 적은 주소가 올바르지 않습니다 — ${checked.reason} (주소는 비워도 됩니다)`);
+  const url = checked?.ok ? checked.url.href : "";
+  const q = await takeQuota(db, brandSiteQuotaKey(), BRAND_SITE_DAILY_LIMIT);
+  if (!q.ok) throw new Error(`오늘 홈페이지 읽기를 ${BRAND_SITE_DAILY_LIMIT}번 다 썼습니다 (회사 전체 하루 상한). 내일 다시 해 주세요.`);
+  const ai = await suggestBriefFromSite({ text, clientName: c.name, url: url || "(사람이 붙여 넣은 글 — 주소 없음)" });
+  return {
+    source: "paste",
+    url,
+    finalUrl: url,
+    readAt: Date.now(),
+    page: { title: "", siteName: "", description: "", chars: text.length, truncated },
+    colors: [],
     suggestion: ai.suggestion,
     dropped: ai.dropped,
     costUsd: ai.costUsd,

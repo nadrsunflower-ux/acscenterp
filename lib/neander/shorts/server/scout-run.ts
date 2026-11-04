@@ -43,11 +43,23 @@ import {
   writeScan,
 } from "./scout-store";
 import { takeQuota, readQuota } from "./store";
+import { stampSpace } from "./space-db";
+import { DEFAULT_SPACE_ID } from "../spaces";
 import { youtubeApiKey, youtubeChannels, youtubeCommentSample, youtubeRecentUploads, youtubeVideos } from "./youtube-data";
 
 type WithId<T> = T & { id: string };
 
 const kstDay = () => new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
+
+/**
+ * 자동 분석 하루 계수기 — 프로젝트마다 따로. 상한(설정 autoAnalyzePerDay)은 원래 프로젝트마다 따로인데
+ * 계수기(takeQuota 는 늘 전역 컬렉션)만 하나여서 모든 프로젝트가 한 상한을 나눠 쓰고 있었다.
+ * 기본 프로젝트는 예전 키를 그대로 써서 바꾼 날의 셈이 이어진다.
+ */
+export const autoAnalyzeQuotaKey = (db: Firestore) => {
+  const space = stampSpace(db);
+  return space === DEFAULT_SPACE_ID ? `scoutai_${kstDay()}` : `scoutai_${space}_${kstDay()}`;
+};
 
 export interface ScanResult {
   watchId: string;
@@ -165,7 +177,7 @@ export async function analyzeHit(db: Firestore, by: string, hitId: unknown, opts
 export async function autoAnalyze(db: Firestore, opts: { deadline: number; key: string }): Promise<{ analyzed: number; failed: number; costUsd: number }> {
   const s = await getScoutSettings(db);
   if (s.autoAnalyzePerDay <= 0) return { analyzed: 0, failed: 0, costUsd: 0 };
-  const quotaKey = `scoutai_${kstDay()}`;
+  const quotaKey = autoAnalyzeQuotaKey(db);
   const left = s.autoAnalyzePerDay - (await readQuota(db, quotaKey));
   if (left <= 0) return { analyzed: 0, failed: 0, costUsd: 0 };
   const queue = (await listHits(db))

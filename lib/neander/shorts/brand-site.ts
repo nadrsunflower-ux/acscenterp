@@ -452,7 +452,12 @@ export function checkSuggestion(raw: Partial<RawBrandSuggestion> | null | undefi
 // ---- 서버 → 화면 응답 ----------------------------------------------------------
 
 export interface BrandSitePreview {
-  /** 사람이 넣은 주소 (다듬은 것) */
+  /**
+   * 어디서 읽었나 — page: 주소로 페이지를 가져옴 · paste: 사람이 붙여 넣은 글 (스크립트로 그리는 사이트처럼
+   * 서버가 글을 못 읽는 경우). 없으면 page (예전 응답)
+   */
+  source?: "page" | "paste";
+  /** 사람이 넣은 주소 (다듬은 것 · 붙여 넣기면 함께 적은 주소 또는 "") */
   url: string;
   /** 리다이렉트 뒤 실제로 읽은 주소 */
   finalUrl: string;
@@ -466,6 +471,25 @@ export interface BrandSitePreview {
   model: string;
   quota: { used: number; limit: number };
 }
+
+/**
+ * 붙여 넣은 페이지 글 다듬기 — 줄바꿈은 살리고 줄 안 공백 · 빈 줄 겹침을 줄이고 상한(BRAND_SITE_TEXT_MAX)에서 자른다.
+ * 근거 검사(checkSuggestion)는 이 다듬은 글을 기준으로 한다 — 화면에 붙인 그 글에 근거가 있어야 남는다.
+ */
+export function cleanPastedText(raw: unknown): { text: string; truncated: boolean } {
+  const t = String(raw ?? "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\t\u00a0\u200b]+/g, " ")
+    .split("\n")
+    .map((l) => l.replace(/ {2,}/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return t.length > BRAND_SITE_TEXT_MAX ? { text: t.slice(0, BRAND_SITE_TEXT_MAX), truncated: true } : { text: t, truncated: false };
+}
+
+/** 근거로 셀 글자 수 (공백 · [이미지 설명] 같은 꺾쇠 표시 뺀 것) — 서버의 「글이 거의 없음」 판단과 같은 셈 */
+export const plainChars = (text: string) => text.replace(/\[[^\]]+\]/g, "").replace(/\s+/g, "").length;
 
 // ---- 고르기 · 넣기 (화면이 update(...) 안에서 부른다) ------------------------------
 
@@ -526,8 +550,9 @@ export function pickCount(p: BrandSitePicks): number {
  *   업체 주장(효능 · 과장)은 사실 칸이 아니라 제품 메모에 「업체 주장:」 으로
  * - 주소는 참고 자료에(없으면) · 그 밖의 지시 끝에 「홈페이지에서 읽음 날짜 — 주소」 한 줄
  */
-export function applyPicks(x: BriefHolder, pv: Pick<BrandSitePreview, "url" | "finalUrl" | "colors" | "suggestion">, picks: BrandSitePicks, today: string, makeId: () => string = () => newId("pd_")): void {
+export function applyPicks(x: BriefHolder, pv: Pick<BrandSitePreview, "url" | "finalUrl" | "colors" | "suggestion" | "source">, picks: BrandSitePicks, today: string, makeId: () => string = () => newId("pd_")): void {
   const s = pv.suggestion;
+  const pasted = pv.source === "paste";
   if (picks.summary && s.summary) x.brief.summary = s.summary.value;
   if (picks.target && s.target) x.brief.target = s.target.value;
   if (picks.tone && s.tone) x.brief.tone = s.tone.value;
@@ -541,7 +566,7 @@ export function applyPicks(x: BriefHolder, pv: Pick<BrandSitePreview, "url" | "f
     const facts = p.facts.filter((_, j) => pick.facts[j]).map((f) => f.value);
     const claims = p.claims.filter((_, j) => pick.claims[j]).map((f) => `업체 주장: ${f.value}`);
     // 제품 메모 칸은 한 줄 입력이라 줄바꿈 대신 「 / 」 로 잇는다
-    const noteLine = [`홈페이지 기준 · 확인 필요 · ${today}`, ...claims].join(" / ");
+    const noteLine = [`${pasted ? "붙여 넣은 글" : "홈페이지"} 기준 · 확인 필요 · ${today}`, ...claims].join(" / ");
     const had = sameProduct(x.products, p.name);
     if (had) {
       for (const f of facts) if (!had.facts.some((y) => matchKey(y) === matchKey(f)) && had.facts.length < FACTS_MAX) had.facts.push(f);
@@ -555,7 +580,7 @@ export function applyPicks(x: BriefHolder, pv: Pick<BrandSitePreview, "url" | "f
   if (ref && !x.brief.references.includes(ref) && x.brief.references.length < REFERENCES_MAX) x.brief.references.push(ref);
   const lines = [
     picks.colors && pv.colors.length > 0 && `색 후보(코드로 찾음 · 확인 필요): ${pv.colors.map((c) => c.hex).join(" · ")}`,
-    `홈페이지에서 읽음 ${today} — ${url || ref}`,
+    pasted ? `붙여 넣은 글에서 읽음 ${today}${url || ref ? ` — ${url || ref}` : ""}` : `홈페이지에서 읽음 ${today} — ${url || ref}`,
   ].filter((l): l is string => !!l);
   x.brief.notes = [x.brief.notes.replace(/\s+$/, ""), ...lines].filter(Boolean).join("\n");
 }
