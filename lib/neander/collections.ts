@@ -249,8 +249,10 @@ export const NEANDER_COL = {
   shortsMarket: "neander_shorts_market",
   /** 채널 모니터링 — 감시 채널 · 내 채널의 하루 한 번 숫자 기록 (yt_<채널> · ig_<계정>) */
   shortsChannelStats: "neander_shorts_channel_stats",
-  /** 트렌드 노트 — 사람마다 비공개 카드 */
+  /** 트렌드 노트 — 기본 나만 보기 · 팀 공개 카드 (참고 영상 · 사진 목록 포함) */
   shortsNotes: "neander_shorts_notes",
+  /** 트렌드 노트 사진 원본 — 한 장에 문서 하나(원본 + 작은 그림 · Storage 버킷이 없어서). shorts/note-media.ts */
+  shortsNoteImages: "neander_shorts_note_images",
   /** 레퍼런스 영상 컷 표 — 장면 · 대사 · 초 (문서 id = yt_{영상 id} · 프로젝트마다 · 회사 공용). shorts/cuts.ts */
   shortsCuts: "neander_shorts_cuts",
   /** AI STUDIO 비서 대화 — 사람마다 비공개 (재무 · 매출 비서와 같은 모양 · ai/chat-log.ts) */

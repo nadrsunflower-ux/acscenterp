@@ -5,8 +5,11 @@ import { isShortsAdmin, requireShortsUser } from "@/lib/neander/shorts/server/ac
 import { openrouterConfigured } from "@/lib/neander/shorts/server/ai";
 import { fail, json } from "@/lib/neander/shorts/server/http";
 import {
+  addNoteImage,
+  addNoteVideo,
   compareTrend,
   deleteNote,
+  deleteNoteImage,
   getBrief,
   getGroupSeries,
   getMarketSettings,
@@ -14,6 +17,7 @@ import {
   listChannelStats,
   listNotes,
   radarProductTrends,
+  readNoteImage,
   refreshGroupSeries,
   runMarketBrief,
   runMarketDaily,
@@ -33,7 +37,9 @@ import { publicOrigin } from "@/lib/neander/mail/server/track";
 
 // 시장 트렌드 — 브리핑 · 검색어 추이 · 채널 모니터링 · 트렌드 노트 (shorts/market.ts)
 //   GET  전체 · ?brief=<날짜> · ?compare=1&groups=a,b&range=1y&unit=week&mode=groups|segments
+//        ?noteImage=<사진 id>&size=thumb|full — 노트 사진 원본(쓴 사람 · 팀 공개 노트만 · 바이트로 답한다)
 //   POST settings.save(관리자) · run · brief.run · series.refresh · channels.snapshot · note.save · note.delete
+//        note.video.add(주소 → 공식 재생기 · 그때 숫자) · note.image.add(줄인 원본 + 작은 그림 base64) · note.image.delete
 //        titles.get(제목 키워드 · 읽기 · shorts/title-trends.ts)
 //        briefs.list(대시보드 — 볼 수 있는 모든 프로젝트의 오늘 브리핑 · 읽기)
 //        briefmail.get · briefmail.preview(읽기 · 보내지 않음) · briefmail.save · briefmail.test(내게쓰기 한 통 — 사람이 누를 때만)
@@ -46,6 +52,12 @@ export async function GET(req: Request) {
     const { email } = await requireShortsUser(req);
     const db = await requestDb(req, adminDb(), email);
     const u = new URL(req.url);
+    const imageId = u.searchParams.get("noteImage");
+    if (imageId) {
+      const img = await readNoteImage(db, email, imageId, u.searchParams.get("size") === "thumb" ? "thumb" : "full");
+      // 사진 id 는 바뀌지 않는다 (고치면 새 id) — 브라우저가 오래 들고 있어도 된다. 로그인한 사람 것이라 private
+      return new Response(new Uint8Array(img.bytes), { headers: { "Content-Type": img.type, "Cache-Control": "private, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff" } });
+    }
     if (u.searchParams.has("compare")) {
       return json(
         await compareTrend(db, {
@@ -70,7 +82,7 @@ export async function GET(req: Request) {
       listChannelStats(db),
       listWatch(db),
       listHits(db),
-      listNotes(db, email),
+      listNotes(db, email, { withTeam: true }),
       db.collection(NEANDER_COL.shortsSettings).doc(`usage_marketusd_${today}`).get(),
     ]);
     const latestDay = briefDays[0]?.day ?? null;
@@ -145,6 +157,12 @@ export async function POST(req: Request) {
       case "note.delete":
         await deleteNote(db, email, b.id);
         return json({ ok: true });
+      case "note.video.add":
+        return json({ note: await addNoteVideo(db, email, b.id, b.url) });
+      case "note.image.add":
+        return json({ note: await addNoteImage(db, email, b.id, b.image) });
+      case "note.image.delete":
+        return json({ note: await deleteNoteImage(db, email, b.id, b.imageId) });
       default:
         throw new Error("알 수 없는 동작입니다.");
     }

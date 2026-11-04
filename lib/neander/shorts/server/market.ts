@@ -9,7 +9,7 @@ import "server-only";
 //  돈 드는 것은 ③ 뿐. 동시에 두 번 돌지 않게 잠근다. 검증은 prefix 로 문서 이름을 갈라 쓴다.
 // ============================================================
 
-import type { Firestore } from "firebase-admin/firestore";
+import type { DocumentReference, Firestore } from "firebase-admin/firestore";
 import { AccessError } from "@/lib/neander/server/auth";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import {
@@ -19,6 +19,7 @@ import {
   groupTrend,
   pushChannelPoint,
   sanitizeMarketSettings,
+  normalizeNote,
   sanitizeNote,
   trendDates,
   SEGMENTS,
@@ -32,6 +33,23 @@ import {
   type TrendNoteDoc,
   type TrendRange,
 } from "../market";
+import {
+  NOTE_IMAGES_MAX,
+  NOTE_IMAGE_MAX_BYTES,
+  NOTE_THUMB_MAX_BYTES,
+  NOTE_VIDEOS_MAX,
+  captionTitle,
+  isTiktokShortUrl,
+  noteVideoKey,
+  parseInstagramEmbed,
+  parseNoteVideoUrl,
+  sniffImageType,
+  videoStatsLine,
+  type NoteImage,
+  type NoteImageType,
+  type NoteVideo,
+  type NoteVideoAspect,
+} from "../note-media";
 import { NAVER_LABEL, USD_KRW, normalizeProductKey, type RadarDoc } from "../radar";
 import { DEFAULT_SPACE_ID, spaceOf } from "../spaces";
 import type { AccountDoc } from "../types";
@@ -42,7 +60,7 @@ import { GRAPH_VERSION } from "./platforms";
 import { kstDay, listRadar } from "./radar-run";
 import { listFormats, listHits, listWatch } from "./scout-store";
 import { spaceNiche, stampSpace } from "./space-db";
-import { youtubeApiKey, youtubeChannelStats } from "./youtube-data";
+import { youtubeApiKey, youtubeChannelStats, youtubeVideos } from "./youtube-data";
 
 type WithId<T> = T & { id: string };
 const settingsCol = (db: Firestore) => db.collection(NEANDER_COL.shortsSettings);
@@ -453,35 +471,217 @@ export async function runMarketDaily(db: Firestore, o: MarketRunOptions): Promis
   }
 }
 
-// ---- 트렌드 노트 (사람마다 비공개) ----------------------------------------------------
+// ---- 트렌드 노트 (기본 나만 보기 · 팀 공개) -------------------------------------------
+//  고치기 · 지우기 · 영상 · 사진 넣기는 쓴 사람만. 팀 공개 노트는 이 프로젝트를 보는 사람 모두 읽는다(사진 원본도).
 
-export async function listNotes(db: Firestore, email: string): Promise<WithId<TrendNoteDoc>[]> {
-  const snap = await notesCol(db).where("owner", "==", email).get();
-  return snap.docs.map((d) => ({ ...(d.data() as TrendNoteDoc), id: d.id })).sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt);
+type NoteView = WithId<TrendNoteDoc>;
+const view = (id: string, data: TrendNoteDoc): NoteView => ({ ...normalizeNote(data), id });
+const byPinThenNew = (a: NoteView, b: NoteView) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt;
+
+/** 내 노트 — withTeam 이면 다른 사람의 팀 공개 노트도 (시장 화면). 비서 · 중복 확인은 내 것만 */
+export async function listNotes(db: Firestore, email: string, o: { withTeam?: boolean } = {}): Promise<NoteView[]> {
+  const [mine, team] = await Promise.all([notesCol(db).where("owner", "==", email).get(), o.withTeam ? notesCol(db).where("visibility", "==", "team").get() : null]);
+  const out = new Map<string, NoteView>();
+  for (const d of [...mine.docs, ...(team?.docs ?? [])]) out.set(d.id, view(d.id, d.data() as TrendNoteDoc));
+  return [...out.values()].sort(byPinThenNew);
 }
 
-export async function saveNote(db: Firestore, email: string, id: unknown, input: unknown): Promise<WithId<TrendNoteDoc>> {
+async function ownNote(db: Firestore, email: string, id: unknown): Promise<{ ref: DocumentReference; prev: TrendNoteDoc }> {
+  if (!isDocId(id)) throw new Error("노트 id 가 올바르지 않습니다.");
+  const ref = notesCol(db).doc(id);
+  const prev = (await ref.get()).data() as TrendNoteDoc | undefined;
+  if (!prev) throw new AccessError(404, "노트를 찾지 못했습니다.");
+  if (prev.owner !== email) throw new AccessError(403, "다른 사람의 노트입니다. 고치기는 쓴 사람만 합니다.");
+  return { ref, prev: normalizeNote(prev) };
+}
+
+export async function saveNote(db: Firestore, email: string, id: unknown, input: unknown): Promise<NoteView> {
   const now = Date.now();
   if (id === null || id === undefined || id === "") {
     const doc = sanitizeNote(input, email, now);
     const ref = await notesCol(db).add(doc);
     return { ...doc, id: ref.id };
   }
-  if (!isDocId(id)) throw new Error("노트 id 가 올바르지 않습니다.");
-  const ref = notesCol(db).doc(id);
-  const prev = (await ref.get()).data() as TrendNoteDoc | undefined;
-  if (!prev) throw new AccessError(404, "노트를 찾지 못했습니다.");
-  if (prev.owner !== email) throw new AccessError(403, "다른 사람의 노트입니다.");
+  const { ref, prev } = await ownNote(db, email, id);
   const doc = sanitizeNote(input, email, now, prev);
   await ref.set(doc);
-  return { ...doc, id };
+  return { ...doc, id: ref.id };
 }
 
+/** 노트와 그 사진 원본을 한 번에 지운다 (사진 20장 + 노트 = 한 묶음 안) */
 export async function deleteNote(db: Firestore, email: string, id: unknown): Promise<void> {
   if (!isDocId(id)) throw new Error("노트 id 가 올바르지 않습니다.");
   const ref = notesCol(db).doc(id);
   const prev = (await ref.get()).data() as TrendNoteDoc | undefined;
   if (!prev) return;
   if (prev.owner !== email) throw new AccessError(403, "다른 사람의 노트입니다.");
-  await ref.delete();
+  const imgs = await imagesCol(db).where("noteId", "==", id).get();
+  const batch = db.batch();
+  for (const d of imgs.docs) batch.delete(d.ref);
+  batch.delete(ref);
+  await batch.commit();
+}
+
+// ---- 참고 영상 ---------------------------------------------------------------------
+
+let noteFetch: typeof fetch | null = null;
+/** 검증 — 영상 숫자 읽기(인스타 삽입 화면 · oEmbed · 틱톡 짧은 주소)를 모의로 */
+export function setNoteMetaFetch(f: typeof fetch | null) {
+  noteFetch = f;
+}
+const metaFetch = (url: string, init: RequestInit = {}) => (noteFetch ?? fetch)(url, { ...init, signal: AbortSignal.timeout(8000) });
+const BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15";
+
+interface VideoMeta {
+  label: string;
+  stats: string;
+  /** 노트 출처 이름 (첫 영상일 때) — 「인스타 @swayroom_studio」 */
+  source: string;
+  aspect: NoteVideoAspect | null;
+}
+
+/** 넣을 때 숫자 한 줄 — 못 읽으면 빈 값 (영상 넣기는 막지 않는다 · 숫자를 지어내지 않는다) */
+async function videoMeta(v: Pick<NoteVideo, "platform" | "id" | "url">): Promise<VideoMeta> {
+  const empty: VideoMeta = { label: "", stats: "", source: "", aspect: null };
+  try {
+    if (v.platform === "instagram") {
+      const res = await metaFetch(`https://www.instagram.com/p/${v.id}/embed/captioned/`, { headers: { "User-Agent": BROWSER_UA, "Accept-Language": "ko-KR,ko;q=0.9" } });
+      if (!res.ok) return empty;
+      const m = parseInstagramEmbed(await res.text());
+      if (!m) return empty;
+      const by = m.username ? `@${m.username}` : null;
+      return { label: captionTitle(m.caption), stats: videoStatsLine({ ...m, by }), source: by ? `인스타 ${by}` : "", aspect: null };
+    }
+    if (v.platform === "youtube") {
+      if (youtubeApiKey()) {
+        const [y] = await youtubeVideos([v.id]);
+        if (y) {
+          const at = Date.parse(y.publishedAt);
+          return { label: y.title.slice(0, 120), stats: videoStatsLine({ views: y.views, likes: y.likes, comments: y.comments, durationSec: y.duration, publishedAt: Number.isFinite(at) ? at : null, by: y.channel || null }), source: y.channel ? `유튜브 ${y.channel}` : "", aspect: null };
+        }
+      }
+      const res = await metaFetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(v.url)}`);
+      if (!res.ok) return empty;
+      const o = (await res.json()) as { title?: string; author_name?: string };
+      return { label: (o.title ?? "").slice(0, 120), stats: videoStatsLine({ by: o.author_name ?? null }), source: o.author_name ? `유튜브 ${o.author_name}` : "", aspect: null };
+    }
+    const res = await metaFetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(v.url)}`);
+    if (!res.ok) return empty;
+    const o = (await res.json()) as { title?: string; author_unique_id?: string; author_name?: string };
+    const by = o.author_unique_id ? `@${o.author_unique_id}` : (o.author_name ?? null);
+    return { label: captionTitle(o.title ?? ""), stats: videoStatsLine({ by }), source: by ? `틱톡 ${by}` : "", aspect: null };
+  } catch {
+    return empty;
+  }
+}
+
+/** 주소 → 영상 (틱톡 짧은 주소는 한 번 따라간다) */
+async function resolveVideoUrl(url: unknown) {
+  const direct = parseNoteVideoUrl(url);
+  if (direct || !isTiktokShortUrl(url)) return direct;
+  try {
+    const res = await metaFetch(String(url).trim(), { redirect: "follow", headers: { "User-Agent": BROWSER_UA } });
+    return parseNoteVideoUrl(res.url);
+  } catch {
+    return null;
+  }
+}
+
+/** 참고 영상 넣기 — 직접 적은 노트에 첫 영상이 들어오면 출처를 「레퍼런스」 로 */
+export async function addNoteVideo(db: Firestore, email: string, id: unknown, url: unknown): Promise<NoteView> {
+  const { ref, prev } = await ownNote(db, email, id);
+  const parsed = await resolveVideoUrl(url);
+  if (!parsed) throw new Error("유튜브 · 인스타 · 틱톡의 영상 하나 주소만 넣을 수 있습니다 (채널 · 계정 주소는 안 됩니다).");
+  if (prev.videos.some((x) => noteVideoKey(x) === noteVideoKey(parsed))) throw new Error("이미 넣은 영상입니다.");
+  if (prev.videos.length >= NOTE_VIDEOS_MAX) throw new Error(`영상은 노트 하나에 ${NOTE_VIDEOS_MAX}개까지 넣습니다.`);
+  const meta = await videoMeta(parsed);
+  const now = Date.now();
+  const video: NoteVideo = { ...parsed, label: meta.label, stats: meta.stats, aspect: meta.aspect ?? parsed.aspect, addedAt: now };
+  return db.runTransaction(async (tx) => {
+    const cur = normalizeNote(((await tx.get(ref)).data() as TrendNoteDoc | undefined) ?? prev);
+    if (cur.owner !== email) throw new AccessError(403, "다른 사람의 노트입니다.");
+    if (cur.videos.some((x) => noteVideoKey(x) === noteVideoKey(video))) throw new Error("이미 넣은 영상입니다.");
+    if (cur.videos.length >= NOTE_VIDEOS_MAX) throw new Error(`영상은 노트 하나에 ${NOTE_VIDEOS_MAX}개까지 넣습니다.`);
+    const source = cur.source.kind === "manual" ? { ...cur.source, kind: "reference" as const, label: meta.source || cur.source.label } : cur.source;
+    const next: TrendNoteDoc = { ...cur, source, videos: [...cur.videos, video], updatedAt: now };
+    tx.set(ref, next);
+    return view(ref.id, next);
+  });
+}
+
+// ---- 사진 ------------------------------------------------------------------------
+
+interface StoredNoteImage {
+  noteId: string;
+  owner: string;
+  type: NoteImageType;
+  size: number;
+  data: Buffer;
+  thumbType: NoteImageType;
+  thumb: Buffer;
+  at: number;
+}
+
+const imagesCol = (db: Firestore) => db.collection(NEANDER_COL.shortsNoteImages);
+
+function decodeImage(b64: unknown, max: number, label: string): { bytes: Buffer; type: NoteImageType } {
+  if (typeof b64 !== "string" || !b64 || b64.length > Math.ceil((max * 4) / 3) + 8) throw new Error(`${label} 크기가 너무 큽니다 (${Math.round(max / 1024)}KB 까지).`);
+  const bytes = Buffer.from(b64, "base64");
+  if (!bytes.length || bytes.length > max) throw new Error(`${label} 크기가 너무 큽니다 (${Math.round(max / 1024)}KB 까지).`);
+  const type = sniffImageType(bytes);
+  if (!type) throw new Error(`${label}이 JPG · PNG · WebP 그림이 아닙니다.`);
+  return { bytes, type };
+}
+
+/** 사진 넣기 — 브라우저가 줄여 보낸 원본(850KB 까지) + 작은 그림(60KB 까지) */
+export async function addNoteImage(db: Firestore, email: string, id: unknown, input: unknown): Promise<NoteView> {
+  const { ref } = await ownNote(db, email, id);
+  const r = (input ?? {}) as Record<string, unknown>;
+  const full = decodeImage(r.base64, NOTE_IMAGE_MAX_BYTES, "사진");
+  const thumb = decodeImage(r.thumbBase64, NOTE_THUMB_MAX_BYTES, "작은 그림");
+  const w = Math.round(Number(r.w));
+  const h = Math.round(Number(r.h));
+  if (!(w >= 1 && w <= 20_000 && h >= 1 && h <= 20_000)) throw new Error("사진 크기(가로 · 세로)가 올바르지 않습니다.");
+  const name = (typeof r.name === "string" ? r.name.normalize("NFC").replace(/[\u0000-\u001f\u007f/\\]/g, "").trim() : "").slice(0, 120) || "사진";
+  const now = Date.now();
+  const imgRef = imagesCol(db).doc();
+  const meta: NoteImage = { id: imgRef.id, name, type: full.type, w, h, size: full.bytes.length, caption: "", at: now, by: email };
+  return db.runTransaction(async (tx) => {
+    const cur = normalizeNote(((await tx.get(ref)).data() as TrendNoteDoc | undefined) ?? ({} as TrendNoteDoc));
+    if (cur.owner !== email) throw new AccessError(403, "다른 사람의 노트입니다.");
+    if (cur.images.length >= NOTE_IMAGES_MAX) throw new Error(`사진은 노트 하나에 ${NOTE_IMAGES_MAX}장까지 넣습니다.`);
+    const stored: StoredNoteImage = { noteId: ref.id, owner: email, type: full.type, size: full.bytes.length, data: full.bytes, thumbType: thumb.type, thumb: thumb.bytes, at: now };
+    tx.create(imgRef, stored);
+    const next: TrendNoteDoc = { ...cur, images: [...cur.images, meta], updatedAt: now };
+    tx.set(ref, next);
+    return view(ref.id, next);
+  });
+}
+
+/** 사진 빼기 — 목록과 원본을 같이 */
+export async function deleteNoteImage(db: Firestore, email: string, id: unknown, imageId: unknown): Promise<NoteView> {
+  const { ref } = await ownNote(db, email, id);
+  if (!isDocId(imageId)) throw new Error("사진 id 가 올바르지 않습니다.");
+  const imgRef = imagesCol(db).doc(imageId);
+  return db.runTransaction(async (tx) => {
+    const [noteSnap, imgSnap] = await Promise.all([tx.get(ref), tx.get(imgRef)]);
+    const cur = normalizeNote((noteSnap.data() as TrendNoteDoc | undefined) ?? ({} as TrendNoteDoc));
+    if (cur.owner !== email) throw new AccessError(403, "다른 사람의 노트입니다.");
+    const img = imgSnap.data() as StoredNoteImage | undefined;
+    if (img && img.noteId === ref.id) tx.delete(imgRef);
+    const next: TrendNoteDoc = { ...cur, images: cur.images.filter((x) => x.id !== imageId), updatedAt: Date.now() };
+    tx.set(ref, next);
+    return view(ref.id, next);
+  });
+}
+
+/** 사진 읽기 — 쓴 사람이거나 팀 공개 노트일 때만. 없는 것과 못 보는 것을 가리지 않는다(404) */
+export async function readNoteImage(db: Firestore, email: string, imageId: unknown, size: "full" | "thumb"): Promise<{ bytes: Buffer; type: NoteImageType }> {
+  if (!isDocId(imageId)) throw new AccessError(404, "사진을 찾지 못했습니다.");
+  const img = (await imagesCol(db).doc(imageId).get()).data() as StoredNoteImage | undefined;
+  if (!img || !isDocId(img.noteId)) throw new AccessError(404, "사진을 찾지 못했습니다.");
+  const note = (await notesCol(db).doc(img.noteId).get()).data() as TrendNoteDoc | undefined;
+  if (!note || (note.owner !== email && note.visibility !== "team")) throw new AccessError(404, "사진을 찾지 못했습니다.");
+  const raw = size === "thumb" ? img.thumb : img.data;
+  return { bytes: Buffer.from(raw), type: size === "thumb" ? img.thumbType : img.type };
 }

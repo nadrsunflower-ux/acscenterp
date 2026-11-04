@@ -7,11 +7,13 @@
 //    기록이 쌓여야 7일 · 30일 변화가 나온다 (기록 시작 전 값은 지어내지 않는다).
 //  · 브리핑 = 레이더 · 바이럴 형식 · 검색어 추이 · 채널 변화를 모아 AI 가 「특기할 만한 것」 을 뽑는다(매일 아침).
 //    숫자는 자료에 있는 것만 — AI 가 고른 근거 id 가 자료에 없으면 버린다.
-//  · 트렌드 노트 = 사람이 보관한 카드 (사람마다 비공개). 출처 · 그때 숫자 · 메모 · 태그 · 상태.
+//  · 트렌드 노트 = 사람이 보관한 카드 (기본 나만 보기 · 「팀 공개」 로 바꾸면 프로젝트 사람들이 읽는다).
+//    출처 · 그때 숫자 · 메모 · 태그 · 상태 + 레퍼런스(참고 영상 재생기 · 사진 — note-media.ts).
 //  순수 함수 · 모양만 둔다 (브라우저 · 서버 공용). 실행은 server/market.ts.
 // ============================================================
 
 import { classifyNaverTrend, type NaverTrendLabel } from "./radar";
+import { editNoteImages, editNoteVideos, type NoteImage, type NoteVideo } from "./note-media";
 
 // ---- 검색어 묶음 -------------------------------------------------------------
 
@@ -244,8 +246,15 @@ export type NoteStatus = "inbox" | "watch" | "script" | "done";
 export const NOTE_STATUS_LABEL: Record<NoteStatus, string> = { inbox: "검토 전", watch: "지켜보기", script: "대본으로", done: "끝" };
 export const NOTE_STATUSES = Object.keys(NOTE_STATUS_LABEL) as NoteStatus[];
 
-export type NoteSourceKind = "brief" | "radar" | "hit" | "format" | "keyword" | "channel" | "manual";
-export const NOTE_SOURCE_LABEL: Record<NoteSourceKind, string> = { brief: "브리핑", radar: "레이더", hit: "터진 영상", format: "형식", keyword: "검색어", channel: "채널", manual: "직접" };
+export type NoteSourceKind = "brief" | "radar" | "hit" | "format" | "keyword" | "channel" | "manual" | "reference";
+export const NOTE_SOURCE_LABEL: Record<NoteSourceKind, string> = { brief: "브리핑", radar: "레이더", hit: "터진 영상", format: "형식", keyword: "검색어", channel: "채널", manual: "직접", reference: "레퍼런스" };
+
+/** 나만 보기 · 팀 공개(이 프로젝트를 보는 사람 모두 읽기 — 고치기는 쓴 사람만) */
+export type NoteVisibility = "private" | "team";
+export const NOTE_VISIBILITIES: NoteVisibility[] = ["private", "team"];
+
+/** 메모 상한 — 조사 정리처럼 긴 글도 담게 (Firestore 문서 1MB 안) */
+export const NOTE_MEMO_MAX = 20_000;
 
 export interface TrendNoteDoc {
   owner: string;
@@ -261,12 +270,28 @@ export interface TrendNoteDoc {
   snapshot: string;
   /** 대본 작성기에 넘길 제품 이름 (있으면) */
   product: string;
+  visibility: NoteVisibility;
+  /** 참고 영상 — 공식 삽입 재생기로 ERP 안에서 본다 (note-media.ts) */
+  videos: NoteVideo[];
+  /** 사진 — 원본은 neander_shorts_note_images (server/market.ts) */
+  images: NoteImage[];
 }
 
 const isUrl = (v: unknown) => typeof v === "string" && /^https?:\/\/\S{3,500}$/.test(v);
 
-/** 노트 다듬기 — prev 가 있으면 고치기 (주인 · 만든 날 · 출처는 그대로) */
-export function sanitizeNote(raw: unknown, owner: string, now: number, prev?: TrendNoteDoc | null): TrendNoteDoc {
+/** 예전 노트(공유 범위 · 영상 · 사진 칸 전) 를 지금 모양으로 */
+export function normalizeNote<T extends Partial<TrendNoteDoc>>(x: T): T & Pick<TrendNoteDoc, "visibility" | "videos" | "images"> {
+  return {
+    ...x,
+    visibility: x.visibility === "team" ? "team" : "private",
+    videos: Array.isArray(x.videos) ? x.videos : [],
+    images: Array.isArray(x.images) ? x.images : [],
+  };
+}
+
+/** 노트 다듬기 — prev 가 있으면 고치기 (주인 · 만든 날 · 출처는 그대로). 영상 · 사진은 순서 · 설명만 (넣기 · 빼기는 따로) */
+export function sanitizeNote(raw: unknown, owner: string, now: number, prevRaw?: TrendNoteDoc | null): TrendNoteDoc {
+  const prev = prevRaw ? normalizeNote(prevRaw) : null;
   const r = (raw ?? {}) as Record<string, unknown>;
   const src = (r.source ?? {}) as Record<string, unknown>;
   const kinds = Object.keys(NOTE_SOURCE_LABEL) as NoteSourceKind[];
@@ -276,7 +301,7 @@ export function sanitizeNote(raw: unknown, owner: string, now: number, prev?: Tr
     createdAt: prev?.createdAt ?? now,
     updatedAt: now,
     title: ("title" in r ? str(r.title, 120) : prev?.title) || prev?.title || "제목 없음",
-    memo: "memo" in r ? str(r.memo, 3000) : (prev?.memo ?? ""),
+    memo: "memo" in r ? str(r.memo, NOTE_MEMO_MAX) : (prev?.memo ?? ""),
     tags,
     status: NOTE_STATUSES.includes(r.status as NoteStatus) ? (r.status as NoteStatus) : (prev?.status ?? "inbox"),
     pinned: typeof r.pinned === "boolean" ? r.pinned : (prev?.pinned ?? false),
@@ -288,5 +313,8 @@ export function sanitizeNote(raw: unknown, owner: string, now: number, prev?: Tr
     },
     snapshot: prev?.snapshot ?? str(r.snapshot, 300),
     product: "product" in r ? str(r.product, 120) : (prev?.product ?? ""),
+    visibility: NOTE_VISIBILITIES.includes(r.visibility as NoteVisibility) ? (r.visibility as NoteVisibility) : (prev?.visibility ?? "private"),
+    videos: prev ? ("videos" in r ? editNoteVideos(r.videos, prev.videos) : prev.videos) : [],
+    images: prev ? ("images" in r ? editNoteImages(r.images, prev.images) : prev.images) : [],
   };
 }

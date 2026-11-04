@@ -3,7 +3,8 @@
 // ------------------------------------------------------------
 //    npm run shorts:verify-market
 //  문서 이름 앞에 verify_ 를 붙여 실제 설정 · 브리핑 · 채널 기록 · 계수기를 건드리지 않는다.
-//  감시 채널 하나(검증용)를 만들었다 지운다. 노트는 검증용 이메일 둘로만. 레이더 · 터진 영상 · 형식은 읽기만.
+//  감시 채널 하나(검증용)를 만들었다 지운다. 노트 · 노트 사진은 검증용 이메일 둘로만. 레이더 · 터진 영상 · 형식은 읽기만.
+//  노트 영상 숫자 읽기(인스타 삽입 화면 · 틱톡 oEmbed)도 모의.
 // ============================================================
 
 import { config } from "dotenv";
@@ -140,7 +141,63 @@ async function main() {
     await rejects(M.deleteNote(db, B, n1.id), /다른 사람의 노트/, "다른 사람은 지우지 못함");
     await M.deleteNote(db, A, n1.id);
     ok(!(await M.listNotes(db, A)).some((x) => x.id === n1.id), "지우기");
+
+    // ---- 트렌드 노트 레퍼런스 — 팀 공개 · 참고 영상 · 사진 ----
+    const igInner = JSON.stringify({ x: { shortcode_media: { shortcode: "DeOxg-opuO0", video_view_count: 2382125, video_duration: 91.972, owner: { username: "swayroom_studio" }, edge_liked_by: { count: 90788 }, edge_media_to_comment: { count: 310 }, edge_media_to_caption: { edges: [{ node: { text: "화해 #광고" } }] } } } });
+    const metaCalls: string[] = [];
+    M.setNoteMetaFetch((async (input: RequestInfo | URL) => {
+      const u = String(input);
+      metaCalls.push(u);
+      if (u.includes("instagram.com/p/DeOxg-opuO0/embed")) return new Response(`<script>s.handle({"r":[[${JSON.stringify(igInner)}]]})</script>`, { status: 200 });
+      if (u.includes("instagram.com/p/")) return new Response("<html><title>Login • Instagram</title></html>", { status: 200 });
+      if (u.startsWith("https://www.tiktok.com/oembed")) return json({ title: "틱톡 검증 #태그", author_unique_id: "verify.tt" });
+      return new Response("no", { status: 404 });
+    }) as typeof fetch);
+    const ref1 = await M.saveNote(db, A, null, { title: "검증 레퍼런스", source: { kind: "manual", id: null, url: null, label: "직접 적음" } });
+    noteIds.push(ref1.id);
+    ok(ref1.visibility === "private" && ref1.videos.length === 0 && ref1.images.length === 0, "새 노트 — 나만 보기 · 영상 · 사진 없음");
+    const v1 = await M.addNoteVideo(db, A, ref1.id, "https://www.instagram.com/reel/DeOxg-opuO0/?igsh=abc");
+    ok(v1.videos.length === 1 && v1.videos[0].stats === "조회 2,382,125 · 좋아요 90,788 · 댓글 310 · 1분 32초 · @swayroom_studio" && v1.videos[0].label === "화해", "인스타 영상 넣기 — 그때 숫자 · 캡션 첫 줄", v1.videos[0]?.stats);
+    ok(v1.source.kind === "reference" && v1.source.label === "인스타 @swayroom_studio", "직접 적은 노트에 첫 영상 → 출처 「레퍼런스」", JSON.stringify(v1.source));
+    const v2 = await M.addNoteVideo(db, A, ref1.id, "https://www.instagram.com/p/DfRtuwxpDTw/");
+    ok(v2.videos.length === 2 && v2.videos[1].stats === "" && v2.videos[1].label === "", "숫자를 못 읽어도 영상은 넣는다 (빈 값 — 지어내지 않음)");
+    const v3 = await M.addNoteVideo(db, A, ref1.id, "https://www.tiktok.com/@verify.tt/video/7301234567890123456");
+    ok(v3.videos[2]?.label === "틱톡 검증" && v3.videos[2]?.stats === "@verify.tt", "틱톡 — oEmbed 제목 · 계정", JSON.stringify(v3.videos[2]));
+    await rejects(M.addNoteVideo(db, A, ref1.id, "https://www.instagram.com/p/DeOxg-opuO0/"), /이미 넣은 영상/, "같은 영상 두 번 안 됨 (reel · p 주소가 달라도)");
+    await rejects(M.addNoteVideo(db, A, ref1.id, "https://www.instagram.com/swayroom_studio/"), /영상 하나 주소만/, "계정 주소는 안 됨");
+    await rejects(M.addNoteVideo(db, B, ref1.id, "https://www.instagram.com/p/DdfkfFsJGGB/"), /다른 사람의 노트/, "남의 노트에 영상 못 넣음");
+    const e1 = await M.saveNote(db, A, ref1.id, { videos: [{ platform: "tiktok", id: "7301234567890123456", label: "틱톡 고침" }, { platform: "instagram", id: "DeOxg-opuO0" }] });
+    ok(e1.videos.length === 2 && e1.videos[0].label === "틱톡 고침" && e1.videos[1].stats.startsWith("조회 2,382,125"), "영상 목록 고치기 — 순서 · 설명 · 빼기 (숫자는 그대로)");
+
+    const jpg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(4000, 7)]);
+    const thumb = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(300, 3)]);
+    const i1 = await M.addNoteImage(db, A, ref1.id, { name: "장면 모음.jpg", w: 2000, h: 2025, base64: jpg.toString("base64"), thumbBase64: thumb.toString("base64") });
+    const img = i1.images[0];
+    ok(i1.images.length === 1 && img.size === jpg.length && img.type === "image/jpeg" && img.by === A && img.name === "장면 모음.jpg", "사진 넣기 — 목록에 크기 · 형식 · 올린 사람");
+    const full = await M.readNoteImage(db, A, img.id, "full");
+    const small = await M.readNoteImage(db, A, img.id, "thumb");
+    ok(full.bytes.equals(jpg) && small.bytes.equals(thumb) && full.type === "image/jpeg", "사진 원본 · 작은 그림을 그대로 돌려줌");
+    await rejects(M.addNoteImage(db, A, ref1.id, { name: "가짜.png", w: 1, h: 1, base64: Buffer.from("<svg/>").toString("base64"), thumbBase64: thumb.toString("base64") }), /그림이 아닙니다/, "그림이 아닌 바이트는 거절");
+    await rejects(M.addNoteImage(db, A, ref1.id, { name: "큰.jpg", w: 1, h: 1, base64: Buffer.concat([jpg, Buffer.alloc(900 * 1024)]).toString("base64"), thumbBase64: thumb.toString("base64") }), /너무 큽니다/, "850KB 넘는 원본은 거절");
+    await rejects(M.readNoteImage(db, B, img.id, "full"), /찾지 못했습니다/, "나만 보기 노트의 사진은 남이 못 읽음");
+    ok(!(await M.listNotes(db, B, { withTeam: true })).some((x) => x.id === ref1.id), "나만 보기 노트는 팀 목록에도 안 보임");
+    const t1 = await M.saveNote(db, A, ref1.id, { visibility: "team", images: [{ id: img.id, caption: "첫 만남 3초 간격" }] });
+    ok(t1.visibility === "team" && t1.images[0].caption === "첫 만남 3초 간격" && t1.videos.length === 2, "팀 공개로 바꾸기 · 사진 설명");
+    const seen = (await M.listNotes(db, B, { withTeam: true })).find((x) => x.id === ref1.id);
+    ok(!!seen && seen.videos.length === 2 && seen.images.length === 1, "팀 공개 노트는 팀원 목록에 보임 (영상 · 사진 포함)");
+    ok(!(await M.listNotes(db, B)).some((x) => x.id === ref1.id), "비서 · 중복 확인(내 것만)에는 안 섞임");
+    ok((await M.readNoteImage(db, B, img.id, "thumb")).bytes.equals(thumb), "팀 공개 노트의 사진은 팀원이 읽음");
+    await rejects(M.saveNote(db, B, ref1.id, { title: "남이 고침" }), /다른 사람의 노트/, "팀 공개여도 고치기는 쓴 사람만");
+    await rejects(M.deleteNoteImage(db, B, ref1.id, img.id), /다른 사람의 노트/, "팀원은 사진을 못 지움");
+    const i2 = await M.addNoteImage(db, A, ref1.id, { name: "두번째.jpg", w: 10, h: 10, base64: jpg.toString("base64"), thumbBase64: thumb.toString("base64") });
+    const d1 = await M.deleteNoteImage(db, A, ref1.id, img.id);
+    ok(d1.images.length === 1 && d1.images[0].id === i2.images[1].id && !(await db.collection(NEANDER_COL.shortsNoteImages).doc(img.id).get()).exists, "사진 지우기 — 목록 · 원본 같이");
+    await M.deleteNote(db, A, ref1.id);
+    const leftImgs = await db.collection(NEANDER_COL.shortsNoteImages).where("noteId", "==", ref1.id).get();
+    ok(leftImgs.empty && !(await db.collection(NEANDER_COL.shortsNotes).doc(ref1.id).get()).exists, "노트를 지우면 남은 사진 원본도 같이 지움");
+    ok(metaCalls.some((u) => u.includes("/embed/captioned/")), "인스타 숫자는 공개 삽입 화면에서 읽음");
   } finally {
+    M.setNoteMetaFetch(null);
     setNaverFetch(null);
     setYoutubeDataFetch(null);
     setAiFetch(null);
@@ -152,6 +209,7 @@ async function main() {
     }
     for (const k of [`${P}market`, `${P}market_lock`, `usage_${P}marketusd_${day}`]) await db.collection(NEANDER_COL.shortsSettings).doc(k).delete();
     for (const who of [A, B]) for (const d of (await db.collection(NEANDER_COL.shortsNotes).where("owner", "==", who).get()).docs) await d.ref.delete();
+    for (const who of [A, B]) for (const d of (await db.collection(NEANDER_COL.shortsNoteImages).where("owner", "==", who).get()).docs) await d.ref.delete();
     const left = (await db.collection(NEANDER_COL.shortsMarket).get()).docs.filter((d) => d.id.startsWith(P)).length + (await db.collection(NEANDER_COL.shortsChannelStats).get()).docs.filter((d) => d.id.startsWith(P)).length;
     ok(left === 0 && !(await db.collection(NEANDER_COL.shortsWatch).doc(watchId).get()).exists, "검증 문서를 모두 지움");
   }

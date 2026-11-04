@@ -4,7 +4,8 @@
 //  시장 트렌드 — 오늘의 브리핑 · 검색어 추이 · 채널 모니터링 · 트렌드 노트
 // ------------------------------------------------------------
 //  매일 아침 07:30 cron-market 이 채널 숫자 · 검색어 추이 · AI 브리핑을 만든다. 화면은 읽고, 사람이 고른 것을
-//  「노트에 보관」 해 트렌드 노트에 모은다(사람마다 비공개 · 프로젝트마다 따로). 노트에서 바로 대본 작성기로 넘긴다.
+//  「노트에 보관」 해 트렌드 노트에 모은다(기본 나만 보기 · 팀 공개 · 프로젝트마다 따로). 노트에서 바로 대본 작성기로 넘긴다.
+//  노트 보드 · 노트 창(참고 영상 재생기 · 사진 · 긴 메모)은 NotesBoard.tsx · NoteMedia.tsx.
 //  숫자는 모두 남의 원본 · 네이버 상대값 · 채널 공개 통계다 — 우리 영상 성과와 섞지 않는다(내 채널만 따로).
 //  2026-11 목업 개편: 머리(StudioHeader) · 「다시 만들기」 옆 AI 비용(실제 오늘 쓴 돈 · 하루 상한) ·
 //  차트는 한 축 · 선 끝 이름표 · 실선/점선 · 범례 · 수치 표 · 노트는 4칸 보드(카드마다 「옮기기」 메뉴 — 모바일도).
@@ -12,27 +13,21 @@
 //  ?space= 를 주면(브리핑 메일의 「ERP 에서 보기」) 그 프로젝트로 바꿔 연다.
 // ============================================================
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowRightLeft,
   ArrowUpRight,
   Bookmark,
-  CalendarDays,
   Camera,
   Check,
   ExternalLink,
   EyeOff,
   FolderOpen,
   Lightbulb,
-  MoreHorizontal,
   Newspaper,
-  PenLine,
-  Pin,
   Plus,
   RefreshCw,
-  Search,
   Sparkles,
   Trash2,
   TrendingUp,
@@ -43,7 +38,6 @@ import {
 import {
   Badge,
   Button,
-  Dialog,
   EmptyState,
   ErrorState,
   Field,
@@ -51,7 +45,6 @@ import {
   FormRow,
   IconButton,
   Input,
-  Menu,
   NumberInput,
   PageShell,
   SegmentedControl,
@@ -59,22 +52,16 @@ import {
   Skeleton,
   Switch,
   Tabs,
-  Textarea,
   buttonClass,
   cn,
-  useConfirm,
   useToast,
-  type MenuItem,
   type Tone,
 } from "@/components/neander/ui";
 import { Num, Unknown, fmtUsd, fmtWhen, useAction } from "@/components/neander/shorts/parts";
-import { AiCostNote, RecordTable, SaveIndicator, StudioCard, StudioHeader, StudioNotice, StudioSection, VisibilityChip, type RecordColumn, type StudioSaveState } from "@/components/neander/shorts/studio";
+import { AiCostNote, RecordTable, StudioCard, StudioHeader, StudioNotice, StudioSection, type RecordColumn } from "@/components/neander/shorts/studio";
 import { shortsGet, shortsPost } from "@/lib/neander/shorts/client";
 import {
   BRIEF_KIND_LABEL,
-  NOTE_SOURCE_LABEL,
-  NOTE_STATUSES,
-  NOTE_STATUS_LABEL,
   TREND_RANGE_LABEL,
   channelDelta,
   channelTrackedDays,
@@ -94,6 +81,7 @@ import { countryLabel } from "@/lib/neander/shorts/scout";
 import { Sparkline, TREND_COLORS, TrendLines } from "./TrendLines";
 import { TitleTrendsTab } from "./TitleTrends";
 import { useShorts } from "@/components/neander/shorts/ShortsProvider";
+import { NotesTab } from "./NotesBoard";
 
 type WithId<T> = T & { id: string };
 type ProductTrend = {
@@ -248,7 +236,7 @@ export function MarketPage() {
     },
     [toast],
   );
-  const kept = useMemo(() => new Set((d?.notes ?? []).map((x) => `${x.source.kind}:${x.source.id}`)), [d?.notes]);
+  const kept = useMemo(() => new Set((d?.notes ?? []).filter((x) => x.owner === d?.me).map((x) => `${x.source.kind}:${x.source.id}`)), [d?.notes, d?.me]);
   const isKept = (kind: string, id: string | null) => !!id && kept.has(`${kind}:${id}`);
 
   if (!d) {
@@ -279,7 +267,8 @@ export function MarketPage() {
     );
   }
 
-  const inbox = d.notes.filter((x) => x.status === "inbox").length;
+  // 검토 전 수 · 「보관됨」 은 내 노트만 (팀원이 공개한 노트는 섞지 않는다)
+  const inbox = d.notes.filter((x) => x.owner === d.me && x.status === "inbox").length;
   const missing = [!d.ready.naver && "네이버 데이터랩 키", !d.ready.youtube && "회사 YouTube 키", !d.ready.ai && "OpenRouter 키"].filter(Boolean) as string[];
   return (
     <PageShell>
@@ -333,7 +322,7 @@ export function MarketPage() {
       {tab === "titles" && <TitleTrendsTab />}
       {tab === "trends" && <TrendsTab d={d} setD={setD} keep={keep} isKept={isKept} />}
       {tab === "channels" && <ChannelsTab d={d} reload={load} keep={keep} isKept={isKept} />}
-      {tab === "notes" && <NotesTab d={d} setD={setD} editing={editing} setEditing={setEditing} />}
+      {tab === "notes" && <NotesTab notes={d.notes} me={d.me} setNotes={(f) => setD((x) => (x ? { ...x, notes: f(x.notes) } : x))} editing={editing} setEditing={setEditing} />}
     </PageShell>
   );
 }
@@ -1421,358 +1410,5 @@ function ChannelsTab({ d, reload, keep, isKept }: { d: MarketData; reload: () =>
         {lastAt ? ` · 마지막 수집 ${fmtWhen(lastAt)}` : ""} · 매일 아침 07:30 한 번 · 유튜브 · 인스타 공개 통계. 구독자 숨김이나 수집 실패는 「미확인」 으로 보입니다 (0 이 아닙니다). 7일 · 30일 변화는 기록이 그만큼 쌓여야 나옵니다.
       </StudioNotice>
     </div>
-  );
-}
-
-// ---- 트렌드 노트 ----------------------------------------------------------------------
-
-function NotesTab({ d, setD, editing, setEditing }: { d: MarketData; setD: SetD; editing: WithId<TrendNoteDoc> | "new" | null; setEditing: (x: WithId<TrendNoteDoc> | "new" | null) => void }) {
-  const toast = useToast();
-  const ask = useConfirm();
-  const router = useRouter();
-  const [q, setQ] = useState("");
-  const [tag, setTag] = useState("");
-  const tags = [...new Set(d.notes.flatMap((x) => x.tags))].sort();
-  const shown = d.notes
-    .filter((x) => (!tag || x.tags.includes(tag)) && (!q.trim() || [x.title, x.memo, x.snapshot, x.source.label].some((s) => s.toLowerCase().includes(q.trim().toLowerCase()))))
-    .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt);
-  const save = async (id: string | null, patch: Record<string, unknown>) => {
-    try {
-      const r = await shortsPost<{ note: WithId<TrendNoteDoc> }>("market", {
-        action: "note.save",
-        id,
-        note: patch,
-      });
-      setD((x) =>
-        x
-          ? {
-              ...x,
-              notes: id ? x.notes.map((y) => (y.id === id ? r.note : y)) : [r.note, ...x.notes],
-            }
-          : x,
-      );
-      return r.note;
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "노트를 저장하지 못했습니다.");
-      return null;
-    }
-  };
-  const del = async (x: WithId<TrendNoteDoc>) => {
-    if (
-      !(await ask({
-        title: "이 노트를 지울까요?",
-        message: x.title,
-        confirmLabel: "지우기",
-        tone: "danger",
-      }))
-    )
-      return;
-    try {
-      await shortsPost("market", { action: "note.delete", id: x.id });
-      setD((y) => (y ? { ...y, notes: y.notes.filter((z) => z.id !== x.id) } : y));
-      setEditing(null);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "지우지 못했습니다.");
-    }
-  };
-  const toScript = (x: WithId<TrendNoteDoc>) => {
-    const q = new URLSearchParams({
-      new: "1",
-      product: x.product || x.title,
-      info: [x.snapshot, x.memo].filter(Boolean).join("\n").slice(0, 1500),
-    });
-    void save(x.id, { status: "script" });
-    router.push(`/neander/shorts/scripts?${q}`);
-  };
-  // 지금 열린 노트는 저장 뒤 새 값으로 (상태 · 고정을 바꿔도 창이 옛 값을 붙들지 않게)
-  const current = editing && editing !== "new" ? (d.notes.find((x) => x.id === editing.id) ?? editing) : editing;
-
-  return (
-    <div className="space-y-4">
-      <StudioNotice tone="info" title="내 트렌드 노트" action={<VisibilityChip visibility="private" />}>
-        기본은 나만 보기입니다. 이 프로젝트의 노트만 모이고, 준비되면 「대본으로」 를 눌러 대본 작성기로 넘깁니다. 카드의 「옮기기」 로 칸을 바꿉니다.
-      </StudioNotice>
-      {d.notes.length > 0 && (
-        <FormRow className="grid-cols-1 sm:grid-cols-[minmax(0,1fr)_200px]">
-          <div className="relative min-w-0">
-            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-nd-fg-3" aria-hidden />
-            <Input className="pl-9" value={q} onChange={(e) => setQ(e.target.value)} placeholder="제목 · 메모 · 숫자 검색" aria-label="노트 검색" />
-          </div>
-          {tags.length > 0 ? (
-            <Select value={tag} onChange={(e) => setTag(e.target.value)} aria-label="태그">
-              <option value="">모든 태그</option>
-              {tags.map((t) => (
-                <option key={t} value={t}>
-                  #{t}
-                </option>
-              ))}
-            </Select>
-          ) : (
-            <span />
-          )}
-        </FormRow>
-      )}
-      {!d.notes.length ? (
-        <EmptyState
-          icon={Bookmark}
-          title="아직 보관한 노트가 없습니다"
-          description="브리핑 · 검색어 추이 · 레이더 상품 · 채널에서 「노트에 보관」 을 누르면 여기 모입니다. 나만 봅니다."
-          action={
-            <Button icon={Plus} onClick={() => setEditing("new")}>
-              새 노트
-            </Button>
-          }
-        />
-      ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {NOTE_STATUSES.map((st) => {
-            const col = shown.filter((x) => x.status === st);
-            return (
-              <section key={st} aria-label={NOTE_STATUS_LABEL[st]} className="nd-surface flex min-w-0 flex-col rounded-nd-lg p-3 xl:min-h-[420px]">
-                <div className="mb-2.5 flex items-center justify-between gap-2 px-1.5 pt-1">
-                  <h3 className="flex items-center gap-2 text-[15px] font-bold text-nd-fg">
-                    <span
-                      aria-hidden
-                      className={cn(
-                        "h-2 w-2 rounded-full",
-                        {
-                          inbox: "bg-nd-accent",
-                          watch: "bg-nd-warning",
-                          script: "bg-nd-info",
-                          done: "bg-nd-success",
-                        }[st],
-                      )}
-                    />
-                    {NOTE_STATUS_LABEL[st]} <span className="nd-num text-nd-fg-3">· {col.length}</span>
-                  </h3>
-                  {st === "inbox" && (
-                    <Button size="sm" variant="ghost" icon={Plus} onClick={() => setEditing("new")}>
-                      노트 추가
-                    </Button>
-                  )}
-                </div>
-                <div className="space-y-2.5">
-                  {col.map((x) => (
-                    <NoteCard key={x.id} x={x} onOpen={() => setEditing(x)} onScript={() => toScript(x)} onPin={() => void save(x.id, { pinned: !x.pinned })} onMove={(s) => void save(x.id, { status: s })} onDelete={() => void del(x)} />
-                  ))}
-                  {!col.length && <p className="rounded-nd-md border border-dashed border-nd-line px-3 py-6 text-center text-[13px] text-nd-fg-3">{q || tag ? "찾는 노트가 이 칸에 없습니다" : "이 칸에 노트가 없습니다"}</p>}
-                </div>
-              </section>
-            );
-          })}
-        </div>
-      )}
-      <NoteDialog
-        note={current}
-        onClose={() => setEditing(null)}
-        onSave={async (id, patch) => {
-          const r = await save(id, patch);
-          if (r && !id) setEditing(r);
-          return !!r;
-        }}
-        onDelete={(x) => void del(x)}
-        onScript={(x) => toScript(x)}
-      />
-    </div>
-  );
-}
-
-function NoteCard({ x, onOpen, onScript, onPin, onMove, onDelete }: { x: WithId<TrendNoteDoc>; onOpen: () => void; onScript: () => void; onPin: () => void; onMove: (s: NoteStatus) => void; onDelete: () => void }) {
-  const ref = useRef<HTMLButtonElement>(null);
-  const [menu, setMenu] = useState(false);
-  const items: MenuItem[] = [
-    { type: "label", key: "l", label: "칸 옮기기" },
-    ...NOTE_STATUSES.map((s): MenuItem => ({
-      key: s,
-      label: NOTE_STATUS_LABEL[s],
-      icon: ArrowRightLeft,
-      checked: x.status === s,
-      disabled: x.status === s,
-      onSelect: () => onMove(s),
-    })),
-    { type: "separator", key: "s1" },
-    {
-      key: "pin",
-      label: x.pinned ? "고정 풀기" : "위에 고정",
-      icon: Pin,
-      onSelect: onPin,
-    },
-    { key: "open", label: "노트 열기", icon: PenLine, onSelect: onOpen },
-    {
-      key: "del",
-      label: "지우기",
-      icon: Trash2,
-      danger: true,
-      onSelect: onDelete,
-    },
-  ];
-  return (
-    <article className="min-w-0 rounded-nd-md border border-nd-line bg-nd-content p-3.5 shadow-nd-card">
-      <div className="flex items-start gap-2">
-        <Badge tone="neutral" size="lg" className="shrink-0">
-          {NOTE_SOURCE_LABEL[x.source.kind]}
-        </Badge>
-        <span className="flex-1" />
-        <button
-          type="button"
-          onClick={onPin}
-          aria-pressed={x.pinned}
-          aria-label={x.pinned ? "고정 풀기" : "위에 고정"}
-          title={x.pinned ? "고정 풀기" : "위에 고정"}
-          className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-[7px] md:h-7 md:w-7", x.pinned ? "text-nd-accent" : "text-nd-fg-4 hover:bg-nd-sunken hover:text-nd-fg-2")}
-        >
-          <Pin size={15} fill={x.pinned ? "currentColor" : "none"} />
-        </button>
-        <IconButton ref={ref} icon={MoreHorizontal} label={`「${x.title}」 옮기기 · 더 보기`} size="sm" className="max-md:h-9 max-md:w-9" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((v) => !v)} />
-        <Menu open={menu} onClose={() => setMenu(false)} anchorRef={ref} placement="bottom-end" items={items} />
-      </div>
-      <button type="button" onClick={onOpen} className="mt-2 block w-full min-w-0 text-left">
-        <span className="line-clamp-2 text-[15px] font-bold leading-snug text-nd-fg [overflow-wrap:anywhere] hover:underline">{x.title}</span>
-        {x.memo && <span className="mt-1 line-clamp-3 whitespace-pre-line text-[13px] leading-relaxed text-nd-fg-2 [overflow-wrap:anywhere]">{x.memo}</span>}
-      </button>
-      {x.snapshot && <p className="nd-num mt-1.5 text-[13px] font-medium text-nd-accent-strong [overflow-wrap:anywhere]">{x.snapshot}</p>}
-      {x.tags.length > 0 && <p className="mt-1 text-[13px] text-nd-fg-2">{x.tags.map((t) => `#${t}`).join(" ")}</p>}
-      <div className="mt-3 flex items-center justify-between gap-2 border-t border-nd-line pt-2.5">
-        <span className="min-w-0 truncate text-[13px] text-nd-fg-3" title={x.source.label}>
-          {fmtWhen(x.updatedAt)}
-          {x.source.label ? ` · ${x.source.label}` : ""}
-        </span>
-        <Button size="sm" variant="ghost" icon={PenLine} onClick={onScript} title="이 노트로 대본 작성기를 엽니다 (제품 이름 · 숫자 · 메모를 채워서)">
-          대본으로
-        </Button>
-      </div>
-    </article>
-  );
-}
-
-/** 노트 고치기 — 칸을 벗어나면 저장 (새 노트는 제목을 적고 벗어나면 만든다) · 저장 상태를 조용히 */
-function NoteDialog({
-  note,
-  onClose,
-  onSave,
-  onDelete,
-  onScript,
-}: {
-  note: WithId<TrendNoteDoc> | "new" | null;
-  onClose: () => void;
-  onSave: (id: string | null, patch: Record<string, unknown>) => Promise<boolean>;
-  onDelete: (x: WithId<TrendNoteDoc>) => void;
-  onScript: (x: WithId<TrendNoteDoc>) => void;
-}) {
-  const x = note && note !== "new" ? note : null;
-  const [f, setF] = useState({ title: "", memo: "", tags: "", product: "" });
-  const [state, setState] = useState<{
-    s: StudioSaveState;
-    at: number | null;
-    retry: (() => void) | null;
-  }>({ s: "saved", at: null, retry: null });
-  useEffect(() => {
-    setF({
-      title: x?.title ?? "",
-      memo: x?.memo ?? "",
-      tags: (x?.tags ?? []).join(" "),
-      product: x?.product ?? "",
-    });
-    setState({ s: "saved", at: x?.updatedAt ?? null, retry: null });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [x?.id]);
-  const push = (id: string | null, patch: Record<string, unknown>) => {
-    const go = () => {
-      setState((p) => ({ ...p, s: "saving" }));
-      void onSave(id, patch).then((ok) => setState(ok ? { s: "saved", at: Date.now(), retry: null } : { s: "error", at: null, retry: go }));
-    };
-    go();
-  };
-  const commit = (k: "title" | "memo" | "tags" | "product") => {
-    const v = f[k];
-    if (!x) {
-      if (k === "title" && v.trim())
-        push(null, {
-          title: v,
-          memo: f.memo,
-          tags: f.tags,
-          product: f.product,
-          source: { kind: "manual", id: null, url: null, label: "직접 적음" },
-        });
-      return;
-    }
-    const prev = k === "tags" ? x.tags.join(" ") : x[k];
-    if (v !== prev) push(x.id, { [k]: v });
-  };
-  return (
-    <Dialog
-      open={!!note}
-      onClose={onClose}
-      size="md"
-      title={x ? "트렌드 노트" : "새 노트"}
-      description={x ? `${NOTE_SOURCE_LABEL[x.source.kind]} · ${x.source.label || "직접 적음"}` : "제목을 적고 칸을 벗어나면 만들어집니다"}
-      footer={
-        <>
-          {x && (
-            <Button variant="ghost" icon={Trash2} onClick={() => onDelete(x)} className="mr-auto">
-              지우기
-            </Button>
-          )}
-          <Button variant="secondary" onClick={onClose}>
-            닫기
-          </Button>
-          {x && (
-            <Button icon={PenLine} onClick={() => onScript(x)}>
-              대본 작성기로
-            </Button>
-          )}
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-nd-md bg-nd-sunken px-3 py-2">
-          <VisibilityChip visibility="private" />
-          {(x || state.s !== "saved") && <SaveIndicator state={state.s} savedAt={state.at} onRetry={state.retry ?? undefined} />}
-        </div>
-        <Field label="제목">
-          <Input value={f.title} maxLength={120} autoFocus={!x} onChange={(e) => setF({ ...f, title: e.target.value })} onBlur={() => commit("title")} />
-        </Field>
-        <Field label="메모">
-          <Textarea rows={5} value={f.memo} maxLength={3000} onChange={(e) => setF({ ...f, memo: e.target.value })} onBlur={() => commit("memo")} />
-        </Field>
-        <FormRow className="grid-cols-1 sm:grid-cols-2">
-          <Field label="태그 (띄어쓰기로)">
-            <Input value={f.tags} onChange={(e) => setF({ ...f, tags: e.target.value })} onBlur={() => commit("tags")} placeholder="예: 주방 다이소 겨울" />
-          </Field>
-          <Field label="상태" hint={x ? undefined : "새 노트는 「검토 전」 에 들어갑니다"}>
-            <Select value={x?.status ?? "inbox"} disabled={!x} onChange={(e) => x && push(x.id, { status: e.target.value })}>
-              {NOTE_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {NOTE_STATUS_LABEL[s]}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </FormRow>
-        <Field label="대본 작성기에 넘길 제품 이름" hint="비우면 노트 제목을 넘깁니다">
-          <Input value={f.product} maxLength={120} onChange={(e) => setF({ ...f, product: e.target.value })} onBlur={() => commit("product")} />
-        </Field>
-        {x && (
-          <div className="rounded-nd-md border border-nd-line bg-nd-sunken/60 px-4 py-3">
-            <p className="text-[14px] font-semibold text-nd-fg">원문 근거</p>
-            <p className="mt-0.5 text-[14px] text-nd-fg-2 [overflow-wrap:anywhere]">
-              {NOTE_SOURCE_LABEL[x.source.kind]} · {x.source.label || "직접 적음"} · 보관 {fmtWhen(x.createdAt)}
-            </p>
-            {x.snapshot && (
-              <p className="nd-num mt-1.5 flex items-start gap-1.5 text-[13px] text-nd-fg-2 [overflow-wrap:anywhere]">
-                <CalendarDays size={14} className="mt-[2px] shrink-0" aria-hidden />
-                보관할 때 숫자 · {x.snapshot}
-              </p>
-            )}
-            {x.source.url && (
-              <a href={x.source.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1.5 text-[14px] font-medium text-nd-accent-strong hover:underline">
-                <ExternalLink size={14} aria-hidden /> 근거 열기
-              </a>
-            )}
-          </div>
-        )}
-        <p className="text-[13px] text-nd-fg-3">칸을 벗어나면 저절로 저장됩니다.</p>
-      </div>
-    </Dialog>
   );
 }

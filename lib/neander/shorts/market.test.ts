@@ -9,6 +9,8 @@ import {
   pushChannelPoint,
   sanitizeKeywordGroups,
   sanitizeMarketSettings,
+  NOTE_MEMO_MAX,
+  normalizeNote,
   sanitizeNote,
   trendDates,
   type ChannelStatPoint,
@@ -73,4 +75,26 @@ test("트렌드 노트 — 새로 · 고치기(주인 · 출처는 그대로) ·
   assert.equal(b.title, "뜨는 물막이");
   assert.equal(b.snapshot, "×1.8");
   assert.equal(sanitizeNote({}, "a@x", 1).title, "제목 없음");
+});
+
+test("트렌드 노트 — 공유 범위 · 긴 메모 · 영상 · 사진 (새 노트는 비어서 시작 · 예전 노트도 읽힌다)", () => {
+  const a = sanitizeNote({ title: "스웨이룸", visibility: "public", memo: "가".repeat(NOTE_MEMO_MAX + 50), videos: [{ platform: "youtube", id: "dQw4w9WgXcQ" }], images: [{ id: "x" }] }, "a@x", 1);
+  assert.equal(a.visibility, "private"); // 모르는 값은 나만 보기
+  assert.equal(a.memo.length, NOTE_MEMO_MAX);
+  assert.deepEqual(a.videos, []); // 넣기는 서버 동작으로만
+  assert.deepEqual(a.images, []);
+  const withMedia = { ...a, videos: [{ platform: "instagram" as const, id: "DeOxg-opuO0", url: "https://www.instagram.com/p/DeOxg-opuO0/", label: "화해", aspect: "4:5" as const, stats: "조회 2,382,125", addedAt: 2 }], images: [{ id: "img1", name: "a.jpg", type: "image/jpeg" as const, w: 1, h: 1, size: 1, caption: "", at: 2, by: "a@x" }] };
+  const b = sanitizeNote({ visibility: "team", images: [{ id: "img1", caption: "장면 모음" }] }, "a@x", 3, withMedia);
+  assert.equal(b.visibility, "team");
+  assert.equal(b.videos.length, 1); // 안 보낸 칸은 그대로
+  assert.equal(b.images[0].caption, "장면 모음");
+  const c = sanitizeNote({ videos: [] }, "a@x", 4, b);
+  assert.deepEqual(c.videos, []);
+  assert.equal(c.visibility, "team");
+  // 예전 노트(칸 없음)
+  const old = { title: "옛 노트", owner: "a@x", createdAt: 1, updatedAt: 1, memo: "", tags: [], status: "inbox", pinned: false, source: { kind: "manual", id: null, url: null, label: "" }, snapshot: "", product: "" } as unknown as Parameters<typeof normalizeNote>[0];
+  const n = normalizeNote(old);
+  assert.equal(n.visibility, "private");
+  assert.deepEqual([n.videos, n.images], [[], []]);
+  assert.equal(sanitizeNote({ memo: "고침" }, "a@x", 5, old as never).videos.length, 0);
 });

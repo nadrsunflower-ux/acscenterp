@@ -34,6 +34,7 @@ export const SCOPED_COLLECTIONS: ReadonlySet<string> = new Set([
   NEANDER_COL.shortsMarket,
   NEANDER_COL.shortsChannelStats,
   NEANDER_COL.shortsNotes,
+  NEANDER_COL.shortsNoteImages,
   NEANDER_COL.shortsScripts,
   NEANDER_COL.shortsCuts,
 ]);

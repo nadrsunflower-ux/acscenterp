@@ -50,6 +50,13 @@ export async function shortsGet<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** 바이트로 답하는 읽기 (트렌드 노트 사진 등) — <img> 는 로그인 머리글을 못 붙여서 Blob 으로 받아 주소를 만든다 */
+export async function shortsBlob(path: string, signal?: AbortSignal): Promise<Blob> {
+  const res = await fetch(`/api/neander/shorts/${path}`, { headers: { Authorization: `Bearer ${await token()}`, ...spaceHeader() }, signal });
+  if (!res.ok) throw await readError(res);
+  return res.blob();
+}
+
 export async function shortsPost<T>(path: string, body: object): Promise<T> {
   const res = await fetch(`/api/neander/shorts/${path}`, {
     method: "POST",
