@@ -11,6 +11,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   Building2,
+  CircleDollarSign,
   CircleUserRound,
   FileSignature,
   ArrowLeftRight,
@@ -260,6 +261,8 @@ export const SHORTS_NAV: NavGroup[] = [
       // 같은 계정 관리 화면의 두 구간 — 내 채널(게시 계정 · 프로젝트 귀속) · 연결(키 · 토큰 · 서버 준비)
       { href: "/neander/shorts/accounts", label: "내 채널", icon: CircleUserRound, exact: true },
       { href: "/neander/shorts/accounts/connect", label: "연결", icon: Plug },
+      // 오픈라우터 키마다 쓴 돈 — 사람 · 달 · 충전 잔액 · 한도 (관리자만)
+      { href: "/neander/shorts/usage", label: "AI 사용료", icon: CircleDollarSign },
     ],
   },
 ];

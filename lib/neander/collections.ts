@@ -257,4 +257,6 @@ export const NEANDER_COL = {
   shortsCuts: "neander_shorts_cuts",
   /** AI STUDIO 비서 대화 — 사람마다 비공개 (재무 · 매출 비서와 같은 모양 · ai/chat-log.ts) */
   shortsChats: "neander_shorts_chats",
+  /** AI 사용료 — 오픈라우터 키 목록을 하루 한 번 통째로 찍은 기록 (문서 id = 한국 날짜 · 그날의 마지막 상태). shorts/ai-usage.ts */
+  shortsAiUsage: "neander_shorts_ai_usage",
 } as const;

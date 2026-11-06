@@ -9,6 +9,7 @@ import { tick } from "@/lib/neander/shorts/server/runner";
 import { runRadar } from "@/lib/neander/shorts/server/radar-run";
 import { forEachSpace } from "@/lib/neander/shorts/server/space-db";
 import { youtubeApiKey } from "@/lib/neander/shorts/server/youtube-data";
+import { managementKey, recordUsageNow } from "@/lib/neander/shorts/server/ai-usage";
 import type { ProfileDoc, PublicationDoc } from "@/lib/neander/shorts/types";
 
 // ============================================================
@@ -20,6 +21,7 @@ import type { ProfileDoc, PublicationDoc } from "@/lib/neander/shorts/types";
 //    ③ 밖에서 올린 게시물(YouTube Studio · 인스타 앱) 찾아 영상에 붙이기 → 최근 30일 게시물의 성과를
 //       공식 API 로 다시 읽기 (최근 것부터 최대 20건)
 //    ④ 사람마다 자기 쿠팡 키로 자기 리포트 (키를 확인한 사람만 · 막힌 키는 건너뜀)
+//    ⑥ AI 사용료 — 오픈라우터 키 목록 · 충전 잔액을 찍어 둔다 (달별 금액의 바탕 · 화면을 안 열어도 하루 하나)
 //    ⑤ AI 레이더 — 키워드 검색 → 반응 큰 쇼츠 후보 · AI 상품 추정(하루 비용 상한) · 네이버 국내 검색 추세
 //       (AI STUDIO 프로젝트마다 따로 — 검색어 · 후보 · 비용 상한이 프로젝트별, YouTube 검색 한도는 공용)
 //  바이럴 형식 정찰(채널 채우기 · 훑기 · 분석 · 묶기 · 한국 확인 · 보고)은 따로 cron-scout(07:00 KST)가 돈다
@@ -48,6 +50,10 @@ export async function GET(req: Request) {
   const db = adminDb();
   const started = Date.now();
   const out: Record<string, unknown> = {};
+  // 가볍고(요청 2~3번) 하루 한 번이 꼭 남아야 해서 맨 앞에서 — 실행기가 시간을 다 써도 기록은 남는다
+  out.aiUsage = managementKey()
+    ? await recordUsageNow(db).then((r) => `키 ${r.keys}개 · 잔액 $${r.balance}`, (e) => (e instanceof Error ? e.message.slice(0, 120) : "실패"))
+    : "OPENROUTER_MANAGEMENT_KEY 가 없어 건너뜀";
   try {
     out.runner = await tick(db, { budgetMs: 200_000, max: 10 });
   } catch (e) {
