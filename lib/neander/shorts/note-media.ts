@@ -1,9 +1,13 @@
 // ============================================================
 //  트렌드 노트의 영상 · 사진 — 레퍼런스로 남기기 (시장 트렌드 › 트렌드 노트)
 // ------------------------------------------------------------
-//  · 영상 = 남의 유튜브 · 인스타 · 틱톡 주소. 파일을 받지 않고 각 플랫폼의 공식 삽입 재생기(iframe)로
-//    ERP 안에서 바로 본다. 넣을 때 읽은 숫자(조회 · 좋아요 · 길이)를 그때 값으로 한 줄 남긴다.
-//    인스타는 음악 저작권이 걸린 게시물이면 재생기가 「Instagram 에서 보기」 만 보여 준다(우리가 못 고친다).
+//  · 영상 = 남의 유튜브 · 인스타 · 틱톡 주소. 파일을 받아 두지 않고 ERP 안에서 바로 본다.
+//    넣을 때 읽은 숫자(조회 · 좋아요 · 길이)를 그때 값으로 한 줄 남긴다.
+//    유튜브 · 틱톡은 공식 삽입 재생기(iframe). 인스타는 공식 재생기가 릴스를 4:5 칸으로 틀어서, 4:3 · 16:9
+//    영상이면 영상이 틀 밖으로 넘치고 「Instagram 에서 더 보기」 띠가 영상 위에 얹힌다(2026-11-04 · 노트 영상
+//    15개 중 12개). 그래서 인스타는 공개 삽입 화면이 알려 주는 영상 파일 주소를 볼 때마다 서버가 새로 읽어
+//    (주소가 하루 반쯤이면 만료된다) 우리 <video> 로 실제 비율대로 튼다 — instagramMediaOf · server/market.ts.
+//    파일 주소가 없으면(음악 저작권이 걸린 게시물) 표지 + 「인스타에서 보기」, 읽기 · 재생이 안 되면 공식 재생기로.
 //  · 사진 = 장면 모음 · 캡처. Firebase Storage 버킷이 없어 Firestore 문서 한 장에 원본 + 작은 그림을 같이 둔다
 //    (server/market.ts · neander_shorts_note_images). 브라우저가 줄여서 보낸다.
 //  순수 함수 · 모양만 둔다 (브라우저 · 서버 공용).
@@ -39,6 +43,8 @@ export const NOTE_VIDEOS_MAX = 12;
 export const noteVideoKey = (v: Pick<NoteVideo, "platform" | "id">) => `${v.platform}:${v.id}`;
 
 const IG_CODE = /^[\w-]{5,40}$/;
+/** 인스타 게시물 코드 모양 (/p/<코드>/) */
+export const isInstagramCode = (v: unknown): v is string => typeof v === "string" && IG_CODE.test(v);
 const TT_ID = /^\d{8,25}$/;
 
 function parseUrl(input: unknown): URL | null {
@@ -208,7 +214,55 @@ export interface InstagramEmbedMeta extends VideoNumbers {
   width: number | null;
   height: number | null;
   username: string | null;
+  /** 영상 파일 주소 (인스타 CDN · 서명이 붙어 만료된다). 음악 저작권이 걸린 게시물 · 사진은 null */
+  videoUrl: string | null;
+  /** 표지 그림 주소 (인스타 CDN) */
+  poster: string | null;
 }
+
+/** 볼 때 받는 인스타 영상 — 서버가 공개 삽입 화면에서 새로 읽은 것 (저장하지 않는다) */
+export interface InstagramMedia {
+  /** 영상 파일 — 없으면 인스타에서만 재생된다 */
+  src: string | null;
+  poster: string | null;
+  /** 이 주소들을 믿어도 되는 때 (ms) — 지나면 다시 받는다 */
+  expiresAt: number;
+}
+
+/** 인스타 CDN 주소만 받는다 — 화면의 <video> · <img> 에 그대로 넣는 값이라 다른 곳 주소는 버린다 */
+export function instagramCdnUrl(v: unknown): string | null {
+  if (typeof v !== "string" || v.length > 4000) return null;
+  try {
+    const u = new URL(v);
+    if (u.protocol !== "https:" || u.username || u.password) return null;
+    return /(^|\.)(cdninstagram\.com|fbcdn\.net)$/i.test(u.hostname) ? u.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 서명 주소의 만료 시각 — oe=<16진 초>. 모르면 null */
+export function instagramUrlExpiry(url: string | null): number | null {
+  if (!url) return null;
+  try {
+    const oe = new URL(url).searchParams.get("oe");
+    if (!oe || !/^[0-9a-f]{6,10}$/i.test(oe)) return null;
+    return parseInt(oe, 16) * 1000;
+  } catch {
+    return null;
+  }
+}
+
+/** 서버가 들고 있을 때까지 — 파일 주소 만료 30분 전, 길어도 6시간. 파일이 없으면 30분 뒤 다시 본다 */
+export function instagramMediaUntil(m: Pick<InstagramMedia, "src" | "poster">, now: number): number {
+  const max = now + 6 * 3600_000;
+  if (!m.src) return now + 30 * 60_000;
+  const exp = instagramUrlExpiry(m.src);
+  return exp ? Math.max(now + 60_000, Math.min(max, exp - 30 * 60_000)) : now + 3600_000;
+}
+
+/** 우리 재생기의 칸 — 높이/너비. 인스타처럼 세로는 4:5 까지만 (9:16 은 양옆이 검게) */
+export const playerBoxRatio = (videoWidth: number, videoHeight: number) => (videoWidth > 0 && videoHeight > 0 ? Math.min(videoHeight / videoWidth, 5 / 4) : 5 / 4);
 
 /** from 에서 앞(-1) · 뒤(1) 로 가며 역슬래시로 감싸지 않은 따옴표 자리 */
 function bareQuote(s: string, from: number, dir: -1 | 1): number {
@@ -233,6 +287,10 @@ type IgMedia = {
   video_duration?: number;
   taken_at_timestamp?: number;
   dimensions?: { width?: number; height?: number };
+  is_video?: boolean;
+  video_url?: string;
+  display_url?: string;
+  thumbnail_src?: string;
   owner?: { username?: string };
   edge_liked_by?: { count?: number };
   edge_media_preview_like?: { count?: number };
@@ -285,6 +343,8 @@ export function parseInstagramEmbed(html: string): InstagramEmbedMeta | null {
     width: count(m.dimensions?.width),
     height: count(m.dimensions?.height),
     username: user,
+    videoUrl: instagramCdnUrl(m.video_url),
+    poster: instagramCdnUrl(m.display_url) ?? instagramCdnUrl(m.thumbnail_src),
   };
   if (out.views === null && out.likes === null && out.comments === null && !out.caption && !out.username) return null;
   return out;

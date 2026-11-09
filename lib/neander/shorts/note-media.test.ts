@@ -7,11 +7,16 @@ import {
   captionTitle,
   editNoteImages,
   editNoteVideos,
+  instagramCdnUrl,
   instagramMeasure,
+  instagramMediaUntil,
+  instagramUrlExpiry,
+  isInstagramCode,
   isTiktokShortUrl,
   noteVideoEmbedUrl,
   parseInstagramEmbed,
   parseNoteVideoUrl,
+  playerBoxRatio,
   sniffImageType,
   videoStatsLine,
   type NoteImage,
@@ -88,6 +93,49 @@ test("인스타 삽입 화면에서 숫자 읽기 — 두 번 풀어 shortcode_m
   assert.match(m.caption, /"MUMU"/);
   assert.equal(captionTitle(m.caption), "화해");
   assert.equal(videoStatsLine({ ...m, by: "@swayroom_studio" }), "조회 2,382,125 · 좋아요 90,788 · 댓글 310 · 1분 32초 · 2025-10-08 올림 · @swayroom_studio");
+});
+
+test("인스타 — 영상 파일 · 표지 주소는 인스타 CDN 것만", () => {
+  const video = "https://scontent-ssn1-1.cdninstagram.com/o1/v/t2/f2/m86/AQP.mp4?_nc_cat=1&oh=00_x&oe=6AED2C14";
+  const m = parseInstagramEmbed(
+    igPage({ shortcode: "DdfkfFsJGGB", is_video: true, video_view_count: 5, video_url: video, display_url: "https://scontent-ssn1-1.cdninstagram.com/v/t51/p.jpg?oe=6AF12178", owner: { username: "swayroom_studio" } }),
+  );
+  assert.ok(m);
+  assert.equal(m.videoUrl, video);
+  assert.match(m.poster!, /^https:\/\/scontent-ssn1-1\.cdninstagram\.com\/v\/t51\/p\.jpg/);
+  // 음악 저작권이 걸린 게시물은 파일 주소가 없다 · 다른 곳 주소는 버린다
+  const r = parseInstagramEmbed(igPage({ shortcode: "Dd3Us8Qp4Pk", is_video: true, video_view_count: 5, display_url: "https://evil.example.com/x.jpg", thumbnail_src: "https://x.fbcdn.net/t.jpg" }));
+  assert.equal(r?.videoUrl, null);
+  assert.equal(r?.poster, "https://x.fbcdn.net/t.jpg");
+  assert.equal(instagramCdnUrl("http://scontent.cdninstagram.com/a.mp4"), null);
+  assert.equal(instagramCdnUrl("https://cdninstagram.com.evil.io/a.mp4"), null);
+  assert.equal(instagramCdnUrl("javascript:alert(1)"), null);
+  assert.equal(instagramCdnUrl("https://scontent.cdninstagram.com/a.mp4"), "https://scontent.cdninstagram.com/a.mp4");
+});
+
+test("인스타 — 서명 주소 만료 · 서버가 들고 있을 때까지", () => {
+  const exp = 0x6aed2c14 * 1000;
+  assert.equal(instagramUrlExpiry(`https://a.cdninstagram.com/x.mp4?oe=6AED2C14`), exp);
+  assert.equal(instagramUrlExpiry(`https://a.cdninstagram.com/x.mp4`), null);
+  assert.equal(instagramUrlExpiry(`https://a.cdninstagram.com/x.mp4?oe=zz`), null);
+  const now = exp - 34 * 3600_000;
+  // 만료가 멀면 6시간까지만
+  assert.equal(instagramMediaUntil({ src: "https://a.cdninstagram.com/x.mp4?oe=6AED2C14", poster: null }, now), now + 6 * 3600_000);
+  // 곧 만료되면 만료 30분 전 (적어도 1분)
+  assert.equal(instagramMediaUntil({ src: "https://a.cdninstagram.com/x.mp4?oe=6AED2C14", poster: null }, exp - 3600_000), exp - 30 * 60_000);
+  assert.equal(instagramMediaUntil({ src: "https://a.cdninstagram.com/x.mp4?oe=6AED2C14", poster: null }, exp - 60_000), exp);
+  // 파일이 없으면 30분 뒤 다시
+  assert.equal(instagramMediaUntil({ src: null, poster: "p" }, now), now + 30 * 60_000);
+});
+
+test("인스타 — 우리 재생기 칸 비율 · 게시물 코드", () => {
+  assert.equal(playerBoxRatio(1276, 718), 718 / 1276);
+  assert.equal(playerBoxRatio(640, 480), 0.75);
+  assert.equal(playerBoxRatio(1080, 1920), 1.25);
+  assert.equal(playerBoxRatio(0, 0), 1.25);
+  assert.ok(isInstagramCode("DeOxg-opuO0"));
+  assert.ok(!isInstagramCode("../x"));
+  assert.ok(!isInstagramCode(null));
 });
 
 test("인스타 — 로그인 화면 · 모양이 다르면 null (지어내지 않는다)", () => {

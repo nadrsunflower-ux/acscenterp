@@ -39,12 +39,15 @@ import {
   NOTE_THUMB_MAX_BYTES,
   NOTE_VIDEOS_MAX,
   captionTitle,
+  instagramMediaUntil,
+  isInstagramCode,
   isTiktokShortUrl,
   noteVideoKey,
   parseInstagramEmbed,
   parseNoteVideoUrl,
   sniffImageType,
   videoStatsLine,
+  type InstagramMedia,
   type NoteImage,
   type NoteImageType,
   type NoteVideo,
@@ -540,14 +543,47 @@ interface VideoMeta {
   aspect: NoteVideoAspect | null;
 }
 
+/** 인스타 공개 삽입 화면 — 숫자 읽기와 볼 때 영상 파일 주소 받기가 같이 쓴다 */
+async function fetchInstagramEmbed(code: string) {
+  const res = await metaFetch(`https://www.instagram.com/p/${code}/embed/captioned/`, { headers: { "User-Agent": BROWSER_UA, "Accept-Language": "ko-KR,ko;q=0.9" } });
+  return res.ok ? parseInstagramEmbed(await res.text()) : null;
+}
+
+// 볼 때 받는 인스타 영상 주소 — 서명 주소라 만료되어 저장하지 않고, 이 서버가 잠깐 들고 있는다 (같은 노트를 여럿이 열어도 한 번)
+const igMediaCache = new Map<string, { until: number; media: InstagramMedia }>();
+const IG_MEDIA_CACHE_MAX = 300;
+
+/**
+ * 인스타 게시물 하나의 영상 파일 · 표지 주소 (note-media.ts 머리말). 읽지 못하면 src · poster 가 null —
+ * 화면은 그때 공식 재생기로 돌아간다. 게시물은 공개된 것이라 노트 주인 확인은 하지 않는다 (AI STUDIO 사용자만).
+ */
+export async function instagramMedia(code: unknown): Promise<InstagramMedia> {
+  if (!isInstagramCode(code)) throw new Error("인스타 게시물 코드가 올바르지 않습니다.");
+  const now = Date.now();
+  const hit = igMediaCache.get(code);
+  if (hit && hit.until > now) return hit.media;
+  let m: Awaited<ReturnType<typeof fetchInstagramEmbed>> = null;
+  try {
+    m = await fetchInstagramEmbed(code);
+  } catch {
+    m = null;
+  }
+  const found = { src: m?.videoUrl ?? null, poster: m?.poster ?? null };
+  // 못 읽은 것은 짧게만 (인스타가 잠깐 막았을 수 있다)
+  const until = m ? instagramMediaUntil(found, now) : now + 5 * 60_000;
+  const media: InstagramMedia = { ...found, expiresAt: until };
+  igMediaCache.delete(code);
+  if (igMediaCache.size >= IG_MEDIA_CACHE_MAX) igMediaCache.delete(igMediaCache.keys().next().value!);
+  igMediaCache.set(code, { until, media });
+  return media;
+}
+
 /** 넣을 때 숫자 한 줄 — 못 읽으면 빈 값 (영상 넣기는 막지 않는다 · 숫자를 지어내지 않는다) */
 async function videoMeta(v: Pick<NoteVideo, "platform" | "id" | "url">): Promise<VideoMeta> {
   const empty: VideoMeta = { label: "", stats: "", source: "", aspect: null };
   try {
     if (v.platform === "instagram") {
-      const res = await metaFetch(`https://www.instagram.com/p/${v.id}/embed/captioned/`, { headers: { "User-Agent": BROWSER_UA, "Accept-Language": "ko-KR,ko;q=0.9" } });
-      if (!res.ok) return empty;
-      const m = parseInstagramEmbed(await res.text());
+      const m = await fetchInstagramEmbed(v.id);
       if (!m) return empty;
       const by = m.username ? `@${m.username}` : null;
       return { label: captionTitle(m.caption), stats: videoStatsLine({ ...m, by }), source: by ? `인스타 ${by}` : "", aspect: null };

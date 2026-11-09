@@ -13,6 +13,7 @@ import {
   getBrief,
   getGroupSeries,
   getMarketSettings,
+  instagramMedia,
   listBriefDays,
   listChannelStats,
   listNotes,
@@ -38,6 +39,7 @@ import { publicOrigin } from "@/lib/neander/mail/server/track";
 // 시장 트렌드 — 브리핑 · 검색어 추이 · 채널 모니터링 · 트렌드 노트 (shorts/market.ts)
 //   GET  전체 · ?brief=<날짜> · ?compare=1&groups=a,b&range=1y&unit=week&mode=groups|segments
 //        ?noteImage=<사진 id>&size=thumb|full — 노트 사진 원본(쓴 사람 · 팀 공개 노트만 · 바이트로 답한다)
+//        ?igMedia=<게시물 코드> — 노트의 인스타 영상을 볼 때 영상 파일 · 표지 주소 (만료되는 주소라 볼 때마다 · note-media.ts)
 //   POST settings.save(관리자) · run · brief.run · series.refresh · channels.snapshot · note.save · note.delete
 //        note.video.add(주소 → 공식 재생기 · 그때 숫자) · note.image.add(줄인 원본 + 작은 그림 base64) · note.image.delete
 //        titles.get(제목 키워드 · 읽기 · shorts/title-trends.ts)
@@ -50,8 +52,10 @@ export const maxDuration = 300;
 export async function GET(req: Request) {
   try {
     const { email } = await requireShortsUser(req);
-    const db = await requestDb(req, adminDb(), email);
     const u = new URL(req.url);
+    // 공개 게시물 주소 읽기라 프로젝트 자료(db)를 열지 않는다
+    if (u.searchParams.has("igMedia")) return json({ media: await instagramMedia(u.searchParams.get("igMedia")) });
+    const db = await requestDb(req, adminDb(), email);
     const imageId = u.searchParams.get("noteImage");
     if (imageId) {
       const img = await readNoteImage(db, email, imageId, u.searchParams.get("size") === "thumb" ? "thumb" : "full");

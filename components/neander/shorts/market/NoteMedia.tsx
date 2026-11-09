@@ -3,18 +3,19 @@
 // ============================================================
 //  트렌드 노트의 참고 영상 · 사진 (레퍼런스) — NotesBoard 의 노트 창 오른쪽
 // ------------------------------------------------------------
-//  · 영상: 주소를 붙여 넣으면 서버가 공식 재생기 주소 · 그때 숫자를 남긴다(note.video.add). 재생기는 각 플랫폼의
-//    공식 삽입 iframe — 인스타는 재생기가 보내는 높이 알림(MEASURE)으로 높이를 맞춘다.
+//  · 영상: 주소를 붙여 넣으면 서버가 공식 재생기 주소 · 그때 숫자를 남긴다(note.video.add). 유튜브 · 틱톡은 공식
+//    삽입 iframe. 인스타는 공식 재생기가 4:3 · 16:9 릴스를 4:5 칸으로 틀어 깨지므로(note-media.ts 머리말) 볼 때
+//    영상 파일 주소를 받아 우리 <video> 로 실제 비율대로 튼다. 못 받거나 재생이 안 되면 공식 재생기(높이 알림 MEASURE).
 //  · 사진: 브라우저가 긴 변 2400px · 850KB 안으로 줄이고 작은 그림(480px)을 따로 만들어 보낸다(note.image.add).
 //    <img> 는 로그인 머리글을 못 붙여서 Blob 으로 받아 주소를 만들고, 한 번 받은 것은 이 탭이 들고 있는다.
 //  · 사진을 누르면 창 안에서 크게 본다(겹친 창을 띄우지 않는다 — Esc 가 노트 창까지 닫지 않게).
 // ============================================================
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, ExternalLink, ImagePlus, Link2, Loader2, Plus, Trash2, Video, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, ExternalLink, ImagePlus, Link2, Loader2, Play, Plus, Trash2, Video, X } from "lucide-react";
 import { Badge, Button, DropZone, FieldAction, FormRow, IconButton, Input, cn, useConfirm } from "@/components/neander/ui";
 import { fmtWhen } from "@/components/neander/shorts/parts";
-import { shortsBlob } from "@/lib/neander/shorts/client";
+import { shortsBlob, shortsGet } from "@/lib/neander/shorts/client";
 import {
   INSTAGRAM_ORIGIN,
   NOTE_IMAGES_MAX,
@@ -29,42 +30,18 @@ import {
   instagramMeasure,
   noteVideoEmbedUrl,
   noteVideoKey,
+  playerBoxRatio,
+  type InstagramMedia,
   type NoteImage,
   type NoteVideo,
 } from "@/lib/neander/shorts/note-media";
 
 // ---- 영상 ----------------------------------------------------------------------
 
-/** 공식 삽입 재생기 하나 — 유튜브 · 틱톡은 비율 틀, 인스타는 재생기가 알려 준 높이 */
+/** 재생기 하나 — 유튜브 · 틱톡은 공식 재생기를 비율 틀에, 인스타는 우리 재생기(안 되면 공식 재생기) */
 export function VideoFrame({ video, className }: { video: NoteVideo; className?: string }) {
-  const ref = useRef<HTMLIFrameElement>(null);
-  const [igHeight, setIgHeight] = useState(620);
-  useEffect(() => {
-    if (video.platform !== "instagram") return;
-    const on = (e: MessageEvent) => {
-      if (e.origin !== INSTAGRAM_ORIGIN || e.source !== ref.current?.contentWindow) return;
-      const h = instagramMeasure(e.data);
-      if (h) setIgHeight(h);
-    };
-    window.addEventListener("message", on);
-    return () => window.removeEventListener("message", on);
-  }, [video.platform]);
   const title = `${NOTE_VIDEO_PLATFORM_LABEL[video.platform]} 영상${video.label ? ` — ${video.label}` : ""}`;
-  if (video.platform === "instagram") {
-    return (
-      <iframe
-        ref={ref}
-        src={noteVideoEmbedUrl(video)}
-        title={title}
-        loading="lazy"
-        scrolling="no"
-        allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share; fullscreen"
-        allowFullScreen
-        className={cn("block w-full border-0 bg-white", className)}
-        style={{ height: igHeight }}
-      />
-    );
-  }
+  if (video.platform === "instagram") return <InstagramPlayer video={video} title={title} className={className} />;
   return (
     <div className={cn("relative w-full overflow-hidden bg-black", className)} style={{ paddingBottom: `${aspectRatio(video.aspect) * 100}%` }}>
       <iframe
@@ -77,6 +54,169 @@ export function VideoFrame({ video, className }: { video: NoteVideo; className?:
         className="absolute inset-0 h-full w-full border-0"
       />
     </div>
+  );
+}
+
+// ---- 인스타 — 볼 때 영상 파일 주소를 받는다 (만료 5분 전까지 이 탭이 들고 있음) ------------------------
+
+const igMedia = new Map<string, { until: number; p: Promise<InstagramMedia> }>();
+
+function instagramMediaOf(code: string): Promise<InstagramMedia> {
+  const hit = igMedia.get(code);
+  if (hit && hit.until > Date.now()) return hit.p;
+  const entry = { until: Date.now() + 60_000, p: shortsGet<{ media: InstagramMedia }>(`market?igMedia=${encodeURIComponent(code)}`).then((r) => r.media) };
+  entry.p.then(
+    (m) => (entry.until = m.expiresAt - 5 * 60_000),
+    () => igMedia.delete(code),
+  );
+  igMedia.set(code, entry);
+  return entry.p;
+}
+
+/** 한 영상을 틀면 다른 노트 영상은 멈춘다 */
+const PLAY_EVENT = "neander:note-video-play";
+
+/**
+ * 인스타 영상 — 칸은 영상의 실제 비율 (세로는 4:5 까지 · 양옆 검게). 틀기 전에는 표지 + 재생 단추.
+ * 파일이 없으면(인스타가 ERP 안 재생을 막은 게시물) 표지 + 「인스타에서 보기」. 받기 · 재생이 안 되면 공식 재생기.
+ */
+function InstagramPlayer({ video, title, className }: { video: NoteVideo; title: string; className?: string }) {
+  const box = useRef<HTMLDivElement>(null);
+  const player = useRef<HTMLVideoElement>(null);
+  const [near, setNear] = useState(false);
+  const [media, setMedia] = useState<InstagramMedia | null>(null);
+  const [official, setOfficial] = useState(false);
+  const [ratio, setRatio] = useState(5 / 4);
+  const [started, setStarted] = useState(false);
+  const [posterOk, setPosterOk] = useState(true);
+
+  // 화면 가까이 와야 받는다 (노트 하나에 영상 12개까지)
+  useEffect(() => {
+    const el = box.current;
+    if (!el || near) return;
+    if (typeof IntersectionObserver === "undefined") return setNear(true);
+    const io = new IntersectionObserver((es) => es.some((e) => e.isIntersecting) && setNear(true), { rootMargin: "600px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [near]);
+
+  useEffect(() => {
+    if (!near) return;
+    let live = true;
+    instagramMediaOf(video.id).then(
+      (m) => {
+        if (!live) return;
+        if (m.src || m.poster) setMedia(m);
+        else setOfficial(true);
+      },
+      () => live && setOfficial(true),
+    );
+    return () => {
+      live = false;
+    };
+  }, [near, video.id]);
+
+  useEffect(() => {
+    const on = (e: Event) => {
+      if ((e as CustomEvent<HTMLVideoElement>).detail !== player.current) player.current?.pause();
+    };
+    window.addEventListener(PLAY_EVENT, on);
+    return () => window.removeEventListener(PLAY_EVENT, on);
+  }, []);
+
+  if (official) return <OfficialInstagramFrame video={video} title={title} className={className} />;
+
+  const start = () => {
+    setStarted(true);
+    void player.current?.play().catch(() => {});
+  };
+  const poster =
+    media?.poster && posterOk ? (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={media.poster} alt="" referrerPolicy="no-referrer" draggable={false} onError={() => setPosterOk(false)} className="absolute inset-0 h-full w-full object-cover" />
+    ) : null;
+
+  return (
+    <div ref={box} className={cn("relative w-full overflow-hidden bg-black", className)} style={{ paddingBottom: `${ratio * 100}%` }}>
+      {media?.src && (
+        <video
+          ref={player}
+          src={media.src}
+          title={title}
+          preload="metadata"
+          playsInline
+          controls={started}
+          className="absolute inset-0 h-full w-full object-contain"
+          onLoadedMetadata={(e) => setRatio(playerBoxRatio(e.currentTarget.videoWidth, e.currentTarget.videoHeight))}
+          onPlay={(e) => {
+            setStarted(true);
+            window.dispatchEvent(new CustomEvent(PLAY_EVENT, { detail: e.currentTarget }));
+          }}
+          onError={() => setOfficial(true)}
+        />
+      )}
+      {!media ? (
+        <span className="absolute inset-0 flex items-center justify-center text-white/70">
+          <Loader2 size={20} className="animate-spin" aria-label="영상을 불러오는 중" />
+        </span>
+      ) : media.src ? (
+        !started && (
+          <button type="button" onClick={start} aria-label={`${title} 재생`} className="group absolute inset-0 flex items-center justify-center">
+            {poster}
+            <span className="relative flex h-14 w-14 items-center justify-center rounded-full bg-black/55 text-white transition-colors group-hover:bg-black/75">
+              <Play size={26} fill="currentColor" className="translate-x-0.5" aria-hidden />
+            </span>
+          </button>
+        )
+      ) : (
+        <div className="absolute inset-0">
+          {poster}
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/55 p-4 text-center">
+            <p className="text-[14px] font-medium leading-relaxed text-white">
+              인스타가 ERP 안 재생을 막은 영상입니다
+              <br />
+              <span className="text-[13px] font-normal text-white/80">(주로 음악 저작권)</span>
+            </p>
+            <a
+              href={video.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-9 items-center gap-1.5 rounded-full bg-white px-4 text-[14px] font-semibold text-black hover:bg-white/90"
+            >
+              <ExternalLink size={14} aria-hidden /> 인스타에서 보기
+            </a>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 공식 인스타 재생기 — 우리 재생기가 안 될 때만. 높이는 재생기가 보내는 알림(MEASURE)대로 */
+function OfficialInstagramFrame({ video, title, className }: { video: NoteVideo; title: string; className?: string }) {
+  const ref = useRef<HTMLIFrameElement>(null);
+  const [height, setHeight] = useState(620);
+  useEffect(() => {
+    const on = (e: MessageEvent) => {
+      if (e.origin !== INSTAGRAM_ORIGIN || e.source !== ref.current?.contentWindow) return;
+      const h = instagramMeasure(e.data);
+      if (h) setHeight(h);
+    };
+    window.addEventListener("message", on);
+    return () => window.removeEventListener("message", on);
+  }, []);
+  return (
+    <iframe
+      ref={ref}
+      src={noteVideoEmbedUrl(video)}
+      title={title}
+      loading="lazy"
+      scrolling="no"
+      allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share; fullscreen"
+      allowFullScreen
+      className={cn("block w-full border-0 bg-white", className)}
+      style={{ height }}
+    />
   );
 }
 
@@ -149,7 +289,7 @@ export function NoteVideos({
           {readOnly ? "넣은 영상이 없습니다." : "영상 주소를 붙여 넣으면 여기서 바로 재생됩니다. 채널 · 계정 주소가 아니라 영상 하나의 주소여야 합니다."}
         </p>
       ) : (
-        <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
+        <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
           {videos.map((v) => (
             <VideoCard key={noteVideoKey(v)} v={v} readOnly={readOnly} onLabel={(label) => void onEdit(videos.map((x) => (noteVideoKey(x) === noteVideoKey(v) ? { ...x, label } : x)))} onRemove={() => void remove(v)} />
           ))}
