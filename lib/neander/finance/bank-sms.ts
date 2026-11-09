@@ -14,7 +14,7 @@
 // ============================================================
 
 /** 읽기 규칙이 바뀌면 올린다 — 예전 판으로 읽은 문자를 다시 읽을 때 쓴다 */
-export const BANK_SMS_PARSER = 1;
+export const BANK_SMS_PARSER = 2;
 
 export interface BankSmsParsed {
   bank?: "신한" | "국민" | "우리" | "카카오뱅크" | "토스" | "기타";
@@ -47,7 +47,12 @@ export function parseBankSms(text: string): BankSmsParsed {
   const t = text.replace(/\r/g, "").replace(/\[Web발신\]|\(광고\)/g, " ").trim();
   const out: BankSmsParsed = { ok: false };
 
-  out.bank = BANKS.find(([re]) => re.test(t))?.[1] ?? (t ? "기타" : undefined);
+  // 은행 — 문자 머리(「우리 11/10」「신한11/10」)에 오는 이름. 받는 분 · 보낸 분 이름에도 은행 이름이
+  // 붙을 수 있어서(「신한（주）네안」) 목록 순서가 아니라 **가장 앞에 나온** 은행으로 정한다
+  const firstBank = BANKS.map(([re, name]) => ({ name, at: t.search(re) }))
+    .filter((b) => b.at >= 0)
+    .sort((a, b) => a.at - b.at)[0];
+  out.bank = firstBank?.name ?? (t ? "기타" : undefined);
 
   // 입금 · 출금 — 「입금」「출금」「지급」「이체입금」…  둘 다 있으면 먼저 나온 쪽
   const inAt = t.search(/입금/);
@@ -73,8 +78,9 @@ export function parseBankSms(text: string): BankSmsParsed {
   if (dt) out.when = `${dt[1].padStart(2, "0")}-${dt[2].padStart(2, "0")} ${dt[3].padStart(2, "0")}:${dt[4]}`;
 
   // 계좌 — 가린 번호(100-***-123456 · 110***23456 · *3456)의 끝 네 자리
-  const acct = t.match(/\d{2,6}[-*]+[\d*-]*?(\d{4})(?!\d)/) ?? t.match(/\*{1,}(\d{4})(?!\d)/);
-  if (acct) out.last4 = acct[1];
+  //   우리은행은 「*123456」처럼 별표 뒤에 끝 여섯 자리를 찍는다 → 그중 끝 네 자리
+  const acct = t.match(/\d{2,6}[-*]+[\d*-]*?(\d{4})(?!\d)/) ?? t.match(/\*+(\d{4,8})(?!\d)/);
+  if (acct) out.last4 = acct[1].slice(-4);
 
   // 나머지 글 — 숫자 · 낱말을 걷어 내고 남은 이름 (보낸 분 · 받는 분 · 적요로 보이는 것)
   const memo = t
