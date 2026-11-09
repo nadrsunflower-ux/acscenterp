@@ -116,6 +116,13 @@ export const NEANDER_COL = {
   finProjectFiles: "neander_fin_project_files",
   /** 돌려줄 돈 — 프로젝트에 묶이지 않은 환급 · 페이백 (finance/payback.ts). 서버(api/neander/finance/paybacks)만 접근한다 */
   finPaybacks: "neander_fin_paybacks",
+  /**
+   * API 비용 — 오픈라우터 키 · 모델별 사용액을 한국 날짜 하루로 모은 것 (문서 id = 한국 날짜).
+   * 아침 cron 이 쌓는다 (finance/server/api-cost.ts). 서버만 접근한다
+   */
+  finApiDays: "neander_fin_api_days",
+  /** API 비용 — 키마다 붙일 곳 (기본 + 날짜 구간, 문서 id = 키 해시). 서버(api/neander/finance/api-costs)만 접근한다 */
+  finApiAlloc: "neander_fin_api_alloc",
   /** 임직원 개인 결제의 회사 비용. 비용 원장·은행 상환은 claimId 꼬리표로 연결하며 법인카드 적재와 분리한다. */
   finExpenseClaims: "neander_fin_expense_claims",
   /**

@@ -25,6 +25,7 @@ import {
   ChartColumn,
   ChartNoAxesColumn,
   CreditCard,
+  Cpu,
   Database,
   Download,
   FileText,
@@ -119,7 +120,7 @@ export const GLOBAL_NAV: NavGroup[] = [
  *
  *   데이터    : 엑셀 임포트 → 검토 대기함 → 월 마감        (이 달에 하는 일)
  *   재무      : 대시보드 · 거래 원장 · 카드 기록            (그래서 나온 결과)
- *   사업 관리 : 프로젝트 · 지원금 · 돌려줄 돈 · 가수금      (건마다 챙기는 돈)
+ *   사업 관리 : 프로젝트 · 지원금 · 돌려줄 돈 · 가수금 · API 비용  (건마다 챙기는 돈)
  *   분석 및 관리 : 리포트 · 급여 · 세무 서류                 (장부를 맞춰 보는 것)
  *
  * 사업 관리는 원장을 건별로 묶어 보는 화면들이다 — 받을 돈 · 쓴 돈 · 돌려줄 돈을
@@ -141,6 +142,8 @@ export const FINANCE_NAV: NavGroup[] = [
       { href: "/neander/finance/grants", label: "지원금", icon: Landmark },
       { href: "/neander/finance/paybacks", label: "돌려줄 돈", icon: HandCoins },
       { href: "/neander/finance/suspense", label: "가수금", icon: ArrowLeftRight },
+      // 오픈라우터 키마다 쓴 돈을 어느 프로젝트에 썼는지 — 프로젝트 원가로 보낼 수 있다
+      { href: "/neander/finance/api-costs", label: "API 비용", icon: Cpu },
     ],
   },
   {

@@ -4,6 +4,8 @@ import { adminDb } from "@/lib/neander/server/admin";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import { remeasureTrust } from "@/lib/neander/finance/server/trust";
 import { attachPayMails } from "@/lib/neander/finance/server/pay-mail";
+import { syncApiDays } from "@/lib/neander/finance/server/api-cost";
+import { managementKey } from "@/lib/neander/shorts/server/ai-usage";
 import { matchReceipts, openInstallments } from "@/lib/neander/finance/receivables";
 import { detectRecurring } from "@/lib/neander/finance/recurring";
 import { buildRunway, defaultAsOf, runwayDanger, sanitizeRunway } from "@/lib/neander/finance/runway";
@@ -22,6 +24,7 @@ import type { FinProjectDoc } from "@/lib/neander/finance/project";
 //    ② 알림 상태를 남긴다 — 통장이 곧 바닥남 · 7일 넘은 받을 돈 (briefing.ts).
 //       처음 본 날을 기억해 「새 알림」 과 「이어지는 알림」 을 가른다
 //    ③ 월요일이면 브리핑을 만들어 둔다
+//    ④ API 비용 — 오픈라우터 시간별 기록을 한국 날짜 · 키별로 모아 쌓는다 (api-cost.ts)
 //
 //  ⚠️ 현금 예측(통장이 언제 모자라나)은 런웨이(runway.ts)가 정본이다 — 화면의 런웨이와
 //     같은 설정 · 같은 함수로 「바닥나는 날」 을 받아 옮겨 적기만 한다. 여기서 따로 세지 않는다.
@@ -74,6 +77,14 @@ export async function GET(req: Request) {
       return null;
     });
 
+    // ④ API 비용 — 최근 사흘을 받아 쌓는다. 실패해도 나머지 점검은 돈다
+    const apiDays = managementKey()
+      ? await syncApiDays(db, { back: 3 }).catch((e) => {
+          console.error("[finance/cron] api-cost", e);
+          return null;
+        })
+      : null;
+
     // ② 런웨이의 바닥나는 날 · 받을 돈 · 알림
     const runway = buildRunway({
       transactions,
@@ -113,6 +124,7 @@ export async function GET(req: Request) {
       today,
       trust: { months: measure.months, total: measure.total },
       payMail: payMail ? { reads: payMail.reads, attached: payMail.attached } : null,
+      apiDays: apiDays ? apiDays.dates : null,
       cash: { start: danger.start, zero: danger.zero?.date ?? null },
       alerts: { active: briefing.alerts.length, new: fresh.length },
       briefing: monday ? briefing.headline : undefined,
