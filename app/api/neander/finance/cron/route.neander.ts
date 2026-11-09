@@ -11,6 +11,7 @@ import { detectRecurring } from "@/lib/neander/finance/recurring";
 import { buildRunway, defaultAsOf, runwayDanger, sanitizeRunway } from "@/lib/neander/finance/runway";
 import { buildBriefing, type FinAlert } from "@/lib/neander/finance/briefing";
 import { isEngineConfirmed } from "@/lib/neander/finance/trust";
+import { syncMoneyCalendar } from "@/lib/neander/finance/server/money-calendar";
 import type { FinImportBatch, FinTransaction } from "@/lib/neander/finance/types";
 import type { FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
 import type { FinProjectDoc } from "@/lib/neander/finance/project";
@@ -25,6 +26,8 @@ import type { FinProjectDoc } from "@/lib/neander/finance/project";
 //       처음 본 날을 기억해 「새 알림」 과 「이어지는 알림」 을 가른다
 //    ③ 월요일이면 브리핑을 만들어 둔다
 //    ④ API 비용 — 오픈라우터 시간별 기록을 한국 날짜 · 키별로 모아 쌓는다 (api-cost.ts)
+//    ⑤ 돈 나가는 날 — 카드값 · 세금 · 급여 · 월세 · 이자를 노션 표로 맞추고, 납부 N일 전 · 당일에
+//       노션 멘션으로 알린다 (server/money-calendar.ts). 실패해도 나머지 점검은 그대로 끝난다
 //
 //  ⚠️ 현금 예측(통장이 언제 모자라나)은 런웨이(runway.ts)가 정본이다 — 화면의 런웨이와
 //     같은 설정 · 같은 함수로 「바닥나는 날」 을 받아 옮겨 적기만 한다. 여기서 따로 세지 않는다.
@@ -119,6 +122,12 @@ export async function GET(req: Request) {
     const monday = new Date(`${today}T00:00:00Z`).getUTCDay() === 1;
     if (monday) await db.collection(NEANDER_COL.finSettings).doc("briefing").set(briefing);
 
+    // ⑤ 돈 나가는 날 — 노션 표 · 알림
+    const money = await syncMoneyCalendar(db, { transactions, today }).catch((e) => {
+      console.error("[finance/cron] money-calendar", e);
+      return { error: e instanceof Error ? e.message : "알 수 없는 오류" };
+    });
+
     return NextResponse.json({
       ok: true,
       today,
@@ -128,6 +137,7 @@ export async function GET(req: Request) {
       cash: { start: danger.start, zero: danger.zero?.date ?? null },
       alerts: { active: briefing.alerts.length, new: fresh.length },
       briefing: monday ? briefing.headline : undefined,
+      money,
     });
   } catch (e) {
     console.error("[finance/cron]", e);

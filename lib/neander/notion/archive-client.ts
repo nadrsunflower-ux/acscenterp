@@ -127,6 +127,12 @@ async function call<T = any>(method: "GET" | "POST" | "PATCH", path: string, bod
   }
 }
 
+/**
+ * 같은 쓰기 연결(NEANDER ERP)로 다른 노션 요청을 보낼 때 — 「돈 나가는 날」 표 · 알림
+ * (finance/server/money-calendar.ts). 연결이 볼 수 있는 페이지는 노션에서 붙인 페이지뿐이다.
+ */
+export const archiveCall = call;
+
 /** 파일 조각 하나 보내기 — multipart/form-data (Content-Type 은 fetch 가 경계까지 붙인다) */
 async function send(id: string, bytes: Buffer, contentType: string, filename: string, part?: number) {
   const form = new FormData();
