@@ -93,6 +93,11 @@ export const NEANDER_COL = {
    * 보안 규칙에 없어 서버(api/neander/finance/calendar)만 접근한다 (finance/calendar.ts)
    */
   finSettings: "neander_fin_settings",
+  /**
+   * 은행 입출금 문자 받은 편지함 — 회사 전용폰(매크로드로이드)이 보낸 원문 그대로 (finance/bank-sms.ts).
+   * 장부에 넣지 않는 잠정 자료다. 보안 규칙에 없어 서버(api/neander/finance/sms)만 접근한다
+   */
+  finSmsInbox: "neander_fin_sms_inbox",
   /** 원장에 사람이 덧붙인 열 (값은 거래 문서의 extra 에 담긴다) */
   finLedgerColumns: "neander_fin_ledger_columns",
   /** 형광펜 끄기 — 신뢰한 거래처(영구) · 이 달 확인한 계정 (finance/anomaly.ts) */

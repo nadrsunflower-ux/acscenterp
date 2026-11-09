@@ -80,6 +80,7 @@
     "meetings:verify-log": "tsx --conditions react-server scripts/neander/verify-meeting-log.ts",
     "finance:test-contract": "tsx --test lib/neander/finance/contract.test.ts",
     "finance:test-money-calendar": "tsx --test lib/neander/finance/money-calendar.test.ts",
+    "finance:test-bank-sms": "tsx --test lib/neander/finance/bank-sms.test.ts",
     "finance:verify-contract": "tsx scripts/neander/verify-contract-chat.ts",
     "deck:test": "tsx --test lib/neander/decks/*.test.ts",
     "deck:upload": "tsx --conditions react-server scripts/neander/upload-deck.ts",

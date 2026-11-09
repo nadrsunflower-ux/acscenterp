@@ -11,15 +11,17 @@
 //       알림이 된다. 연결에 「댓글 쓰기」 권한이 없으면(403) 줄 본문에 멘션 문단을 붙인다.
 //       보낸 것은 money-calendar-sent 에 적어 같은 알림을 두 번 보내지 않는다
 //
-//  노션 연결은 회의 자료 보관과 같은 쓰기 연결(NOTION_ARCHIVE_TOKEN · NEANDER ERP)이다.
-//  그 연결이 볼 수 있게 노션에서 표를 둘 페이지에 연결을 붙여야 한다.
+//  노션 연결은 이 일 전용이다 (NOTION_MONEY_TOKEN). 회의 보관 연결과 토큰을 나눈다 — 재무
+//  금액이 담긴 페이지에만 붙이고, 댓글 쓰기 권한도 여기에만 켠다. 표를 둘 페이지에 연결을
+//  붙여야 보인다.
 // ============================================================
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import type { Firestore } from "firebase-admin/firestore";
 import { NEANDER_COL } from "@/lib/neander/collections";
-import { archiveCall, archiveToken, NotionArchiveError, parseNotionPageId } from "@/lib/neander/notion/archive-client";
+import { NotionArchiveError, parseNotionPageId } from "@/lib/neander/notion/archive-client";
+import { NOTION_VERSION } from "@/lib/neander/notion/client";
 import {
   addDays,
   alertText,
@@ -48,6 +50,32 @@ export interface MoneySyncResult {
   updated?: number;
   alerts?: { key: string; mode: "comment" | "block" }[];
   warnings?: string[];
+}
+
+const moneyToken = () => process.env.NOTION_MONEY_TOKEN?.trim() ?? "";
+
+/** 이 연결로 보내는 노션 요청 — 요청 한도(429) · 과부하(529)는 쉬었다 다시 */
+async function moneyCall<T = any>(method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`https://api.notion.com/v1${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${moneyToken()}`,
+        "Notion-Version": NOTION_VERSION,
+        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(30_000),
+    });
+    if ((res.status === 429 || res.status === 529) && attempt < 3) {
+      const wait = Math.min(30, Number(res.headers.get("retry-after")) || 2);
+      await new Promise((r) => setTimeout(r, wait * 1000));
+      continue;
+    }
+    const raw = (await res.json().catch(() => null)) as any;
+    if (!res.ok) throw new NotionArchiveError(res.status, raw?.message ?? `노션 요청이 실패했습니다 (HTTP ${res.status})`);
+    return raw as T;
+  }
 }
 
 const text = (s: string) => [{ type: "text", text: { content: s.slice(0, 1900) } }];
@@ -88,7 +116,7 @@ async function ensureDataSource(db: Firestore, s: MoneyCalendarSettings): Promis
   if (s.dataSourceId) return s.dataSourceId;
   const parent = parseNotionPageId(s.notionPage ?? "");
   if (!parent) throw new NotionArchiveError(0, "설정의 노션 페이지가 주소나 id 가 아닙니다.");
-  const created = await archiveCall<any>("POST", "/databases", {
+  const created = await moneyCall<any>("POST", "/databases", {
     parent: { type: "page_id", page_id: parent },
     title: text(DB_TITLE),
     icon: { type: "emoji", emoji: "💸" },
@@ -127,7 +155,7 @@ async function existingRows(dataSourceId: string) {
   const out = new Map<string, { id: string; print: string }>();
   let cursor: string | undefined;
   do {
-    const res = await archiveCall<any>("POST", `/data_sources/${dataSourceId}/query`, {
+    const res = await moneyCall<any>("POST", `/data_sources/${dataSourceId}/query`, {
       page_size: 100,
       ...(cursor ? { start_cursor: cursor } : {}),
     });
@@ -146,7 +174,7 @@ async function recipientIds(emails: string[]): Promise<{ ids: string[]; missing:
   const found = new Map<string, string>();
   let cursor: string | undefined;
   do {
-    const res = await archiveCall<any>("GET", `/users?page_size=100${cursor ? `&start_cursor=${cursor}` : ""}`);
+    const res = await moneyCall<any>("GET", `/users?page_size=100${cursor ? `&start_cursor=${cursor}` : ""}`);
     for (const u of res.results ?? []) {
       const email = (u?.person?.email ?? "").toLowerCase();
       if (email && want.has(email)) found.set(email, u.id);
@@ -166,11 +194,11 @@ async function notify(pageId: string, userIds: string[], message: string): Promi
     ...text(message),
   ];
   try {
-    await archiveCall("POST", "/comments", { parent: { page_id: pageId }, rich_text: rich });
+    await moneyCall("POST", "/comments", { parent: { page_id: pageId }, rich_text: rich });
     return "comment";
   } catch (e) {
     if (!(e instanceof NotionArchiveError) || e.status !== 403) throw e;
-    await archiveCall("PATCH", `/blocks/${pageId}/children`, { children: [{ object: "block", type: "paragraph", paragraph: { rich_text: rich } }] });
+    await moneyCall("PATCH", `/blocks/${pageId}/children`, { children: [{ object: "block", type: "paragraph", paragraph: { rich_text: rich } }] });
     return "block";
   }
 }
@@ -194,7 +222,7 @@ export async function syncMoneyCalendar(
   }
   const rows = buildMoneyRows(s.rules, args.transactions, addDays(today, -BEHIND_DAYS), horizon);
   if (args.dryRun) return { rows: rows.length, warnings };
-  if (!archiveToken()) return { skipped: "노션 쓰기 연결(NOTION_ARCHIVE_TOKEN)이 없습니다.", rows: rows.length };
+  if (!moneyToken()) return { skipped: "노션 연결 토큰(NOTION_MONEY_TOKEN)이 없습니다.", rows: rows.length };
   if (!s.notionPage && !s.dataSourceId) return { skipped: "노션 페이지가 아직 정해지지 않았습니다.", rows: rows.length };
 
   // ② 표 맞추기
@@ -206,7 +234,7 @@ export async function syncMoneyCalendar(
   for (const row of rows) {
     const cur = have.get(row.key);
     if (!cur) {
-      const page = await archiveCall<any>("POST", "/pages", {
+      const page = await moneyCall<any>("POST", "/pages", {
         parent: { type: "data_source_id", data_source_id: dataSourceId },
         properties: propsOf(row, today),
       });
@@ -215,7 +243,7 @@ export async function syncMoneyCalendar(
     } else {
       pageOf.set(row.key, cur.id);
       if (cur.print !== wantPrint(row, today)) {
-        await archiveCall("PATCH", `/pages/${cur.id}`, { properties: propsOf(row, today) });
+        await moneyCall("PATCH", `/pages/${cur.id}`, { properties: propsOf(row, today) });
         updated += 1;
       }
     }
