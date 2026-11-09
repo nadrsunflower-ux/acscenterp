@@ -271,8 +271,17 @@ export type InstallmentKind = (typeof INSTALLMENT_KINDS)[number];
 export interface FinProjectInstallment {
   id: string;
   kind: InstallmentKind;
-  /** 이 회차 금액. 계약금액과 같은 부가세 기준으로 적는다 */
+  /**
+   * 이 회차 금액. 계약금액과 같은 부가세 기준이다 — 별도 계약이면 공급가액.
+   * 화면은 청구액(통장에 찍히는 돈)을 받아 installmentFromBilled 로 여기에 되돌린다.
+   */
   amount: number;
+  /**
+   * 적은 청구액이 amount 에서 다시 계산한 값과 1원 어긋날 때만 남긴다.
+   * 별도 계약의 500만원은 공급가액 정수로 나타낼 수 없다(4,545,454 → 4,999,999 ·
+   * 4,545,455 → 5,000,001). 읽을 때는 언제나 installmentSplit 으로.
+   */
+  billed?: number;
   /** 받기로 한 날 `YYYY-MM-DD` */
   dueDate?: string;
   /** 받을 날을 대략으로만 안다 — 「10월 말」. dueDate 는 그 구간의 끝 날이다 (아래 DUE_PARTS) */
@@ -293,6 +302,43 @@ export interface FinProjectInstallment {
    */
   entity?: ProjectEntity;
   note?: string;
+}
+
+/**
+ * 이 회차의 공급가액 · 부가세 · 청구액. 회차의 돈을 읽는 곳은 모두 이 함수로.
+ * billed 는 1원 끝수만 바로잡는다 — amount 를 다른 데서 고쳐 어긋난 값은 믿지 않는다.
+ */
+export function installmentSplit(
+  i: Pick<FinProjectInstallment, "amount" | "billed">,
+  mode: VatMode = "excluded",
+): VatSplit {
+  const split = splitVat(i.amount, mode);
+  if (i.billed === undefined || Math.abs(i.billed - split.total) > 1) return split;
+  return { supply: split.supply, vat: i.billed - split.supply, total: i.billed };
+}
+
+/** 청구액(통장에 찍히는 돈) → 회차에 저장할 값 */
+export function installmentFromBilled(
+  billed: number,
+  mode: VatMode = "excluded",
+): Pick<FinProjectInstallment, "amount" | "billed"> {
+  const b = Math.round(Number(billed) || 0);
+  if (mode !== "excluded") return { amount: b, billed: undefined };
+  const amount = Math.round(b / (1 + VAT_RATE));
+  return { amount, billed: splitVat(amount, mode).total === b ? undefined : b };
+}
+
+/**
+ * 계약의 부가세 기준을 바꿀 때 회차를 맞춘다. 청구액은 그대로 둔다 —
+ * 통장에 찍힌 돈은 기준을 고친다고 달라지지 않는다. 어긋나면 일정 합계 알림이 드러낸다.
+ */
+export function rebaseInstallments(
+  list: FinProjectInstallment[] | undefined,
+  from: VatMode,
+  to: VatMode,
+): FinProjectInstallment[] | undefined {
+  if (!list || from === to) return list;
+  return list.map((i) => ({ ...i, ...installmentFromBilled(installmentSplit(i, from).total, to) }));
 }
 
 /**
@@ -766,7 +812,7 @@ export function projectSummary(
   let overdue = 0;
   let overdueCount = 0;
   inst.forEach((i) => {
-    const total = splitVat(i.amount, base).total;
+    const total = installmentSplit(i, base).total;
     scheduled += total;
     const st = installmentStatus(i, today);
     if (st === "paid") received += total;
@@ -958,6 +1004,7 @@ export function sanitizeInstallment(raw: Partial<FinProjectInstallment>): FinPro
     id: str(raw.id) ?? shortId(),
     kind,
     amount: Math.round(num(raw.amount) ?? 0),
+    billed: num(raw.billed) === undefined ? undefined : Math.round(num(raw.billed)!),
     // 대략이면 날짜를 그 구간의 끝 날로 맞춘다 — 화면이 어떤 날을 보내도 같은 값이 남게
     dueDate: due && approx ? approxDueDate(due.slice(0, 7), approx) : due,
     dueApprox: approx,

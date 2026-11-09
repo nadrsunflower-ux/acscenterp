@@ -17,6 +17,7 @@ import {
   VAT_LABEL,
   DEDUCTION_TAX_LABEL,
   ENTITY_SHORT,
+  installmentSplit,
   installmentStatusText,
   isDeductionReturned,
   isReceived,
@@ -92,10 +93,10 @@ export function exportProjectXlsx(p: FinProjectDoc, transactions: FinTransaction
     ["부가세", s.revenueVat],
     ...(s.deductionCount > 0 ? [["순 입금 (청구 총액 − 매출 차감)", s.revenueTotal] as (string | number)[]] : []),
     [],
-    ["입금 일정", "금액", "받기로 한 날", "입금일", "상태"],
+    ["입금 일정", "금액 (회차는 청구액)", "받기로 한 날", "입금일", "상태"],
     ...(p.installments ?? []).map(
       (i) =>
-        [i.entity ? `${i.kind} · ${ENTITY_SHORT[i.entity]}` : i.kind, i.amount, dueLabel(i), paidLabel(i), installmentStatusText(i)] as (
+        [i.entity ? `${i.kind} · ${ENTITY_SHORT[i.entity]}` : i.kind, installmentSplit(i, p.vatMode ?? "excluded").total, dueLabel(i), paidLabel(i), installmentStatusText(i)] as (
           | string
           | number
         )[],

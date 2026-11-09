@@ -41,7 +41,7 @@
 // ============================================================
 
 import type { FinPaymentMethodDoc } from "./db-types";
-import { installmentStatus, isInstallmentReceived, splitVat, type DuePart, type FinProjectDoc } from "./project";
+import { installmentSplit, installmentStatus, isInstallmentReceived, splitVat, type DuePart, type FinProjectDoc } from "./project";
 import { netAmount, type FinImportBatch, type FinTransaction } from "./types";
 import { shiftMonth } from "../format";
 import { isExpenseClaimReimbursement } from "./report";
@@ -474,7 +474,7 @@ export function projectInflows(
     const open = (p.installments ?? []).filter((i) => !isInstallmentReceived(i) && Math.round(Number(i.amount) || 0) > 0);
     if (open.length > 0) {
       for (const i of open) {
-        const amount = splitVat(i.amount, base).total;
+        const amount = installmentSplit(i, base).total;
         const due = i.dueDate;
         let status: InflowStatus = "undated";
         let month: string | null = null;

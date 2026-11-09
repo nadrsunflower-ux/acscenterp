@@ -25,7 +25,7 @@ import {
   laborTotal,
   lineActual,
   lineEstimate,
-  splitVat,
+  installmentSplit,
   type FinProjectDoc,
   type FinProjectLine,
   type ProjectStatus,
@@ -190,7 +190,7 @@ export function nextPayment(p: Pick<FinProjectDoc, "installments" | "vatMode">, 
   const first = [...open].sort((a, b) => (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999"))[0];
   return {
     kind: first.kind,
-    amount: splitVat(first.amount, p.vatMode ?? "excluded").total,
+    amount: installmentSplit(first, p.vatMode ?? "excluded").total,
     due: dueLabel(first),
     overdue: installmentStatus(first, today) === "overdue",
   };

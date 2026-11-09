@@ -9,11 +9,14 @@
 // ============================================================
 
 import {
+  installmentFromBilled,
+  installmentSplit,
   installmentStatus,
   installmentStatusText,
   isInstallmentReceived,
   paidLabel,
   projectSummary,
+  rebaseInstallments,
   sanitizeInstallment,
   sanitizeProject,
   type FinProjectDoc,
@@ -131,6 +134,72 @@ console.log("\n⑦ 런웨이 「적기」(project.setDue) 가 받음 · 대략 �
   const next = sanitizeInstallment({ ...cur, dueDate: "2026-11-02", dueApprox: "mid" });
   eq([next.received, next.paidDate, next.paidApprox, next.note, next.dueDate], [true, "2026-07-10", "early", "메모", "2026-11-20"], "나머지 칸은 그대로");
   eq(isInstallmentReceived({ received: true }), true, "받음 표시 회차는 「이미 받은 회차」 로 막힌다");
+}
+
+console.log("\n⑧ 청구액(통장에 찍히는 돈)으로 적는다 — 적은 값이 1원도 바뀌지 않는다");
+{
+  // 2026 익선재: 계약 1,300만 별도 · 통장에 1,000만 · 300만 · 130만
+  const ik = [10_000_000, 3_000_000, 1_300_000].map((b, n) => ({ id: `i${n}`, kind: "중도금" as const, ...installmentFromBilled(b, "excluded"), received: true }));
+  eq(ik.map((i) => i.amount), [9_090_909, 2_727_273, 1_181_818], "지금까지 손으로 계산해 넣던 공급가액과 같다");
+  eq(ik.map((i) => "billed" in i && i.billed !== undefined), [false, false, false], "되돌려 맞는 금액은 칸을 더 남기지 않는다");
+  const sk = projectSummary(project(ik, { contractAmount: 13_000_000 }), [], TODAY);
+  eq([sk.received, sk.scheduleGap, sk.unpaid], [14_300_000, 0, 0], "받은 돈 1,430만 · 일정 차이 0 · 미수금 0");
+
+  // 공급가액 정수로 나타낼 수 없는 금액
+  const five = installmentFromBilled(5_000_000, "excluded");
+  eq(five, { amount: 4_545_455, billed: 5_000_000 }, "500만원 → 공급가액 4,545,455 · 적은 값 보존");
+  eq(installmentSplit(five, "excluded"), { supply: 4_545_455, vat: 454_545, total: 5_000_000 }, "공급가액 + 부가세 = 청구액");
+  const p5 = project(
+    [
+      { id: "a", kind: "선금", ...five, received: true },
+      { id: "b", kind: "잔금", ...installmentFromBilled(6_000_000, "excluded"), dueDate: "2026-11-20" },
+    ],
+    { contractAmount: 10_000_000 },
+  );
+  const s5 = projectSummary(p5, [], TODAY);
+  eq([s5.received, s5.scheduleGap, s5.unpaid], [5_000_000, 0, 6_000_000], "500만 + 600만 = 계약 1,100만 — 1원 차이 알림이 뜨지 않는다");
+
+  // 받을 돈 쪽도 적은 값 그대로
+  const pOpen = project([{ id: "a", kind: "잔금", ...five, dueDate: "2026-11-20" }], { contractAmount: 4_545_455 });
+  eq(inflowsOf(pOpen)[0].amount, 5_000_000, "런웨이 받을 돈 500만");
+  eq(nextPayment(pOpen, TODAY)?.amount, 5_000_000, "다음 입금 500만");
+
+  // 어떤 금액을 쳐도 그대로 보인다 — 치는 도중의 숫자까지
+  let bad = 0;
+  for (const mode of ["excluded", "included", "exempt"] as const) {
+    for (let b = 0; b <= 300_000; b++) if (installmentSplit(installmentFromBilled(b, mode), mode).total !== b) bad++;
+    for (let b = 300_000; b <= 200_000_000; b += 7_919) if (installmentSplit(installmentFromBilled(b, mode), mode).total !== b) bad++;
+  }
+  eq(bad, 0, "0 ~ 2억 어떤 값도 어긋나지 않는다");
+
+  eq(installmentFromBilled(10_000_000, "included"), { amount: 10_000_000, billed: undefined }, "부가세 포함 계약은 금액 = 청구액");
+  eq(installmentFromBilled(10_000_000, "exempt"), { amount: 10_000_000, billed: undefined }, "면세 계약도 금액 = 청구액");
+  eq(installmentSplit({ amount: 10_000_000 }, "included"), { supply: 9_090_909, vat: 909_091, total: 10_000_000 }, "포함 계약의 공급가액");
+
+  // 예전 회차 — billed 없이 amount 만
+  eq(installmentSplit({ amount: 3_300_000 }, "excluded").total, 3_630_000, "예전 회차는 전과 같은 청구액");
+
+  // amount 를 다른 데서 고치면 낡은 billed 는 믿지 않는다
+  eq(installmentSplit({ amount: 1_000_000, billed: 5_000_000 }, "excluded").total, 1_100_000, "어긋난 billed 는 무시");
+
+  // 부가세 기준을 바꿔도 청구액은 그대로
+  const list: FinProjectInstallment[] = [{ id: "a", kind: "선금", ...five, received: true }, { id: "b", kind: "잔금", amount: 9_090_909 }];
+  const inc = rebaseInstallments(list, "excluded", "included")!;
+  eq(inc.map((i) => installmentSplit(i, "included").total), [5_000_000, 10_000_000], "별도 → 포함: 청구액 유지");
+  eq(inc.map((i) => [i.amount, i.billed]), [[5_000_000, undefined], [10_000_000, undefined]], "포함이 되면 금액 = 청구액");
+  eq(inc[0].received, true, "다른 칸은 그대로");
+  const back = rebaseInstallments(inc, "included", "excluded")!;
+  eq(back.map((i) => installmentSplit(i, "excluded").total), [5_000_000, 10_000_000], "포함 → 별도: 청구액 유지");
+  eq(rebaseInstallments(list, "excluded", "excluded"), list, "같은 기준이면 그대로");
+  eq(rebaseInstallments(undefined, "excluded", "included"), undefined, "회차 없음");
+
+  // 저장 다듬기 · 받을 날만 고치기에서 살아남는다
+  const kept = sanitizeInstallment({ id: "x", kind: "선금", ...five });
+  eq([kept.amount, kept.billed], [4_545_455, 5_000_000], "저장해도 billed 가 남는다");
+  eq("billed" in sanitizeInstallment({ id: "x", kind: "선금", amount: 1, billed: undefined }), false, "필요 없으면 칸을 남기지 않는다");
+  eq(sanitizeInstallment({ ...kept, dueDate: "2026-11-02" }).billed, 5_000_000, "받을 날을 고쳐도 그대로");
+  const whole = sanitizeProject({ code: "T-1", name: "검증", contractAmount: 0, revenues: [], lines: [], installments: [{ id: "x", kind: "선금", ...five }] });
+  eq(whole.ok && whole.value.installments?.map((i) => [i.amount, i.billed]), [[4_545_455, 5_000_000]], "프로젝트 통째 저장에서도 남는다");
 }
 
 console.log(fails === 0 ? "\n모두 통과" : `\n실패 ${fails}건`);

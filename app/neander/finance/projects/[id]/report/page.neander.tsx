@@ -68,6 +68,7 @@ import {
   lineEstimate,
   projectEntities,
   projectSummary,
+  installmentSplit,
   splitVat,
   type InstallmentStatus,
   type ProjectStatus,
@@ -530,16 +531,17 @@ export default function ProjectReportPage() {
       : tableBlock("inst", {
           title: "수입 · 입금",
           hint: incomeHint,
-          head: ["구분", "금액", "청구액", "받기로 한 날", "입금일", "상태", "비고"],
+          head: ["구분", "청구액", "공급가액", "받기로 한 날", "입금일", "상태", "비고"],
           wrap: [6],
           align: ["l", "r", "r", "l", "l", "l", "l"],
           rows: (p.installments ?? []).map((i) => {
             const st = installmentStatus(i);
+            const split = installmentSplit(i, base);
             return [
               // 사업체 둘로 나눠 받은 건은 회차마다 받는 곳이 다르다
               i.entity ? `${i.kind} · ${ENTITY_SHORT[i.entity]}` : i.kind,
-              won(i.amount),
-              won(splitVat(i.amount, base).total),
+              won(split.total),
+              won(split.supply),
               dueLabel(i) || "—",
               paidLabel(i) || "—",
               <Badge key="st" tone={INSTALLMENT_TONE[st]} size="sm">

@@ -75,6 +75,7 @@ import {
   projectSummary,
   sanitizeProject,
   shortId,
+  installmentSplit,
   splitVat,
   type FinProjectDeduction,
   type FinProjectDoc,
@@ -143,7 +144,7 @@ function ProjectReceiptRecords({ project }: { project: FinProjectDoc }) {
       return {
         key: `installment:${i.id}`, label: i.kind, entity: i.entity || entity, received,
         date: received ? paidLabel(i) || "날짜 미확인" : dueLabel(i) || "날짜 미정",
-        amount: splitVat(i.amount, project.vatMode).total,
+        amount: installmentSplit(i, project.vatMode).total,
       };
     }),
     ...(project.revenues ?? []).map((r) => ({

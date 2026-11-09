@@ -19,10 +19,10 @@
 //     프로젝트 코드가 같이 남는다 — 다음 입금의 「누가」 근거가 된다.
 //
 //  부가세: 회차 금액은 계약과 같은 기준이다 (별도면 공급가액). 통장에는 부가세까지
-//  들어오므로 늘 splitVat(...).total 로 견준다.
+//  들어오므로 늘 installmentSplit(...).total 로 견준다.
 // ============================================================
 
-import { isInstallmentReceived, splitVat, type FinProjectDoc } from "./project";
+import { installmentSplit, isInstallmentReceived, type FinProjectDoc } from "./project";
 import { netAmount, type FinTransaction } from "./types";
 import type { FinPaymentMethodDoc } from "./db-types";
 
@@ -75,7 +75,7 @@ export function openInstallments(projects: FinProjectDoc[], transactions: FinTra
       const amount = Math.round(Number(i.amount) || 0);
       if (amount <= 0) return;
       const key = receiptKey(p.id, i.id);
-      const due = splitVat(amount, base).total;
+      const due = installmentSplit(i, base).total;
       const received = Math.round(got.get(key) ?? 0);
       out.push({
         key,
@@ -118,7 +118,7 @@ export function payerAliases(projects: FinProjectDoc[], transactions: FinTransac
     const base = p.vatMode ?? "excluded";
     (p.installments ?? []).forEach((i) => {
       if (!i.paidDate) return;
-      const due = splitVat(Math.round(Number(i.amount) || 0), base).total;
+      const due = installmentSplit(i, base).total;
       const hits = incomes.filter(
         (t) =>
           Math.abs(dayDiff(t.date, i.paidDate!)) <= 3 &&

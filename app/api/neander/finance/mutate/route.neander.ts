@@ -17,7 +17,7 @@ import { projectFiles } from "@/lib/neander/finance/server/attached-files";
 import { sanitizeTrust, type FinTrustSettings } from "@/lib/neander/finance/trust";
 import { readTrust, remeasureTrust, trustRef } from "@/lib/neander/finance/server/trust";
 import { readForLog, writeLog } from "@/lib/neander/finance/server/tx-log";
-import { splitVat } from "@/lib/neander/finance/project";
+import { installmentSplit } from "@/lib/neander/finance/project";
 import { isCovered, receiptKey } from "@/lib/neander/finance/receivables";
 import { netAmount } from "@/lib/neander/finance/types";
 
@@ -773,7 +773,7 @@ export async function POST(req: Request) {
               .filter((x) => (x.receiptOf ?? []).includes(key));
             const share = (x: FinTransaction) => netAmount(x) / Math.max(1, (x.receiptOf ?? []).length);
             const received = prior.reduce((n, x) => n + share(x), 0) + netAmount(t) / ids.length;
-            const due = splitVat(Math.round(Number(list[k].amount) || 0), base).total;
+            const due = installmentSplit(list[k], base).total;
             if (ids.length > 1 || isCovered(due, received)) {
               const last = [t.date, ...prior.map((x) => x.date)].sort().pop();
               list[k] = sanitizeInstallment({ ...list[k], received: true, paidDate: last, paidApprox: undefined } as never);
@@ -833,7 +833,7 @@ export async function POST(req: Request) {
                 .map((d) => d.data() as FinTransaction)
                 .filter((x) => (x.receiptOf ?? []).includes(key))
                 .reduce((n, x) => n + netAmount(x) / Math.max(1, (x.receiptOf ?? []).length), 0);
-              if (isCovered(splitVat(Math.round(Number(i.amount) || 0), base).total, rest)) return i;
+              if (isCovered(installmentSplit(i, base).total, rest)) return i;
               changed = true;
               reopened.push(i.id);
               return sanitizeInstallment({ ...i, received: false, paidDate: undefined, paidApprox: undefined } as never);

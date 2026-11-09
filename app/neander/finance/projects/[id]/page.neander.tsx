@@ -137,11 +137,14 @@ import {
   VAT_MODES,
   VAT_HINT,
   INSTALLMENT_KINDS,
+  installmentFromBilled,
+  installmentSplit,
   installmentStatus,
   installmentStatusText,
   isInstallmentReceived,
   isReceived,
   newInstallment,
+  rebaseInstallments,
   splitVat,
   type FinProjectInstallment,
   type InstallmentKind,
@@ -652,9 +655,22 @@ function ProjectDetailEditor({ id }: { id: string }) {
         : !used.has("중도금")
           ? "중도금"
           : "잔금";
-      const rest = Math.max(0, (f.contractAmount || 0) - list.reduce((n, i) => n + (i.amount || 0), 0));
-      return { ...f, installments: [...list, { ...newInstallment(kind), amount: rest }] };
+      const mode = f.vatMode ?? "excluded";
+      const rest = Math.max(
+        0,
+        splitVat(f.contractAmount, mode).total - list.reduce((n, i) => n + installmentSplit(i, mode).total, 0),
+      );
+      return { ...f, installments: [...list, { ...newInstallment(kind), ...installmentFromBilled(rest, mode) }] };
     });
+
+  /** 부가세 기준을 바꾼다 — 회차에 적어 둔 청구액은 그대로 */
+  const setVatMode = (vatMode: VatMode, contractAmount?: number) =>
+    edit((f) => ({
+      ...f,
+      vatMode,
+      contractAmount: contractAmount ?? f.contractAmount,
+      installments: rebaseInstallments(f.installments, f.vatMode ?? "excluded", vatMode),
+    }));
 
   const updateRevenue = (rid: string, patch: Partial<FinProjectRevenue>) =>
     edit((f) => ({ ...f, revenues: f.revenues.map((r) => (r.id === rid ? { ...r, ...patch } : r)) }));
@@ -1480,7 +1496,7 @@ function ProjectDetailEditor({ id }: { id: string }) {
                   <Field label="부가세">
                     <Select
                       value={form.vatMode ?? "excluded"}
-                      onChange={(e) => setField("vatMode", e.target.value as VatMode)}
+                      onChange={(e) => setVatMode(e.target.value as VatMode)}
                       title={VAT_HINT[form.vatMode ?? "excluded"]}
                     >
                       {VAT_MODES.map((m) => (
@@ -1535,7 +1551,7 @@ function ProjectDetailEditor({ id }: { id: string }) {
             <div className="px-5 pt-5">
               <SectionHeader
                 title="입금 일정"
-                hint="계약금액을 나눠 받는 회차"
+                hint="통장에 찍히는 금액 그대로 적으세요 · 공급가액은 저절로 계산됩니다"
                 action={
                   <Button variant="ghost" size="sm" icon={Plus} onClick={addInstallment}>
                     회차 추가
@@ -1555,8 +1571,10 @@ function ProjectDetailEditor({ id }: { id: string }) {
                     <tr>
                       <Th sticky="top" className="w-28 pl-5">구분</Th>
                       <Th sticky="top" className="w-28" title="이 회차의 세금계산서를 끊고 돈이 들어오는 사업체 — 비우면 프로젝트 사업체">받는 곳</Th>
-                      <Th sticky="top" align="right" className="w-32">금액</Th>
-                      <Th sticky="top" align="right" className="w-28">청구액</Th>
+                      <Th sticky="top" align="right" className="w-40" title="통장에 찍히는 금액">
+                        {(form.vatMode ?? "excluded") === "exempt" ? "청구액" : "청구액 (부가세 포함)"}
+                      </Th>
+                      <Th sticky="top" align="right" className="w-28">공급가액</Th>
                       <Th sticky="top" className="w-64">받기로 한 날</Th>
                       <Th sticky="top" className="w-64">입금일</Th>
                       <Th sticky="top" className="w-40" title="눌러서 예정 ↔ 받음">상태</Th>
@@ -1567,7 +1585,8 @@ function ProjectDetailEditor({ id }: { id: string }) {
                   <tbody>
                     {(form.installments ?? []).map((i) => {
                       const st = installmentStatus(i);
-                      const billed = splitVat(i.amount, form.vatMode ?? "excluded").total;
+                      const mode = form.vatMode ?? "excluded";
+                      const split = installmentSplit(i, mode);
                       return (
                         <Tr key={i.id} hover={false}>
                           <Td className="pl-5">
@@ -1598,15 +1617,15 @@ function ProjectDetailEditor({ id }: { id: string }) {
                           <Td>
                             <NumberInput
                               size="sm"
-                              value={i.amount || ""}
+                              value={split.total || ""}
                               placeholder="0"
-                              onValueChange={(v) => updateInstallment(i.id, { amount: Number(v) || 0 })}
+                              onValueChange={(v) => updateInstallment(i.id, installmentFromBilled(Number(v) || 0, mode))}
                               className="text-right"
-                              aria-label="금액"
+                              aria-label="청구액"
                             />
                           </Td>
-                          <Td num muted title="부가세를 더한 실제 청구액">
-                            {billed.toLocaleString("ko-KR")}
+                          <Td num muted title={`공급가액 ${split.supply.toLocaleString("ko-KR")} + 부가세 ${split.vat.toLocaleString("ko-KR")}`}>
+                            {split.supply.toLocaleString("ko-KR")}
                           </Td>
                           <Td>
                             {/* 정확한 날 또는 「10월 말」 같은 대략 — 옆 단추로 오간다 */}
@@ -1674,7 +1693,7 @@ function ProjectDetailEditor({ id }: { id: string }) {
               <div className="px-5 pb-4 pt-3">
                 <InlineNotice tone="warning" className="text-nd-caption">
                   회차 합계가 계약 청구액과 <b>{Math.abs(summary.scheduleGap).toLocaleString("ko-KR")}원</b>{" "}
-                  {summary.scheduleGap > 0 ? "모자랍니다" : "많습니다"}. 아직 안 나눈 몫이면 회차를 더하고, 잘못 적었으면 금액을 고치세요.
+                  {summary.scheduleGap > 0 ? "모자랍니다" : "많습니다"}. 아직 안 나눈 몫이면 회차를 더하고, 잘못 적었으면 청구액을 고치세요.
                 </InlineNotice>
               </div>
             )}
@@ -1941,7 +1960,7 @@ function ProjectDetailEditor({ id }: { id: string }) {
             <ProjectDocs
               bare
               project={saved}
-              onApplyAmount={(amount, vatMode) => edit((f) => ({ ...f, contractAmount: amount, vatMode }))}
+              onApplyAmount={(amount, vatMode) => setVatMode(vatMode, amount)}
               onNotice={notify}
             />
           </Card>
@@ -2210,7 +2229,7 @@ function InstallmentLink({
     >
       <option value="">회차에 잇기…</option>
       {open.map((i) => {
-        const billed = splitVat(i.amount, vatMode).total;
+        const billed = installmentSplit(i, vatMode).total;
         const notes = [
           billed === net ? "금액 같음" : "",
           isInstallmentReceived(i) ? (i.paidDate ? "입금일 대략" : "받음 · 날짜 미확인") : "",
