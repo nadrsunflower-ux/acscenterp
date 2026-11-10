@@ -349,9 +349,13 @@ const clients: ClientView[] = [
     canEdit: true,
     contactName: "김민아(가상)",
     contract: {
+      // 그로스 12개월 약정 가격표는 2,430,000원 — 협의 금액(가격표와 다름) 알림까지 보이도록
+      plan: "growth",
+      term: "m12",
       monthlyFeeKrw: 2_400_000,
       vat: "excluded",
       videosPerMonth: 8,
+      scriptRevisionLimit: 2,
       revisionLimit: 2,
       startMonth: "2026-10",
       endMonth: "2027-03",
@@ -1402,6 +1406,8 @@ const review = {
     media: { size: 0, type: "video/mp4", duration: 20, parts: 0 },
     revisionLimit: 2,
     revisionsUsed: 1,
+    // 업체(온센트)가 플랜(그로스)으로 맺은 계약이라 넘는 수정 금액이 붙는다 (server/reviews.ts)
+    extraRevisionKrw: 50_000,
     history: [{ n: 1, decision: "revision", feedback: "도입 자막을 짧게 하고 제품명을 또렷하게 보여주세요.", decidedAt: kst("2026-10-29T10:12:00") }],
     expiresAt: kst("2026-11-07T23:59:00"),
   },

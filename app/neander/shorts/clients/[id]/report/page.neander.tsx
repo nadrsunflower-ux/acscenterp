@@ -28,6 +28,7 @@ import { shortsGet } from "@/lib/neander/shorts/client";
 import { PLATFORM_LABEL, REVIEW_LABEL, currentMonth, latestRound, monthProgress, projectTotals } from "@/lib/neander/shorts/model";
 import type { ReportFormatLine, ScoutReportDoc } from "@/lib/neander/shorts/scout";
 import type { ProjectDoc } from "@/lib/neander/shorts/types";
+import { planText, revisionText } from "@/lib/neander/shorts/plans";
 
 export default function ReportPage() {
   return (
@@ -243,7 +244,8 @@ function Report() {
         <section className="report-keep mt-6 print:mt-3">
           <H2>계약과 납품</H2>
           <p className="text-[13px] text-neutral-600">
-            {c.contract.monthlyFeeKrw !== null ? `월 ${fmtN(c.contract.monthlyFeeKrw)}원(${vatText(c.contract.vat)}) · ` : ""}영상당 수정 {c.contract.revisionLimit}회 · 계약 {c.contract.startMonth} ~ {c.contract.endMonth ?? "끝 월 없음"}
+            {c.contract.plan ? `${planText(c.contract)} · ` : ""}
+            {c.contract.monthlyFeeKrw !== null ? `월 ${fmtN(c.contract.monthlyFeeKrw)}원(${vatText(c.contract.vat)}) · ` : ""}영상당 수정 {revisionText(c.contract)} · 계약 {c.contract.startMonth} ~ {c.contract.endMonth ?? "끝 월 없음"}
           </p>
           <ProgressLine className="mt-2" value={prog.made} total={prog.planned} />
           <p className="mt-2 text-[13px] text-neutral-600">

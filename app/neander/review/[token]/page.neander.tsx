@@ -29,6 +29,8 @@ interface Info {
   media: { size: number; type: string; duration: number | null; parts: number; url?: string | null; purged?: boolean };
   revisionLimit: number;
   revisionsUsed: number;
+  /** 넘는 수정 1회 금액 (부가세 별도) — 없으면 따로 협의 */
+  extraRevisionKrw?: number | null;
   history: { n: number; decision: string; feedback: string; decidedAt: number | null }[];
   expiresAt: number;
 }
@@ -270,7 +272,7 @@ export default function ReviewPage() {
                     <Field label="수정할 내용 (수정 요청 때 필수)" hint="수정 요청을 보낼 때 이름과 내용을 모두 입력해 주세요.">
                       <Textarea rows={4} value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder="예: 12초에서 제품 이름을 조금 더 크게 보여 주세요." />
                     </Field>
-                    <RevisionBox used={info.revisionsUsed} limit={info.revisionLimit} left={left} over={over} />
+                    <RevisionBox used={info.revisionsUsed} limit={info.revisionLimit} left={left} over={over} extra={info.extraRevisionKrw ?? null} />
                     {error && !extraOpen && (
                       <p role="alert" className="flex items-start gap-2 rounded-nd-md bg-nd-danger-soft px-3 py-2.5 text-nd-body text-nd-danger-text">
                         <CircleAlert size={16} aria-hidden className="mt-0.5 shrink-0" />
@@ -343,8 +345,12 @@ export default function ReviewPage() {
             <div className={cn("flex items-start gap-2.5 rounded-nd-md border border-current/10 px-4 py-3", toneCls.warning.soft)}>
               <TriangleAlert size={18} aria-hidden className={cn("mt-0.5 shrink-0", toneCls.warning.text)} />
               <div className="min-w-0 text-[14px] leading-relaxed">
-                <div className={cn("font-semibold", toneCls.warning.text)}>계약상 수정 {info.revisionLimit}회를 모두 사용했어요</div>
-                <div className="mt-0.5 text-nd-fg-2">추가 요청도 보낼 수 있습니다. 이 요청은 별도 협의 대상으로 기록되고, 제작 일정과 추가 비용은 담당자와 따로 협의합니다.</div>
+                <div className={cn("font-semibold", toneCls.warning.text)}>계약상 완성본 수정 {info.revisionLimit}회를 모두 사용했어요</div>
+                <div className="mt-0.5 text-nd-fg-2">
+                  {info.extraRevisionKrw
+                    ? `추가 요청도 보낼 수 있습니다. 계약에 따라 추가 수정은 1회 ${info.extraRevisionKrw.toLocaleString("ko-KR")}원(부가세 별도)이며, 작업 전에 담당자가 먼저 알리고 동의를 받습니다.`
+                    : "추가 요청도 보낼 수 있습니다. 이 요청은 별도 협의 대상으로 기록되고, 제작 일정과 추가 비용은 담당자와 따로 협의합니다."}
+                </div>
               </div>
             </div>
             <Field label="답변하는 분의 이름" required>
@@ -401,13 +407,14 @@ function Panel({ title, children }: { title: string; children: ReactNode }) {
 }
 
 /** 계약에 포함된 남은 수정 — 상한을 넘으면 별도 협의 */
-function RevisionBox({ used, limit, left, over }: { used: number; limit: number; left: number; over: boolean }) {
+function RevisionBox({ used, limit, left, over, extra }: { used: number; limit: number; left: number; over: boolean; extra: number | null }) {
+  const after = extra ? `추가 수정 1회 ${extra.toLocaleString("ko-KR")}원(부가세 별도)` : null;
   return (
     <div className={cn("flex items-start justify-between gap-3 rounded-nd-md border px-4 py-3", over ? "border-nd-warning/30 bg-nd-warning-soft" : "border-nd-line bg-nd-sunken/70")}>
       <div className="min-w-0">
-        <div className={cn("text-[14px] font-semibold", over ? "text-nd-warning-text" : "text-nd-fg")}>{over ? `계약상 수정 ${limit}회를 모두 사용했어요` : "계약에 포함된 남은 수정"}</div>
+        <div className={cn("text-[14px] font-semibold", over ? "text-nd-warning-text" : "text-nd-fg")}>{over ? `계약상 완성본 수정 ${limit}회를 모두 사용했어요` : "계약에 포함된 남은 완성본 수정"}</div>
         <div className="nd-num mt-0.5 text-[13px] text-nd-fg-2">
-          지금까지 {used} / {limit}회 사용 · {over ? "이후 요청은 별도 협의 대상으로 기록됩니다" : "상한 초과 시 별도 협의"}
+          지금까지 {used} / {limit}회 사용 · {over ? (after ? `이후 요청은 ${after}` : "이후 요청은 별도 협의 대상으로 기록됩니다") : after ? `넘으면 ${after}` : "상한 초과 시 별도 협의"}
         </div>
       </div>
       <span className={cn("nd-num shrink-0 text-[16px] font-semibold", over ? "text-nd-warning-text" : "text-nd-accent")}>{left}회</span>

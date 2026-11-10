@@ -63,6 +63,7 @@ import {
 import { useCrumbTail } from "@/components/neander/shell/context";
 import { Won } from "@/components/neander/shorts/agency-ui/won";
 import { BrandSiteFill } from "@/components/neander/shorts/agency-ui/brand-site";
+import { PlanDiffNote, PlanFields, PlanTermsNote } from "@/components/neander/shorts/agency-ui/plan-fields";
 import { useShorts } from "@/components/neander/shorts/ShortsProvider";
 import { ConnBadge, PubBadge, StageBadge, Unknown, fmtWhen, useAction } from "@/components/neander/shorts/parts";
 import { MediaThumb, MediaUpload, useClientMedia } from "@/components/neander/shorts/media";
@@ -75,6 +76,7 @@ import { todayStrKST } from "@/lib/neander/format";
 import { CLIENT_DELIVERY_LABEL, type AccountView, type ClientDelivery, type ClientDoc, type ClientView, type ProjectDoc, type PublishPlatform } from "@/lib/neander/shorts/types";
 import { CONTRACT_STATUS_TEXT, clientFinanceCodes, type ClientFinanceContract, type ClientFinanceSummary } from "@/lib/neander/shorts/agency";
 import { PRODUCTION_LABEL, spaceKind, spaceOf } from "@/lib/neander/shorts/spaces";
+import { applyPlan, planText, revisionText, scriptRevisions } from "@/lib/neander/shorts/plans";
 import type { WithId } from "@/components/neander/shorts/ShortsProvider";
 
 const TABS = [
@@ -271,7 +273,7 @@ function ClientWorkspace({ initial }: { initial: ClientView }) {
             />
           </span>
         }
-        description={`월 ${c.contract.videosPerMonth}편의 제작부터 고객 승인과 계약 대금까지 한곳에서 관리합니다.`}
+        description={`${c.contract.plan ? `${planText(c.contract)} · ` : ""}월 ${c.contract.videosPerMonth}편 · 수정 ${revisionText(c.contract)} — 제작부터 고객 승인과 계약 대금까지 한곳에서 관리합니다.`}
         actions={actions || undefined}
       />
       <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -555,7 +557,7 @@ function MonthBoard({
           value={`${prog.made} / ${prog.planned}`}
           unit="편"
           tone="accent"
-          detail={`제작 진행률 ${pct}% · ${left > 0 ? `${left}편 남음` : left < 0 ? `계약보다 ${-left}편 많음` : "계약 편수를 채움"} · 편당 수정 ${c.contract.revisionLimit}회까지`}
+          detail={`제작 진행률 ${pct}% · ${left > 0 ? `${left}편 남음` : left < 0 ? `계약보다 ${-left}편 많음` : "계약 편수를 채움"} · 완성본 수정 편당 ${c.contract.revisionLimit}회까지`}
         />
         <StudioMetric label="고객 승인" value={String(prog.approved)} unit="편" tone="success" detail="납품 기준 · 승인일은 표에서 확인" />
         <StudioMetric label="검토 대기" value={String(prog.waiting)} unit="편" tone={prog.waiting ? "warning" : undefined} detail={waitingRows.length ? waitingRows.slice(0, 2).map((p) => p.title).join(" · ") : "기다리는 검토 없음"} />
@@ -788,8 +790,16 @@ function BriefTab({ c, update }: { c: ClientView; update: (fn: (x: ClientView) =
       <div className="grid items-start gap-5 lg:grid-cols-2">
         <StudioCard title="제작 계약">
           <div className="space-y-4">
+            <PlanFields
+              size="sm"
+              disabled={!c.canEdit}
+              plan={c.contract.plan ?? null}
+              term={c.contract.term ?? "monthly"}
+              startMonth={c.contract.startMonth}
+              onChange={(plan, term) => update((x) => void (x.contract = applyPlan(x.contract, plan, term)))}
+            />
             <FormRow className="grid-cols-1 sm:grid-cols-2">
-              <Field label="월 금액 (원)">
+              <Field label="월 금액 (원)" hint={c.contract.plan === "enterprise" ? "견적서 금액을 적으세요" : undefined}>
                 <NumberInput size="sm" value={c.contract.monthlyFeeKrw} onValueChange={(r) => update((x) => void (x.contract.monthlyFeeKrw = r === "" ? null : Number(r)))} />
               </Field>
               <Field label="부가세 기준">
@@ -799,15 +809,20 @@ function BriefTab({ c, update }: { c: ClientView; update: (fn: (x: ClientView) =
                 </Select>
               </Field>
             </FormRow>
+            <PlanDiffNote contract={c.contract} disabled={!c.canEdit} onApply={() => update((x) => void (x.contract = applyPlan(x.contract, x.contract.plan ?? null, x.contract.term ?? "monthly")))} />
             <VatBreakdown fee={c.contract.monthlyFeeKrw} vat={c.contract.vat} />
-            <FormRow className="grid-cols-2">
+            <FormRow className="grid-cols-1 sm:grid-cols-3">
               <Field label="월 제작 편수">
                 <NumberInput size="sm" value={c.contract.videosPerMonth} onValueChange={(r) => update((x) => void (x.contract.videosPerMonth = Math.max(1, Number(r) || 1)))} />
               </Field>
-              <Field label="영상당 수정 상한 (회)">
+              <Field label="대본 수정 (편당 회)" hint="계약 조건으로 기록">
+                <NumberInput size="sm" value={scriptRevisions(c.contract)} onValueChange={(r) => update((x) => void (x.contract.scriptRevisionLimit = Math.max(0, Number(r) || 0)))} />
+              </Field>
+              <Field label="완성본 수정 (편당 회)" hint="고객 검토 링크가 셉니다">
                 <NumberInput size="sm" value={c.contract.revisionLimit} onValueChange={(r) => update((x) => void (x.contract.revisionLimit = Math.max(0, Number(r) || 0)))} />
               </Field>
             </FormRow>
+            <PlanTermsNote contract={c.contract} />
             <FormRow className="grid-cols-2">
               <Field label="시작 월">
                 <Input size="sm" type="month" value={c.contract.startMonth} onChange={(e) => update((x) => void (x.contract.startMonth = e.target.value))} />

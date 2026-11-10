@@ -9,6 +9,7 @@
 
 import type { ClientFinanceSummary } from "./agency";
 import type { ClientDoc, ProjectDoc, PublicationDoc } from "./types";
+import { TERM_LABEL, commitmentEndMonth } from "./plans";
 
 export const EVENT_KINDS = ["shoot", "meeting", "deadline", "etc"] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
@@ -107,6 +108,8 @@ const monthLast = (m: string) => {
   return `${m}-${String(new Date(Date.UTC(y, mm, 0)).getUTCDate()).padStart(2, "0")}`;
 };
 const won = (n: number) => `${n.toLocaleString("ko-KR")}원`;
+/** YYYY-MM-DD 에서 n 일 */
+const shiftDays = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 
 type Proj = Pick<ProjectDoc, "title" | "kind" | "clientId" | "clientName" | "review" | "spaceId"> & { id: string };
 
@@ -141,6 +144,14 @@ export function autoItems(x: {
     const href = `/neander/shorts/clients/${c.id}`;
     if (c.contract.startMonth) out.push({ key: `cs-${c.id}`, date: `${c.contract.startMonth}-01`, title: c.name, chip: `계약 시작 · ${c.name}`, detail: `계약 시작 · 월 ${c.contract.videosPerMonth}편`, source: "contract", clientId: c.id, href });
     if (c.contract.endMonth) out.push({ key: `ce-${c.id}`, date: monthLast(c.contract.endMonth), title: c.name, chip: `계약 끝 · ${c.name}`, detail: "계약 끝 (갱신 확인)", source: "contract", clientId: c.id, href });
+    // 약정 끝 — 구독 계약서 제3조 ③: 스튜디오는 30일 전까지 알리고, 고객사는 14일 전까지 알리면 약정 끝에 해지. 그대로면 같은 금액 월 단위
+    const commit = commitmentEndMonth(c.contract.startMonth, c.contract.term);
+    if (commit) {
+      const end = monthLast(commit);
+      const term = TERM_LABEL[c.contract.term ?? "monthly"];
+      out.push({ key: `cn-${c.id}`, date: shiftDays(end, -30), title: c.name, chip: `약정 끝 알림 · ${c.name}`, detail: `${term} ${end} 끝 — 오늘까지 고객사에 알립니다 (고객사 해지 통보는 14일 전까지 · 그대로면 같은 금액 월 단위)`, source: "contract", clientId: c.id, href });
+      out.push({ key: `cm-${c.id}`, date: end, title: c.name, chip: `약정 끝 · ${c.name}`, detail: `${term} 끝 — 다음 달부터 월 단위 (다시 약정하려면 고객사 서면 동의)`, source: "contract", clientId: c.id, href });
+    }
     for (const f of x.clientFinance[c.id] ?? []) {
       if (!f.projectId) continue;
       const fhref = `/neander/finance/projects/${f.projectId}`;

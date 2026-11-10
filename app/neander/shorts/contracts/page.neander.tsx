@@ -22,6 +22,7 @@ import { RecordTable, StudioCard, StudioHeader, StudioMetric, StudioNotice, type
 import { fmtDateStr, rollupFinance, vatText, wonText, type FinanceRollup } from "@/components/neander/shorts/agency-ui/finance";
 import { CONTRACT_STATUS_TEXT, inContract, type ClientFinanceContract } from "@/lib/neander/shorts/agency";
 import { currentMonth } from "@/lib/neander/shorts/model";
+import { planText, revisionText } from "@/lib/neander/shorts/plans";
 import { splitVat } from "@/lib/neander/finance/project";
 import { CLIENT_DELIVERY_LABEL, type ClientStatus, type ClientView } from "@/lib/neander/shorts/types";
 
@@ -94,6 +95,7 @@ export default function ContractsPage() {
             <Won value={c.contract.monthlyFeeKrw} flow="income" className="font-semibold" />
             <span className="block text-[13px] text-nd-fg-3">{vatText(c.contract.vat)}</span>
             <span className="block text-[13px] text-nd-fg-3">{c.contract.vat === "excluded" ? `받을 돈 ${wonText(s.total)}` : `공급가액 ${wonText(s.supply)}`}</span>
+            {c.contract.plan && <span className="block text-[13px] text-nd-fg-3">{planText(c.contract)}</span>}
           </span>
         );
       },
@@ -104,7 +106,7 @@ export default function ContractsPage() {
       cell: ({ c }) => (
         <span className="block whitespace-nowrap">
           월 {c.contract.videosPerMonth}편
-          <span className="block text-[13px] text-nd-fg-3">편당 수정 {c.contract.revisionLimit}회</span>
+          <span className="block text-[13px] text-nd-fg-3">수정 {revisionText(c.contract)}</span>
         </span>
       ),
     },

@@ -59,6 +59,7 @@ import { FolderNameDialog, MoveVideosDialog } from "@/components/neander/shorts/
 import { mutate, shortsGet } from "@/lib/neander/shorts/client";
 import { folderCounts, folderLabel, folderTree, inFolder, type FolderTree } from "@/lib/neander/shorts/folders";
 import { currentMonth, REVIEW_LABEL, STAGE_LABEL, confirmedCandidate, projectCost } from "@/lib/neander/shorts/model";
+import { revisionText } from "@/lib/neander/shorts/plans";
 import { CLIENT_DELIVERY_LABEL, type ClientView, type FolderView, type ProjectDoc, type ProjectKind, type ProjectStage, type PublicationView } from "@/lib/neander/shorts/types";
 import { PRODUCTION_LABEL, spaceKind, spaceOf } from "@/lib/neander/shorts/spaces";
 
@@ -642,7 +643,7 @@ function AgencySummary({ client }: { client: ClientView | null }) {
         </Link>
       }
     >
-      업체 전체 {Number(m.slice(5))}월 계약분 영상 <b className="nd-num">{thisMonth.length}</b>편 (고객 승인 <span className="nd-num">{approved}</span>편) / 월 <span className="nd-num">{client.contract.videosPerMonth}</span>편 계약 · 편당 수정 {client.contract.revisionLimit}회 · {CLIENT_DELIVERY_LABEL[client.delivery ?? "upload"]}
+      업체 전체 {Number(m.slice(5))}월 계약분 영상 <b className="nd-num">{thisMonth.length}</b>편 (고객 승인 <span className="nd-num">{approved}</span>편) / 월 <span className="nd-num">{client.contract.videosPerMonth}</span>편 계약 · 수정 {revisionText(client.contract)} · {CLIENT_DELIVERY_LABEL[client.delivery ?? "upload"]}
       {members ? ` · 담당 ${members}` : ""} · 관리자와 업체 담당자만 볼 수 있습니다.
     </StudioNotice>
   );
@@ -1014,7 +1015,7 @@ function NewAgencyVideo({ folderName, onClose, onCreated }: { folderName: string
         </FormRow>
         {client && (
           <StudioNotice tone={quota > 0 && made >= quota ? "warning" : "info"} title={`${Number(f.month.slice(5))}월 계약분 ${made} / ${quota}편${quota > 0 && made >= quota ? " — 계약 편수를 채웠습니다" : ""}`}>
-            편당 수정 {client.contract.revisionLimit}회 · {CLIENT_DELIVERY_LABEL[client.delivery ?? "upload"]} · 관리자와 업체 담당자만 봅니다. 이 영상을 만들면 {made + 1}편째입니다.
+            수정 {revisionText(client.contract)} · {CLIENT_DELIVERY_LABEL[client.delivery ?? "upload"]} · 관리자와 업체 담당자만 봅니다. 이 영상을 만들면 {made + 1}편째입니다.
           </StudioNotice>
         )}
       </div>

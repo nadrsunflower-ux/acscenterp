@@ -15,6 +15,7 @@ import { ArrowUpRight, Ban, Building2, CheckCircle2, CircleCheck, Copy, External
 import { Badge, Button, EmptyState, Field, FieldAction, FormRow, Input, Select, buttonClass, cn, type Tone, useToast } from "@/components/neander/ui";
 import { mutate } from "@/lib/neander/shorts/client";
 import { REVIEW_LABEL, fmtSec, revisionsLeft, scanClaims } from "@/lib/neander/shorts/model";
+import { extraRevisionKrw, planText, revisionText } from "@/lib/neander/shorts/plans";
 import { spaceOf } from "@/lib/neander/shorts/spaces";
 import { CLIENT_DELIVERY_LABEL, type MediaView, type ProjectDoc, type ReviewRound } from "@/lib/neander/shorts/types";
 import { useShorts, type WithId } from "../ShortsProvider";
@@ -70,7 +71,7 @@ export function ClientInfoTab({ draft }: { draft: Draft }) {
           </Link>
         }
       >
-        월 {client.contract.videosPerMonth}편 · 편당 수정 {client.contract.revisionLimit}회 · 고객사 담당 {client.contactName || "미입력"}
+        {client.contract.plan ? `${planText(client.contract)} · ` : ""}월 {client.contract.videosPerMonth}편 · 수정 {revisionText(client.contract)} · 고객사 담당 {client.contactName || "미입력"}
         {managers ? ` · 우리 담당 ${managers}` : ""} · 관리자와 지정 담당자만 볼 수 있습니다.
       </StudioNotice>
 
@@ -265,6 +266,8 @@ export function ReviewTab({ draft }: { draft: Draft }) {
   const [rec, setRec] = useState({ decision: "approved", feedback: "", decidedBy: client?.contactName ?? "" });
   const [watch, setWatch] = useState<number | null>(null);
   const limit = client?.contract.revisionLimit ?? 0;
+  /** 넘는 수정 1회 금액 — 표준 계약서(플랜) 업체만 */
+  const extra = client ? extraRevisionKrw(client.contract) : null;
   const left = revisionsLeft(p.review, limit);
   const over = Math.max(0, p.review.revisionsUsed - limit);
   const last = p.review.rounds[p.review.rounds.length - 1];
@@ -292,7 +295,7 @@ export function ReviewTab({ draft }: { draft: Draft }) {
       : p.review.state === "waiting" && last
         ? { title: `${last.n}차 검토 · 고객 답을 기다리는 중`, body: `${fmtWhen(last.sentAt)} 에 보냈습니다. 고객사가 링크에서 답하거나, 카톡 · 메일로 받은 답을 아래에 기록하세요.` }
         : p.review.state === "revision" && last
-          ? { title: `${last.n}차 검토 · 수정 요청 받음`, body: `${last.feedback ? `「${last.feedback}」 — ` : ""}고쳐서 새로 출력한 뒤 다시 보내세요.${left === 0 ? " 계약 수정 횟수를 다 썼습니다." : ""}` }
+          ? { title: `${last.n}차 검토 · 수정 요청 받음`, body: `${last.feedback ? `「${last.feedback}」 — ` : ""}고쳐서 새로 출력한 뒤 다시 보내세요.${left === 0 ? ` 계약한 완성본 수정을 다 썼습니다${extra ? ` — 더 고치려면 1회 ${extra.toLocaleString("ko-KR")}원(부가세 별도)을 먼저 알리고 동의를 받으세요` : ""}.` : ""}` }
           : p.review.rounds.length === 0
             ? { title: "아직 고객사에 보내지 않았습니다", body: noFile ? "「편집·출력」 에서 MP4 를 출력한 뒤 검토 링크를 보내세요." : "완성 파일을 골라 검토 링크를 만드세요." }
             : { title: "지금 고객사가 검토 중인 파일이 없습니다", body: "완성 파일을 골라 다시 보내세요." };
@@ -406,7 +409,7 @@ export function ReviewTab({ draft }: { draft: Draft }) {
         </StudioCard>
 
         <StudioCard
-          title="수정 횟수"
+          title="완성본 수정 횟수"
           action={
             over > 0 ? (
               <Badge size="lg" tone="danger">상한 {over}회 초과</Badge>
@@ -422,7 +425,7 @@ export function ReviewTab({ draft }: { draft: Draft }) {
             </p>
             <ProgressLine value={p.review.revisionsUsed} total={limit} tone={over > 0 ? "danger" : left === 0 ? "warning" : "accent"} />
             <p className="text-[13px] text-nd-fg-2">
-              {client ? `계약에 포함된 수정은 편당 ${limit}회입니다.` : "업체 계약을 찾지 못해 상한을 모릅니다."} {left === 0 && limit > 0 ? "이후 수정 요청은 「계약 범위 밖」 으로 기록됩니다." : ""}
+              {client ? `계약에 포함된 수정은 편당 ${revisionText(client.contract)}입니다 — 고객 검토 링크는 완성본만 셉니다.` : "업체 계약을 찾지 못해 상한을 모릅니다."} {left === 0 && limit > 0 ? `이후 수정 요청은 「계약 범위 밖」 으로 기록됩니다${extra ? ` (1회 ${extra.toLocaleString("ko-KR")}원 · 부가세 별도)` : ""}.` : ""}
             </p>
             {lastAnswer ? (
               <div className="rounded-nd-md border border-nd-line bg-nd-sunken/60 px-4 py-3">
@@ -516,7 +519,8 @@ export function ReviewTab({ draft }: { draft: Draft }) {
           ) : undefined
         }
       >
-        상한을 넘긴 요청도 「계약 범위 밖」 으로 기록됩니다. 추가 작업 여부는 업체 · 계약 화면에서 협의 내용을 확인하세요.
+        상한을 넘긴 요청도 「계약 범위 밖」 으로 기록됩니다.{" "}
+        {extra ? `표준 계약서로 맺은 업체는 넘는 수정이 1회 ${extra.toLocaleString("ko-KR")}원(부가세 별도)이며, 작업 전에 알리고 동의를 받습니다.` : "추가 작업 여부는 업체 · 계약 화면에서 협의 내용을 확인하세요."}
       </StudioNotice>
     </div>
   );

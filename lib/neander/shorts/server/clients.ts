@@ -16,6 +16,7 @@ import { AccessError } from "@/lib/neander/server/auth";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import { currentMonth, emptyProject, httpUrl, newId } from "../model";
 import type { FormatDoc } from "../scout";
+import { cleanClientContract } from "../plans";
 import type { ClientDoc, ClientProduct, ClientView, ProjectDoc } from "../types";
 import { spaceKind } from "../spaces";
 import { currentSpace, forgetClientMembers, listSpaces } from "./space-db";
@@ -75,7 +76,6 @@ function sanitizeProducts(v: unknown, prev: ClientProduct[]): ClientProduct[] {
 export async function saveClient(db: Firestore, email: string, id: unknown, input: unknown): Promise<string> {
   const r = (input ?? {}) as Record<string, unknown>;
   const prev = id ? await getClientForEdit(db, email, id) : null;
-  const contract = (r.contract ?? {}) as Record<string, unknown>;
   const brief = (r.brief ?? {}) as Record<string, unknown>;
   // 담당자 — 등록된 팀원만, 만든 사람은 빠지지 않는다
   const wanted = [...new Set([...(Array.isArray(r.members) ? r.members : []).map((e) => String(e).trim().toLowerCase()).filter(Boolean), prev?.createdBy ?? email])].slice(0, 20);
@@ -93,18 +93,8 @@ export async function saveClient(db: Firestore, email: string, id: unknown, inpu
     createdAt: prev?.createdAt ?? now,
     updatedAt: now,
     updatedBy: email,
-    contract: {
-      monthlyFeeKrw: typeof contract.monthlyFeeKrw === "number" && contract.monthlyFeeKrw >= 0 ? Math.round(contract.monthlyFeeKrw) : null,
-      vat: contract.vat === "included" ? "included" : "excluded",
-      videosPerMonth: Math.min(60, Math.max(1, Math.round(Number(contract.videosPerMonth) || 8))),
-      revisionLimit: Math.min(10, Math.max(0, Math.round(Number(contract.revisionLimit ?? 2)))),
-      startMonth: monthOf(contract.startMonth) ?? prev?.contract.startMonth ?? currentMonth(),
-      endMonth: monthOf(contract.endMonth),
-      financeCode: str(contract.financeCode, 30).trim(),
-      // 재무 계약 프로젝트 코드 여러 개 (예전 한 칸도 받아 합친다)
-      financeCodes: [...new Set([...(Array.isArray(contract.financeCodes) ? contract.financeCodes : []), contract.financeCode].map((x) => str(x, 30).trim().toUpperCase()).filter((x) => /^[A-Z0-9][A-Z0-9-]{1,29}$/.test(x)))].slice(0, 20),
-      note: str(contract.note, 2000),
-    },
+    // 플랜 · 약정 · 대본/완성본 수정 횟수 · 재무 코드 — 다듬기는 plans.ts (테스트가 있다)
+    contract: cleanClientContract(r.contract, prev?.contract ?? null, currentMonth()),
     brief: {
       summary: str(brief.summary, 3000),
       target: str(brief.target, 500),

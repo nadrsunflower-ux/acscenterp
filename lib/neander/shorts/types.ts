@@ -796,6 +796,10 @@ export interface IntegrationStatus {
 
 export type ClientStatus = "active" | "paused" | "ended";
 
+/** GL AI 스튜디오 구독 플랜 · 약정 — 가격표와 계산은 plans.ts */
+export type ClientPlan = "weekly" | "start" | "growth" | "fullGrowth" | "enterprise";
+export type ClientTerm = "monthly" | "m3" | "m12";
+
 export interface ClientProduct {
   id: string;
   name: string;
@@ -818,10 +822,16 @@ export interface ClientDoc {
   updatedBy: string;
   /** 조회수 약속 칸은 일부러 없다 — 계약은 제작 편수 · 수정 횟수까지만 */
   contract: {
+    /** GL AI 스튜디오 구독 플랜 (plans.ts). 없으면 플랜 없이 직접 정한 계약 (예전 업체 포함) */
+    plan?: ClientPlan | null;
+    /** 약정 — 없으면 월 단위 */
+    term?: ClientTerm;
     monthlyFeeKrw: number | null;
     vat: "excluded" | "included";
     videosPerMonth: number;
-    /** 영상 한 편당 고객이 요청할 수 있는 수정 횟수 */
+    /** 영상 한 편당 대본 수정 횟수 — 계약 조건 기록 (대본은 검토 링크로 보내지 않아 세지 않는다). 없으면 2 */
+    scriptRevisionLimit?: number;
+    /** 영상 한 편당 완성본 수정 횟수 — 고객 검토 링크가 센다 (예전 「수정 상한」 칸) */
     revisionLimit: number;
     startMonth: string;
     endMonth: string | null;

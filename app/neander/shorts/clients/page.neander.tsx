@@ -23,6 +23,8 @@ import { rollupFinance, vatText } from "@/components/neander/shorts/agency-ui/fi
 import { mutate } from "@/lib/neander/shorts/client";
 import { currentMonth, monthProgress } from "@/lib/neander/shorts/model";
 import { inContract } from "@/lib/neander/shorts/agency";
+import { applyPlan, planText, type ClientPlan, type ClientTerm } from "@/lib/neander/shorts/plans";
+import { PlanDiffNote, PlanFields } from "@/components/neander/shorts/agency-ui/plan-fields";
 import { spaceKind } from "@/lib/neander/shorts/spaces";
 import { CLIENT_DELIVERY_LABEL, type ClientDelivery, type ClientStatus, type ClientView } from "@/lib/neander/shorts/types";
 
@@ -127,7 +129,7 @@ export default function ClientsPage() {
           <span className="block">
             <span className={prog.revision ? "text-nd-danger-text" : undefined}>수정 요청 {prog.revision}</span>
             {over > 0 && <span className="font-medium text-nd-danger-text"> · 상한 넘음 {over}편</span>}
-            <span className="text-nd-fg-3"> · 편당 {c.contract.revisionLimit}회</span>
+            <span className="text-nd-fg-3"> · 완성본 편당 {c.contract.revisionLimit}회</span>
           </span>
         </span>
       ),
@@ -143,6 +145,7 @@ export default function ClientsPage() {
           <span className="block whitespace-nowrap">
             <Won value={c.contract.monthlyFeeKrw} flow="income" className="font-semibold" />
             <span className="block text-[13px] text-nd-fg-3">{vatText(c.contract.vat)}</span>
+            {c.contract.plan && <span className="block text-[13px] text-nd-fg-3">{planText(c.contract)}</span>}
           </span>
         ),
     },
@@ -282,22 +285,32 @@ function NewClient({ me, onClose, onCreated }: { me: string; onClose: () => void
     name: "",
     status: "active" as ClientStatus,
     member: me,
+    // 기본 = 스타트 · 월 단위 (GL AI 스튜디오 가격표 150만 · 월 8편)
+    plan: "start" as ClientPlan | null,
+    term: "monthly" as ClientTerm,
     fee: "1500000",
     vat: "excluded" as "excluded" | "included",
     videos: "8",
+    scriptRevisions: "2",
     revisions: "2",
     delivery: "upload" as ClientDelivery,
     startMonth: month,
     endMonth: "",
   });
   const endBad = !!f.endMonth && f.endMonth < f.startMonth;
+  const contract = { plan: f.plan, term: f.term, monthlyFeeKrw: f.fee ? Number(f.fee) : null, vat: f.vat, videosPerMonth: Number(f.videos) || 8 };
+  /** 플랜 · 약정을 고르면 가격표대로 금액 · 편수 · 부가세 별도 */
+  const pick = (plan: ClientPlan | null, term: ClientTerm) => {
+    const n = applyPlan(contract, plan, term);
+    setF({ ...f, plan, term, fee: n.monthlyFeeKrw === null ? "" : String(n.monthlyFeeKrw), vat: n.vat, videos: String(n.videosPerMonth) });
+  };
   return (
     <Dialog
       open
       onClose={onClose}
       size="lg"
       title="새 업체"
-      description="월 제작 약속과 담당자를 먼저 정하세요. 브리프 · 제품 · 재무 계약은 만든 뒤 업체 화면에서 채우고, 대행 프로젝트(브랜드 · 채널)는 업체 화면의 「프로젝트」 탭에서 만듭니다."
+      description="플랜(구독 계약서 가격표)과 담당자를 먼저 정하세요. 브리프 · 제품 · 재무 계약은 만든 뒤 업체 화면에서 채우고, 대행 프로젝트(브랜드 · 채널)는 업체 화면의 「프로젝트」 탭에서 만듭니다."
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
@@ -317,9 +330,12 @@ function NewClient({ me, onClose, onCreated }: { me: string; onClose: () => void
                     members: [...new Set([me, f.member].filter(Boolean))],
                     delivery: f.delivery,
                     contract: {
+                      plan: f.plan,
+                      term: f.term,
                       monthlyFeeKrw: f.fee ? Number(f.fee) : null,
                       vat: f.vat,
                       videosPerMonth: Number(f.videos) || 8,
+                      scriptRevisionLimit: Number(f.scriptRevisions) || 0,
                       revisionLimit: Number(f.revisions) || 0,
                       startMonth: f.startMonth,
                       endMonth: f.endMonth || null,
@@ -361,25 +377,6 @@ function NewClient({ me, onClose, onCreated }: { me: string; onClose: () => void
                 ))}
             </Select>
           </Field>
-          <Field label="월 계약 금액 (원)">
-            <NumberInput value={f.fee} onValueChange={(r) => setF({ ...f, fee: r })} />
-          </Field>
-        </FormRow>
-        <FormRow className="grid-cols-1 sm:grid-cols-2">
-          <Field label="부가세 기준">
-            <Select value={f.vat} onChange={(e) => setF({ ...f, vat: e.target.value as "excluded" | "included" })}>
-              <option value="excluded">별도</option>
-              <option value="included">포함</option>
-            </Select>
-          </Field>
-          <Field label="월 계약 편수">
-            <NumberInput value={f.videos} onValueChange={(r) => setF({ ...f, videos: r })} />
-          </Field>
-        </FormRow>
-        <FormRow className="grid-cols-1 sm:grid-cols-2">
-          <Field label="수정 횟수 상한 (영상 한 편당)">
-            <NumberInput value={f.revisions} onValueChange={(r) => setF({ ...f, revisions: r })} />
-          </Field>
           <Field label="게시 방식">
             <Select value={f.delivery} onChange={(e) => setF({ ...f, delivery: e.target.value as ClientDelivery })}>
               {(Object.keys(CLIENT_DELIVERY_LABEL) as ClientDelivery[]).map((k) => (
@@ -388,6 +385,30 @@ function NewClient({ me, onClose, onCreated }: { me: string; onClose: () => void
                 </option>
               ))}
             </Select>
+          </Field>
+        </FormRow>
+        <PlanFields plan={f.plan} term={f.term} startMonth={f.startMonth} onChange={pick} />
+        <FormRow className="grid-cols-1 sm:grid-cols-2">
+          <Field label="월 계약 금액 (원)" hint={f.plan === "enterprise" ? "견적서 금액을 적으세요" : undefined}>
+            <NumberInput value={f.fee} onValueChange={(r) => setF({ ...f, fee: r })} />
+          </Field>
+          <Field label="부가세 기준">
+            <Select value={f.vat} onChange={(e) => setF({ ...f, vat: e.target.value as "excluded" | "included" })}>
+              <option value="excluded">별도</option>
+              <option value="included">포함</option>
+            </Select>
+          </Field>
+        </FormRow>
+        <PlanDiffNote contract={contract} onApply={() => pick(f.plan, f.term)} />
+        <FormRow className="grid-cols-1 sm:grid-cols-3">
+          <Field label="월 계약 편수">
+            <NumberInput value={f.videos} onValueChange={(r) => setF({ ...f, videos: r })} />
+          </Field>
+          <Field label="대본 수정 (편당 회)" hint="계약 조건으로 기록">
+            <NumberInput value={f.scriptRevisions} onValueChange={(r) => setF({ ...f, scriptRevisions: r })} />
+          </Field>
+          <Field label="완성본 수정 (편당 회)" hint="고객 검토 링크가 셉니다">
+            <NumberInput value={f.revisions} onValueChange={(r) => setF({ ...f, revisions: r })} />
           </Field>
         </FormRow>
         <FormRow className="grid-cols-1 sm:grid-cols-2">
@@ -399,7 +420,7 @@ function NewClient({ me, onClose, onCreated }: { me: string; onClose: () => void
           </Field>
         </FormRow>
         <StudioNotice tone="info" title="조회수를 약속하지 않는 제작 계약">
-          월 고정 금액, 편수와 수정 횟수 상한을 기준으로 이행을 관리합니다.
+          월 고정 금액, 편수와 수정 횟수를 기준으로 이행을 관리합니다.{f.plan ? " 넘는 수정은 1회 50,000원(부가세 별도)이며 미리 알리고 동의를 받습니다." : ""}
         </StudioNotice>
       </div>
     </Dialog>

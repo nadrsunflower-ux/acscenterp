@@ -42,6 +42,7 @@ import { NOTE_SOURCE_LABEL, NOTE_STATUSES, NOTE_STATUS_LABEL, BRIEF_KIND_LABEL, 
 import { NAVER_LABEL, RADAR_FILMED_LABEL, type RadarDoc } from "../radar";
 import { AI_LEVEL_LABEL, KOREA_LABEL, LANG_DEP_LABEL, LIFECYCLE_LABEL, RISK_LABEL, countryLabel, formatStats, seenAt, type HitDoc } from "../scout";
 import { WRITER_KIND_LABEL, WRITER_STYLE_LABEL } from "../script-writer";
+import { extraRevisionKrw, planText, revisionText } from "../plans";
 import { CLIENT_DELIVERY_LABEL, type ClientView, type MetricSnapshotView, type PerfMetricKey, type ProjectDoc, type ProjectKind, type ProjectStage, type PublicationView } from "../types";
 import { DEFAULT_SPACE_ID, PRODUCTION_LABEL, SPACE_KIND_LABEL, spaceKind, spaceOf, type SpaceView } from "../spaces";
 import { isShortsAdmin } from "./access";
@@ -758,7 +759,7 @@ async function run(name: string, a: Args, ctx: ShortsToolContext): Promise<Short
               name: sp.name,
               kind: SPACE_KIND_LABEL[spaceKind(sp)],
               client: client?.name ?? null,
-              ...(client ? { delivery: CLIENT_DELIVERY_LABEL[client.delivery ?? "upload"], videosPerMonth: client.contract.videosPerMonth } : {}),
+              ...(client ? { delivery: CLIENT_DELIVERY_LABEL[client.delivery ?? "upload"], plan: planText(client.contract) || null, videosPerMonth: client.contract.videosPerMonth, revisions: revisionText(client.contract) } : {}),
               production: PRODUCTION_LABEL[sp.production],
               description: cut(sp.description, 80),
               archived: sp.archived || undefined,
@@ -854,7 +855,9 @@ async function run(name: string, a: Args, ctx: ShortsToolContext): Promise<Short
                 review: {
                   state: REVIEW_LABEL[v.review?.state ?? "none"],
                   revisionsUsed: v.review?.revisionsUsed ?? 0,
+                  /** 완성본 수정 상한 — 검토 링크가 센다 (대본 수정은 세지 않는다) */
                   revisionLimit: client?.contract.revisionLimit ?? null,
+                  extraRevisionKrw: client ? extraRevisionKrw(client.contract) : null,
                   rounds: (v.review?.rounds ?? []).slice(-6).map((r) => ({
                     n: r.n,
                     sent: ymd(r.sentAt),

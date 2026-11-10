@@ -1,5 +1,5 @@
 // ============================================================
-//  AI STUDIO 디자인 검증 — 가상 운영 데이터로 27개 화면을 찍는다 (DB · 외부 호출 없음)
+//  AI STUDIO 디자인 검증 — 가상 운영 데이터로 28개 화면을 찍는다 (DB · 외부 호출 없음)
 // ------------------------------------------------------------
 //    node e2e/shorts-design-ui.mjs <BASE_URL> <토큰파일> <출력 폴더> [--only=key1,key2] [--variant=populated|empty|error]
 //
@@ -43,6 +43,7 @@
 //   25-client-accounts  /neander/shorts/clients/mock-client           (탭 「게시 계정」)
 //   26-client-report    /neander/shorts/clients/mock-client/report?month=2026-10
 //   27-public-review    /neander/review/mock-review-b003              (로그인 없는 창 · 이름 · 코멘트만 채움, 보내지 않음)
+//   28-client-new       /neander/shorts/clients                      (「새 업체」 창 · 그로스 · 12개월 약정을 골라 가격표 채움 확인 · 만들기는 누르지 않음)
 //  --only 는 key(예: shop-edit) · NN(예: 17) · NN-key 어느 것이든 된다.
 // ============================================================
 
@@ -114,6 +115,8 @@ const SCREENS = [
   { nn: "25", key: "client-accounts", route: "/neander/shorts/clients/mock-client", prepare: tab("게시 계정") },
   { nn: "26", key: "client-report", route: "/neander/shorts/clients/mock-client/report?month=2026-10" },
   { nn: "27", key: "public-review", route: "/neander/review/mock-review-b003", public: true, after: fillReview },
+  // 새 업체 창 — 그로스 · 12개월을 고르면 금액 2,430,000 · 편수 8 이 채워지는가 (만들기는 누르지 않는다)
+  { nn: "28", key: "client-new", route: "/neander/shorts/clients", prepare: async (p) => { await p.getByRole("button", { name: "새 업체" }).first().click({ timeout: 20_000 }); const d = p.getByRole("dialog"); await d.waitFor({ timeout: 10_000 }); await d.getByLabel("플랜").selectOption("growth"); await d.getByLabel("약정").selectOption("m12"); await p.waitForTimeout(400); } },
 ];
 const chosen = SCREENS.filter((s) => !ONLY.length || ONLY.some((o) => o === s.key || o === s.nn || o === `${s.nn}-${s.key}`));
 if (!chosen.length) throw new Error(`--only 에 맞는 화면이 없습니다: ${ONLY.join(",")}`);

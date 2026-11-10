@@ -18,6 +18,7 @@ import type { Firestore } from "firebase-admin/firestore";
 import { AccessError } from "@/lib/neander/server/auth";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import type { MediaDoc, ProjectDoc, ReviewLinkDoc, ReviewRound } from "../types";
+import { extraRevisionKrw } from "../plans";
 import { getClientDoc } from "./clients";
 import { readRange, viewUrl } from "./media";
 import { getProject, patchProject } from "./store";
@@ -71,8 +72,11 @@ export interface ReviewInfo {
   feedback: string;
   /** url — 저장소(버킷) 파일이면 서명 URL 로 바로 본다 · purged — 게시가 끝나 내용을 지웠다 */
   media: { size: number; type: string; duration: number | null; parts: number; url: string | null; purged: boolean };
+  /** 완성본 수정 횟수 (계약) */
   revisionLimit: number;
   revisionsUsed: number;
+  /** 넘는 수정 1회 금액 (부가세 별도) — 표준 계약서(플랜)로 맺은 업체만, 아니면 null (따로 협의) */
+  extraRevisionKrw: number | null;
   history: { n: number; decision: ReviewRound["decision"]; feedback: string; decidedAt: number | null }[];
   expiresAt: number;
 }
@@ -96,6 +100,7 @@ export async function reviewInfo(db: Firestore, token: unknown): Promise<ReviewI
     media: { size: m.size, type: m.type, duration: m.duration, parts: m.parts, url: await viewUrl(m), purged: !!m.purged },
     revisionLimit: c.contract.revisionLimit,
     revisionsUsed: p.review.revisionsUsed,
+    extraRevisionKrw: extraRevisionKrw(c.contract),
     history: p.review.rounds.filter((r) => r.n < l.round && r.decision !== "withdrawn").map((r) => ({ n: r.n, decision: r.decision, feedback: r.feedback, decidedAt: r.decidedAt })),
     expiresAt: l.expiresAt,
   };
