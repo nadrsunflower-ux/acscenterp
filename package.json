@@ -33,6 +33,7 @@
     "finance:verify-suspense": "tsx scripts/neander/verify-suspense.ts",
     "finance:verify-api-costs": "tsx --conditions react-server scripts/neander/verify-api-costs.ts",
     "finance:test-api-cost": "tsx --test lib/neander/finance/api-cost.test.ts",
+    "finance:test-key-watch": "tsx --test lib/neander/finance/key-watch.test.ts",
     "finance:import-suspense": "tsx scripts/neander/import-suspense.ts",
     "finance:reclassify-pending": "tsx scripts/neander/reclassify-pending.ts",
     "finance:fix-accounts": "tsx scripts/neander/fix-legacy-accounts.ts",

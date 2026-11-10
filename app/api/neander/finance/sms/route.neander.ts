@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/neander/server/admin";
 import { saveBankSms, smsTokenOk } from "@/lib/neander/finance/server/bank-sms";
 import { notifyNewSms } from "@/lib/neander/finance/server/sms-notify";
+import { watchNewKeys } from "@/lib/neander/finance/server/key-watch";
 
 // ============================================================
 //  은행 입출금 문자 받기 — 회사 전용폰(매크로드로이드)이 부른다
@@ -64,6 +65,9 @@ export async function POST(req: Request) {
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: 400 });
   const notion = !r.duplicate && r.parsed.ok ? await notifyNewSms(db, r.id) : null;
   if (notion?.error) console.error("[finance/sms] 노션 알림", notion.error);
+  // 예고 없이 생긴 오픈라우터 키 — cron 은 하루 한 번이라, 낮에 자주 오는 문자를 신호로 30분에 한 번까지 살핀다
+  const keyWatch = await watchNewKeys(db, { source: "sms", minIntervalMs: 30 * 60_000 });
+  if (keyWatch.failed?.length) console.error("[finance/sms] 키 알림", keyWatch.failed);
   return NextResponse.json({
     ok: true,
     id: r.id,

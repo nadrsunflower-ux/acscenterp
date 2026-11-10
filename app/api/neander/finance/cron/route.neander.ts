@@ -5,6 +5,7 @@ import { NEANDER_COL } from "@/lib/neander/collections";
 import { remeasureTrust } from "@/lib/neander/finance/server/trust";
 import { attachPayMails } from "@/lib/neander/finance/server/pay-mail";
 import { syncApiDays } from "@/lib/neander/finance/server/api-cost";
+import { watchNewKeys } from "@/lib/neander/finance/server/key-watch";
 import { managementKey } from "@/lib/neander/shorts/server/ai-usage";
 import { matchReceipts, openInstallments } from "@/lib/neander/finance/receivables";
 import { detectRecurring } from "@/lib/neander/finance/recurring";
@@ -26,6 +27,7 @@ import type { FinProjectDoc } from "@/lib/neander/finance/project";
 //       처음 본 날을 기억해 「새 알림」 과 「이어지는 알림」 을 가른다
 //    ③ 월요일이면 브리핑을 만들어 둔다
 //    ④ API 비용 — 오픈라우터 시간별 기록을 한국 날짜 · 키별로 모아 쌓는다 (api-cost.ts)
+//    ④′ 예고 없이 생긴 오픈라우터 키 — ERP 에 등록되지 않은 새 키를 노션 「API키알림」 으로 알린다 (server/key-watch.ts)
 //    ⑤ 돈 나가는 날 — 카드값 · 세금 · 급여 · 월세 · 이자를 노션 표로 맞추고, 납부 N일 전 · 당일에
 //       노션 멘션으로 알린다 (server/money-calendar.ts). 실패해도 나머지 점검은 그대로 끝난다
 //
@@ -88,6 +90,9 @@ export async function GET(req: Request) {
         })
       : null;
 
+    // ④′ 예고 없이 생긴 오픈라우터 키 (던지지 않는다)
+    const keyWatch = managementKey() ? await watchNewKeys(db, { source: "cron" }) : null;
+
     // ② 런웨이의 바닥나는 날 · 받을 돈 · 알림
     const runway = buildRunway({
       transactions,
@@ -134,6 +139,7 @@ export async function GET(req: Request) {
       trust: { months: measure.months, total: measure.total },
       payMail: payMail ? { reads: payMail.reads, attached: payMail.attached } : null,
       apiDays: apiDays ? apiDays.dates : null,
+      keyWatch,
       cash: { start: danger.start, zero: danger.zero?.date ?? null },
       alerts: { active: briefing.alerts.length, new: fresh.length },
       briefing: monday ? briefing.headline : undefined,

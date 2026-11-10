@@ -62,7 +62,7 @@ interface TableRef {
 const text = (s: string) => [{ type: "text", text: { content: s.slice(0, 1900) } }];
 
 /** ERP 폰 확인 화면 (app/neander/tx/[id]) — 알림 댓글 끝 링크 · 노션 줄의 「ERP」 칸 */
-const ERP_ORIGIN = (process.env.NEANDER_PUBLIC_ORIGIN ?? "").trim().replace(/\/+$/, "") || "https://neander-erp.vercel.app";
+export const ERP_ORIGIN = (process.env.NEANDER_PUBLIC_ORIGIN ?? "").trim().replace(/\/+$/, "") || "https://neander-erp.vercel.app";
 export const txCardUrl = (ledgerId: string) => `${ERP_ORIGIN}/neander/tx/${encodeURIComponent(ledgerId)}`;
 
 /** 분류 칸 — 처음 만든 표(판 1)에는 없어서 나중에 붙인다 (ensureColumns). 판 3 = ERP 링크 칸 */

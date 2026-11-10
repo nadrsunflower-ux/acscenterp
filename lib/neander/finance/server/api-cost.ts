@@ -26,6 +26,7 @@ import { createHash } from "crypto";
 import type { Firestore } from "firebase-admin/firestore";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import { fetchUsageSnapshot, managementKey } from "@/lib/neander/shorts/server/ai-usage";
+import { watchNewKeys } from "./key-watch";
 import type { UsageSnapshot } from "@/lib/neander/shorts/ai-usage";
 import { DEFAULT_SPACE, DEFAULT_SPACE_ID } from "@/lib/neander/shorts/spaces";
 import { sanitizeLine, shortId, type FinProjectDoc } from "@/lib/neander/finance/project";
@@ -221,6 +222,8 @@ async function latestDay(db: Firestore): Promise<string | null> {
 
 export async function apiCostView(db: Firestore): Promise<ApiCostView> {
   const live = await fetchUsageSnapshot();
+  // 예고 없이 생긴 키 살피기 (server/key-watch.ts) — 받은 목록을 그대로 넘긴다. 실패해도 화면은 열린다
+  await watchNewKeys(db, { keys: live.keys, source: "api-costs", minIntervalMs: 5 * 60_000 });
 
   // 아침 cron 이 빠졌으면 여기서 메운다 — 마지막으로 받은 날부터 어제까지
   const end = lastCompletedDay(live.at);

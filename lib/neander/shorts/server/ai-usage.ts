@@ -43,8 +43,8 @@ async function orGet<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-/** 지금 상태 — 꺼 둔 키까지 모든 키(여러 쪽) + 계정 충전 · 사용 */
-export async function fetchUsageSnapshot(): Promise<UsageSnapshot> {
+/** 꺼 둔 키까지 모든 키 (여러 쪽) — 새 키 살피기(finance/server/key-watch.ts)도 쓴다 */
+export async function fetchKeySnaps(): Promise<UsageKeySnap[]> {
   const seen = new Map<string, UsageKeySnap>();
   for (let offset = 0, page = 0; page < 20; page++) {
     const r = await orGet<{ data?: Record<string, unknown>[] }>(`/keys?include_disabled=true&offset=${offset}`);
@@ -54,8 +54,14 @@ export async function fetchUsageSnapshot(): Promise<UsageSnapshot> {
     if (!fresh.length) break;
     offset += rows.length;
   }
+  return [...seen.values()];
+}
+
+/** 지금 상태 — 꺼 둔 키까지 모든 키 + 계정 충전 · 사용 */
+export async function fetchUsageSnapshot(): Promise<UsageSnapshot> {
+  const keys = await fetchKeySnaps();
   const c = await orGet<{ data?: { total_credits?: number; total_usage?: number } }>("/credits");
-  return { at: Date.now(), totalCredits: c.data?.total_credits ?? 0, totalUsage: c.data?.total_usage ?? 0, keys: [...seen.values()] };
+  return { at: Date.now(), totalCredits: c.data?.total_credits ?? 0, totalUsage: c.data?.total_usage ?? 0, keys };
 }
 
 const snapsCol = (db: Firestore) => db.collection(NEANDER_COL.shortsAiUsage);
