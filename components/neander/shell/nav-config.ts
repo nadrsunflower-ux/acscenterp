@@ -54,6 +54,7 @@ import {
   TrendingUp,
   Users,
   Wallet,
+  Banknote,
   FolderKanban,
 } from "lucide-react";
 
@@ -131,6 +132,8 @@ export const FINANCE_NAV: NavGroup[] = [
     label: "재무",
     items: [
       { href: "/neander/finance", label: "대시보드", icon: ChartNoAxesColumn, exact: true },
+      // 은행 입출금 문자로 받은 통장별 잔액 · 거래 (잠정 — 장부와 별도)
+      { href: "/neander/finance/daily", label: "자금 일보", icon: Banknote },
       { href: "/neander/finance/ledger", label: "거래 원장", icon: ScrollText },
       { href: "/neander/finance/card", label: "카드 기록", icon: CreditCard },
     ],
