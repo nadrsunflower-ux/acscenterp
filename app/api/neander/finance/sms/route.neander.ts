@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/neander/server/admin";
 import { saveBankSms, smsTokenOk } from "@/lib/neander/finance/server/bank-sms";
+import { notifyNewSms } from "@/lib/neander/finance/server/sms-notify";
 
 // ============================================================
 //  은행 입출금 문자 받기 — 회사 전용폰(매크로드로이드)이 부른다
@@ -15,9 +16,13 @@ import { saveBankSms, smsTokenOk } from "@/lib/neander/finance/server/bank-sms";
 //
 //  ⚠️ 이 문으로 들어온 값은 **장부에 들어가지 않는다** — 받은 편지함에만 쌓인다
 //     (finance/server/bank-sms.ts). 열쇠가 새도 장부를 고칠 수 없다.
+//
+//  새 거래 문자면 노션 「입출금알림」 · 「카드사용알림」에 한 줄 + @멘션 댓글(폰 알림)
+//  (finance/server/sms-notify.ts). 노션이 실패해도 응답은 200 — 저장은 끝났고, 다음 문자 때 다시 보낸다.
 // ============================================================
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 const bearer = (req: Request) => {
   const h = req.headers.get("authorization") ?? "";
@@ -56,5 +61,15 @@ export async function POST(req: Request) {
 
   const r = await saveBankSms(db, { from, text, receivedAt });
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: 400 });
-  return NextResponse.json({ ok: true, id: r.id, duplicate: r.duplicate, read: r.parsed.ok, kind: r.parsed.kind ?? null, amount: r.parsed.amount ?? null });
+  const notion = !r.duplicate && r.parsed.ok ? await notifyNewSms(db, r.id) : null;
+  if (notion?.error) console.error("[finance/sms] 노션 알림", notion.error);
+  return NextResponse.json({
+    ok: true,
+    id: r.id,
+    duplicate: r.duplicate,
+    read: r.parsed.ok,
+    kind: r.parsed.kind ?? r.parsed.card?.approval ?? null,
+    amount: r.parsed.amount ?? null,
+    notion: notion?.state ?? notion?.skipped ?? null,
+  });
 }

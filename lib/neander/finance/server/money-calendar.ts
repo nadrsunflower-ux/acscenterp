@@ -52,10 +52,10 @@ export interface MoneySyncResult {
   warnings?: string[];
 }
 
-const moneyToken = () => process.env.NOTION_MONEY_TOKEN?.trim() ?? "";
+export const moneyToken = () => process.env.NOTION_MONEY_TOKEN?.trim() ?? "";
 
-/** 이 연결로 보내는 노션 요청 — 요청 한도(429) · 과부하(529)는 쉬었다 다시 */
-async function moneyCall<T = any>(method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<T> {
+/** 이 연결로 보내는 노션 요청 — 요청 한도(429) · 과부하(529)는 쉬었다 다시 (입출금 · 카드 알림도 쓴다) */
+export async function moneyCall<T = any>(method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(`https://api.notion.com/v1${path}`, {
       method,
@@ -169,7 +169,7 @@ async function existingRows(dataSourceId: string) {
 }
 
 /** 받는 사람 메일 → 노션 사용자 id */
-async function recipientIds(emails: string[]): Promise<{ ids: string[]; missing: string[] }> {
+export async function recipientIds(emails: string[]): Promise<{ ids: string[]; missing: string[] }> {
   const want = new Set(emails.map((e) => e.toLowerCase()));
   const found = new Map<string, string>();
   let cursor: string | undefined;
@@ -185,13 +185,14 @@ async function recipientIds(emails: string[]): Promise<{ ids: string[]; missing:
 }
 
 /** 멘션 알림 — 댓글이 안 되면(권한 없음) 본문에 멘션 문단 */
-async function notify(pageId: string, userIds: string[], message: string): Promise<"comment" | "block"> {
+export async function notifyMention(pageId: string, userIds: string[], message: string): Promise<"comment" | "block"> {
+  // 멘션은 끝에 — 폰 알림 미리보기가 받는 사람 이름이 아니라 내용부터 보이게
   const rich = [
-    ...userIds.flatMap((id) => [
-      { type: "mention", mention: { type: "user", user: { id } } },
-      { type: "text", text: { content: " " } },
-    ]),
     ...text(message),
+    ...userIds.flatMap((id) => [
+      { type: "text", text: { content: " " } },
+      { type: "mention", mention: { type: "user", user: { id } } },
+    ]),
   ];
   try {
     await moneyCall("POST", "/comments", { parent: { page_id: pageId }, rich_text: rich });
@@ -265,7 +266,7 @@ export async function syncMoneyCalendar(
         for (const d of todo) {
           const pageId = pageOf.get(d.row.key);
           if (!pageId) continue;
-          const mode = await notify(pageId, ids, alertText(d.row, d.lead));
+          const mode = await notifyMention(pageId, ids, alertText(d.row, d.lead));
           sent[d.sentKey] = { at: Date.now(), mode };
           alerts.push({ key: d.sentKey, mode });
         }

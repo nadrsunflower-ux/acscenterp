@@ -2,7 +2,7 @@
 // 첫 시험은 실제 신한 문자 꼴(2026-11-10 받은 것 — 계좌 · 이름 · 금액만 가짜로 바꿈). 나머지는 흔한 꼴을 흉내 낸 것.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { balanceLink, parseBankSms } from "./bank-sms";
+import { balanceLink, matchCardLast4, parseBankSms } from "./bank-sms";
 
 test("실제 신한 꼴 — 은행 이름에 날짜가 붙고 금액 앞 빈칸이 길다", () => {
   const out = parseBankSms("[Web발신]\n신한11/10 02:38\n140-***-**3456\n출금           1\n잔액 29,145,804\n (주)가나다");
@@ -52,6 +52,65 @@ test("실제 우리 출금 꼴 — 받는 분 이름의 「신한」을 은행�
     [p.bank, p.last4, p.kind, p.amount, p.balance, p.when, p.ok],
     ["우리", "3456", "출금", 1, 386_942, "11-10 03:14", true],
   );
+});
+
+test("실제 신한 법인카드 꼴 — 「신한법인승인 끝자리」 한 줄 · 끝의 잔액은 금액이 아니다", () => {
+  // 2026-11-10 받은 것 — 끝자리 · 금액 · 가맹점 · 잔액만 가짜로 바꿈
+  const p = parseBankSms("[Web발신]\n신한법인승인 1234 11/10 17:18 12,340원 가나다페이 잔액1,000,000원");
+  assert.equal(p.channel, "card");
+  assert.equal(p.kind, undefined);
+  assert.deepEqual(
+    [p.ok, p.card?.company, p.card?.last4, p.card?.approval, p.card?.amount, p.card?.merchant, p.card?.remaining, p.when],
+    [true, "신한카드", "1234", "승인", 12_340, "가나다페이", 1_000_000, "11-10 17:18"],
+  );
+  const no = parseBankSms("[Web발신]\n신한법인취소 1234 11/10 17:40 12,340원 가나다페이 잔액1,012,340원");
+  assert.deepEqual([no.card?.approval, no.card?.amount, no.card?.last4], ["취소", 12_340, "1234"]);
+});
+
+test("실제 국민 법인카드 꼴 — 여러 줄 · 「승인」 대신 「사용」 · 끝자리 뒤 (기업)", () => {
+  // 2026-11-10 받은 것 — 끝자리 · 금액 · 가맹점만 가짜로 바꿈
+  const p = parseBankSms("[Web발신]\nKB국민카드\n1234(기업)\n11/10 17:28\n4,560원\n가나다 사용");
+  assert.equal(p.channel, "card");
+  assert.deepEqual(
+    [p.ok, p.card?.company, p.card?.last4, p.card?.approval, p.card?.amount, p.card?.merchant, p.when],
+    [true, "KB국민카드", "1234", "승인", 4_560, "가나다", "11-10 17:28"],
+  );
+  const no = parseBankSms("[Web발신]\nKB국민카드\n1234(기업)\n11/10 17:40\n4,560원\n가나다 사용취소");
+  assert.deepEqual([no.card?.approval, no.card?.amount, no.card?.merchant], ["취소", 4_560, "가나다"]);
+});
+
+test("카드사 안내 · 광고 문자는 카드 거래가 아니다", () => {
+  const notice = parseBankSms("[Web발신]\nKB국민카드 주식회사 가나(1234)님 카드사용알림서비스 변경 완료. 좋은 하루 되세요");
+  assert.equal(notice.ok, false);
+  assert.notEqual(notice.channel, "card");
+  const ad = parseBankSms("(광고)[KB국민카드] 11/30 23:59까지 5,000원 할인 쿠폰 사용하세요");
+  assert.equal(ad.ok, false);
+  assert.notEqual(ad.channel, "card");
+});
+
+test("가린 카드 끝자리(「3*0*」)는 카드 목록에서 하나만 맞을 때 그 카드", () => {
+  const kb = parseBankSms("[Web발신]\nKB국민카드1*3*승인\n가*나님\n8,000원 일시불\n11/10 12:05\n라마바식당\n누적120,000원");
+  assert.deepEqual([kb.card?.company, kb.card?.last4, kb.card?.holder, kb.card?.amount, kb.card?.merchant], ["KB국민카드", "1*3*", "가*나", 8_000, "라마바식당"]);
+  assert.equal(matchCardLast4("1*3*", ["1234", "5678"]), "1234");
+  assert.equal(matchCardLast4("1*3*", ["1234", "1939"]), undefined);
+  assert.equal(matchCardLast4("5678", []), "5678");
+});
+
+test("카드값 출금(적요 「신한카드」)은 은행 출금으로 읽는다", () => {
+  const p = parseBankSms("[Web발신]\n신한11/15 09:00\n140-***-**3456\n출금   3,000,000\n잔액 1,000,000\n 신한카드");
+  assert.deepEqual([p.channel, p.kind, p.amount, p.last4], ["bank", "출금", 3_000_000, "3456"]);
+});
+
+test("카드 승인 문자 (흔한 꼴 — 실제 법인카드 문자 받기 전) — 은행 입출금으로 읽지 않는다", () => {
+  const sh = parseBankSms("[Web발신]\n신한카드(1234)승인\n가*나\n12,000원(일시불)\n11/10 13:22\n가나다상점\n누적1,234,567원");
+  assert.equal(sh.channel, "card");
+  assert.equal(sh.kind, undefined);
+  assert.deepEqual(
+    [sh.ok, sh.card?.company, sh.card?.last4, sh.card?.approval, sh.card?.amount, sh.card?.installment, sh.card?.merchant, sh.card?.cumulative, sh.when],
+    [true, "신한카드", "1234", "승인", 12_000, "일시불", "가나다상점", 1_234_567, "11-10 13:22"],
+  );
+  const kb = parseBankSms("[Web발신]\nKB국민카드5678승인취소\n가*나\n9,900원 일시불\n11/10 14:01\n라마바\n누적100,000원");
+  assert.deepEqual([kb.card?.company, kb.card?.last4, kb.card?.approval, kb.card?.amount], ["KB국민카드", "5678", "취소", 9_900]);
 });
 
 test("거래 문자가 아니면 ok=false", () => {

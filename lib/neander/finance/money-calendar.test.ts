@@ -90,7 +90,8 @@ test("알림 — 3일 전 · 당일만, 낸 회차는 뺀다", () => {
   assert.deepEqual(on13.map((a) => [a.row.rule.id, a.lead, a.sentKey]), [["card-a", 3, "card-a¦2026-11-15¦3"]]);
   assert.equal(dueAlerts(rows, "2026-11-16", [3, 0])[0].lead, 0);
   assert.equal(dueAlerts(rows, "2026-11-14", [3, 0]).length, 0);
-  assert.match(alertText(on13[0].row, 3), /^3일 뒤 11\/16\(월\) · A카드 대금 — 출금통장 통장/);
+  assert.match(alertText(on13[0].row, 3), /^3일 뒤 11\/16\(월\) · (약 [\d.,]+만 원 · )?출금통장$/);
+  assert.match(alertText(on13[0].row, 0), /^오늘 · /);
 });
 
 test("설정 다듬기 — 잘못된 규칙은 버리고 기본 알림은 3일 전 · 당일", () => {

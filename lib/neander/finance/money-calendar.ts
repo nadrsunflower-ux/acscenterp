@@ -258,15 +258,13 @@ export function dueAlerts(rows: MoneyRow[], today: string, leadDays: number[]): 
     .map((x) => ({ ...x, sentKey: `${x.row.key}¦${x.lead}` }));
 }
 
-/** 알림 글 (멘션 뒤에 붙는 부분) */
+/**
+ * 알림 글 — 줄 이름(납부 항목)은 노션 알림에 따로 보이니 여기엔 언제 · 얼마 · 어느 통장만.
+ * 휴일 밀림 · 메모 같은 근거는 표의 「근거」 칸에 있다
+ */
 export function alertText(row: MoneyRow, lead: number): string {
-  const when = lead === 0 ? `오늘 ${shortDate(row.date)}` : `${lead}일 뒤 ${shortDate(row.date)}`;
-  const bits = [`${when} · ${row.rule.label}`];
-  if (row.rule.account) bits.push(`${row.rule.account} 통장`);
-  if (row.last) bits.push(`지난번 ${manwon(row.last.amount)}`);
-  if (row.shifted) bits.push(`${shortDate(row.nominal)}이 쉬는 날이라 밀림`);
-  if (row.rule.note) bits.push(row.rule.note);
-  return bits.join(" — ");
+  const when = lead === 0 ? "오늘" : `${lead}일 뒤 ${shortDate(row.date)}`;
+  return [when, row.last ? `약 ${manwon(row.last.amount)}` : null, row.rule.account ?? null].filter(Boolean).join(" · ");
 }
 
 // ---- 설정 다듬기 ----------------------------------------------------
