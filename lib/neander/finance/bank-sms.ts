@@ -14,7 +14,7 @@
 // ============================================================
 
 /** 읽기 규칙이 바뀌면 올린다 — 예전 판으로 읽은 문자를 다시 읽을 때 쓴다 */
-export const BANK_SMS_PARSER = 4;
+export const BANK_SMS_PARSER = 5;
 
 export interface BankSmsParsed {
   bank?: "신한" | "국민" | "우리" | "카카오뱅크" | "토스" | "기타";
@@ -201,16 +201,33 @@ export function parseBankSms(text: string): BankSmsParsed {
   const acct = t.match(/\d{2,6}[-*]+[\d*-]*?(\d{4})(?!\d)/) ?? t.match(/\*+(\d{4,8})(?!\d)/);
   if (acct) out.last4 = acct[1].slice(-4);
 
-  // 나머지 글 — 숫자 · 낱말을 걷어 내고 남은 이름 (보낸 분 · 받는 분 · 적요로 보이는 것)
-  const memo = t
-    .replace(/\[.*?\]/g, " ")
-    .replace(/(\d{1,2})[/.-](\d{1,2})\s+\d{1,2}:\d{2}/g, " ")
-    .replace(/잔액\s*:?\s*-?[\d,]+\s*원?/g, " ")
-    .replace(/(입금|출금|지급|인출)\s*:?\s*[\d,]+\s*원?/g, " ")
-    .replace(/[\d*,-]{4,}/g, " ")
-    .replace(/신한|국민|우리|카카오뱅크|토스|은행|입금|출금|지급|인출|원/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  // 나머지 글 — 보낸 분 · 받는 분 · 적요. 장부(엑셀)의 거래처와 **같은 글자**여야 자동분류가 이력을 찾는다
+  //   (「KB12345678」의 가맹점 번호가 와우 · 아이디 매장을 가르고, 「2610국민건강」의 앞머리는 귀속월이다).
+  //   여러 줄 꼴(신한 · 우리)은 머리 · 계좌 · 금액 · 잔액 줄을 빼고 남은 줄을 그대로 쓴다.
+  //   한 줄 꼴만 낱말을 걷어 내는데, 이름 **안**의 숫자 · 은행 낱말은 건드리지 않는다
+  const lines = t.split("\n").map((l) => l.trim()).filter(Boolean);
+  const memo =
+    lines.length >= 3
+      ? lines
+          .filter(
+            (l) =>
+              !/^\S{0,8}\s*\d{1,2}[/.-]\d{1,2}\s+\d{1,2}:\d{2}$/.test(l) &&
+              !/^[\d*-]{5,}$/.test(l) &&
+              !/^(입금|출금|지급|인출)\s*:?\s*[\d,]+\s*원?$/.test(l) &&
+              !/^잔액\s*:?\s*-?[\d,]+\s*원?$/.test(l),
+          )
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim()
+      : t
+          .replace(/\[.*?\]/g, " ")
+          .replace(/(\d{1,2})[/.-](\d{1,2})\s+\d{1,2}:\d{2}/g, " ")
+          .replace(/잔액\s*:?\s*-?[\d,]+\s*원?/g, " ")
+          .replace(/(입금|출금|지급|인출)\s*:?\s*[\d,]+\s*원?/g, " ")
+          .replace(/(^|\s)[\d*,-]{4,}(?=\s|$)/g, " ")
+          .replace(/(^|\s)(신한|국민|우리|카카오뱅크|토스|은행|입금|출금|지급|인출)(?=\s|$)/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
   if (memo) out.memo = memo.slice(0, 80);
 
   out.ok = Boolean(out.kind && out.amount && out.amount > 0);

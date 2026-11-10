@@ -11,6 +11,11 @@
 //  받는 사람은 돈 나가는 날과 같다(money-calendar.recipients). sms-feed.notifyRecipients 가
 //  있으면 그것을 쓴다. 노션 연결도 같다(NOTION_MONEY_TOKEN — 재무알림 페이지에 붙어 있다).
 //
+//  ④ 어디에 쓴 돈인가 — 장부와 같은 자동분류 엔진으로 분류하고(이력은 18개월, 10분 기억),
+//     입금은 안 받은 프로젝트 회차와 금액 · 이름을 맞춘다(sms-classify.ts). 노션 줄의 「분류」 칸과
+//     알림 끝(「→ 와우판매」 · 「→ 비품구입비?」 · 「→ 가나 잔금?」)에 붙고, 받은 문자함 classify 에 남는다.
+//     분류가 실패해도 알림은 그대로 간다. 장부에는 넣지 않는다(4주 시험).
+//
 //  노션이 실패해도 문자 저장은 이미 끝났다 — 받은 문자함 문서의 notify.state 를 failed 로
 //  적어 두고, 다음 문자가 올 때 지난 하루 안의 실패분을 다시 보낸다. 줄을 만든 뒤 댓글에서
 //  실패하면 notify.pageId 가 남아 있어 줄을 두 번 만들지 않는다.
@@ -23,6 +28,21 @@ import { NEANDER_COL } from "@/lib/neander/collections";
 import { NotionArchiveError, parseNotionPageId } from "@/lib/neander/notion/archive-client";
 import { BANK_SMS_PARSER, matchCardLast4, parseBankSms, type BankSmsParsed } from "../bank-sms";
 import { shouldPing, smsNotice, type SmsNotice, type SmsNoticeChannel } from "../sms-notify";
+import { buildVendorIndex, classifyOne, type ClassifyContext } from "../classify";
+import type { FinClassRuleDoc } from "../class-rules";
+import type { FinAccountDoc, FinPaymentMethodDoc, FinVendorRuleDoc } from "../db-types";
+import type { FinProjectDoc } from "../project";
+import {
+  certaintyOf,
+  classSuffix,
+  projectCandidates,
+  projectCellText,
+  smsClassInput,
+  smsClassResult,
+  type SmsClassResult,
+} from "../sms-classify";
+import { TRUST_DOC_ID, trustGateOf, type FinTrustDoc } from "../trust";
+import type { FinTransaction } from "../types";
 import { moneyCall, moneyToken, notifyMention, recipientIds } from "./money-calendar";
 
 const FEED_DOC = "sms-feed";
@@ -40,6 +60,16 @@ interface TableRef {
 }
 
 const text = (s: string) => [{ type: "text", text: { content: s.slice(0, 1900) } }];
+
+/** 분류 칸 — 처음 만든 표(판 1)에는 없어서 나중에 붙인다 (ensureColumns) */
+const CLASS_COLUMNS_VERSION = 2;
+const classColumns = (channel: SmsNoticeChannel): Record<string, unknown> => ({
+  분류: { rich_text: {} },
+  사업: { rich_text: {} },
+  확실도: { select: { options: [{ name: "확정", color: "green" }, { name: "제안", color: "yellow" }, { name: "모름", color: "gray" }] } },
+  근거: { rich_text: {} },
+  ...(channel === "inout" ? { "프로젝트 후보": { rich_text: {} } } : {}),
+});
 
 const TABLES: Record<SmsNoticeChannel, { title: string; emoji: string; properties: Record<string, unknown> }> = {
   inout: {
@@ -76,13 +106,22 @@ const TABLES: Record<SmsNoticeChannel, { title: string; emoji: string; propertie
 /** 노션 select 이름에는 쉼표를 못 쓴다 */
 const selectName = (s: string) => s.replace(/,/g, " ").slice(0, 100);
 
-function propsOf(n: SmsNotice) {
+function propsOf(n: SmsNotice, cls?: SmsClassResult | null) {
   const common = {
     이름: { title: text(n.title) },
     시각: { date: { start: n.at } },
     구분: { select: { name: n.kind } },
     금액: { number: n.amount },
     열쇠: { rich_text: text(n.key) },
+    ...(cls
+      ? {
+          분류: { rich_text: text(cls.account ?? "") },
+          사업: { rich_text: text(cls.biz ?? "") },
+          확실도: { select: { name: certaintyOf(cls) } },
+          근거: { rich_text: text(cls.reason) },
+          ...(n.channel === "inout" ? { "프로젝트 후보": { rich_text: text(projectCellText(cls)) } } : {}),
+        }
+      : {}),
   };
   if (n.channel === "inout") {
     return { ...common, 통장: { select: { name: selectName(n.where) } }, 잔액: { number: n.balance ?? null }, 상대: { rich_text: text(n.party ?? "") } };
@@ -97,9 +136,13 @@ function propsOf(n: SmsNotice) {
 }
 
 interface Ctx {
+  db: Firestore;
   feedRef: DocumentReference;
   parentPage?: string;
   tables: Partial<Record<SmsNoticeChannel, TableRef>>;
+  /** 표마다 분류 칸을 붙였나 (판) */
+  columns: Partial<Record<SmsNoticeChannel, number>>;
+  paymentMethods: FinPaymentMethodDoc[];
   userIds: string[];
   minAmount: number;
   nameOf: (kind: "account" | "card", last4: string) => string | undefined;
@@ -125,7 +168,13 @@ async function loadCtx(db: Firestore): Promise<Ctx | { skipped: string }> {
     .filter((e: string) => e.includes("@"));
 
   // 받는 사람 노션 id — 메일 목록이 같으면 저장해 둔 값을 쓴다 (문자마다 사용자 목록을 부르지 않게)
-  const notion = (feed.notion ?? {}) as { inout?: TableRef; card?: TableRef; userIds?: string[]; userKey?: string };
+  const notion = (feed.notion ?? {}) as {
+    inout?: TableRef;
+    card?: TableRef;
+    userIds?: string[];
+    userKey?: string;
+    columns?: Partial<Record<SmsNoticeChannel, number>>;
+  };
   const userKey = [...emails].sort().join(",");
   let userIds = Array.isArray(notion.userIds) ? notion.userIds.map(String) : [];
   if (notion.userKey !== userKey) {
@@ -133,14 +182,18 @@ async function loadCtx(db: Firestore): Promise<Ctx | { skipped: string }> {
     await feedRef.set({ notion: { userIds, userKey } }, { merge: true });
   }
 
-  const methods = pmSnap.docs.map((d) => d.data() as { last4?: string; alias?: string; kind?: string });
+  const paymentMethods = pmSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as FinPaymentMethodDoc[];
+  const methods = paymentMethods as unknown as { last4?: string; alias?: string; kind?: string }[];
   const names = new Map(methods.filter((m) => m.last4 && m.alias).map((m) => [`${m.kind}:${m.last4}`, String(m.alias)]));
   const linkedCards = Array.isArray(feed.linkedCards) ? feed.linkedCards.map(String) : [];
   const allCards = methods.filter((m) => m.kind === "card" && m.last4).map((m) => String(m.last4));
   return {
+    db,
     feedRef,
     parentPage,
     tables: { inout: notion.inout, card: notion.card },
+    columns: { ...(notion.columns ?? {}) },
+    paymentMethods,
     userIds,
     minAmount: Number(notify.minAmount) || 0,
     nameOf: (kind, last4) => names.get(`${kind}:${last4}`),
@@ -151,7 +204,15 @@ async function loadCtx(db: Firestore): Promise<Ctx | { skipped: string }> {
 /** 표가 없으면 재무알림 페이지 아래에 만든다 — 처음 한 번 */
 async function ensureTable(ctx: Ctx, channel: SmsNoticeChannel): Promise<TableRef> {
   const have = ctx.tables[channel];
-  if (have?.dataSourceId) return have;
+  if (have?.dataSourceId) {
+    // 예전에 만든 표에는 분류 칸이 없다 — 한 번 붙인다 (이미 있는 칸은 노션이 그대로 둔다)
+    if ((ctx.columns[channel] ?? 1) < CLASS_COLUMNS_VERSION) {
+      await moneyCall("PATCH", `/data_sources/${have.dataSourceId}`, { properties: classColumns(channel) });
+      ctx.columns[channel] = CLASS_COLUMNS_VERSION;
+      await ctx.feedRef.set({ notion: { columns: { [channel]: CLASS_COLUMNS_VERSION } } }, { merge: true });
+    }
+    return have;
+  }
   const parent = parseNotionPageId(ctx.parentPage ?? "");
   if (!parent) throw new NotionArchiveError(0, "알림 표를 둘 노션 페이지(sms-feed.notionPage)가 없습니다.");
   const spec = TABLES[channel];
@@ -159,13 +220,14 @@ async function ensureTable(ctx: Ctx, channel: SmsNoticeChannel): Promise<TableRe
     parent: { type: "page_id", page_id: parent },
     title: text(spec.title),
     icon: { type: "emoji", emoji: spec.emoji },
-    initial_data_source: { properties: spec.properties },
+    initial_data_source: { properties: { ...spec.properties, ...classColumns(channel) } },
   });
   const dataSourceId: string | undefined = created?.data_sources?.[0]?.id;
   if (!dataSourceId) throw new NotionArchiveError(0, "노션이 표를 만들었지만 데이터 소스 id 를 돌려주지 않았습니다.");
   const ref: TableRef = { databaseId: created.id, dataSourceId, url: created.url ?? null };
-  await ctx.feedRef.set({ notion: { [channel]: ref } }, { merge: true });
+  await ctx.feedRef.set({ notion: { [channel]: ref, columns: { [channel]: CLASS_COLUMNS_VERSION } } }, { merge: true });
   ctx.tables[channel] = ref;
+  ctx.columns[channel] = CLASS_COLUMNS_VERSION;
   return ref;
 }
 
@@ -176,6 +238,51 @@ export async function ensureSmsNotionTables(db: Firestore): Promise<Record<SmsNo
   return { inout: await ensureTable(ctx, "inout"), card: await ensureTable(ctx, "card") };
 }
 
+// ---- 어디에 쓴 돈인가 -------------------------------------------------
+
+/** 엔진이 볼 장부 이력 — 18개월. 문자가 몰려 올 때 장부를 매번 다시 읽지 않게 10분 기억한다 */
+const HISTORY_DAYS = 548;
+const CLASS_TTL_MS = 10 * 60_000;
+let classCache: { at: number; ctx: ClassifyContext; projects: FinProjectDoc[] } | null = null;
+
+async function classData(ctx: Ctx) {
+  if (classCache && Date.now() - classCache.at < CLASS_TTL_MS) return { ...classCache, ctx: { ...classCache.ctx, paymentMethods: ctx.paymentMethods } };
+  const db = ctx.db;
+  const since = new Date(Date.now() + 9 * 3600_000 - HISTORY_DAYS * 86_400_000).toISOString().slice(0, 10);
+  const [tx, ac, vr, cr, trust, pj] = await Promise.all([
+    db.collection(NEANDER_COL.finTransactions).where("date", ">=", since).get(),
+    db.collection(NEANDER_COL.finAccounts).get(),
+    db.collection(NEANDER_COL.finVendorRules).get(),
+    db.collection(NEANDER_COL.finClassRules).get(),
+    db.collection(NEANDER_COL.finSettings).doc(TRUST_DOC_ID).get(),
+    db.collection(NEANDER_COL.finProjects).get(),
+  ]);
+  const rows = <T,>(snap: FirebaseFirestore.QuerySnapshot) => snap.docs.map((d) => ({ id: d.id, ...d.data() }) as T);
+  const engine: ClassifyContext = {
+    vendorIndex: buildVendorIndex(rows<FinTransaction>(tx)),
+    vendorRules: rows<FinVendorRuleDoc>(vr),
+    paymentMethods: ctx.paymentMethods,
+    accounts: rows<FinAccountDoc>(ac),
+    classRules: rows<FinClassRuleDoc>(cr),
+    trust: trustGateOf(trust.exists ? ({ id: trust.id, ...trust.data() } as FinTrustDoc) : null),
+  };
+  classCache = { at: Date.now(), ctx: engine, projects: rows<FinProjectDoc>(pj) };
+  return classCache;
+}
+
+/** 한 건 분류 — 실패하면 null (알림은 분류 없이 간다) */
+async function classifyNotice(ctx: Ctx, n: SmsNotice): Promise<SmsClassResult | null> {
+  try {
+    const { ctx: engine, projects } = await classData(ctx);
+    const sug = classifyOne(smsClassInput(n), engine);
+    const cands = n.channel === "inout" && n.kind === "입금" ? projectCandidates({ amount: n.amount, party: n.party }, projects) : [];
+    return smsClassResult(sug, cands);
+  } catch (e) {
+    console.error("[finance/sms-notify] 분류", e);
+    return null;
+  }
+}
+
 type NotifyState = "sent" | "logged" | "skip";
 
 /** 문자 한 통 → 노션 한 줄 (+ 멘션 댓글) */
@@ -184,6 +291,8 @@ async function sendOne(ctx: Ctx, ref: DocumentReference, data: Record<string, an
     Number(data.parsedWith) >= BANK_SMS_PARSER ? (data.parsed as BankSmsParsed) : parseBankSms(String(data.text ?? ""));
   const n = smsNotice({ id: ref.id, receivedAt: data.receivedAt, createdAt: data.createdAt, parsed }, ctx.nameOf, ctx.resolveCard);
   if (!n) return "skip";
+  const cls = await classifyNotice(ctx, n);
+  if (cls) await ref.update({ classify: { ...cls, at: Date.now() } });
   const prev = (data.notify ?? {}) as { pageId?: string; tries?: number };
   const tries = (Number(prev.tries) || 0) + 1;
   try {
@@ -192,13 +301,13 @@ async function sendOne(ctx: Ctx, ref: DocumentReference, data: Record<string, an
       const table = await ensureTable(ctx, n.channel);
       const page = await moneyCall<any>("POST", "/pages", {
         parent: { type: "data_source_id", data_source_id: table.dataSourceId },
-        properties: propsOf(n),
+        properties: propsOf(n, cls),
       });
       pageId = String(page.id);
       await ref.set({ notify: { state: "row", pageId, channel: n.channel, at: Date.now(), tries } }, { merge: true });
     }
     const ping = shouldPing(n, ctx.minAmount) && ctx.userIds.length > 0;
-    const mode = ping ? await notifyMention(pageId, ctx.userIds, n.message) : null;
+    const mode = ping ? await notifyMention(pageId, ctx.userIds, n.message + classSuffix(cls)) : null;
     const state: NotifyState = ping ? "sent" : "logged";
     await ref.set({ notify: { state, pageId, channel: n.channel, mode, at: Date.now(), tries, error: null } }, { merge: true });
     return state;
@@ -259,4 +368,32 @@ export async function notifyNewSms(db: Firestore, id: string): Promise<SmsNotify
     console.error("[finance/sms-notify] 다시 보내기", e);
   }
   return out;
+}
+
+/**
+ * 이미 만든 노션 줄을 지금 읽기 · 분류로 고친다 (멘션 없이). 읽기 규칙을 고친 뒤 지난 줄을 맞출 때.
+ * 고친 줄 수를 돌려준다.
+ */
+export async function refreshSmsRows(db: Firestore, ids?: string[]): Promise<{ updated: number; skipped?: string }> {
+  const ctx = await loadCtx(db);
+  if ("skipped" in ctx) return { updated: 0, skipped: ctx.skipped };
+  const col = db.collection(NEANDER_COL.finSmsInbox);
+  const docs = ids ? await Promise.all(ids.map((id) => col.doc(id).get())) : (await col.get()).docs;
+  let updated = 0;
+  for (const d of docs) {
+    const x = d.data();
+    const pageId = x?.notify?.pageId;
+    if (!x || !pageId) continue;
+    const parsed = parseBankSms(String(x.text ?? ""));
+    // update — parsed 칸을 통째로 바꾼다 (merge 로 쓰면 예전 판의 칸이 섞여 남는다)
+    await d.ref.update({ parsed: JSON.parse(JSON.stringify(parsed)), parsedWith: BANK_SMS_PARSER });
+    const n = smsNotice({ id: d.id, receivedAt: x.receivedAt, createdAt: x.createdAt, parsed }, ctx.nameOf, ctx.resolveCard);
+    if (!n) continue;
+    await ensureTable(ctx, n.channel);
+    const cls = await classifyNotice(ctx, n);
+    if (cls) await d.ref.update({ classify: { ...cls, at: Date.now() } });
+    await moneyCall("PATCH", `/pages/${pageId}`, { properties: propsOf(n, cls) });
+    updated += 1;
+  }
+  return { updated };
 }

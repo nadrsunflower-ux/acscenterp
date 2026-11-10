@@ -30,6 +30,8 @@ export interface SmsNotice {
   amount: number;
   /** 통장 · 카드 이름 + 끝자리 (표의 칸) */
   where: string;
+  /** 통장 · 카드 끝자리 (가린 카드 번호는 맞춘 뒤) — 자동분류가 이력을 찾는 열쇠 */
+  last4: string;
   /** 통장 잔액 · 카드 문자 속 잔액 */
   balance?: number;
   /** 보낸 분 · 받는 분 · 가맹점 */
@@ -65,6 +67,7 @@ export function smsNotice(
       kind: card.approval,
       amount: card.amount,
       where,
+      last4,
       ...(card.remaining !== undefined ? { balance: card.remaining } : {}),
       ...(party ? { party } : {}),
       ...(card.installment ? { installment: card.installment } : {}),
@@ -86,6 +89,7 @@ export function smsNotice(
     kind: tx.kind,
     amount: tx.amount,
     where,
+    last4: tx.last4,
     ...(tx.balance !== undefined ? { balance: tx.balance } : {}),
     ...(party ? { party } : {}),
   };

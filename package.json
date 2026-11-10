@@ -83,6 +83,7 @@
     "finance:test-bank-sms": "tsx --test lib/neander/finance/bank-sms.test.ts",
     "finance:test-daily-cash": "tsx --test lib/neander/finance/daily-cash.test.ts",
     "finance:test-sms-notify": "tsx --test lib/neander/finance/sms-notify.test.ts",
+    "finance:test-sms-classify": "tsx --test lib/neander/finance/sms-classify.test.ts",
     "finance:verify-contract": "tsx scripts/neander/verify-contract-chat.ts",
     "deck:test": "tsx --test lib/neander/decks/*.test.ts",
     "deck:upload": "tsx --conditions react-server scripts/neander/upload-deck.ts",

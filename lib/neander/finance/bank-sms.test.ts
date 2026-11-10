@@ -14,6 +14,17 @@ test("실제 신한 꼴 — 은행 이름에 날짜가 붙고 금액 앞 빈칸�
   assert.deepEqual([inn.kind, inn.amount, inn.balance, inn.last4], ["입금", 1, 9_643_054, "5432"]);
 });
 
+test("상대 이름은 장부와 같은 글자 그대로 — 가맹점 번호 · 귀속월 앞머리 · 이름 속 은행 낱말", () => {
+  const card = parseBankSms("[Web발신]\n신한11/10 07:01\n140-***-**3456\n입금      95,220\n잔액 29,563,551\n KB12345678");
+  assert.equal(card.memo, "KB12345678");
+  const ins = parseBankSms("[Web발신]\n신한11/10 07:04\n140-***-**3456\n출금   1,237,560\n잔액 8,405,497\n 2610국민건강");
+  assert.equal(ins.memo, "2610국민건강");
+  const woori = parseBankSms("[Web발신]\n우리 11/10 03:14\n*123456\n출금 1원\n신한（주）가나\n잔액 386,942원");
+  assert.equal(woori.memo, "신한（주）가나");
+  const one = parseBankSms("[신한은행] 11/10 13:05 140-***-765432 출금 250,000원 잔액 1,234,567원 원천세 홍길동");
+  assert.equal(one.memo, "원천세 홍길동");
+});
+
 test("여러 줄 꼴 — 입금 · 금액 · 잔액 · 끝 네 자리 · 날짜", () => {
   const p = parseBankSms("[Web발신]\n신한 11/10 09:12\n100-***-123456\n입금      1,000,000\n잔액      5,000,000\n (주)가나다");
   assert.equal(p.bank, "신한");
