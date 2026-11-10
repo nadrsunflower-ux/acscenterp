@@ -575,7 +575,10 @@ export default function ImportPage() {
       }]);
       fxWaiting.current.delete(slot.key);
       setAct(slot.key, { kind: "idle" });
-      toast.success(`${slot.label} — 신규 ${won(saved.inserted)}건 추가 · 기존 ${won(saved.skipped)}건 유지`);
+      toast.success(
+        `${slot.label} — 신규 ${won(saved.inserted)}건 추가 · 기존 ${won(saved.skipped)}건 유지` +
+          (saved.smsMerged ? ` (문자로 먼저 들어온 ${won(saved.smsMerged)}건과 짝 맞춤)` : ""),
+      );
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       if (slotKey) setAct(slotKey, { kind: "error", message, fileName: file.name });

@@ -23,6 +23,8 @@ export interface ImportAppendResult {
   confirmed: number;
   suggested: number;
   needsReview: number;
+  /** 문자로 먼저 들어온 거래와 짝을 맞춰 새로 넣지 않은 수 (skipped 에도 들어 있다 · sms-ledger.ts) */
+  smsMerged: number;
 }
 
 export const MAX_IMPORT_APPEND_ROWS = 5_000;

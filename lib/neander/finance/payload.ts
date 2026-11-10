@@ -21,12 +21,15 @@
 
 export const FIN_HIDDEN_FIELDS = ["dedupHash", "importBatchId", "createdAt", "updatedBy"] as const;
 
-/** 적재 원본의 중복 키는 사람이 유형·거래처·금액을 고쳐도 바뀌지 않는다. */
+/**
+ * 적재 원본의 중복 키는 사람이 유형·거래처·금액을 고쳐도 바뀌지 않는다.
+ * 문자로 먼저 들어온 거래(smsId)도 같다 — 임시 키를 엑셀 짝 맞추기만 바꾼다 (sms-ledger.ts).
+ */
 export function preserveImportDedup(
   patch: Record<string, unknown>,
   before?: Record<string, unknown>,
 ): Record<string, unknown> {
-  if ((before?.importBatchId || before?.expenseClaim) && typeof before.dedupHash === "string" && before.dedupHash && "dedupHash" in patch) {
+  if ((before?.importBatchId || before?.expenseClaim || before?.smsId) && typeof before.dedupHash === "string" && before.dedupHash && "dedupHash" in patch) {
     return { ...patch, dedupHash: before.dedupHash };
   }
   return patch;

@@ -14,11 +14,12 @@ import { notifyNewSms } from "@/lib/neander/finance/server/sms-notify";
 //  원문에 따옴표 · 줄바꿈이 섞여도 깨지지 않게 text/plain 을 기본으로 둔다
 //  (매크로드로이드의 [sms_message] 를 본문에 그대로 넣으면 된다).
 //
-//  ⚠️ 이 문으로 들어온 값은 **장부에 들어가지 않는다** — 받은 편지함에만 쌓인다
-//     (finance/server/bank-sms.ts). 열쇠가 새도 장부를 고칠 수 없다.
-//
-//  새 거래 문자면 노션 「입출금알림」 · 「카드사용알림」에 한 줄 + @멘션 댓글(폰 알림)
+//  받은 문자는 받은 편지함에 원문 그대로 남고(finance/server/bank-sms.ts), 거래 문자면
+//    · ERP 에 있는 통장 · 카드의 것은 장부에 바로 한 줄 — 엑셀과 같은 자동분류, 잠정(smsOpen) 표시.
+//      월말 엑셀이 짝을 맞추면 잠정이 빠진다 (finance/sms-ledger.ts · server/import-append.ts)
+//    · 노션 「입출금알림」 · 「카드사용알림」에 한 줄 + @멘션 댓글(폰 알림) · ERP 확인 링크
 //  (finance/server/sms-notify.ts). 노션이 실패해도 응답은 200 — 저장은 끝났고, 다음 문자 때 다시 보낸다.
+//  ⚠️ 열쇠가 새면 가짜 거래가 잠정으로 들어올 수 있다 — 월말 엑셀에 없으면 「문자에만 있음」으로 남는다.
 // ============================================================
 
 export const dynamic = "force-dynamic";

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
-import type { Firestore } from "firebase-admin/firestore";
+import { FieldValue, type Firestore } from "firebase-admin/firestore";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import type { FinPaymentMethodDoc } from "../db-types";
 import { buildFinSlots } from "../import-slots";
@@ -12,6 +12,7 @@ import {
   type ImportAppendResult,
 } from "../import-append";
 import { netAmount, TX_TYPES, type FinTransactionInput } from "../types";
+import { matchSmsRow, type SmsOpenRow } from "../sms-ledger";
 
 export class ImportAppendError extends Error {
   constructor(message: string, readonly status = 400, readonly partial?: ImportAppendResult) { super(message); }
@@ -75,7 +76,7 @@ function parseInput(raw: ImportAppendInput): ImportAppendInput {
   return { fileName, fileHash, month, slotKey, adapterId, from: raw.from, to: raw.to, last4s: [...new Set(raw.last4s)], rows };
 }
 
-const emptyResult = (id: string): ImportAppendResult => ({ id, inserted: 0, skipped: 0, income: 0, expense: 0, confirmed: 0, suggested: 0, needsReview: 0 });
+const emptyResult = (id: string): ImportAppendResult => ({ id, inserted: 0, skipped: 0, income: 0, expense: 0, confirmed: 0, suggested: 0, needsReview: 0, smsMerged: 0 });
 function countAdded(result: ImportAppendResult, row: FinTransactionInput) {
   result.inserted++;
   const amount = netAmount(row);
@@ -117,12 +118,27 @@ export async function appendFinanceImport(db: Firestore, by: string, raw: Import
         for (let index = 0; index < hashes.length; index += 30) {
           hashQueries.push(transactionCol.where("dedupHash", "in", hashes.slice(index, index + 30)).select("dedupHash", "splitGroup"));
         }
-        const [batchDoc, methods, imports, splits, ...matches] = await Promise.all([
+        // 문자로 먼저 들어와 아직 엑셀과 짝이 없는 거래 (sms-ledger.ts) — 이 파일의 계좌 · 기간만
+        const [batchDoc, methods, imports, splits, smsOpenSnap, ...matches] = await Promise.all([
           tx.get(batchRef), tx.get(db.collection(NEANDER_COL.finPaymentMethods)),
           tx.get(db.collection(NEANDER_COL.finImports).where("slotKey", "==", input.slotKey)),
           tx.get(transactionCol.where("splitNo", ">=", 1).select("dedupHash", "splitGroup")),
+          tx.get(transactionCol.where("smsOpen", "==", true)),
           ...hashQueries.map((query) => tx.get(query)),
         ]);
+        // 사람이 나눈 문자 거래(split.ts)는 조각을 한 묶음으로 — 금액은 나누기 전 금액, 잔액은 첫 조각
+        type OpenDoc = SmsOpenRow & { note?: string; vendorKind?: string; splitGroup?: string; splitNo?: number; splitTotal?: number };
+        const openDocs = smsOpenSnap.docs
+          .map((doc) => ({ ...(doc.data() as Omit<OpenDoc, "id">), id: doc.id }))
+          .filter((row) => row.last4 && input.last4s.includes(row.last4) && row.date >= input.from && row.date <= input.to);
+        const smsGroups = new Map<string, OpenDoc[]>();
+        openDocs.forEach((row) => smsGroups.set(row.splitGroup || row.id, [...(smsGroups.get(row.splitGroup || row.id) ?? []), row]));
+        const smsOpen: (SmsOpenRow & { members: OpenDoc[] })[] = [...smsGroups.entries()].map(([groupId, members]) => {
+          const root = members.find((row) => row.id === groupId) ?? members[0];
+          return { id: groupId, date: root.date, datetime: root.datetime, last4: root.last4, gross: root.splitTotal ?? root.gross,
+            adjust: root.adjust, balanceAfter: root.balanceAfter, txType: root.txType, members };
+        });
+        const smsUsed = new Set<string>();
         const slot = buildFinSlots(methods.docs.map((doc) => ({ ...doc.data(), id: doc.id }) as FinPaymentMethodDoc)).find((candidate) => candidate.key === input.slotKey);
         assert(slot && slot.bank.adapterId === input.adapterId, "선택한 계좌·카드 칸과 파일 양식이 다릅니다.");
         assert(!slot.from || slot.from <= input.month, "계좌를 열기 전 달에는 적재할 수 없습니다.");
@@ -145,14 +161,38 @@ export async function appendFinanceImport(db: Firestore, by: string, raw: Import
         const fresh: FinTransactionInput[] = [];
         const counted = new Map([...sources].map(([hash, ids]) => [hash, ids.size]));
         const current = emptyResult(batchId);
+        const smsMerges: { id: string; row: FinTransactionInput }[] = [];
         chunk.forEach(({ row, occurrence }) => {
           if (occurrence <= (counted.get(row.dedupHash) ?? 0)) { current.skipped++; return; }
+          // 문자로 먼저 들어온 같은 거래 — 새로 넣지 않고 그 줄에 엑셀 값을 얹는다 (분류 · 연결은 그대로)
+          const smsId = matchSmsRow(row, smsOpen, smsUsed);
+          if (smsId) {
+            smsUsed.add(smsId);
+            smsMerges.push({ id: smsId, row });
+            counted.set(row.dedupHash, (counted.get(row.dedupHash) ?? 0) + 1);
+            current.skipped++;
+            current.smsMerged++;
+            return;
+          }
           fresh.push(row);
           counted.set(row.dedupHash, (counted.get(row.dedupHash) ?? 0) + 1);
           countAdded(current, row);
         });
         const now = Date.now();
         fresh.forEach((row) => tx.create(transactionCol.doc(), clean({ ...row, importBatchId: batchId, createdAt: now })));
+        // 짝 맞춘 문자 줄 — 중복 키 · 거래처 · 시각 · 잔액은 엑셀(정본)로, 메모 · 업종은 비었을 때만.
+        // importBatchId 는 붙이지 않는다 — 이 파일을 되돌려도 문자 줄(과 사람이 한 분류)은 남는다
+        //   나눈 조각은 나누기와 같은 규칙으로 키를 잇는다 (첫 조각 = 엑셀 키, 나머지 = 키#splitN)
+        const mergeWrites = smsMerges.flatMap(({ id, row }) => (smsOpen.find((item) => item.id === id)?.members ?? []).map((member) => ({ member, row })));
+        mergeWrites.forEach(({ member, row }) => {
+          const first = !member.splitNo || member.splitNo <= 1;
+          tx.update(transactionCol.doc(member.id), clean({
+            dedupHash: first ? row.dedupHash : `${row.dedupHash}#split${member.splitNo}`,
+            vendor: row.vendor, datetime: row.datetime, balanceAfter: first ? row.balanceAfter : undefined,
+            note: member.note ? undefined : row.note, vendorKind: member.vendorKind ? undefined : row.vendorKind,
+            smsOpen: FieldValue.delete(), smsMatchedAt: now, smsMatchBatch: batchId, updatedAt: now, updatedBy: by,
+          }) as Record<string, FieldValue | string | number | boolean>);
+        });
         const inserted = (Number(previous?.inserted) || 0) + current.inserted;
         const processedRows = Math.max(Number(previous?.processedRows) || 0, offset + chunk.length);
         tx.set(batchRef, clean({ fileName: input.fileName, fileHash: input.fileHash, month: input.month, slotKey: input.slotKey,
@@ -163,7 +203,7 @@ export async function appendFinanceImport(db: Firestore, by: string, raw: Import
           byEmail: previous?.byEmail ?? by, updatedAt: now, updatedBy: by }));
         // 파일 없는 「거래 없음」 표시만 거둔다. 기존 실제 파일 배치·거래는 그대로 둔다.
         imports.docs.filter((doc) => doc.id !== batchId && doc.data().month === input.month && doc.data().noActivity === true)
-          .slice(0, 500 - fresh.length - 2)
+          .slice(0, Math.max(0, 500 - fresh.length - mergeWrites.length - 2))
           .forEach((doc) => tx.delete(doc.ref));
         tx.set(lockRef, { updatedAt: now, updatedBy: by });
         return current;

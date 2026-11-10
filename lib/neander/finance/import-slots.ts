@@ -252,8 +252,9 @@ export function finPuzzleOf(
       confirmed,
       suggested,
       needsReview,
-      filled: !!batch || rows.length > 0,
-      noActivity: !!batch?.noActivity && rows.length === 0,
+      // 문자로만 들어온 잠정 거래(smsOpen)로는 칸을 채우지 않는다 — 그 달 엑셀은 따로 올려야 한다
+      filled: !!batch || rows.some((t) => !t.smsOpen),
+      noActivity: !!batch?.noActivity && !rows.some((t) => !t.smsOpen),
     };
   });
   const filled = pieces.filter((p) => p.filled).length;

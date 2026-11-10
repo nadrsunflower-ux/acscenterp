@@ -462,6 +462,69 @@ async function main() {
       assert.deepEqual(financialState(db), before);
     }
   });
+  // ---- 문자로 먼저 들어온 거래와 짝 맞추기 (sms-ledger.ts) ----
+  const smsRow = (id: string, patch: Partial<FinTransaction> = {}) => {
+    const row = sourceRow(1, { dedupHash: `sms¦${id}`, smsId: id, smsOpen: true, balanceAfter: 500_000, status: "confirmed",
+      projectCode: "사람이 붙인 프로젝트", acctMinor: "구독서비스비", note: undefined, ...patch });
+    const { id: _id, ...data } = row;
+    return Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
+  };
+  await check("문자로 먼저 들어온 거래는 엑셀 줄과 짝을 맞춰 새로 넣지 않고 분류·프로젝트를 보존한다", async () => {
+    const db = fixture();
+    db.put(C.finTransactions, "sms-a", smsRow("a"));
+    const excel = sourceRow(1, { balanceAfter: 500_000, vendor: "엑셀의 거래처", datetime: "2026-10-29 10:00:00", note: "엑셀 메모" });
+    const result = await append(db, input([excel]));
+    assert.equal(result.inserted, 0);
+    assert.equal(result.smsMerged, 1);
+    const rows = transactions(db);
+    assert.equal(rows.length, 1);
+    const merged = rows[0] as FinTransaction;
+    assert.equal(merged.id, "sms-a");
+    assert.equal(merged.smsOpen, undefined);
+    assert.equal(merged.dedupHash, excel.dedupHash);
+    assert.equal(merged.vendor, "엑셀의 거래처");
+    assert.equal(merged.note, "엑셀 메모");
+    assert.equal(merged.projectCode, "사람이 붙인 프로젝트");
+    assert.equal(merged.importBatchId, undefined, "되돌리기가 문자 줄을 지우지 않게");
+    // 같은 파일을 다시 올려도 겹치지 않는다
+    await append(db, input([excel], { fileName: "다시 올림.xlsx" }));
+    assert.equal(transactions(db).length, 1);
+  });
+  await check("통장 문자는 잔액이 다르면 짝이 아니다 — 엑셀 줄은 새로 들어가고 문자 줄은 잠정으로 남는다", async () => {
+    const db = fixture();
+    db.put(C.finTransactions, "sms-b", smsRow("b", { balanceAfter: 999 }));
+    const result = await append(db, input([sourceRow(1, { balanceAfter: 500_000 })]));
+    assert.equal(result.inserted, 1);
+    assert.equal(result.smsMerged, 0);
+    assert.equal((transactions(db).find((row) => row.id === "sms-b") as FinTransaction).smsOpen, true);
+  });
+  await check("사람이 나눈 문자 거래는 조각 묶음(나누기 전 금액)으로 짝을 맞추고 조각마다 원본 키를 잇는다", async () => {
+    const db = fixture();
+    const root = { ...smsRow("c"), id: "sms-c" } as unknown as FinTransaction;
+    const split = buildSplit(root as FinTransaction & Data, [{ gross: 4000 }, { gross: root.gross - 4000, projectCode: "조각 프로젝트" }], 2, by);
+    db.put(C.finTransactions, "sms-c", { ...smsRow("c"), ...split.rootPatch });
+    db.put(C.finTransactions, "sms-c-2", split.children[0]);
+    const excel = sourceRow(1, { balanceAfter: 500_000 });
+    const result = await append(db, input([excel]));
+    assert.equal(result.inserted, 0);
+    assert.equal(result.smsMerged, 1);
+    const rows = transactions(db) as FinTransaction[];
+    assert.equal(rows.length, 2);
+    assert(rows.every((row) => row.smsOpen === undefined));
+    assert.equal(rows.find((row) => row.id === "sms-c")!.dedupHash, excel.dedupHash);
+    assert.equal(rows.find((row) => row.id === "sms-c-2")!.dedupHash, `${excel.dedupHash}#split2`);
+    assert.equal(rows.reduce((sum, row) => sum + row.gross, 0), excel.gross);
+    await append(db, input([excel], { fileName: "다시 올림.xlsx" }));
+    assert.equal(transactions(db).length, 2);
+  });
+  await check("다른 계좌·기간 밖의 문자 거래는 건드리지 않는다", async () => {
+    const db = fixture();
+    db.put(C.finTransactions, "sms-d", smsRow("d", { last4: "4223" }));
+    db.put(C.finTransactions, "sms-e", smsRow("e", { date: "2026-09-29" }));
+    const result = await append(db, input([sourceRow(1, { balanceAfter: 500_000 })]));
+    assert.equal(result.inserted, 1);
+    assert.equal(transactions(db).filter((row) => (row as FinTransaction).smsOpen).length, 2);
+  });
   console.log(`\n${checked}개 검증 통과 — 메모리 DB만 사용했습니다.`);
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -185,10 +185,16 @@ export async function recipientIds(emails: string[]): Promise<{ ids: string[]; m
 }
 
 /** 멘션 알림 — 댓글이 안 되면(권한 없음) 본문에 멘션 문단 */
-export async function notifyMention(pageId: string, userIds: string[], message: string): Promise<"comment" | "block"> {
+export async function notifyMention(
+  pageId: string,
+  userIds: string[],
+  message: string,
+  link?: { label: string; url: string },
+): Promise<"comment" | "block"> {
   // 멘션은 끝에 — 폰 알림 미리보기가 받는 사람 이름이 아니라 내용부터 보이게
   const rich = [
     ...text(message),
+    ...(link ? [{ type: "text", text: { content: " " } }, { type: "text", text: { content: link.label, link: { url: link.url } } }] : []),
     ...userIds.flatMap((id) => [
       { type: "text", text: { content: " " } },
       { type: "mention", mention: { type: "user", user: { id } } },

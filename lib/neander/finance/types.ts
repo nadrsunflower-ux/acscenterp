@@ -172,6 +172,18 @@ export interface FinTransaction {
    */
   balanceAfter?: number;
 
+  // ---- 문자로 먼저 들어온 거래 (sms-ledger.ts) ----
+  /** 통장 · 카드 문자로 먼저 들어온 거래 — 받은 문자함 문서 id. 엑셀과 짝이 맞아도 남는다 */
+  smsId?: string;
+  /**
+   * 문자로만 들어와 아직 월말 엑셀과 짝을 못 맞춘 거래 (잠정). 엑셀 임포트가 짝을 찾으면 빠진다.
+   * 임포트 퍼즐은 이 거래로 칸을 채우지 않는다 — 문자만 있다고 그 달 엑셀을 빠뜨리지 않게.
+   */
+  smsOpen?: boolean;
+  /** 엑셀과 짝을 맞춘 때 · 그 임포트 배치 (되돌리기와 상관없게 importBatchId 는 안 쓴다) */
+  smsMatchedAt?: number;
+  smsMatchBatch?: string;
+
   createdAt: number;
   updatedAt?: number;
   /** 마지막으로 분류를 고친 사람 (팀원 id) */

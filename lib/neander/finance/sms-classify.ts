@@ -24,6 +24,9 @@ export function smsClassInput(n: Pick<SmsNotice, "channel" | "kind" | "party" | 
 }
 
 export interface ProjectCandidate {
+  /** 프로젝트 문서 id · 회차 id — 「받음」 처리(project.markReceived)에 쓴다 */
+  projectId?: string;
+  installmentId?: string;
   code: string;
   name: string;
   /** 선금 · 중도금 · 잔금 */
@@ -56,7 +59,10 @@ const namesMeet = (party: string, client: string) => {
  * 입금 → 아직 안 받은 프로젝트 회차 후보. 금액(청구액)이 같아야 하고, 이름이 닮은 것을 앞에.
  * 금액만 같은 후보가 셋 이상이면 우연일 수 있어 이름이 닮은 것만 남긴다.
  */
-export function projectCandidates(deposit: { amount: number; party?: string }, projects: Pick<FinProjectDoc, "code" | "name" | "client" | "status" | "vatMode" | "installments">[]): ProjectCandidate[] {
+export function projectCandidates(
+  deposit: { amount: number; party?: string },
+  projects: (Pick<FinProjectDoc, "code" | "name" | "client" | "status" | "vatMode" | "installments"> & { id?: string })[],
+): ProjectCandidate[] {
   const out: ProjectCandidate[] = [];
   for (const p of projects) {
     if (p.status === "cancelled") continue;
@@ -64,7 +70,15 @@ export function projectCandidates(deposit: { amount: number; party?: string }, p
       if (isInstallmentReceived(i)) continue;
       const billed = installmentSplit(i, p.vatMode).total;
       if (Math.round(billed) !== Math.round(deposit.amount)) continue;
-      out.push({ code: p.code, name: p.name, kind: i.kind, billed, nameMatch: !!deposit.party && !!p.client && namesMeet(deposit.party, p.client) });
+      out.push({
+        ...(p.id ? { projectId: p.id } : {}),
+        installmentId: i.id,
+        code: p.code,
+        name: p.name,
+        kind: i.kind,
+        billed,
+        nameMatch: !!deposit.party && !!p.client && namesMeet(deposit.party, p.client),
+      });
     }
   }
   out.sort((a, b) => Number(b.nameMatch) - Number(a.nameMatch));
