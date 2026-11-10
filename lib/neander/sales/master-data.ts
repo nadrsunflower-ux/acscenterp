@@ -370,8 +370,8 @@ export const SEED_PRODUCTS: SalesProduct[] = [
   //     관리 화면에서 별칭 한 줄만 더하면 된다.
   //
   //     긴 별칭이 이기므로(resolve.ts byAlias) `saju_perfume/50ml` 가 `50ml`
-  //     보다 먼저 걸린다. 그래야 사주 50ml(44,000)이 일반 50ml(48,000)로
-  //     잘못 잡히지 않는다.
+  //     보다 먼저 걸린다. 그래야 사주 50ml 이 일반 50ml 로 잘못 잡히지 않는다
+  //     (지금은 둘 다 48,000 이라 금액으로는 가를 수 없다).
   //  ⚠️ 판매가가 시트마다 다르다. 기본가정 시트는 「10ml 28,000 · 50ml
   //     38,000(배송비 포함)」인데, 온라인 시트의 7월 실적은 10ml 7건
   //     168,000원(= 24,000/개) · 50ml 6건 288,000원(= 48,000/개) 이다.
@@ -412,22 +412,25 @@ export const SEED_PRODUCTS: SalesProduct[] = [
     price: 4_000, material: 3_597, timeMin: 0, makeMin: 0, bottles: 1,
     // `/scent_paper` 는 상품유형을 가리지 않는 꼬리 매칭이다 — 어느 향수를
     // 사든 시향지 옵션은 같은 품목이다 (image_analysis/scent_paper 등)
-    aliases: ["시향지", "/scent_paper"],
+    // image_analysis_paper/set 은 /programs/sample 의 시향지 단독 상품이다 (옵션 키가 다르다)
+    aliases: ["시향지", "/scent_paper", "image_analysis_paper/set"],
     note: "공헌이익률 10% — 팔아도 남지 않는다",
   },
   // ---- 2026-09 온라인에서도 사주 상품을 판다 (사용자 확인 · 8월 온라인 적재에서 추가) ----
-  //  온라인 가격은 오프라인과 다르다 — 사주 50ml 44,000 · 10ml 22,000 · 클리커 12,900.
+  //  가격은 사이트(admin_product_pricing)와 같다 — 사주 50ml 48,000 · 10ml 24,000 · 클리커 12,900.
+  //  처음에 적었던 44,000/22,000 은 오프라인 8월 실청구가(IDI-016·017)로, 온라인 판매 줄에는
+  //  그 값이 없어 과거 구간을 두지 않는다 (2026-11-09 사이트와 대조해 고침).
   //  재료비는 같은 용량의 온라인 향수(포장·택배 포함)와 같다고 가정한다.
   {
     id: "ONL-005", store: "online", kind: "regular", name: "오행 퍼퓸", option: "50ml",
-    price: 44_000, material: 8_218, timeMin: 0, makeMin: 10, bottles: 1,
+    price: 48_000, material: 8_218, timeMin: 0, makeMin: 10, bottles: 1,
     aliases: ["오행 퍼퓸 50ml", "사주 50ml", "saju_perfume/50ml"],
     unconfirmed: true,
     note: "사주 · 재료비는 온라인 50ml(ONL-002)와 같다고 가정",
   },
   {
     id: "ONL-006", store: "online", kind: "regular", name: "오행 퍼퓸", option: "10ml",
-    price: 22_000, material: 5_116, timeMin: 0, makeMin: 10, bottles: 1,
+    price: 24_000, material: 5_116, timeMin: 0, makeMin: 10, bottles: 1,
     aliases: ["오행 퍼퓸 10ml", "사주 10ml", "saju_perfume/10ml"],
     unconfirmed: true,
     note: "사주 · 재료비는 온라인 10ml(ONL-001)와 같다고 가정",

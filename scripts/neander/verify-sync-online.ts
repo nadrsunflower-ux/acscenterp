@@ -225,9 +225,9 @@ function main() {
 
   // ---- ⑨ 사주 상품 (별칭이 정확히 갈리는가) ------------------------
   {
-    const o = order({ id: "A9", items: [item("i1", "saju_perfume", "50ml", 44_000)] });
+    const o = order({ id: "A9", items: [item("i1", "saju_perfume", "50ml", 48_000)] });
     const r = mapOnlineOrder(o, ctx, NOW);
-    console.log("\n⑨ 사주 50ml 44,000 (일반 50ml 48,000 과 갈려야 한다)");
+    console.log("\n⑨ 사주 50ml 48,000 (일반 50ml 과 금액이 같아도 별칭으로 갈려야 한다)");
     check("오행 퍼퓸으로", r.lines[0]?.productId === "ONL-005", r.lines[0]?.productId ?? "(미확정)");
   }
 
@@ -238,8 +238,9 @@ function main() {
       ["image_analysis", "50ml", 48_000, "ONL-002"],
       ["figure_diffuser", "set", 48_000, "ONL-003"],
       ["image_analysis", "scent_paper", 4_000, "ONL-004"],
-      ["saju_perfume", "50ml", 44_000, "ONL-005"],
-      ["saju_perfume", "10ml", 22_000, "ONL-006"],
+      ["image_analysis_paper", "set", 4_000, "ONL-004"],
+      ["saju_perfume", "50ml", 48_000, "ONL-005"],
+      ["saju_perfume", "10ml", 24_000, "ONL-006"],
       ["saju_perfume", "clicker", 12_900, "ONL-007"],
       ["chemistry_set", "set_10ml", 44_000, "ONL-008"],
       ["chemistry_set", "set_50ml", 88_000, "ONL-009"],
