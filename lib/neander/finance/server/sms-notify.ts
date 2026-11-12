@@ -9,7 +9,9 @@
 //       금액이 notify.minAmount 아래면 줄만 남기고 댓글은 안 단다(기본 0 = 전부)
 //
 //  받는 사람은 돈 나가는 날과 같다(money-calendar.recipients). sms-feed.notifyRecipients 가
-//  있으면 그것을 쓴다. 노션 연결도 같다(NOTION_MONEY_TOKEN — 재무알림 페이지에 붙어 있다).
+//  있으면 그것을 쓴다. 표마다 따로 정하려면 sms-feed.channelRecipients.{inout|card} — 있으면
+//  그 표는 그 목록만 쓴다(노션 계정 메일 기준 — ERP 메일과 다를 수 있다).
+//  노션 연결도 같다(NOTION_MONEY_TOKEN — 재무알림 페이지에 붙어 있다).
 //
 //  ④ 어디에 쓴 돈인가 — 장부와 같은 자동분류 엔진으로 분류하고(server/classify-context.ts),
 //     입금은 안 받은 프로젝트 회차와 금액 · 이름을 맞춘다(sms-classify.ts). 노션 줄의 「분류」 칸과
@@ -25,7 +27,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import type { DocumentReference, Firestore } from "firebase-admin/firestore";
+import { FieldValue, type DocumentReference, type Firestore } from "firebase-admin/firestore";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import { NotionArchiveError, parseNotionPageId } from "@/lib/neander/notion/archive-client";
 import { BANK_SMS_PARSER, matchCardLast4, parseBankSms, type BankSmsParsed } from "../bank-sms";
@@ -149,7 +151,8 @@ interface Ctx {
   /** 표마다 분류 칸을 붙였나 (판) */
   columns: Partial<Record<SmsNoticeChannel, number>>;
   paymentMethods: FinPaymentMethodDoc[];
-  userIds: string[];
+  /** 표마다 멘션할 노션 사용자 id */
+  userIds: Record<SmsNoticeChannel, string[]>;
   minAmount: number;
   nameOf: (kind: "account" | "card", last4: string) => string | undefined;
   resolveCard: (last4: string) => string;
@@ -174,24 +177,31 @@ async function loadCtx(db: Firestore): Promise<Ctx> {
       : undefined;
   const money = moneySnap.data() ?? {};
   const parentPage = String(feed.notionPage ?? money.notionPage ?? "") || undefined;
-  const emails = (Array.isArray(feed.notifyRecipients) ? feed.notifyRecipients : Array.isArray(money.recipients) ? money.recipients : [])
-    .map(String)
-    .filter((e: string) => e.includes("@"));
+  const cleanEmails = (v: unknown): string[] =>
+    (Array.isArray(v) ? v : []).map((e) => String(e).trim().toLowerCase()).filter((e) => e.includes("@"));
+  const base = cleanEmails(Array.isArray(feed.notifyRecipients) ? feed.notifyRecipients : money.recipients);
+  const byChannel = (feed.channelRecipients ?? {}) as Partial<Record<SmsNoticeChannel, unknown>>;
+  const emailsOf = (ch: SmsNoticeChannel) => (Array.isArray(byChannel[ch]) ? cleanEmails(byChannel[ch]) : base);
+  const emails: Record<SmsNoticeChannel, string[]> = { inout: emailsOf("inout"), card: emailsOf("card") };
 
   // 받는 사람 노션 id — 메일 목록이 같으면 저장해 둔 값을 쓴다 (문자마다 사용자 목록을 부르지 않게)
   const notion = (feed.notion ?? {}) as {
     inout?: TableRef;
     card?: TableRef;
-    userIds?: string[];
+    userMap?: Record<string, string>;
     userKey?: string;
     columns?: Partial<Record<SmsNoticeChannel, number>>;
   };
-  const userKey = [...emails].sort().join(",");
-  let userIds = Array.isArray(notion.userIds) ? notion.userIds.map(String) : [];
-  if (!notionOff && notion.userKey !== userKey) {
-    userIds = emails.length ? (await recipientIds(emails)).ids : [];
-    await feedRef.set({ notion: { userIds, userKey } }, { merge: true });
+  const allEmails = [...new Set([...emails.inout, ...emails.card])].sort();
+  const userKey = allEmails.join(",");
+  let userMap: Record<string, string> = notion.userMap && typeof notion.userMap === "object" ? notion.userMap : {};
+  if (!notionOff && (notion.userKey !== userKey || !notion.userMap)) {
+    userMap = allEmails.length ? (await recipientIds(allEmails)).byEmail : {};
+    // update — 지도를 통째로 바꾼다 (merge 면 뺀 사람이 남는다). 예전 판의 userIds 는 지운다
+    await feedRef.update({ "notion.userMap": userMap, "notion.userKey": userKey, "notion.userIds": FieldValue.delete() });
   }
+  const idsOf = (ch: SmsNoticeChannel) => emails[ch].map((e) => userMap[e]).filter((id): id is string => !!id);
+  const userIds: Record<SmsNoticeChannel, string[]> = { inout: idsOf("inout"), card: idsOf("card") };
 
   const paymentMethods = pmSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as FinPaymentMethodDoc[];
   const methods = paymentMethods as unknown as { last4?: string; alias?: string; kind?: string }[];
@@ -303,9 +313,10 @@ async function sendOne(ctx: Ctx, ref: DocumentReference, data: Record<string, an
       pageId = String(page.id);
       await ref.set({ notify: { state: "row", pageId, channel: n.channel, at: Date.now(), tries } }, { merge: true });
     }
-    const ping = shouldPing(n, ctx.minAmount) && ctx.userIds.length > 0;
+    const pingIds = ctx.userIds[n.channel];
+    const ping = shouldPing(n, ctx.minAmount) && pingIds.length > 0;
     const link = ledgerId ? { label: "확인", url: txCardUrl(ledgerId) } : undefined;
-    const mode = ping ? await notifyMention(pageId, ctx.userIds, n.message + classSuffix(cls), link) : null;
+    const mode = ping ? await notifyMention(pageId, pingIds, n.message + classSuffix(cls), link) : null;
     const state: NotifyState = ping ? "sent" : "logged";
     await ref.set({ notify: { state, pageId, channel: n.channel, mode, at: Date.now(), tries, error: null } }, { merge: true });
     return state;

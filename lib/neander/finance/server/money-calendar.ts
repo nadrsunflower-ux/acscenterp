@@ -168,8 +168,10 @@ async function existingRows(dataSourceId: string) {
   return out;
 }
 
-/** 받는 사람 메일 → 노션 사용자 id */
-export async function recipientIds(emails: string[]): Promise<{ ids: string[]; missing: string[] }> {
+/** 받는 사람 메일 → 노션 사용자 id (byEmail 열쇠는 소문자 메일) */
+export async function recipientIds(
+  emails: string[],
+): Promise<{ ids: string[]; missing: string[]; byEmail: Record<string, string> }> {
   const want = new Set(emails.map((e) => e.toLowerCase()));
   const found = new Map<string, string>();
   let cursor: string | undefined;
@@ -181,7 +183,7 @@ export async function recipientIds(emails: string[]): Promise<{ ids: string[]; m
     }
     cursor = res.has_more ? res.next_cursor : undefined;
   } while (cursor);
-  return { ids: [...found.values()], missing: [...want].filter((e) => !found.has(e)) };
+  return { ids: [...found.values()], missing: [...want].filter((e) => !found.has(e)), byEmail: Object.fromEntries(found) };
 }
 
 /** 멘션 알림 — 댓글이 안 되면(권한 없음) 본문에 멘션 문단 */

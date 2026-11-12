@@ -29,9 +29,11 @@ test("카드 승인 · 취소 → 카드사용알림", () => {
   assert.equal(sh.channel, "card");
   assert.deepEqual([sh.kind, sh.amount, sh.where, sh.party, sh.balance], ["승인", 12_340, "(신법)가나다 1234", "가나페이", 1_000_000]);
   assert.equal(sh.title, "가나페이");
-  assert.equal(sh.message, "12,340원 · (신법)가나다");
+  // 카드 문자 속 잔액도 끝에 (신한 = 남은 한도)
+  assert.equal(sh.message, "12,340원 · (신법)가나다 · 잔액 1,000,000원");
   const kb = smsNotice(doc("d", "[Web발신]\nKB국민카드\n5678(기업)\n11/10 17:28\n4,560원\n라마 사용취소"), names)!;
   assert.equal(kb.title, "라마");
+  // 국민카드 문자에는 잔액이 없다 → 안 붙는다
   assert.equal(kb.message, "취소 4,560원 · (국법)식대");
 });
 

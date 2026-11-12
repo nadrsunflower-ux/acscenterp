@@ -7,7 +7,9 @@
 //  한 건이 한 줄이고, 그 줄에 받는 사람을 @멘션한 댓글을 달아 폰 알림이 가게 한다.
 //  노션 알림에는 줄 이름과 댓글이 같이 보인다 — 겹치지 않게 나눈다(사용자 요청: 핵심만).
 //    줄 이름 = 누구 · 어디서 (상대 · 가맹점)      댓글 = 입금/출금 · 금액 · 통장(카드) · 잔액
-//  이모지 · 시각(알림에 시각이 붙는다) · 카드 문자 속 잔액(뜻이 확인 안 됨)은 알림에서 뺀다.
+//  이모지 · 시각(알림에 시각이 붙는다)은 알림에서 뺀다.
+//  카드 문자 속 잔액도 댓글 끝에 붙인다(사용자 요청 2026-11-12). 신한 법인카드는 모든 신한
+//  법인카드가 같이 쓰는 남은 한도이고, 국민카드 문자에는 잔액이 없어 안 붙는다.
 // ============================================================
 
 import type { BankSmsParsed } from "./bank-sms";
@@ -62,7 +64,14 @@ export function smsNotice(
       channel: "card",
       key: doc.id,
       title: party ?? "가맹점 모름",
-      message: [`${cancel ? "취소 " : ""}${won(card.amount)}`, alias ?? where, inst].filter(Boolean).join(" · "),
+      message: [
+        `${cancel ? "취소 " : ""}${won(card.amount)}`,
+        alias ?? where,
+        inst,
+        card.remaining !== undefined ? `잔액 ${won(card.remaining)}` : undefined,
+      ]
+        .filter(Boolean)
+        .join(" · "),
       at: `${card.date}T${card.time}:00+09:00`,
       kind: card.approval,
       amount: card.amount,
