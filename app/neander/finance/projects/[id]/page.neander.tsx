@@ -106,6 +106,9 @@ import { DeliveryDate } from "@/components/neander/finance/DeliveryDate";
 import { DueInput } from "@/components/neander/finance/DueInput";
 import { isTypingInto } from "@/components/neander/finance/sheetCells";
 import { RichNoteEditor } from "@/components/neander/finance/RichNoteEditor";
+import { EquipmentConflictList, EquipmentStepper, mdRange } from "@/components/neander/finance/EquipmentFields";
+import { equipmentByDay, equipmentConflicts, equipmentRange, hasEquipment } from "@/lib/neander/finance/equipment";
+import { calName } from "@/lib/neander/finance/project-calendar";
 import {
   CHECKLIST_LAYOUT_KEY,
   DEFAULT_ZOOM,
@@ -274,6 +277,8 @@ function toInput(p: FinProjectDoc): FinProjectInput {
     deliveryDate: p.deliveryDate,
     bizMinor: p.bizMinor,
     entities: p.entities ? [...p.entities] : undefined,
+    // 장비 배정 — 빠지면 화면에서 한 번 저장하는 순간 배정이 사라진다
+    equipment: p.equipment ? { ...p.equipment } : undefined,
     contractAmount: p.contractAmount ?? 0,
     vatMode: p.vatMode,
     installments: p.installments?.map((i) => ({ ...i })),
@@ -797,6 +802,16 @@ function ProjectDetailEditor({ id }: { id: string }) {
     }
   };
 
+  // ---- 장비 겹침 — 고치는 중인 초안으로 다른 프로젝트와 견준다 ----
+  const equipRange = form ? equipmentRange(form) : null;
+  const equipConflicts = useMemo(() => {
+    if (!form || !id) return [];
+    const list = projects.some((p) => p.id === id)
+      ? projects.map((p) => (p.id === id ? { ...p, ...form, id } : p))
+      : [...projects, { ...form, id }];
+    return equipmentConflicts(equipmentByDay(list)).filter((c) => c.users.some((u) => u.id === id));
+  }, [projects, form, id]);
+
   // ---- 렌더 --------------------------------------------------
 
   if (loading) return <LoadingState />;
@@ -949,6 +964,18 @@ function ProjectDetailEditor({ id }: { id: string }) {
               <span className="nd-num text-nd-caption text-nd-fg-3">
                 · 납기 <DeliveryDate project={form} />
               </span>
+            )}
+            {/* 다른 탭에 있어도 보이게 — 자세한 날짜는 개요의 「장비 배정」 */}
+            {equipConflicts.length > 0 && (
+              <button
+                type="button"
+                onClick={() => goTab("overview")}
+                className="inline-flex items-center gap-1 rounded-nd-sm bg-nd-danger-soft px-1.5 py-0.5 text-nd-caption font-semibold text-nd-danger-text"
+                title={equipConflicts.map((c) => `${mdRange(c.from, c.to)} ${c.kind === "photobooth" ? "포토부스" : "키오스크"} ${c.need}대 필요 · 보유 ${c.owned}대`).join("\n")}
+              >
+                <Icon icon={CircleAlert} size={13} />
+                장비 겹침 {equipConflicts.length}건
+              </button>
             )}
           </span>
         }
@@ -1167,6 +1194,25 @@ function ProjectDetailEditor({ id }: { id: string }) {
                 placeholder="계약 조건, 부가세 기준, 정산 일정 …"
               />
             </div>
+          </Card>
+
+          {/* ---- 장비 배정 ---- */}
+          <Card as="section" aria-label="장비 배정" padding="sm" className="mb-5">
+            <SectionHeader
+              title="장비 배정"
+              hint="같은 날 다른 프로젝트와 더해 보유 대수를 넘으면 여기와 프로젝트 달력에 알립니다"
+            />
+            <EquipmentStepper value={form.equipment} onChange={(equipment) => edit((f) => ({ ...f, equipment }))} />
+            <p className="mt-3 text-[13px] text-nd-fg-2">
+              {equipRange
+                ? `쓰는 날 ${mdRange(equipRange.from, equipRange.to)} — 설치 첫날(납기)부터 행사 끝날까지로 셉니다.`
+                : "진행 기간 · 납기를 적으면 다른 프로젝트와 겹치는지 셉니다."}
+            </p>
+            {equipConflicts.length > 0 ? (
+              <EquipmentConflictList className="mt-2" conflicts={equipConflicts} me={id} name={calName} />
+            ) : hasEquipment(form.equipment) && equipRange ? (
+              <p className="mt-2 text-[14px] text-nd-success-text">겹쳐서 모자라는 날이 없습니다.</p>
+            ) : null}
           </Card>
 
           {/* ---- 남은 일 · 다음엔 ---- */}

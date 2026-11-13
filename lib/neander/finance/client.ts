@@ -19,6 +19,7 @@ import type { FinCardMemoView, ReceiptRead } from "./card-memo";
 import type { FinChatDoc, FinChatSummary } from "./chat-log";
 import type { CalendarSnapshot, GcalCalendar } from "./calendar";
 import type { FinProjectDoc, FinProjectInput, ProjectDigest } from "./project";
+import type { ProjectEquipment } from "./equipment";
 import type { FinDoc, FinDocFile, FinDocInput } from "./docs";
 import type {
   FinAccountDoc,
@@ -619,6 +620,10 @@ export const setFinProjectDue = (
   id: string,
   due: { installmentId?: string; dueDate: string; dueApprox?: "early" | "mid" | "late" },
 ) => mutate<{ ok: true; created: boolean }>("project.setDue", { id, ...due });
+
+/** 장비 배정만 고친다 (프로젝트 달력). 다 0 이면 지운다 — 다른 칸은 서버가 그대로 둔다 */
+export const setFinProjectEquipment = (id: string, equipment: ProjectEquipment) =>
+  mutate<{ ok: true; equipment: ProjectEquipment | null }>("project.setEquipment", { id, equipment });
 
 // ---- 프로젝트 문서 (견적서·계약서) --------------------------------
 

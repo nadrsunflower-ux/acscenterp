@@ -31,6 +31,7 @@ import type { FinTransaction } from "./types";
 import { expenseAmount, incomeAmount, refundAmount } from "./types";
 import { todayStrKST } from "../format";
 import { reconcileNoteRich, sanitizeNoteRich, type NoteRich } from "./rich-note";
+import { sanitizeEquipment, type ProjectEquipment } from "./equipment";
 
 export const PROJECT_STATUSES = ["planning", "active", "done", "cancelled"] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
@@ -573,6 +574,11 @@ export interface FinProjectDoc {
   bizMinor?: string;
   /** 매출을 낸 사업체 (계약·세금계산서 주체). 원장 사업장과 같은 이름. 비우면 원장 입금으로 추정 */
   entities?: ProjectEntity[];
+  /**
+   * 장비 배정 — 포토부스 · 키오스크 몇 대를 쓰는지. 설치 첫날(납기)부터 행사 끝날까지
+   * 잡히고, 같은 날 보유 대수를 넘으면 달력 · 상세 화면이 알린다 (equipment.ts).
+   */
+  equipment?: ProjectEquipment;
   /** 계약 금액. 이 값이 공급가액인지 총액인지는 vatMode 가 정한다 */
   contractAmount: number;
   /** 계약금액의 부가세 기준. 비우면 「부가세 별도」 */
@@ -1129,6 +1135,7 @@ export function sanitizeProject(
         const list = PROJECT_ENTITIES.filter((e) => picked.has(e));
         return list.length > 0 ? list : undefined;
       })(),
+      equipment: sanitizeEquipment(raw.equipment),
       contractAmount: Math.round(num(raw.contractAmount) ?? 0),
       vatMode: vatMode(raw.vatMode) ?? "excluded",
       installments: installments.length > 0 ? installments : undefined,

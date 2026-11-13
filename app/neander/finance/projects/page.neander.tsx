@@ -12,7 +12,8 @@
 //  빠졌는지 살펴보라는 신호다.
 //
 //  화면 구성은 승인 목업(all-pages/finance-projects.png)을 따른다:
-//  제목 줄 → 상태 탭 → 검색 → 핵심 지표 → 표 → 쪽 넘김.
+//  제목 줄 → 상태 탭 → 검색 → 프로젝트 달력 → 핵심 지표 → 표 → 쪽 넘김.
+//  달력(ProjectCalendar)은 표와 같은 묶음의 진행 기간 · 납기와 날마다의 장비 겹침을 그린다.
 //  「새 프로젝트」는 Dialog 다 — 인라인 카드로 열면 그 아래 지표와 표가
 //  통째로 밀려서, 폼을 쓰는 동안 방금 보던 숫자를 잃는다.
 //
@@ -81,6 +82,7 @@ import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { ColumnMenu } from "@/components/neander/finance/ColumnMenu";
 import { AutoCodeBox } from "@/components/neander/finance/AutoCode";
 import { DeliveryDate } from "@/components/neander/finance/DeliveryDate";
+import { ProjectCalendar } from "@/components/neander/finance/ProjectCalendar";
 import { PairedMoney, UnsplitMoney } from "@/components/neander/finance/PairedMoney";
 import { saveFinProject } from "@/lib/neander/finance/client";
 import { nextCode, saveWithAutoCode, takenCodes } from "@/lib/neander/finance/codes";
@@ -200,6 +202,7 @@ export default function ProjectsPage() {
     [baseRows, filters, sort],
   );
   const filterCount = activeProjectFilterCount(filters);
+  const calendarProjects = useMemo(() => rows.filter((r) => r.p.status !== "cancelled").map((r) => r.p), [rows]);
 
   // 쪽을 넘긴 채로 조건을 바꾸면 빈 쪽이 보인다 — 조건이 바뀌면 첫 쪽으로
   const resetPage = () => setPage(1);
@@ -417,6 +420,10 @@ export default function ProjectsPage() {
               </button>)}
             </div>
           )}
+
+          {/* 표와 같은 묶음(탭 · 검색 · 열 필터)을 달력에 — 취소는 뺀다.
+              장비 겹침은 거름과 상관없이 모든 프로젝트로 센다 */}
+          <ProjectCalendar className="mb-4" projects={calendarProjects} allProjects={projects} onChanged={refresh} />
 
           <div className="mb-4 grid min-w-0 gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(270px,1fr)]">
             <Card as="section" aria-label="프로젝트 손익" padding="none" className="min-w-0">

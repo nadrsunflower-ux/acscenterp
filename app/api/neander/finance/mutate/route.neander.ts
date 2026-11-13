@@ -20,6 +20,8 @@ import { readForLog, writeLog } from "@/lib/neander/finance/server/tx-log";
 import { installmentSplit } from "@/lib/neander/finance/project";
 import { isCovered, receiptKey } from "@/lib/neander/finance/receivables";
 import { netAmount } from "@/lib/neander/finance/types";
+import { sanitizeEquipment } from "@/lib/neander/finance/equipment";
+import { FieldValue } from "firebase-admin/firestore";
 
 // 재무 쓰기 전체. 액션 하나로 모아둔 이유는 인증 게이트를 한 곳에서만
 // 통과시키기 위해서다 — 라우트가 흩어지면 한 군데 빠뜨리기 쉽다.
@@ -906,6 +908,24 @@ export async function POST(req: Request) {
         });
         if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
         return NextResponse.json(out);
+      }
+
+      case "project.setEquipment": {
+        // 장비 배정만 고친다 — 프로젝트 달력에서 막대를 눌러 대수를 바꿀 때.
+        // 문서를 통째로 보내면 그 사이 상세 화면에서 고친 칸을 덮으므로(setDue 와 같은 이유)
+        // 서버가 이 칸 하나만 바꾼다. 다 0 이면 칸을 지운다.
+        const { id, equipment } = payload as { id?: string; equipment?: unknown };
+        if (!id) return NextResponse.json({ error: "id 가 필요합니다." }, { status: 400 });
+        const next = sanitizeEquipment(equipment);
+        const ref = db.collection(NEANDER_COL.finProjects).doc(id);
+        const out = await db.runTransaction(async (tx) => {
+          const snap = await tx.get(ref);
+          if (!snap.exists) return { error: "프로젝트가 없습니다.", status: 404 };
+          tx.update(ref, { equipment: next ?? FieldValue.delete(), updatedAt: now, updatedBy: user.email });
+          return { ok: true as const };
+        });
+        if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
+        return NextResponse.json({ ok: true, equipment: next ?? null });
       }
 
       case "project.save": {
