@@ -16,7 +16,7 @@
 //  EXACT_FROM 앞의 날은 시간별 기록이 없어 오전 9시에 끊긴 하루다 (「9시 기준」 표시).
 // ============================================================
 
-import { Fragment, useCallback, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, Cpu, RefreshCw, Trash2 } from "lucide-react";
 import {
@@ -55,8 +55,10 @@ import { useAppData } from "@/components/neander/app-data";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import {
   addDays,
+  agoText,
   API_COST_LINE_ID,
   API_TARGET_KIND_LABEL,
+  bizTargetId,
   COMMON_LABEL,
   costRows,
   dayLabel,
@@ -64,11 +66,13 @@ import {
   isManualApiLine,
   keyDay,
   krwOf,
+  lastUses,
   modelsLine,
   parseTargetKey,
   projectApiCost,
   rangeLabel,
   shortDate,
+  splitBizId,
   spansFromSlots,
   sumByKey,
   sumByTarget,
@@ -80,6 +84,7 @@ import {
   type ApiKeyAlloc,
   type ApiKeyDay,
   type ApiKeySum,
+  type ApiLastUse,
   type ApiTarget,
   type ApiTargetSum,
 } from "@/lib/neander/finance/api-cost";
@@ -99,6 +104,30 @@ import type { FinProjectDoc } from "@/lib/neander/finance/project";
 import { OWNER_GROUP_LABEL } from "@/lib/neander/shorts/ai-usage";
 
 const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
+
+/** 화면 위쪽 환율 (1달러 = ?원) — 달러 옆 원화 어림에 쓴다 */
+const RateContext = createContext(0);
+/** 달러를 원화 어림으로 — 1원이 안 되면 빈 문자열 */
+const wonOf = (usd: number, rate: number) => {
+  const krw = krwOf(usd, rate);
+  return rate > 0 && krw >= 1 ? won(krw) : "";
+};
+/** 달러 + 옆에 원화 어림. 원화는 칸 색을 따라 옅게 */
+function Usd({ usd }: { usd: number }) {
+  const rate = useContext(RateContext);
+  const krw = wonOf(usd, rate);
+  return (
+    <span className="whitespace-nowrap">
+      {usdText(usd)}
+      {krw && <span className="ml-1.5 opacity-60">{krw}</span>}
+    </span>
+  );
+}
+/** 글자로만 쓸 때 — `$4.31 (6,163원)` */
+const usdWon = (usd: number, rate: number) => {
+  const krw = wonOf(usd, rate);
+  return krw ? `${usdText(usd)} (${krw})` : usdText(usd);
+};
 const errText = (e: unknown) => (e instanceof Error ? e.message : "알 수 없는 오류");
 
 // ---- 붙일 곳 고르기 ---------------------------------------------------
@@ -107,12 +136,20 @@ interface TargetBook {
   active: FinProjectDoc[];
   done: FinProjectDoc[];
   spaces: ApiCostView["spaces"];
+  /** 장부에 쓰인 사업구분 (많이 쓴 것부터) — SMOAT · 아이디 · 와우 … */
+  biz: { id: string; label: string }[];
   /** 재무 데이터(거래 포함)를 처음 받는 중 — 프로젝트 목록이 아직 비어 있다 */
   loading: boolean;
   label: (t: ApiTarget | null) => string;
 }
 
 const projectOption = (p: FinProjectDoc) => `${p.name} · ${p.code}`;
+/** `B2C|SMOAT` → `SMOAT · B2C` (대분류와 소분류가 같으면 하나만) */
+const bizLabel = (id: string) => {
+  const b = splitBizId(id);
+  if (!b) return id;
+  return b.major === b.minor ? b.minor : `${b.minor} · ${b.major}`;
+};
 
 function TargetSelect({
   book,
@@ -139,7 +176,8 @@ function TargetSelect({
     value === "common:" ||
     book.active.some((p) => `fin:${p.id}` === value) ||
     book.done.some((p) => `fin:${p.id}` === value) ||
-    book.spaces.some((s) => `studio:${s.id}` === value);
+    book.spaces.some((s) => `studio:${s.id}` === value) ||
+    book.biz.some((b) => `biz:${b.id}` === value);
   return (
     <Select size={size} value={value} disabled={disabled} aria-label={ariaLabel} className={className} onChange={(e) => onChange(e.target.value)}>
       <option value="">{none}</option>
@@ -152,6 +190,14 @@ function TargetSelect({
               {s.name}
             </option>
           ))}
+      </optgroup>
+      <optgroup label="사업구분 (장부)">
+        {book.loading && book.biz.length === 0 && <option disabled>불러오는 중…</option>}
+        {book.biz.map((b) => (
+          <option key={b.id} value={`biz:${b.id}`}>
+            {b.label}
+          </option>
+        ))}
       </optgroup>
       <optgroup label="재무 프로젝트 · 진행 중">
         {book.loading && <option disabled>불러오는 중…</option>}
@@ -217,6 +263,7 @@ function KeyDetail({
   onAlloc: (a: ApiKeyAlloc) => void;
 }) {
   const toast = useToast();
+  const rate = useContext(RateContext);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [anchor, setAnchor] = useState<number | null>(null);
   const [openDays, setOpenDays] = useState<Set<string>>(new Set());
@@ -358,7 +405,9 @@ function KeyDetail({
                           <Checkbox aria-label={`${dayLabel(row.kd.date)} ${Number(row.h.hour)}시 고르기`} checked={on} readOnly tabIndex={-1} className="pointer-events-none" />
                         </Td>
                         <Td className="whitespace-nowrap pl-7 text-nd-fg-2">{Number(row.h.hour)}시</Td>
-                        <Td num>{usdText(row.h.usd)}</Td>
+                        <Td num>
+                          <Usd usd={row.h.usd} />
+                        </Td>
                         <Td num muted>
                           {row.h.requests.toLocaleString("ko-KR")}
                         </Td>
@@ -376,7 +425,7 @@ function KeyDetail({
                   const pickedHours = slots.filter((s) => selected.has(s)).length;
                   const whole = pickedHours === slots.length;
                   const open = openDays.has(kd.date);
-                  const splitText = kd.splits.map((g) => `${book.label(g.target)} ${usdText(g.usd)}`).join(" · ");
+                  const splitText = kd.splits.map((g) => `${book.label(g.target)} ${usdWon(g.usd, rate)}`).join(" · ");
                   return (
                     <Tr key={kd.date} selected={whole} className="cursor-pointer" onClick={(e: MouseEvent) => toggle(i, e.shiftKey)}>
                       <Td className="w-9">
@@ -411,7 +460,9 @@ function KeyDetail({
                         )}
                         {pickedHours > 0 && !whole && <span className="ml-2 text-nd-accent-strong">{pickedHours}시간 고름</span>}
                       </Td>
-                      <Td num>{usdText(kd.usd)}</Td>
+                      <Td num>
+                        <Usd usd={kd.usd} />
+                      </Td>
                       <Td num muted>
                         {kd.requests.toLocaleString("ko-KR")}
                       </Td>
@@ -443,7 +494,7 @@ function KeyDetail({
       {spans.length > 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-nd-md border border-nd-accent/30 bg-nd-accent-soft/50 px-3 py-2.5">
           <span className="nd-num text-nd-table font-medium text-nd-fg">
-            {spans.length === 1 ? rangeLabel(spans[0], year) : `${spans.length}개 구간`} · {usdText(pickedUsd)}
+            {spans.length === 1 ? rangeLabel(spans[0], year) : `${spans.length}개 구간`} · <Usd usd={pickedUsd} />
           </span>
           <TargetSelect book={book} value="" none="어디에 붙일까요" onChange={(k) => k && applySpans(k)} disabled={busy} ariaLabel="고른 시간을 붙일 곳" className="w-full sm:w-80" />
           <Button size="sm" variant="secondary" disabled={busy} onClick={() => applySpans("")}>
@@ -522,9 +573,31 @@ function KeyDetail({
 
 // ---- 키 표 ----------------------------------------------------------
 
+/** 마지막으로 쓴 때 — 날 · 시간 · 얼마나 지났나, 아래에 그 시간 쓴 돈 · 모델 */
+function LastUseCell({ use, now, year }: { use: ApiLastUse | undefined; now: number; year: string }) {
+  if (!use) return <span className="text-nd-fg-4">—</span>;
+  const rate = useContext(RateContext);
+  const ago = agoText(use, now);
+  const fresh = ago === "이번 시간" || /^\d+시간 전$/.test(ago);
+  const when = `${use.date.slice(0, 4) !== (year || use.date.slice(0, 4)) ? `${use.date.slice(0, 4)}/` : ""}${dayLabel(use.date)}${use.hour !== undefined ? ` ${Number(use.hour)}시` : ""}`;
+  const what = [usdWon(use.usd, rate), ...use.models].join(" · ");
+  return (
+    <div className="min-w-0" title={`${when} · ${ago}\n${what} · 요청 ${use.requests.toLocaleString("ko-KR")}건`}>
+      <div className="nd-num flex items-center gap-1.5 whitespace-nowrap text-nd-fg">
+        {fresh && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-nd-success" aria-hidden />}
+        {when}
+        <span className={fresh ? "font-medium text-nd-success-text" : "text-nd-fg-3"}>· {ago}</span>
+      </div>
+      <div className="truncate text-nd-table text-nd-fg-3">{what}</div>
+    </div>
+  );
+}
+
 function KeyTable({
   items,
   days,
+  lastUse,
+  now,
   allocs,
   book,
   year,
@@ -536,6 +609,9 @@ function KeyTable({
 }: {
   items: { meta: ApiKeyMeta; sum: ApiKeySum | null }[];
   days: ApiDayDoc[];
+  /** 키마다 마지막으로 쓴 때 (기간과 상관없이 쌓인 기록 전체) · 그 기준 시각 */
+  lastUse: Map<string, ApiLastUse>;
+  now: number;
   allocs: Record<string, ApiKeyAlloc>;
   book: TargetBook;
   year: string;
@@ -547,11 +623,12 @@ function KeyTable({
 }) {
   return (
     <TableScroll>
-      <Table size="sm" minWidth={860}>
+      <Table size="sm" minWidth={1100}>
         <thead>
           <tr>
             <Th className="w-8" />
             <Th>키</Th>
+            <Th className="w-[300px]">최근 사용</Th>
             <Th className="w-[360px]">기본으로 붙일 곳</Th>
             <Th align="right">이 기간</Th>
             <Th align="right">안 정함</Th>
@@ -580,12 +657,17 @@ function KeyTable({
                     </div>
                     <div className="text-nd-table text-nd-fg-3">{ownerName(meta.owner)}</div>
                   </Td>
+                  <Td className="max-w-[300px]">
+                    <LastUseCell use={lastUse.get(meta.hash)} now={now} year={year} />
+                  </Td>
                   <Td onClick={(e) => e.stopPropagation()}>
                     <TargetSelect book={book} value={targetKey(alloc?.default)} onChange={(k) => onDefault(meta, k)} ariaLabel={`${meta.name} 기본으로 붙일 곳`} className="w-full" />
                   </Td>
-                  <Td num>{usdText(sum?.usd ?? 0)}</Td>
+                  <Td num>
+                    <Usd usd={sum?.usd ?? 0} />
+                  </Td>
                   <Td num className={cn((sum?.unassigned ?? 0) > 0 ? "text-nd-warning-text" : "text-nd-fg-3")}>
-                    {usdText(sum?.unassigned ?? 0)}
+                    <Usd usd={sum?.unassigned ?? 0} />
                   </Td>
                   <Td num muted>
                     {sum?.days ?? 0}
@@ -596,7 +678,7 @@ function KeyTable({
                 </Tr>
                 {open && (
                   <tr>
-                    <td colSpan={7} className="border-b border-nd-line p-0">
+                    <td colSpan={8} className="border-b border-nd-line p-0">
                       <KeyDetail meta={meta} days={days} alloc={alloc} book={book} year={year} onAlloc={onAlloc} />
                     </td>
                   </tr>
@@ -694,7 +776,9 @@ function PushDialog({
                       <Td muted className="nd-num">
                         {rangeLabel(p, year)}
                       </Td>
-                      <Td num>{usdText(p.usd)}</Td>
+                      <Td num>
+                        <Usd usd={p.usd} />
+                      </Td>
                     </Tr>
                   ))}
                 </tbody>
@@ -735,7 +819,7 @@ function PushDialog({
 const Kpi = ({ children }: { children: ReactNode }) => <span className="nd-num">{children}</span>;
 
 export default function ApiCostsPage() {
-  const { projects, loading: financeLoading, refresh } = useFinance();
+  const { projects, transactions, loading: financeLoading, refresh } = useFinance();
   const { members } = useAppData();
   const toast = useToast();
   const [resp, setResp] = useState<ApiCostResponse | null>(null);
@@ -774,6 +858,22 @@ export default function ApiCostsPage() {
   const inPeriod = useCallback((date: string) => activePeriod === "all" || date.startsWith(activePeriod), [activePeriod]);
   const rows = useMemo(() => allRows.filter((r) => inPeriod(r.date)), [allRows, inPeriod]);
   const periodDays = useMemo(() => (view?.days ?? []).filter((d) => inPeriod(d.date)), [view, inPeriod]);
+  // 마지막으로 쓴 때 — 고른 달과 상관없이 쌓인 기록 전체에서
+  const lastUse = useMemo(() => lastUses(view?.days ?? []), [view]);
+
+  // 사업구분 후보 — 장부에 쓰인 대분류 · 소분류 쌍, 많이 쓴 것부터 (해당없음 · 빈 칸 · 몇 건 안 되는 것은 뺀다)
+  const bizUnits = useMemo(() => {
+    const count = new Map<string, number>();
+    for (const t of transactions) {
+      if (!t.bizMajor || !t.bizMinor || t.bizMajor === "해당없음" || t.bizMinor === "해당없음") continue;
+      const id = bizTargetId(t.bizMajor, t.bizMinor);
+      if (splitBizId(id)) count.set(id, (count.get(id) ?? 0) + 1);
+    }
+    return [...count.entries()]
+      .filter(([, n]) => n >= 3)
+      .sort((a, b) => b[1] - a[1])
+      .map(([id]) => ({ id, label: bizLabel(id) }));
+  }, [transactions]);
 
   const book = useMemo<TargetBook>(() => {
     const byStart = (a: FinProjectDoc, b: FinProjectDoc) => String(b.startDate ?? "").localeCompare(String(a.startDate ?? "")) || a.name.localeCompare(b.name);
@@ -783,15 +883,17 @@ export default function ApiCostsPage() {
       active: projects.filter(open).sort(byStart),
       done: projects.filter((p) => !open(p)).sort(byStart),
       spaces,
+      biz: bizUnits,
       loading: financeLoading && projects.length === 0,
       label: (t) => {
         if (!t) return "안 정함";
         if (t.kind === "common") return "공통 · 내부";
+        if (t.kind === "biz") return bizLabel(t.id);
         if (t.kind === "studio") return spaces.find((s) => s.id === t.id)?.name ?? "(없는 채널)";
         return projects.find((p) => p.id === t.id)?.name ?? (financeLoading && projects.length === 0 ? "불러오는 중…" : "(지운 프로젝트)");
       },
     };
-  }, [projects, financeLoading, view]);
+  }, [projects, financeLoading, view, bizUnits]);
 
   const ownerName = useCallback(
     (owner: string) => {
@@ -932,136 +1034,138 @@ export default function ApiCostsPage() {
   const pushProject = pushFor ? projects.find((p) => p.id === pushFor) : undefined;
 
   return (
-    <PageShell>
-      {header}
+    <RateContext.Provider value={rate}>
+      <PageShell>
+        {header}
 
-      <div className="flex flex-col gap-5">
-        {view.synced.error && <InlineNotice tone="warning">오픈라우터에서 새 기록을 받지 못했습니다 — {view.synced.error}</InlineNotice>}
+        <div className="flex flex-col gap-5">
+          {view.synced.error && <InlineNotice tone="warning">오픈라우터에서 새 기록을 받지 못했습니다 — {view.synced.error}</InlineNotice>}
 
-        <Select
-          aria-label="기간"
-          className="w-full self-start sm:w-64"
-          value={activePeriod}
-          onChange={(e) => {
-            setPeriod(e.target.value);
-            setOpenKey(null);
-          }}
-        >
-          {months.map(({ month, usd }) => (
-            <option key={month} value={month}>
-              {`${month.slice(0, 4)}년 ${Number(month.slice(5, 7))}월 · ${usdText(usd)}`}
-            </option>
-          ))}
-          <option value="all">쌓인 기록 전체</option>
-        </Select>
+          <Select
+            aria-label="기간"
+            className="w-full self-start sm:w-80"
+            value={activePeriod}
+            onChange={(e) => {
+              setPeriod(e.target.value);
+              setOpenKey(null);
+            }}
+          >
+            {months.map(({ month, usd }) => (
+              <option key={month} value={month}>
+                {`${month.slice(0, 4)}년 ${Number(month.slice(5, 7))}월 · ${usdWon(usd, rate)}`}
+              </option>
+            ))}
+            <option value="all">쌓인 기록 전체</option>
+          </Select>
 
-        <KpiStrip columns={4}>
-          <KpiItem label="이 기간 쓴 돈" value={<Kpi>{usdText(totals.usd)}</Kpi>} hint={`약 ${won(krwOf(totals.usd, rate))}${hasToday ? " · 오늘 진행 중 포함" : ""}`} />
-          <KpiItem label="붙일 곳을 정한 돈" value={<Kpi>{usdText(totals.assigned)}</Kpi>} hint={totals.usd > 0 ? `${Math.round((totals.assigned / totals.usd) * 100)}%` : undefined} />
-          <KpiItem label="안 정한 돈" tone={totals.unassigned > 0 ? "warning" : undefined} value={<Kpi>{usdText(totals.unassigned)}</Kpi>} hint={`약 ${won(krwOf(totals.unassigned, rate))}`} />
-          <KpiItem label="충전 잔액 (지금)" tone={view.credits.balance < 50 ? "danger" : undefined} value={<Kpi>{usdText(view.credits.balance)}</Kpi>} hint={`쓴 돈 ${usdText(view.credits.used)} / 충전 ${usdText(view.credits.total)}`} />
-        </KpiStrip>
+          <KpiStrip columns={4}>
+            <KpiItem label="이 기간 쓴 돈" value={<Kpi>{usdText(totals.usd)}</Kpi>} hint={`약 ${won(krwOf(totals.usd, rate))}${hasToday ? " · 오늘 진행 중 포함" : ""}`} />
+            <KpiItem label="붙일 곳을 정한 돈" value={<Kpi>{usdText(totals.assigned)}</Kpi>} hint={totals.usd > 0 ? `약 ${won(krwOf(totals.assigned, rate))} · ${Math.round((totals.assigned / totals.usd) * 100)}%` : undefined} />
+            <KpiItem label="안 정한 돈" tone={totals.unassigned > 0 ? "warning" : undefined} value={<Kpi>{usdText(totals.unassigned)}</Kpi>} hint={`약 ${won(krwOf(totals.unassigned, rate))}`} />
+            <KpiItem label="충전 잔액 (지금)" tone={view.credits.balance < 50 ? "danger" : undefined} value={<Kpi>{usdText(view.credits.balance)}</Kpi>} hint={`약 ${won(krwOf(view.credits.balance, rate))} · 쓴 돈 ${usdText(view.credits.used)} / 충전 ${usdText(view.credits.total)}`} />
+          </KpiStrip>
 
-        <Card>
-          <SectionHeader size="lg" title="키별" hint="줄을 누르면 날짜별로 펼쳐집니다. 날을 고르거나 「시간별」 을 눌러 시간을 골라 다른 곳에 붙이세요. 고르면 바로 저장됩니다." />
-          {usedKeys.length === 0 ? (
-            <EmptyState compact icon={Cpu} title="이 기간에 쓴 키가 없습니다" />
-          ) : (
-            <KeyTable items={usedKeys} days={periodDays} allocs={view.allocs} book={book} year={year} ownerName={ownerName} openKey={openKey} setOpenKey={setOpenKey} onDefault={onDefault} onAlloc={patchAlloc} />
+          <Card>
+            <SectionHeader size="lg" title="키별" hint="줄을 누르면 날짜별로 펼쳐집니다. 날을 고르거나 「시간별」 을 눌러 시간을 골라 다른 곳에 붙이세요. 고르면 바로 저장됩니다." />
+            {usedKeys.length === 0 ? (
+              <EmptyState compact icon={Cpu} title="이 기간에 쓴 키가 없습니다" />
+            ) : (
+              <KeyTable items={usedKeys} days={periodDays} lastUse={lastUse} now={view.at} allocs={view.allocs} book={book} year={year} ownerName={ownerName} openKey={openKey} setOpenKey={setOpenKey} onDefault={onDefault} onAlloc={patchAlloc} />
+            )}
+            <TableNote>
+              날짜와 시간은 한국 시각입니다 (19시는 19:00~19:59). {shortDate(addDays(EXACT_FROM, -1))}까지는 오픈라우터에 시간별 기록이 남아 있지 않아, 그날 오전 9시부터 다음 날 오전 9시까지를 하루로 보고 하루 통째로만 붙일 수 있습니다 (「9시 기준」).
+              {first ? ` 기록은 ${first}부터 있습니다.` : ""}
+            </TableNote>
+          </Card>
+
+          {idleKeys.length > 0 && (
+            <Disclosure title={`이 기간에 안 쓴 키 ${idleKeys.length}개`} description="기본 붙일 곳을 미리 정해 둘 수 있습니다.">
+              <KeyTable items={idleKeys} days={periodDays} lastUse={lastUse} now={view.at} allocs={view.allocs} book={book} year={year} ownerName={ownerName} openKey={openKey} setOpenKey={setOpenKey} onDefault={onDefault} onAlloc={patchAlloc} />
+            </Disclosure>
           )}
-          <TableNote>
-            날짜와 시간은 한국 시각입니다 (19시는 19:00~19:59). {shortDate(addDays(EXACT_FROM, -1))}까지는 오픈라우터에 시간별 기록이 남아 있지 않아, 그날 오전 9시부터 다음 날 오전 9시까지를 하루로 보고 하루 통째로만 붙일 수 있습니다 (「9시 기준」).
-            {first ? ` 기록은 ${first}부터 있습니다.` : ""}
-          </TableNote>
-        </Card>
 
-        {idleKeys.length > 0 && (
-          <Disclosure title={`이 기간에 안 쓴 키 ${idleKeys.length}개`} description="기본 붙일 곳을 미리 정해 둘 수 있습니다.">
-            <KeyTable items={idleKeys} days={periodDays} allocs={view.allocs} book={book} year={year} ownerName={ownerName} openKey={openKey} setOpenKey={setOpenKey} onDefault={onDefault} onAlloc={patchAlloc} />
-          </Disclosure>
+          <Card>
+            <SectionHeader size="lg" title="붙일 곳별" hint="재무 프로젝트는 「원가로 보내기」 를 눌러야 그 프로젝트의 이익에 들어갑니다." />
+            {targets.length === 0 ? (
+              <EmptyState compact icon={Cpu} title="이 기간에 쓴 돈이 없습니다" />
+            ) : (
+              <TableScroll>
+                <Table size="sm" minWidth={900}>
+                  <thead>
+                    <tr>
+                      <Th>붙일 곳</Th>
+                      <Th>종류</Th>
+                      <Th align="right">이 기간</Th>
+                      <Th align="right">원화 (어림)</Th>
+                      <Th>어떤 키</Th>
+                      <Th className="w-[210px]">프로젝트 원가</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {targets.map((t) => {
+                      const pushed = t.target?.kind === "fin" ? view.settings.pushed[t.target.id] : undefined;
+                      const now = t.target?.kind === "fin" ? projectApiCost(allRows, t.target.id).usd : 0;
+                      const stale = pushed ? Math.abs(pushed.usd - now) >= 0.005 : false;
+                      const exists = t.target?.kind === "fin" && projects.some((p) => p.id === t.target?.id);
+                      return (
+                        <Tr key={t.key || "none"}>
+                          <Td className="font-medium">
+                            {t.target?.kind === "fin" && exists ? (
+                              <Link href={`/neander/finance/projects/${t.target.id}`} className="text-nd-fg hover:underline">
+                                {book.label(t.target)}
+                              </Link>
+                            ) : t.target ? (
+                              book.label(t.target)
+                            ) : (
+                              <Badge tone="warning">안 정함</Badge>
+                            )}
+                          </Td>
+                          <Td muted>{t.target && t.target.kind !== "common" ? API_TARGET_KIND_LABEL[t.target.kind] : "—"}</Td>
+                          <Td num>{usdText(t.usd)}</Td>
+                          <Td num muted>
+                            {won(krwOf(t.usd, rate))}
+                          </Td>
+                          <Td muted className="max-w-[360px] truncate" title={t.keys.map((k) => `${k.name} ${usdWon(k.usd, rate)}`).join("\n")}>
+                            {t.keys.slice(0, 3).map((k) => `${k.name} ${usdWon(k.usd, rate)}`).join(" · ")}
+                            {t.keys.length > 3 ? ` 외 ${t.keys.length - 3}` : ""}
+                          </Td>
+                          <Td>
+                            {t.target?.kind === "fin" && exists ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                {pushed && !stale ? (
+                                  <span className="nd-num text-nd-table text-nd-fg-2">보냄 · {won(pushed.krw)}</span>
+                                ) : (
+                                  <Button size="sm" variant={pushed ? "soft" : "secondary"} onClick={() => setPushFor(t.target?.id ?? null)}>
+                                    {pushed ? "바뀜 · 다시 보내기" : "원가로 보내기"}
+                                  </Button>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-nd-table text-nd-fg-4">—</span>
+                            )}
+                          </Td>
+                        </Tr>
+                      );
+                    })}
+                  </tbody>
+                </Table>
+              </TableScroll>
+            )}
+          </Card>
+        </div>
+
+        {pushProject && (
+          <PushDialog
+            project={pushProject}
+            allRows={allRows}
+            rate={rate}
+            onClose={() => setPushFor(null)}
+            onDone={async () => {
+              await Promise.all([refresh(), load()]);
+            }}
+          />
         )}
-
-        <Card>
-          <SectionHeader size="lg" title="붙일 곳별" hint="재무 프로젝트는 「원가로 보내기」 를 눌러야 그 프로젝트의 이익에 들어갑니다." />
-          {targets.length === 0 ? (
-            <EmptyState compact icon={Cpu} title="이 기간에 쓴 돈이 없습니다" />
-          ) : (
-            <TableScroll>
-              <Table size="sm" minWidth={900}>
-                <thead>
-                  <tr>
-                    <Th>붙일 곳</Th>
-                    <Th>종류</Th>
-                    <Th align="right">이 기간</Th>
-                    <Th align="right">원화 (어림)</Th>
-                    <Th>어떤 키</Th>
-                    <Th className="w-[210px]">프로젝트 원가</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {targets.map((t) => {
-                    const pushed = t.target?.kind === "fin" ? view.settings.pushed[t.target.id] : undefined;
-                    const now = t.target?.kind === "fin" ? projectApiCost(allRows, t.target.id).usd : 0;
-                    const stale = pushed ? Math.abs(pushed.usd - now) >= 0.005 : false;
-                    const exists = t.target?.kind === "fin" && projects.some((p) => p.id === t.target?.id);
-                    return (
-                      <Tr key={t.key || "none"}>
-                        <Td className="font-medium">
-                          {t.target?.kind === "fin" && exists ? (
-                            <Link href={`/neander/finance/projects/${t.target.id}`} className="text-nd-fg hover:underline">
-                              {book.label(t.target)}
-                            </Link>
-                          ) : t.target ? (
-                            book.label(t.target)
-                          ) : (
-                            <Badge tone="warning">안 정함</Badge>
-                          )}
-                        </Td>
-                        <Td muted>{t.target && t.target.kind !== "common" ? API_TARGET_KIND_LABEL[t.target.kind] : "—"}</Td>
-                        <Td num>{usdText(t.usd)}</Td>
-                        <Td num muted>
-                          {won(krwOf(t.usd, rate))}
-                        </Td>
-                        <Td muted className="max-w-[360px] truncate" title={t.keys.map((k) => `${k.name} ${usdText(k.usd)}`).join("\n")}>
-                          {t.keys.slice(0, 3).map((k) => `${k.name} ${usdText(k.usd)}`).join(" · ")}
-                          {t.keys.length > 3 ? ` 외 ${t.keys.length - 3}` : ""}
-                        </Td>
-                        <Td>
-                          {t.target?.kind === "fin" && exists ? (
-                            <div className="flex flex-wrap items-center gap-2">
-                              {pushed && !stale ? (
-                                <span className="nd-num text-nd-table text-nd-fg-2">보냄 · {won(pushed.krw)}</span>
-                              ) : (
-                                <Button size="sm" variant={pushed ? "soft" : "secondary"} onClick={() => setPushFor(t.target?.id ?? null)}>
-                                  {pushed ? "바뀜 · 다시 보내기" : "원가로 보내기"}
-                                </Button>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-nd-table text-nd-fg-4">—</span>
-                          )}
-                        </Td>
-                      </Tr>
-                    );
-                  })}
-                </tbody>
-              </Table>
-            </TableScroll>
-          )}
-        </Card>
-      </div>
-
-      {pushProject && (
-        <PushDialog
-          project={pushProject}
-          allRows={allRows}
-          rate={rate}
-          onClose={() => setPushFor(null)}
-          onDone={async () => {
-            await Promise.all([refresh(), load()]);
-          }}
-        />
-      )}
-    </PageShell>
+      </PageShell>
+    </RateContext.Provider>
   );
 }

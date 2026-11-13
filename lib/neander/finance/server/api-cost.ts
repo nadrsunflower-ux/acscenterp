@@ -30,9 +30,11 @@ import { watchNewKeys } from "./key-watch";
 import type { UsageSnapshot } from "@/lib/neander/shorts/ai-usage";
 import { DEFAULT_SPACE, DEFAULT_SPACE_ID } from "@/lib/neander/shorts/spaces";
 import { sanitizeLine, shortId, type FinProjectDoc } from "@/lib/neander/finance/project";
+import { BIZ_MAJORS } from "@/lib/neander/finance/sheet";
 import {
   addDays,
   apiCostLine,
+  bizTargetId,
   cleanNote,
   cleanRate,
   costRows,
@@ -52,6 +54,7 @@ import {
   setRange,
   slotFrom,
   slotTo,
+  splitBizId,
   type AnalyticsRow,
   type ApiCostSettings,
   type ApiDayDoc,
@@ -306,11 +309,17 @@ export async function apiCostView(db: Firestore): Promise<ApiCostView> {
 
 // ---- 정하기 ----------------------------------------------------------
 
-/** 붙일 곳 확인 — 있는 재무 프로젝트 · AI STUDIO 프로젝트 · 공통만. null(안 정함)은 그대로 */
+/** 붙일 곳 확인 — 있는 재무 프로젝트 · AI STUDIO 프로젝트 · 사업구분 · 공통만. null(안 정함)은 그대로 */
 async function checkTarget(db: Firestore, raw: unknown): Promise<ApiTarget | null> {
   if (raw === null || raw === undefined || raw === "") return null;
   const t = raw as Partial<ApiTarget>;
   if (t.kind === "common") return { kind: "common", id: "" };
+  if (t.kind === "biz") {
+    // 사업구분은 장부에 쓰인 대분류 · 소분류 한 쌍 — 대분류만 정해진 목록에서 확인한다
+    const biz = typeof t.id === "string" ? splitBizId(t.id) : null;
+    if (!biz || !(BIZ_MAJORS as readonly string[]).includes(biz.major)) throw new ApiCostInputError("그 사업구분을 알아볼 수 없습니다.");
+    return { kind: "biz", id: bizTargetId(biz.major, biz.minor) };
+  }
   const id = typeof t.id === "string" ? t.id.trim() : "";
   if (!id || !/^[\w-]{1,64}$/.test(id)) throw new ApiCostInputError("붙일 곳을 알아볼 수 없습니다.");
   if (t.kind === "fin") {

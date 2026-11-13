@@ -2,6 +2,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  agoText,
+  lastUses,
   API_COST_LINE_ID,
   apiCostLine,
   cleanModel,
@@ -43,7 +45,9 @@ const meta = { at: 1 };
 const spans = (rs: ApiRange[]) => rs.map((r) => `${r.from}~${r.to ?? "…"}=${targetKey(r.target)}`);
 
 test("붙일 곳 열쇠 — 오가기", () => {
-  for (const t of [P1, CH, COMMON]) assert.deepEqual(parseTargetKey(targetKey(t)), t);
+  for (const t of [P1, CH, COMMON, { kind: "biz" as const, id: "B2C|SMOAT" }]) assert.deepEqual(parseTargetKey(targetKey(t)), t);
+  assert.equal(parseTargetKey("biz:SMOAT"), null);
+  assert.equal(parseTargetKey("biz:B2C|"), null);
   assert.equal(parseTargetKey(""), null);
   assert.equal(parseTargetKey("fin:"), null);
   assert.equal(parseTargetKey("x:1"), null);
@@ -340,4 +344,31 @@ test("dayFromAnalytics — 시간 줄을 키 · 모델별로 모은다", () => {
   assert.equal(dayFromAnalytics("2026-09-15", [{ api_key_id: "LDJ", model: "a/b", total_usage: 1, request_count: 1 }], (n) => n, 0).keys[0].hours, undefined);
   assert.equal(cleanModel("google/gemini-3-flash-preview-20251217"), "google/gemini-3-flash-preview");
   assert.equal(cleanModel("openai/gpt-image-2"), "openai/gpt-image-2");
+});
+
+test("lastUses — 키마다 가장 늦은 날의 가장 늦은 시간", () => {
+  const days = [
+    { date: "2026-11-13", at: 0, keys: [{ hash: "a", name: "A", usd: 5, requests: 3, models: [], hours: { "22": { usd: 2, requests: 1, models: ["kling"] } } }] },
+    {
+      date: "2026-11-14",
+      at: 0,
+      partial: true,
+      keys: [
+        { hash: "a", name: "A", usd: 1.5, requests: 4, models: [], hours: { "09": { usd: 1, requests: 2, models: ["x"] }, "15": { usd: 0.5, requests: 2, models: ["gemini-3.8-flash", "y"] } } },
+      ],
+    },
+    { date: "2026-10-01", at: 0, legacy: true, keys: [{ hash: "b", name: "B", usd: 3, requests: 9, models: [{ model: "openai/gpt-image-2", usd: 3, requests: 9 }] }] },
+  ];
+  const m = lastUses(days);
+  assert.deepEqual(m.get("a"), { date: "2026-11-14", hour: "15", usd: 0.5, requests: 2, models: ["gemini-3.8-flash", "y"], partial: true });
+  assert.deepEqual(m.get("b"), { date: "2026-10-01", usd: 3, requests: 9, models: ["gpt-image-2"], partial: false });
+});
+
+test("agoText — 이번 시간 · n시간 전 · 어제 · n일 전", () => {
+  const at = (s: string) => Date.parse(`${s}+09:00`);
+  assert.equal(agoText({ date: "2026-11-14", hour: "15" }, at("2026-11-14T15:40:00")), "이번 시간");
+  assert.equal(agoText({ date: "2026-11-14", hour: "15" }, at("2026-11-14T16:10:00")), "1시간 전");
+  assert.equal(agoText({ date: "2026-11-14", hour: "15" }, at("2026-11-14T18:10:00")), "3시간 전");
+  assert.equal(agoText({ date: "2026-11-13", hour: "10" }, at("2026-11-14T18:10:00")), "어제");
+  assert.equal(agoText({ date: "2026-10-01" }, at("2026-11-14T18:10:00")), "44일 전");
 });

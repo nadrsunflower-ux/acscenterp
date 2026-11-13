@@ -30,18 +30,34 @@ import type { FinProjectLine } from "./project";
 
 // ---- 붙일 곳 ------------------------------------------------------
 
-export type ApiTargetKind = "fin" | "studio" | "common";
+export type ApiTargetKind = "fin" | "studio" | "biz" | "common";
 export interface ApiTarget {
   kind: ApiTargetKind;
-  /** fin → 재무 프로젝트 문서 id · studio → AI STUDIO 프로젝트 id · common → "" */
+  /**
+   * fin → 재무 프로젝트 문서 id · studio → AI STUDIO 프로젝트 id ·
+   * biz → 장부의 사업구분 `대분류|소분류` (예: `B2C|SMOAT`) · common → ""
+   */
   id: string;
 }
 
 export const API_TARGET_KIND_LABEL: Record<ApiTargetKind, string> = {
   fin: "재무 프로젝트",
   studio: "AI STUDIO 채널",
+  biz: "사업구분",
   common: "공통 · 내부",
 };
+
+/** 사업구분 붙일 곳의 id — 장부의 사업대분류 · 사업소분류 한 쌍 */
+export const bizTargetId = (major: string, minor: string) => `${major}|${minor}`;
+/** `B2C|SMOAT` → { major: "B2C", minor: "SMOAT" }. 모양이 틀리면 null */
+export function splitBizId(id: string): { major: string; minor: string } | null {
+  const i = id.indexOf("|");
+  if (i <= 0 || i === id.length - 1) return null;
+  const major = id.slice(0, i).trim();
+  const minor = id.slice(i + 1).trim();
+  if (!major || !minor || minor.includes("|") || major.length > 20 || minor.length > 40) return null;
+  return { major, minor };
+}
 export const COMMON_LABEL = "공통 · 내부 (프로젝트 아님)";
 
 /** 붙일 곳 → 문자열 열쇠 `kind:id` (Select 값 · 묶음 열쇠). 없으면 "" */
@@ -54,6 +70,7 @@ export function parseTargetKey(s: string): ApiTarget | null {
   const id = s.slice(i + 1);
   if (kind === "common") return { kind: "common", id: "" };
   if ((kind === "fin" || kind === "studio") && id) return { kind, id };
+  if (kind === "biz" && splitBizId(id)) return { kind, id };
   return null;
 }
 
@@ -604,6 +621,49 @@ export function modelsLine(models: ApiDayModel[], max = 2): string {
   const head = sorted.slice(0, max).map(([m, u]) => `${modelName(m)} ${usdText(u)}`);
   return head.join(" · ") + (sorted.length > max ? ` 외 ${sorted.length - max}` : "");
 }
+/** 키를 마지막으로 쓴 때 — 쌓인 기록에서 가장 늦은 날의 가장 늦은 시간 */
+export interface ApiLastUse {
+  date: string;
+  /** 한국 시각 `"00"`~`"23"` — 시간별 기록이 없는 날(9시 기준)은 없다 */
+  hour?: string;
+  /** 그 시간(시간이 없으면 그날) 쓴 돈 · 요청 · 모델 */
+  usd: number;
+  requests: number;
+  models: string[];
+  /** 오늘(진행 중) 기록 */
+  partial: boolean;
+}
+
+/** 키마다 마지막으로 쓴 때. days 는 순서가 어떻든 된다 */
+export function lastUses(days: ApiDayDoc[]): Map<string, ApiLastUse> {
+  const out = new Map<string, ApiLastUse>();
+  const sorted = [...days].sort((a, b) => b.date.localeCompare(a.date));
+  for (const d of sorted) {
+    for (const k of d.keys) {
+      if (out.has(k.hash) || !(k.usd > 0 || k.requests > 0)) continue;
+      const hours = Object.entries(k.hours ?? {}).filter(([, h]) => h.usd > 0 || h.requests > 0);
+      if (hours.length) {
+        const [hour, h] = hours.sort((a, b) => b[0].localeCompare(a[0]))[0];
+        out.set(k.hash, { date: d.date, hour, usd: h.usd, requests: h.requests, models: h.models ?? [], partial: !!d.partial });
+      } else {
+        out.set(k.hash, { date: d.date, usd: k.usd, requests: k.requests, models: k.models.slice(0, 2).map((m) => modelName(m.model)), partial: !!d.partial });
+      }
+    }
+  }
+  return out;
+}
+
+/** 마지막으로 쓴 때가 지금(now, ms)에서 얼마나 지났나 — `이번 시간` · `3시간 전` · `2일 전` */
+export function agoText(u: Pick<ApiLastUse, "date" | "hour">, now: number): string {
+  // 그 시간이 끝난 때부터 센다 (19시 = 19:00~19:59)
+  const end = Date.parse(`${u.date}T${u.hour ?? "23"}:00:00+09:00`) + HOUR;
+  const h = Math.floor((now - end) / HOUR);
+  if (u.hour !== undefined && h < 0) return "이번 시간";
+  if (u.hour !== undefined && h < 24) return `${Math.max(1, h + 1)}시간 전`;
+  const days = daysBetween(u.date, kstDate(now));
+  return days <= 0 ? "오늘" : days === 1 ? "어제" : `${days}일 전`;
+}
+
 /** `google/gemini-3.8-flash-tts` → `gemini-3.8-flash-tts` */
 export const modelName = (m: string) => m.split("/").pop() || m;
 
