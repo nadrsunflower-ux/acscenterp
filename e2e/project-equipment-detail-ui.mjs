@@ -18,7 +18,8 @@ const out = path.join(cwd, "output", `project-equipment-detail-ui-${engine.name(
 const temp = await mkdtemp(path.join(os.tmpdir(), "erp-project-equip-"));
 await mkdir(out, { recursive: true });
 
-// 이 프로젝트는 12/11~12/12 포토부스 2대. 다른 프로젝트가 12/12 에 1대 — 지금은 3/3 으로 딱 맞는다
+// 이 프로젝트는 12/11~12/12 포토부스 2대. 다른 프로젝트가 12/12 에 1대 — 지금은 3/3 으로 딱 맞는다.
+// 다른 프로젝트는 사주 포토부스(보유 1 · 포토부스 3대와 따로)도 12/12 에 1대 쓴다.
 const project = {
   id: "fixture", code: "T-1", name: "가상 프로젝트", status: "planning", entities: ["네안데르"],
   contractAmount: 1_000_000, vatMode: "excluded", revenues: [], lines: [], createdAt: 0,
@@ -27,7 +28,7 @@ const project = {
 };
 const other = {
   id: "other", code: "T-2", name: "2026 다른 행사", status: "active", revenues: [], lines: [], createdAt: 1,
-  contractAmount: 0, vatMode: "excluded", startDate: "2026-12-12", endDate: "2026-12-12", equipment: { photobooth: 1 },
+  contractAmount: 0, vatMode: "excluded", startDate: "2026-12-12", endDate: "2026-12-12", equipment: { photobooth: 1, sajuBooth: 1 },
 };
 const fixture = { projects: [project, other], transactions: [], accounts: [], paymentMethods: [], vendorRules: [], loading: false };
 const mocks = {
@@ -110,14 +111,14 @@ createRoot(document.getElementById('root')).render(<div data-app="neander" id="f
   }
 
   // 1. 저장된 배정이 그대로 보이고, 쓰는 날은 설치 첫날(납기)부터
-  await expect(section.getByLabel("포토부스 2대")).toBeVisible();
+  await expect(section.getByLabel("포토부스 2대", { exact: true })).toBeVisible();
   await expect(section).toContainText("쓰는 날 12/11(금) ~ 12/12(토)");
   await expect(section).toContainText("겹쳐서 모자라는 날이 없습니다");
   checks.push("배정 · 쓰는 날");
 
   // 2. 한 대 더하면 12/12 가 4/3 — 겹침이 바로 뜨고 머리에도 알림, 자동 저장에 장비 칸이 실린다
   let before = saves.length;
-  await section.getByRole("button", { name: "포토부스 한 대 더하기" }).click();
+  await section.getByRole("button", { name: "포토부스 한 대 더하기", exact: true }).click();
   await expect(section.getByRole("list", { name: "장비가 모자라는 날" })).toContainText("12/12(토) 포토부스 4대 필요 · 보유 3대");
   await expect(section).toContainText("다른 행사 1");
   await expect(page.getByRole("button", { name: /장비 겹침 1건/ })).toBeVisible();
@@ -129,17 +130,28 @@ createRoot(document.getElementById('root')).render(<div data-app="neander" id="f
   // 3. 키오스크를 더하고 포토부스를 0 까지 빼면 장비 칸에는 키오스크만 남는다
   before = saves.length;
   await section.getByRole("button", { name: "키오스크 한 대 더하기" }).click();
-  for (let i = 0; i < 3; i++) await section.getByRole("button", { name: "포토부스 한 대 빼기" }).click();
-  await expect(section.getByRole("button", { name: "포토부스 한 대 빼기" })).toBeDisabled();
+  for (let i = 0; i < 3; i++) await section.getByRole("button", { name: "포토부스 한 대 빼기", exact: true }).click();
+  await expect(section.getByRole("button", { name: "포토부스 한 대 빼기", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: /장비 겹침/ })).toHaveCount(0);
   await expect.poll(() => JSON.stringify(saves.at(-1)?.payload?.project?.equipment), { timeout: 6_000 }).toBe(JSON.stringify({ kiosk: 1 }));
   checks.push("0 이면 그 종류는 지움");
+
+  // 3-1. 사주 포토부스는 포토부스 3대와 따로 센다 — 1대 더하면 12/12 사주 2/1 만 겹친다
+  before = saves.length;
+  await section.getByRole("button", { name: "사주 포토부스 한 대 더하기" }).click();
+  const list = section.getByRole("list", { name: "장비가 모자라는 날" });
+  await expect(list).toContainText("12/12(토) 사주 포토부스 2대 필요 · 보유 1대");
+  await expect(list).not.toContainText(/(^|[^주 ])포토부스 \d대 필요/);
+  await expect(page.getByRole("button", { name: /장비 겹침 1건/ })).toBeVisible();
+  await expect.poll(() => JSON.stringify(saves.at(-1)?.payload?.project?.equipment), { timeout: 6_000 }).toBe(JSON.stringify({ sajuBooth: 1, kiosk: 1 }));
+  await section.screenshot({ path: path.join(out, "2-saju.png"), animations: "disabled" });
+  checks.push("사주 포토부스 따로 셈");
 
   // 4. 다른 탭에서 저장해도 장비 칸이 빠지지 않는다(toInput)
   before = saves.length;
   await page.getByRole("tab", { name: /지출/ }).click();
   await page.getByRole("tab", { name: "개요" }).click();
-  assert.deepEqual(lastProject().equipment, { kiosk: 1 });
+  assert.deepEqual(lastProject().equipment, { sajuBooth: 1, kiosk: 1 });
   checks.push("저장 경로 유지");
 
   assert.deepEqual(errors, [], "브라우저 런타임 오류 없음");

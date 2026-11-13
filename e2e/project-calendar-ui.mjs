@@ -23,7 +23,7 @@ const proj = (name, status, dates = {}) => ({ ...emptyProject(), id: `p${++n}`, 
 const projects = [
   proj("2026 가상 체험 A (12/9~12)", "planning", { startDate: "2026-12-09", endDate: "2026-12-12", deliveryDate: "2026-12-09", equipment: { photobooth: 1, kiosk: 1 } }),
   proj("2026 가상 교육 B", "planning", { startDate: "2026-12-12", endDate: "2026-12-12", deliveryDate: "2026-12-11", equipment: { photobooth: 3 } }),
-  proj("2026 가상 시상식 C", "planning", { startDate: "2026-12-15", endDate: "2026-12-15", deliveryDate: "2026-12-15", equipment: { photobooth: 2, kiosk: 2 } }),
+  proj("2026 가상 시상식 C", "planning", { startDate: "2026-12-15", endDate: "2026-12-15", deliveryDate: "2026-12-15", equipment: { photobooth: 2, sajuBooth: 1, kiosk: 2 } }),
   proj("2026 가상 대행 E", "active", { startDate: "2026-11-01" }),
   proj("2026 가상 행사 F", "done", { startDate: "2026-11-12", endDate: "2026-11-12", deliveryDate: "2026-11-12" }),
   proj("2026 가상 장기 G", "active", { startDate: "2026-11-25", endDate: "2026-12-08", deliveryDate: "2026-12-07" }),
@@ -162,7 +162,12 @@ createRoot(document.getElementById('root')).render(<div data-app="neander" id="f
   await expect(cal.locator('[data-cal-day="2026-12-11"] [data-equip-load="over"]')).toHaveCount(2);
   await expect(cal.locator('[data-cal-day="2026-12-15"] [data-equip-load="ok"]').first()).toContainText("2/3");
   await expect(bar("가상 체험 A").locator('[aria-label="장비 포토부스 1 · 키오스크 1"]')).toHaveCount(1);
-  checks.push("장비 겹침 2건 · 날짜 칸 표시 · 취소 제외");
+  // 사주 포토부스는 포토부스 3대와 따로 — C 의 1대는 1/1 로 따로 세고 겹침이 아니다
+  await expect(bar("가상 시상식 C").locator('[aria-label="장비 포토부스 2 · 사주 포토부스 1 · 키오스크 2"]')).toHaveCount(1);
+  await expect(cal.locator('[data-cal-day="2026-12-15"] [data-equip-load="ok"]')).toHaveCount(3);
+  await expect(cal.locator('[data-cal-day="2026-12-15"] [aria-label="사주 포토부스 1대 사용, 보유 1대"]')).toContainText("1/1");
+  await expect(cal.getByLabel("달력 보는 법")).toContainText("사주 포토부스 보유 1");
+  checks.push("장비 겹침 2건 · 날짜 칸 표시 · 취소 제외 · 사주 포토부스 따로");
   await page.locator("#fixture-app").screenshot({ path: path.join(out, "2-december.png"), animations: "disabled" });
 
   // 3-2. 막대를 누르면 장비 배정 창 — 대수를 줄이면 미리 보기에서 겹침이 사라지고, 저장은 장비 칸만 보낸다
@@ -171,7 +176,7 @@ createRoot(document.getElementById('root')).render(<div data-app="neander" id="f
   await expect(dlg).toBeVisible();
   await expect(dlg).toContainText("포토부스 4대 필요");
   assert.equal(await dlg.getByRole("link", { name: /프로젝트 열기/ }).getAttribute("href"), "/neander/finance/projects/p2");
-  await dlg.getByRole("button", { name: "포토부스 한 대 빼기" }).click();
+  await dlg.getByRole("button", { name: "포토부스 한 대 빼기", exact: true }).click();
   await expect(dlg).toContainText("겹쳐서 모자라는 날이 없습니다");
   await page.locator("#fixture-app").screenshot({ path: path.join(out, "2b-dialog.png"), animations: "disabled" });
   await dlg.getByRole("button", { name: "저장" }).click();

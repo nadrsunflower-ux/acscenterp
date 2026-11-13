@@ -107,7 +107,7 @@ import { DueInput } from "@/components/neander/finance/DueInput";
 import { isTypingInto } from "@/components/neander/finance/sheetCells";
 import { RichNoteEditor } from "@/components/neander/finance/RichNoteEditor";
 import { EquipmentConflictList, EquipmentStepper, mdRange } from "@/components/neander/finance/EquipmentFields";
-import { equipmentByDay, equipmentConflicts, equipmentRange, hasEquipment } from "@/lib/neander/finance/equipment";
+import { EQUIPMENT_LABEL, equipmentByDay, equipmentConflicts, equipmentRange, hasEquipment } from "@/lib/neander/finance/equipment";
 import { calName } from "@/lib/neander/finance/project-calendar";
 import {
   CHECKLIST_LAYOUT_KEY,
@@ -971,7 +971,7 @@ function ProjectDetailEditor({ id }: { id: string }) {
                 type="button"
                 onClick={() => goTab("overview")}
                 className="inline-flex items-center gap-1 rounded-nd-sm bg-nd-danger-soft px-1.5 py-0.5 text-nd-caption font-semibold text-nd-danger-text"
-                title={equipConflicts.map((c) => `${mdRange(c.from, c.to)} ${c.kind === "photobooth" ? "포토부스" : "키오스크"} ${c.need}대 필요 · 보유 ${c.owned}대`).join("\n")}
+                title={equipConflicts.map((c) => `${mdRange(c.from, c.to)} ${EQUIPMENT_LABEL[c.kind]} ${c.need}대 필요 · 보유 ${c.owned}대`).join("\n")}
               >
                 <Icon icon={CircleAlert} size={13} />
                 장비 겹침 {equipConflicts.length}건

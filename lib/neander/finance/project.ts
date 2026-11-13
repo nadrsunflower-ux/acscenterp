@@ -575,7 +575,7 @@ export interface FinProjectDoc {
   /** 매출을 낸 사업체 (계약·세금계산서 주체). 원장 사업장과 같은 이름. 비우면 원장 입금으로 추정 */
   entities?: ProjectEntity[];
   /**
-   * 장비 배정 — 포토부스 · 키오스크 몇 대를 쓰는지. 설치 첫날(납기)부터 행사 끝날까지
+   * 장비 배정 — 포토부스 · 사주 포토부스 · 키오스크 몇 대를 쓰는지. 설치 첫날(납기)부터 행사 끝날까지
    * 잡히고, 같은 날 보유 대수를 넘으면 달력 · 상세 화면이 알린다 (equipment.ts).
    */
   equipment?: ProjectEquipment;

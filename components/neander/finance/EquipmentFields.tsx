@@ -6,7 +6,7 @@
 //  계산은 lib/neander/finance/equipment.ts. 여기는 그리기만.
 // ============================================================
 
-import { AlertTriangle, Camera, Minus, MonitorSmartphone, Plus } from "lucide-react";
+import { AlertTriangle, Camera, Minus, MonitorSmartphone, Plus, ScrollText } from "lucide-react";
 import { Icon, cn, type LucideIcon } from "@/components/neander/ui";
 import {
   EQUIPMENT_KINDS,
@@ -19,7 +19,7 @@ import {
   type ProjectEquipment,
 } from "@/lib/neander/finance/equipment";
 
-export const EQUIPMENT_ICON: Record<EquipmentKind, LucideIcon> = { photobooth: Camera, kiosk: MonitorSmartphone };
+export const EQUIPMENT_ICON: Record<EquipmentKind, LucideIcon> = { photobooth: Camera, sajuBooth: ScrollText, kiosk: MonitorSmartphone };
 
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 /** 「12/9(수)」 */
@@ -48,7 +48,7 @@ export function EquipmentStepper({
           "inline-flex h-8 w-8 items-center justify-center rounded-full border border-nd-line text-nd-fg-2 transition-colors duration-nd-fast hover:bg-nd-fg/[.06] hover:text-nd-fg disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nd-accent/50";
         return (
           <div key={k} className="flex items-center gap-2.5">
-            <span className="inline-flex min-w-[5.5rem] items-center gap-1.5 text-[14px] font-medium text-nd-fg">
+            <span className="inline-flex min-w-[7.25rem] items-center gap-1.5 text-[14px] font-medium text-nd-fg">
               <Icon icon={EQUIPMENT_ICON[k]} size={16} className="text-nd-fg-3" />
               {EQUIPMENT_LABEL[k]}
             </span>

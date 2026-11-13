@@ -1,5 +1,5 @@
 // ============================================================
-//  장비 배정 — 프로젝트마다 포토부스 · 키오스크 몇 대를 쓰는지, 날마다 겹치는지
+//  장비 배정 — 프로젝트마다 포토부스 · 사주 포토부스 · 키오스크 몇 대를 쓰는지, 날마다 겹치는지
 // ------------------------------------------------------------
 //  행사가 몰리는 달(2026-12 — 수원 · 교육AX · 농협 · 주거복지대전)에는 같은
 //  날 장비가 보유 대수보다 많이 필요해진다. 프로젝트에 배정 대수를 적어 두면
@@ -12,18 +12,20 @@
 //    잡히니, 장비를 적을 때 납기를 설치 첫날로 고친다.
 //  · 취소된 프로젝트는 세지 않는다. 심사 중은 센다 — 수주 전에 겹침을 봐야 한다.
 //  · 보유 대수는 여기 상수(2026-11-13 사용자: 포토부스 3 · 키오스크 3).
-//    장비를 사거나 팔면 EQUIPMENT_OWNED 를 고친다.
+//    사주 포토부스는 그 3대와 따로 있는 전용 부스라 종류를 나눠 센다(2026-11-14 사용자 —
+//    대수는 말하지 않아 1대로 둠). 장비를 사거나 팔면 EQUIPMENT_OWNED 를 고친다.
+//  · 종류를 더하면 DB 에 그 키로 저장된다. 이름(키)은 바꾸지 말 것 — 예전 배정이 사라진다.
 // ============================================================
 
 import { addDays } from "@/lib/neander/format";
 
-export const EQUIPMENT_KINDS = ["photobooth", "kiosk"] as const;
+export const EQUIPMENT_KINDS = ["photobooth", "sajuBooth", "kiosk"] as const;
 export type EquipmentKind = (typeof EQUIPMENT_KINDS)[number];
 
-export const EQUIPMENT_LABEL: Record<EquipmentKind, string> = { photobooth: "포토부스", kiosk: "키오스크" };
+export const EQUIPMENT_LABEL: Record<EquipmentKind, string> = { photobooth: "포토부스", sajuBooth: "사주 포토부스", kiosk: "키오스크" };
 
-/** 보유 대수 — 2026-11-13 사용자 「포토부스 3대, 키오스크 3대」 */
-export const EQUIPMENT_OWNED: Record<EquipmentKind, number> = { photobooth: 3, kiosk: 3 };
+/** 보유 대수 — 2026-11-13 사용자 「포토부스 3대, 키오스크 3대」 · 2026-11-14 「사주 포토부스는 별도(3대에 안 들어감)」 */
+export const EQUIPMENT_OWNED: Record<EquipmentKind, number> = { photobooth: 3, sajuBooth: 1, kiosk: 3 };
 
 /** 한 프로젝트에 적을 수 있는 최대 — 오타(30 → 3)를 막는 정도 */
 export const EQUIPMENT_MAX = 20;
@@ -43,7 +45,7 @@ export function sanitizeEquipment(raw: unknown): ProjectEquipment | undefined {
 
 export const hasEquipment = (e: ProjectEquipment | undefined): boolean => EQUIPMENT_KINDS.some((k) => (e?.[k] ?? 0) > 0);
 
-/** 「포토부스 2 · 키오스크 1」 */
+/** 「포토부스 2 · 사주 포토부스 1 · 키오스크 1」 */
 export const equipmentText = (e: ProjectEquipment | undefined): string =>
   EQUIPMENT_KINDS.filter((k) => (e?.[k] ?? 0) > 0)
     .map((k) => `${EQUIPMENT_LABEL[k]} ${e![k]}`)
@@ -102,7 +104,10 @@ export function equipmentByDay(projects: EquipmentProject[]): Map<string, Equipm
     for (let i = 0; d <= range.to && i < MAX_RANGE_DAYS; i++, d = addDays(d, 1)) {
       let day = days.get(d);
       if (!day) {
-        day = { used: { photobooth: 0, kiosk: 0 }, users: { photobooth: [], kiosk: [] } };
+        day = {
+          used: Object.fromEntries(EQUIPMENT_KINDS.map((k) => [k, 0])) as Record<EquipmentKind, number>,
+          users: Object.fromEntries(EQUIPMENT_KINDS.map((k) => [k, []])) as unknown as Record<EquipmentKind, EquipmentUser[]>,
+        };
         days.set(d, day);
       }
       for (const k of EQUIPMENT_KINDS) {
