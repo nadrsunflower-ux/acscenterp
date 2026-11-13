@@ -5,9 +5,11 @@
 //  날 장비가 보유 대수보다 많이 필요해진다. 프로젝트에 배정 대수를 적어 두면
 //  달력(ProjectCalendar)과 상세 화면이 날마다 더해 보고, 넘치면 알린다.
 //
-//  · 쓰는 날 = 설치 첫날(납기)부터 행사 끝날까지 — 진행 시작일 · 종료일 · 납기 중
-//    가장 이른 날 ~ 가장 늦은 날. 2026-11-13 규칙으로 납기가 설치 첫날이라
-//    전날 설치하는 행사도 그날부터 잡힌다.
+//  · 쓰는 날 = 설치 첫날(납기)부터 행사 끝날(진행 종료일)까지. 2026-11-13 규칙으로 납기가
+//    설치 첫날이라 전날 설치하는 행사도 그날부터 잡힌다. 진행 시작일은 문의 받은 날인 건이
+//    있어(경남정보대 11/9 문의 · 12/1 행사) 납기가 종료일보다 늦지 않으면 시작일 대신 납기를 쓴다.
+//    납기가 없으면 시작일부터. 납기가 종료일과 같은 옛 규칙(10-29 「마지막 날」) 건은 하루로
+//    잡히니, 장비를 적을 때 납기를 설치 첫날로 고친다.
 //  · 취소된 프로젝트는 세지 않는다. 심사 중은 센다 — 수주 전에 겹침을 봐야 한다.
 //  · 보유 대수는 여기 상수(2026-11-13 사용자: 포토부스 3 · 키오스크 3).
 //    장비를 사거나 팔면 EQUIPMENT_OWNED 를 고친다.
@@ -59,11 +61,19 @@ export interface EquipmentProject {
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
 
-/** 장비를 쓰는 날 — 시작일 · 종료일 · 납기 중 가장 이른 날 ~ 가장 늦은 날. 날짜가 없으면 null */
+/**
+ * 장비를 쓰는 날 — 납기(설치 첫날) ~ 진행 종료일. 납기가 없거나 종료일보다 늦으면 시작일부터.
+ * 날짜가 하나도 없으면 null.
+ */
 export function equipmentRange(p: Pick<EquipmentProject, "startDate" | "endDate" | "deliveryDate">): { from: string; to: string } | null {
-  const dates = [p.startDate, p.endDate, p.deliveryDate].filter((d): d is string => typeof d === "string" && YMD.test(d)).sort();
-  if (dates.length === 0) return null;
-  return { from: dates[0], to: dates[dates.length - 1] };
+  const ok = (d: string | undefined) => (typeof d === "string" && YMD.test(d) ? d : undefined);
+  const s = ok(p.startDate);
+  const e = ok(p.endDate);
+  const d = ok(p.deliveryDate);
+  const from = d && (!e || d <= e) ? d : (s ?? d ?? e);
+  if (!from) return null;
+  const to = [e, d, s].filter((x): x is string => !!x && x >= from).sort().at(-1) ?? from;
+  return { from, to: e && e >= from ? e : to };
 }
 
 export interface EquipmentUser {

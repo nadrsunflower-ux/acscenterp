@@ -25,6 +25,13 @@ test("range runs from install day (delivery) to the last event day", () => {
   assert.deepEqual(equipmentRange({ startDate: "2026-12-01", endDate: "2026-12-02", deliveryDate: "2026-11-30" }), { from: "2026-11-30", to: "2026-12-02" });
   assert.deepEqual(equipmentRange({ deliveryDate: "2026-12-15" }), { from: "2026-12-15", to: "2026-12-15" });
   assert.equal(equipmentRange({}), null);
+  // 시작일이 문의 받은 날이어도 납기(설치 첫날)부터
+  assert.deepEqual(equipmentRange({ startDate: "2026-11-09", endDate: "2026-12-02", deliveryDate: "2026-11-30" }), { from: "2026-11-30", to: "2026-12-02" });
+  // 납기가 없으면 시작일 ~ 종료일, 시작일만 있으면 그날
+  assert.deepEqual(equipmentRange({ startDate: "2026-12-09", endDate: "2026-12-12" }), { from: "2026-12-09", to: "2026-12-12" });
+  assert.deepEqual(equipmentRange({ startDate: "2026-11-12" }), { from: "2026-11-12", to: "2026-11-12" });
+  // 종료일 없이 시작일 · 납기만 — 납기 하루
+  assert.deepEqual(equipmentRange({ startDate: "2026-11-09", deliveryDate: "2026-11-30" }), { from: "2026-11-30", to: "2026-11-30" });
 });
 
 test("conflicts: days over the owned count, grouped while the same projects overlap", () => {
