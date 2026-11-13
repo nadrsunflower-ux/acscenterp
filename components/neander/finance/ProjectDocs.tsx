@@ -19,6 +19,10 @@
 //
 //  예외가 「계약금액으로 반영」 이다. 견적 총액이나 계약금액을 프로젝트
 //  수입 칸에 넣는 건 프로젝트 초안을 고치는 일이라, 그쪽 「저장」 을 거친다.
+//
+//  목록 아래에는 최신 견적서 · 계약서를 종이 그대로 좌우에 보인다
+//  (PaperPreview — 인쇄 / PDF 와 같은 HTML). 최신 = 견적서는 견적일, 계약서는
+//  만든 때가 가장 늦은 것. 받은 계약서(본문 없이 파일만)는 종이가 없어 요약만.
 // ============================================================
 
 import {
@@ -37,6 +41,7 @@ import {
   Card,
   Money,
   SectionHeader,
+  cn,
   type Tone,
 } from "@/components/neander/ui";
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
@@ -45,10 +50,12 @@ import { QuoteEditor } from "@/components/neander/finance/QuoteEditor";
 import { ContractEditor } from "@/components/neander/finance/ContractEditor";
 import { ContractComposer, ContractTemplatePicker } from "@/components/neander/finance/ContractComposer";
 import { printableContractHtml } from "@/components/neander/finance/ContractSheet";
-import { openContractPdf } from "@/lib/neander/finance/contract-pdf";
+import { PaperPreview } from "@/components/neander/finance/PaperPreview";
+import { QUOTE_DESIGN_CSS } from "@/components/neander/finance/quotation-designs/styles";
+import { CONTRACT_CSS, openContractPdf } from "@/lib/neander/finance/contract-pdf";
 import { contractTemplate } from "@/lib/neander/finance/contract-body";
 import { contractFileStem, hasContractBody, newContract as buildContract, type FinContractDraft } from "@/lib/neander/finance/contract";
-import { openQuotePdf } from "@/lib/neander/finance/quote-pdf";
+import { QUOTE_CSS, openQuotePdf } from "@/lib/neander/finance/quote-pdf";
 import { printableQuoteHtml } from "@/components/neander/finance/QuoteSheet";
 import { loadSealImage, preloadSeals } from "@/lib/neander/finance/seal-image";
 import { resolveSeal } from "@/lib/neander/finance/supplier";
@@ -118,8 +125,74 @@ function contractInput(d: FinContractDoc): FinContractInput {
  * 탭처럼 부르는 쪽이 이미 Card 안이면 껍데기를 벗어(bare) 한 겹으로 둔다 —
  * 카드 안 카드는 테두리가 두 겹으로 겹쳐 보인다.
  */
-function DocPanel({ bare, children }: { bare: boolean; children: ReactNode }) {
-  return bare ? <section className="min-w-0">{children}</section> : <Card>{children}</Card>;
+function DocPanel({ bare, className, children }: { bare: boolean; className?: string; children: ReactNode }) {
+  return bare ? <section className={cn("min-w-0", className)}>{children}</section> : <Card className={className}>{children}</Card>;
+}
+
+/** 미리보기 머리 — 무엇의 최신본인지 · 인쇄 */
+function PreviewHead({ title, detail, onPrint }: { title: string; detail: string; onPrint?: () => void }) {
+  return (
+    <div className="mb-2 flex items-end justify-between gap-3">
+      <div className="min-w-0">
+        <p className="text-nd-body font-semibold text-nd-fg">
+          {title} <span className="ml-1 text-nd-caption font-normal text-nd-fg-3">미리보기 · 종이를 누르면 엽니다</span>
+        </p>
+        <p className="mt-0.5 truncate text-nd-caption text-nd-fg-2" title={detail}>{detail}</p>
+      </div>
+      {onPrint && (
+        <Button variant="ghost" size="sm" icon={Printer} onClick={onPrint} className="shrink-0" title="인쇄창을 엽니다 — 대상에서 「PDF로 저장」">
+          인쇄 / PDF
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/** 최신 견적서 — 견적일이 가장 늦은 것, 같은 날이면 나중에 만든 것 */
+function latestQuoteOf(quotes: FinQuoteDoc[]): FinQuoteDoc | null {
+  return [...quotes].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "") || b.createdAt - a.createdAt)[0] ?? null;
+}
+/** 최신 계약서 — 나중에 만든 것 */
+function latestContractOf(contracts: FinContractDoc[]): FinContractDoc | null {
+  return [...contracts].sort((a, b) => b.createdAt - a.createdAt)[0] ?? null;
+}
+
+/**
+ * 미리보기용 인쇄본 HTML. 도장 이미지를 먼저 받아 둔다 — 인쇄본은 한 번에
+ * 그려 떠내서(flushSync) 그 순간 기억에 없는 도장은 빠진다(seal-image.ts).
+ * 문서가 바뀌면(저장 뒤 목록 새로고침) 다시 만든다.
+ */
+function usePrintableHtml<T extends { id: string; createdAt: number; updatedAt?: number }>(
+  doc: T | null,
+  sealId: string | undefined,
+  render: (doc: T) => string,
+): string | null {
+  const [made, setMade] = useState<{ key: string; html: string } | null>(null);
+  const key = doc ? `${doc.id}:${doc.updatedAt ?? doc.createdAt}` : "";
+  useEffect(() => {
+    if (!doc) return;
+    let alive = true;
+    void (async () => {
+      const seal = resolveSeal(sealId);
+      // 그리는 중(effect 안)에 flushSync 를 부르지 않도록 한 박자 쉰다
+      if (seal) await loadSealImage(seal.id);
+      else await Promise.resolve();
+      if (!alive) return;
+      let html = "";
+      try {
+        html = render(doc);
+      } catch {
+        html = "";
+      }
+      if (alive) setMade({ key, html });
+    })();
+    return () => {
+      alive = false;
+    };
+    // render 는 부르는 쪽에서 매번 새로 만든 함수다 — 문서가 바뀔 때만 다시 그린다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, sealId]);
+  return made && made.key === key ? made.html : null;
 }
 
 /** 목록 줄 — 누르면 편집창. 줄 전체가 버튼이라 파일 칩은 전파를 끊는다 */
@@ -146,6 +219,30 @@ export function ProjectDocs({
 
   const quotes = useMemo(() => docsOfProject(docs, project.id, "quote").filter(isQuote), [docs, project.id]);
   const contracts = useMemo(() => docsOfProject(docs, project.id, "contract").filter(isContract), [docs, project.id]);
+
+  // ---- 최신 문서 미리보기 ----
+  const latestQuote = useMemo(() => latestQuoteOf(quotes), [quotes]);
+  const latestContract = useMemo(() => latestContractOf(contracts), [contracts]);
+  const latestMade = useMemo(() => {
+    if (!latestContract) return null;
+    const input = contractInput(latestContract);
+    return hasContractBody(input) ? input : null;
+  }, [latestContract]);
+  const quoteHtml = usePrintableHtml(latestQuote, latestQuote?.sealId, (q) => printableQuoteHtml(quoteInput(q)));
+  const contractHtml = usePrintableHtml(latestMade ? latestContract : null, latestMade?.body.sealId, () =>
+    latestMade ? printableContractHtml(latestMade) : "",
+  );
+
+  const openQuoteDoc = (q: FinQuoteDoc) => setOpen({ kind: "quote", id: q.id, initial: quoteInput(q), files: q.files ?? [] });
+  const openContractDoc = (c: FinContractDoc) => {
+    const input = contractInput(c);
+    // 본문이 있으면 만든 계약서 — 종이와 비서가 있는 편집창으로 연다
+    setOpen(
+      hasContractBody(input)
+        ? { kind: "compose", id: c.id, initial: input, files: c.files ?? [] }
+        : { kind: "contract", id: c.id, initial: input, files: c.files ?? [] },
+    );
+  };
 
   const newQuote = () =>
     setOpen({
@@ -190,9 +287,11 @@ export function ProjectDocs({
 
   return (
     <>
-      <div className={bare ? "grid gap-8 lg:grid-cols-2" : "mb-5 grid gap-4 lg:grid-cols-2"}>
+      {/* 넓은 화면: 위 줄에 목록 둘, 아래 줄에 미리보기 둘 — 아래 줄이 같은 높이에서 시작한다.
+          좁은 화면: 견적서 목록 → 견적서 종이 → 계약서 목록 → 계약서 종이 (DOM 순서) */}
+      <div className={bare ? "grid gap-x-8 gap-y-6 lg:grid-cols-2" : "mb-5 grid gap-4 lg:grid-cols-2"}>
         {/* ---- 견적서 ---- */}
-        <DocPanel bare={bare}>
+        <DocPanel bare={bare} className="lg:col-start-1 lg:row-start-1">
           <SectionHeader
             title={
               <>
@@ -212,7 +311,7 @@ export function ProjectDocs({
             <ul className="divide-y divide-nd-line">
               {quotes.map((q) => {
                 const t = quoteTotals(q);
-                const openQuote = () => setOpen({ kind: "quote", id: q.id, initial: quoteInput(q), files: q.files ?? [] });
+                const openQuote = () => openQuoteDoc(q);
                 return (
                   <li key={q.id}>
                     <div
@@ -274,8 +373,27 @@ export function ProjectDocs({
           )}
         </DocPanel>
 
+        {latestQuote && (
+          <DocPanel bare={bare} className="lg:col-start-1 lg:row-start-2">
+            <PreviewHead
+              title="최신 견적서"
+              detail={`${formatQuoteNo(latestQuote.quoteNo) || "번호 없음"} · ${latestQuote.date} · ${QUOTE_STATUS_LABEL[latestQuote.status]}`}
+              onPrint={() => printQuote(latestQuote)}
+            />
+            <PaperPreview
+              html={quoteHtml}
+              css={QUOTE_CSS + QUOTE_DESIGN_CSS}
+              // 편집창 종이(QuotePaperPreview)와 같은 폭 · 여백
+              width={latestQuote.design ? 794 : 820}
+              padding={latestQuote.design ? "0" : "28px 32px"}
+              label={`최신 견적서 ${formatQuoteNo(latestQuote.quoteNo)} 미리보기`}
+              onOpen={() => openQuoteDoc(latestQuote)}
+            />
+          </DocPanel>
+        )}
+
         {/* ---- 계약서 ---- */}
-        <DocPanel bare={bare}>
+        <DocPanel bare={bare} className="lg:col-start-2 lg:row-start-1">
           <SectionHeader
             title={
               <>
@@ -300,14 +418,8 @@ export function ProjectDocs({
                 // 만든 계약서는 시작을 비우면 체결일부터다 (contract.ts 의 periodLine)
                 const period = c.startDate || c.endDate ? `${c.startDate ?? (c.body ? "체결일" : "?")} ~ ${c.endDate ?? "?"}` : null;
                 const input = contractInput(c);
-                // 본문이 있으면 만든 계약서 — 종이와 비서가 있는 편집창으로 연다
                 const made = hasContractBody(input) ? input : null;
-                const openContract = () =>
-                  setOpen(
-                    made
-                      ? { kind: "compose", id: c.id, initial: made, files: c.files ?? [] }
-                      : { kind: "contract", id: c.id, initial: input, files: c.files ?? [] },
-                  );
+                const openContract = () => openContractDoc(c);
                 return (
                   <li key={c.id}>
                     <div
@@ -375,6 +487,47 @@ export function ProjectDocs({
             </ul>
           )}
         </DocPanel>
+
+        {latestContract && (
+          <DocPanel bare={bare} className="lg:col-start-2 lg:row-start-2">
+            <PreviewHead
+              title="최신 계약서"
+              detail={[
+                latestContract.counterparty || "상대방 없음",
+                latestContract.signedDate ? `체결 ${latestContract.signedDate}` : null,
+                CONTRACT_STATUS_LABEL[latestContract.status],
+              ].filter(Boolean).join(" · ")}
+              onPrint={latestMade ? () => printContract(latestMade) : undefined}
+            />
+            {latestMade ? (
+              <PaperPreview
+                html={contractHtml}
+                css={CONTRACT_CSS}
+                // 편집창 종이(ContractComposer)와 같은 폭 · 여백
+                width={860}
+                padding="40px 44px"
+                label={`최신 계약서 ${latestContract.title} 미리보기`}
+                onOpen={() => openContractDoc(latestContract)}
+              />
+            ) : (
+              // 받은 계약서 — 우리가 만든 본문이 없어 그릴 종이가 없다. 원본은 목록의 파일에서 연다
+              <button
+                type="button"
+                onClick={() => openContractDoc(latestContract)}
+                className="w-full rounded-nd-md border border-dashed border-nd-line bg-nd-sunken px-4 py-6 text-left transition-colors duration-nd-fast hover:bg-nd-accent-soft/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nd-accent/50"
+              >
+                <p className="text-nd-body font-medium text-nd-fg">{latestContract.title}</p>
+                <p className="mt-1 text-nd-caption text-nd-fg-2">
+                  받은 계약서라 종이 미리보기가 없습니다 · 금액 <Money value={latestContract.amount} unit={false} /> ({VAT_LABEL[latestContract.vatMode]})
+                  {latestContract.startDate || latestContract.endDate ? ` · ${latestContract.startDate ?? "?"} ~ ${latestContract.endDate ?? "?"}` : ""}
+                </p>
+                <p className="mt-1 text-nd-caption text-nd-fg-3">
+                  {(latestContract.files ?? []).length ? "원본은 위 목록의 파일을 눌러 엽니다." : "붙인 파일도 없습니다."}
+                </p>
+              </button>
+            )}
+          </DocPanel>
+        )}
       </div>
 
       {open?.kind === "quote" && (
