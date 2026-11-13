@@ -30,6 +30,7 @@
 import type { FinTransaction } from "./types";
 import { expenseAmount, incomeAmount, refundAmount } from "./types";
 import { todayStrKST } from "../format";
+import { reconcileNoteRich, sanitizeNoteRich, type NoteRich } from "./rich-note";
 
 export const PROJECT_STATUSES = ["planning", "active", "done", "cancelled"] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
@@ -584,7 +585,13 @@ export interface FinProjectDoc {
   /** 사용자가 만든 열 */
   columns?: FinProjectColumn[];
   lines: FinProjectLine[];
+  /** 메모 평문 — 비서 · 보고서 · 검색 · 스크립트는 이것만 읽고 쓴다 */
   note?: string;
+  /**
+   * 메모 서식 (굵게 · 색 · 형광펜 · 글꼴 · 크기) — 글자는 `note` 와 같고 서식만 더한다.
+   * 평문만 고쳐도 저장할 때 `note` 에 맞춰진다 (rich-note.ts reconcileNoteRich).
+   */
+  noteRich?: NoteRich;
   /** 사내 인력 — 정직원·대표가 쓴 날 × 하루 단가 (추정 원가, 실제 지출이 아니다) */
   labor?: FinProjectLabor[];
   /** 남은 일 — 남은 청구 · 세금계산서 · 신고 · 장비 반납 … */
@@ -1130,6 +1137,8 @@ export function sanitizeProject(
       columns: columns.length > 0 ? columns : undefined,
       lines,
       note: str(raw.note),
+      // 서식은 평문을 따라간다 — 평문만 고친 저장(스크립트 · 비서)도 그대로인 줄의 서식은 남는다
+      noteRich: reconcileNoteRich(str(raw.note), sanitizeNoteRich(raw.noteRich)),
       labor: (() => {
         const list = (Array.isArray(raw.labor) ? raw.labor : [])
           .map(sanitizeLabor)

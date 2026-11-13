@@ -105,6 +105,7 @@ import { ChecklistSheet } from "@/components/neander/finance/ChecklistSheet";
 import { DeliveryDate } from "@/components/neander/finance/DeliveryDate";
 import { DueInput } from "@/components/neander/finance/DueInput";
 import { isTypingInto } from "@/components/neander/finance/sheetCells";
+import { RichNoteEditor } from "@/components/neander/finance/RichNoteEditor";
 import {
   CHECKLIST_LAYOUT_KEY,
   DEFAULT_ZOOM,
@@ -281,6 +282,8 @@ function toInput(p: FinProjectDoc): FinProjectInput {
     columns: p.columns?.map((c) => ({ ...c })),
     lines: (p.lines ?? []).map((l) => ({ ...l })),
     note: p.note,
+    // 메모 서식 — 빠지면 화면에서 한 번 저장하는 순간 서식이 사라진다
+    noteRich: p.noteRich,
     labor: p.labor?.map((l) => ({ ...l })),
     todos: p.todos?.map((t) => ({ ...t })),
     lessons: p.lessons,
@@ -1155,16 +1158,15 @@ function ProjectDetailEditor({ id }: { id: string }) {
                 })}
               </div>
             </Field>
-            <Field label="메모" className="mt-3">
-              <Textarea
-                size="sm"
-                rows={2}
-                value={form.note ?? ""}
-                onChange={(e) => setField("note", e.target.value || undefined)}
-                className="!min-h-0"
+            {/* <label>(Field) 로 감싸지 않는다 — label 안의 글자를 누르면 브라우저가 첫 도구 버튼을 대신 누른다 */}
+            <div className="mt-3">
+              <RichNoteEditor
+                note={form.note}
+                rich={form.noteRich}
+                onChange={(note, noteRich) => edit((f) => ({ ...f, note, noteRich }))}
                 placeholder="계약 조건, 부가세 기준, 정산 일정 …"
               />
-            </Field>
+            </div>
           </Card>
 
           {/* ---- 남은 일 · 다음엔 ---- */}
