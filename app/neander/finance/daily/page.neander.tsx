@@ -12,16 +12,21 @@
 //  법인카드는 통장과 따로 — 카드 승인 문자가 오면 「카드 승인 내역」 에 시간순으로 쌓이고,
 //  그 전에는 카드 기록(월 엑셀) 기준 사용액을 보여 준다.
 //  계산은 lib/neander/finance/daily-cash.ts. 문자 줄은 장부에 넣지 않는다 (4주 시험 중).
+//
+//  문자도 장부도 없는 통장(대출 · 지원금 통장)은 「잔액 입력」 으로 사람이 은행 앱을 보고
+//  적은 잔액을 쓴다(neander_fin_cash_checks · applyCashCheck). 더 새 문자 · 장부가 오면 그쪽.
 // ============================================================
 
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { CreditCard, MessageSquareText, RefreshCw, TriangleAlert } from "lucide-react";
+import { CreditCard, MessageSquareText, PencilLine, RefreshCw, TriangleAlert } from "lucide-react";
 import {
   Badge,
   Button,
   Card,
   DateStepper,
+  Dialog,
   EmptyState,
+  Field,
   ErrorState,
   InlineNotice,
   Input,
@@ -29,6 +34,7 @@ import {
   KpiStrip,
   LoadingState,
   Money,
+  NumberInput,
   PageHeader,
   PageShell,
   SectionHeader,
@@ -43,6 +49,7 @@ import {
 import { useFinance } from "@/components/neander/finance/FinanceProvider";
 import { HoverDetail } from "@/components/neander/finance/HoverDetail";
 import {
+  applyCashCheck,
   buildDailyCash,
   ledgerAccountRow,
   ledgerCardRow,
@@ -50,6 +57,7 @@ import {
   type CardRow,
   type CardTx,
   type CashAccount,
+  type CashCheck,
   type CashLink,
   type DailyCashRow,
 } from "@/lib/neander/finance/daily-cash";
@@ -61,6 +69,7 @@ import {
   type DetailLine,
 } from "@/lib/neander/finance/daily-cash-detail";
 import { fetchDailyCash, type DailyCashFetch } from "@/lib/neander/finance/daily-cash-client";
+import { deleteCashCheck, saveCashCheck } from "@/lib/neander/finance/client";
 
 const kstToday = () => new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
 const addDays = (date: string, n: number) => new Date(Date.parse(`${date}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
@@ -106,6 +115,10 @@ export default function DailyCashPage() {
   const [data, setData] = useState<DailyCashFetch | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** 잔액 입력 창 — 은행 앱을 보고 그날 잔액을 적는다 */
+  const [checking, setChecking] = useState<{ acct: CashAccount; date: string; balance: string; note: string; existing?: CashCheck } | null>(null);
+  const [checkBusy, setCheckBusy] = useState(false);
+  const [checkError, setCheckError] = useState<string | null>(null);
 
   // 통장 · 법인카드 탭 — 주소 끝(#card)에 남겨 새로고침해도 보던 탭 그대로
   const [view, setView] = useState<View>("account");
@@ -152,7 +165,9 @@ export default function DailyCashPage() {
       .map((acct) => {
         const link: CashLink = data.lastSeen[acct.last4] ? "sms" : linked.has(acct.last4) ? "waiting" : "none";
         const sms = smsReport.rows.find((r) => r.last4 === acct.last4);
-        const row: DailyCashRow | null = sms ?? (ledgerLoading ? null : ledgerAccountRow(transactions, acct, from, to));
+        const base: DailyCashRow | null = sms ?? (ledgerLoading ? null : ledgerAccountRow(transactions, acct, from, to));
+        // 사람이 직접 확인한 잔액이 더 새것이면 그 값
+        const row = base ? applyCashCheck(base, data.checks ?? [], from, to) : null;
         return { acct, link, row };
       })
       .sort((a, b) => LINK_ORDER[a.link] - LINK_ORDER[b.link] || (b.row?.closing ?? 0) - (a.row?.closing ?? 0));
@@ -191,8 +206,36 @@ export default function DailyCashPage() {
   const smsLines = useMemo(() => smsReport?.days.flatMap((d) => d.lines) ?? [], [smsReport]);
   const periodLabel = mode === "day" ? shortDay(from) : `${shortDay(from)} ~ ${shortDay(to)}`;
   const withDate = mode === "range";
-  const sourceLabel = (row: { source?: "sms" | "ledger"; coveredTo?: string }) =>
-    row.source === "sms" ? "문자 기준 · 잠정" : row.coveredTo ? `장부 기준 · ${md(row.coveredTo)}까지` : "장부 기준";
+  const sourceLabel = (row: { source?: "sms" | "ledger"; coveredTo?: string; checked?: CashCheck }) =>
+    row.checked ? `직접 확인 · ${md(row.checked.date)}` : row.source === "sms" ? "문자 기준 · 잠정" : row.coveredTo ? `장부 기준 · ${md(row.coveredTo)}까지` : "장부 기준";
+  /** 잔액 입력 창을 연다 — 날짜는 보고 있는 날(기간이면 끝날), 오늘을 넘지 않게 */
+  const openCheck = (acct: CashAccount) => {
+    const date = to > today ? today : to;
+    const existing = (data?.checks ?? []).find((c) => c.last4 === acct.last4 && c.date === date);
+    setCheckError(null);
+    setChecking({ acct, date, balance: existing ? String(existing.balance) : "", note: existing?.note ?? "", existing });
+  };
+  const pickCheckDate = (date: string) =>
+    setChecking((c) => {
+      if (!c) return c;
+      const existing = (data?.checks ?? []).find((x) => x.last4 === c.acct.last4 && x.date === date);
+      return { ...c, date, existing, ...(existing ? { balance: String(existing.balance), note: existing.note ?? "" } : {}) };
+    });
+  const submitCheck = async (remove = false) => {
+    if (!checking) return;
+    setCheckBusy(true);
+    setCheckError(null);
+    try {
+      if (remove) await deleteCashCheck(checking.acct.last4, checking.date);
+      else await saveCashCheck({ last4: checking.acct.last4, date: checking.date, balance: Number(checking.balance), note: checking.note.trim() || undefined });
+      setChecking(null);
+      await load();
+    } catch (e) {
+      setCheckError(e instanceof Error ? e.message : "저장하지 못했습니다.");
+    } finally {
+      setCheckBusy(false);
+    }
+  };
   const dirOf = (kind: "입금" | "출금") => (kind === "입금" ? "in" : "out");
   const flowOf = (kind: "입금" | "출금") => (kind === "입금" ? "income" : "expense");
 
@@ -256,7 +299,7 @@ export default function DailyCashPage() {
       subtitle={`${pick === "opening" ? `${shortDay(from)} 시작` : `${shortDay(to)} 마지막`} · 통장별`}
       lines={() => balanceLines(pick, smsOnly)}
       countLabel={(n) => `${n}개 통장 합계`}
-      footnote={smsOnly ? undefined : "장부 기준 통장은 장부가 올라온 날의 잔액이에요."}
+      footnote={smsOnly ? undefined : "장부 기준 통장은 장부가 올라온 날, 직접 확인한 통장은 확인한 날의 잔액이에요."}
     >
       {value}
     </HoverDetail>
@@ -439,8 +482,15 @@ export default function DailyCashPage() {
                           {amountCell(row?.closing, undefined, pending)}
                         </Td>
                         <Td>
+                          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           {pending ? (
                             <span className="text-nd-fg-3">장부 불러오는 중…</span>
+                          ) : row?.checked ? (
+                            <Badge tone="info" dot>
+                              <span title={[`${row.checked.balance.toLocaleString("ko-KR")}원`, row.checked.note, row.checked.createdBy && `적은 사람 ${row.checked.createdBy}`].filter(Boolean).join(" · ")}>
+                                직접 확인 · {md(row.checked.date)}
+                              </span>
+                            </Badge>
                           ) : ledger ? (
                             <span className="text-nd-fg-3">{row.coveredTo ? `장부 기준 · ${md(row.coveredTo)}까지` : "장부에 거래 없음"}</span>
                           ) : row!.gapCount > 0 ? (
@@ -454,6 +504,12 @@ export default function DailyCashPage() {
                               잔액 맞음
                             </Badge>
                           )}
+                          {!pending && (
+                            <Button size="sm" variant="ghost" icon={PencilLine} onClick={() => openCheck(acct)} aria-label={`${acct.label} ${acct.last4} 잔액 입력`} title="은행 앱에서 본 잔액을 적습니다">
+                              잔액 입력
+                            </Button>
+                          )}
+                          </span>
                         </Td>
                       </Tr>
                     );
@@ -474,7 +530,7 @@ export default function DailyCashPage() {
                     <Td num>{ledgerLoading ? amountCell(0, undefined, true) : totalFlow("입금", false, amountCell(sumOf(allRows, (r) => r.inSum), "income"))}</Td>
                     <Td num>{ledgerLoading ? amountCell(0, undefined, true) : totalFlow("출금", false, amountCell(sumOf(allRows, (r) => r.outSum), "expense"))}</Td>
                     <Td num>{ledgerLoading ? amountCell(0, undefined, true) : totalBalance("closing", false, amountCell(sumOf(allRows, (r) => r.closing ?? 0)))}</Td>
-                    <Td className="font-normal text-nd-fg-3">장부 기준 통장은 장부가 올라온 날까지</Td>
+                    <Td className="font-normal text-nd-fg-3">장부 기준 통장은 장부가 올라온 날 · 직접 확인은 확인한 날</Td>
                   </Tr>
                 </tbody>
               </Table>
@@ -664,6 +720,50 @@ export default function DailyCashPage() {
           )}
         </>
       ) : null}
+      {checking && (
+        <Dialog
+          open
+          onClose={() => !checkBusy && setChecking(null)}
+          title={`${checking.acct.label} ${checking.acct.last4} 잔액 입력`}
+          description="은행 앱에서 본 잔액을 적으면, 그날부터 문자 · 장부가 더 새로 오기 전까지 이 통장의 잔액으로 씁니다."
+          size="sm"
+          footer={
+            <>
+              {checking.existing && (
+                <Button variant="ghost" className="mr-auto text-nd-danger-text" onClick={() => void submitCheck(true)} disabled={checkBusy}>
+                  이 날 확인 지우기
+                </Button>
+              )}
+              <Button variant="secondary" onClick={() => setChecking(null)} disabled={checkBusy}>
+                닫기
+              </Button>
+              <Button onClick={() => void submitCheck()} loading={checkBusy} disabled={checking.balance.trim() === ""}>
+                저장
+              </Button>
+            </>
+          }
+        >
+          <div className="flex flex-col gap-3">
+            <Field label="확인한 날">
+              <Input type="date" value={checking.date} max={today} onChange={(e) => e.target.value && pickCheckDate(e.target.value)} />
+            </Field>
+            <Field label="잔액" hint={checking.existing ? `이 날 적어 둔 값 ${checking.existing.balance.toLocaleString("ko-KR")}원 — 저장하면 바꿉니다` : "0원도 적을 수 있어요"}>
+              <NumberInput
+                value={checking.balance}
+                onValueChange={(v) => setChecking((c) => (c ? { ...c, balance: v } : c))}
+                negative
+                className="text-right"
+                placeholder="0"
+                autoFocus
+              />
+            </Field>
+            <Field label="메모 (선택)">
+              <Input value={checking.note} onChange={(e) => setChecking((c) => (c ? { ...c, note: e.target.value } : c))} placeholder="예: 은행 앱 · 대출 원금 상환 뒤" />
+            </Field>
+            {checkError && <p className="text-[14px] text-nd-danger-text">{checkError}</p>}
+          </div>
+        </Dialog>
+      )}
     </PageShell>
   );
 }

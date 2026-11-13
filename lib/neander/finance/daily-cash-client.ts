@@ -5,7 +5,7 @@
 // ============================================================
 
 import { getNeanderAuth } from "@/lib/neander/firebase";
-import type { CardTx, CashAccount, SmsTx } from "./daily-cash";
+import type { CardTx, CashAccount, CashCheck, SmsTx } from "./daily-cash";
 
 export interface DailyCashFetch {
   txs: SmsTx[];
@@ -20,6 +20,8 @@ export interface DailyCashFetch {
   cardLastSeen: Record<string, string>;
   /** 문자 통지를 신청한 통장 · 카드 (끝 네 자리) */
   linked: { accounts: string[]; cards: string[] };
+  /** 사람이 직접 확인한 통장 잔액 (기간 끝날까지) */
+  checks: CashCheck[];
   total: number;
 }
 

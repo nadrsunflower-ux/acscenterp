@@ -98,6 +98,12 @@ export const NEANDER_COL = {
    * 장부에 넣지 않는 잠정 자료다. 보안 규칙에 없어 서버(api/neander/finance/sms)만 접근한다
    */
   finSmsInbox: "neander_fin_sms_inbox",
+  /**
+   * 통장 잔액 직접 확인 — 「오늘 9719 에 925,119원」 처럼 사람이 은행 앱을 보고 적은 잔액.
+   * 문자도 장부도 없는(또는 그보다 새) 날의 자금 일보 잔액이 된다 (finance/daily-cash.ts applyCashCheck).
+   * 문서 id = `${last4}_${date}`. 서버(daily-cash 조회 · mutate)만 읽고 쓴다
+   */
+  finCashChecks: "neander_fin_cash_checks",
   /** 원장에 사람이 덧붙인 열 (값은 거래 문서의 extra 에 담긴다) */
   finLedgerColumns: "neander_fin_ledger_columns",
   /** 형광펜 끄기 — 신뢰한 거래처(영구) · 이 달 확인한 계정 (finance/anomaly.ts) */

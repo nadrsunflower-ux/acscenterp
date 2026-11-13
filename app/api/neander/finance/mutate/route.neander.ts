@@ -21,6 +21,7 @@ import { installmentSplit } from "@/lib/neander/finance/project";
 import { isCovered, receiptKey } from "@/lib/neander/finance/receivables";
 import { netAmount } from "@/lib/neander/finance/types";
 import { sanitizeEquipment } from "@/lib/neander/finance/equipment";
+import { cashCheckId, sanitizeCashCheck } from "@/lib/neander/finance/daily-cash";
 import { FieldValue } from "firebase-admin/firestore";
 
 // 재무 쓰기 전체. 액션 하나로 모아둔 이유는 인증 게이트를 한 곳에서만
@@ -908,6 +909,26 @@ export async function POST(req: Request) {
         });
         if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
         return NextResponse.json(out);
+      }
+
+      case "cashCheck.save": {
+        // 통장 잔액 직접 확인 — 자금 일보에서 「오늘 이 통장에 얼마」 를 적는다.
+        // 같은 통장 · 같은 날은 하나뿐(덮어쓴다). ERP 결제수단에 없는 통장은 받지 않는다 — 끝자리 오타 방지
+        const c = sanitizeCashCheck(payload);
+        if (!c) return NextResponse.json({ error: "통장 끝 네 자리 · 날짜(YYYY-MM-DD) · 잔액이 필요합니다." }, { status: 400 });
+        const methods = await db.collection(NEANDER_COL.finPaymentMethods).where("last4", "==", c.last4).get();
+        if (!methods.docs.some((d) => d.data().kind === "account")) {
+          return NextResponse.json({ error: `ERP 통장 목록에 ${c.last4} 가 없습니다 — 끝 네 자리를 확인해 주세요.` }, { status: 400 });
+        }
+        await db.collection(NEANDER_COL.finCashChecks).doc(cashCheckId(c.last4, c.date)).set({ ...c, createdAt: now, createdBy: user.email });
+        return NextResponse.json({ ok: true, check: { ...c, createdAt: now, createdBy: user.email } });
+      }
+
+      case "cashCheck.delete": {
+        const { last4, date } = payload as { last4?: string; date?: string };
+        if (!last4 || !date) return NextResponse.json({ error: "통장 · 날짜가 필요합니다." }, { status: 400 });
+        await db.collection(NEANDER_COL.finCashChecks).doc(cashCheckId(String(last4), String(date))).delete();
+        return NextResponse.json({ ok: true });
       }
 
       case "project.setEquipment": {

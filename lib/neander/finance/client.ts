@@ -20,6 +20,7 @@ import type { FinChatDoc, FinChatSummary } from "./chat-log";
 import type { CalendarSnapshot, GcalCalendar } from "./calendar";
 import type { FinProjectDoc, FinProjectInput, ProjectDigest } from "./project";
 import type { ProjectEquipment } from "./equipment";
+import type { CashCheck } from "./daily-cash";
 import type { FinDoc, FinDocFile, FinDocInput } from "./docs";
 import type {
   FinAccountDoc,
@@ -620,6 +621,11 @@ export const setFinProjectDue = (
   id: string,
   due: { installmentId?: string; dueDate: string; dueApprox?: "early" | "mid" | "late" },
 ) => mutate<{ ok: true; created: boolean }>("project.setDue", { id, ...due });
+
+/** 통장 잔액 직접 확인 (자금 일보) — 같은 통장 · 같은 날은 덮어쓴다 */
+export const saveCashCheck = (check: { last4: string; date: string; balance: number; note?: string }) =>
+  mutate<{ ok: true; check: CashCheck }>("cashCheck.save", check);
+export const deleteCashCheck = (last4: string, date: string) => mutate<{ ok: true }>("cashCheck.delete", { last4, date });
 
 /** 장비 배정만 고친다 (프로젝트 달력). 다 0 이면 지운다 — 다른 칸은 서버가 그대로 둔다 */
 export const setFinProjectEquipment = (id: string, equipment: ProjectEquipment) =>

@@ -96,6 +96,8 @@ export interface DailyCashRow extends CashAccount {
   source?: "sms" | "ledger";
   /** 장부가 어디까지 올라와 있나 (장부 기준 줄) */
   coveredTo?: string;
+  /** 사람이 직접 확인한 잔액을 이 줄의 잔액으로 썼다 (applyCashCheck) */
+  checked?: CashCheck;
 }
 
 export interface DailyCashLine extends SmsTx {
@@ -329,4 +331,55 @@ export function ledgerCardRow(ledger: FinTransaction[], card: CashAccount, from:
     cancelCount: no.length,
     ...(coveredTo ? { coveredTo, lastSeen: coveredTo } : {}),
   };
+}
+
+// ---- 잔액 직접 확인 — 문자도 장부도 없는 통장 ------------------------------
+//
+//  대출 · 지원금 통장처럼 문자가 안 오고 장부(월 엑셀)도 늦는 통장은 자금 일보에
+//  잔액이 비거나 몇 달 전 값이 남는다. 사람이 은행 앱을 보고 「오늘 925,119원」 을
+//  적어 두면, 그 날 이후로는 그 값을 잔액으로 쓴다 — 더 새 자료가 오기 전까지.
+//    · 장부 기준 줄: 확인한 날 ≥ 장부 마지막 날이면 확인 값 (같은 날이면 확인이 더 늦게 본 값)
+//    · 문자 기준 줄: 확인한 날 > 마지막 문자 날일 때만 (그날 문자가 있으면 문자가 더 정확하다)
+//  기말 = 확인 값. 확인한 날이 기간 앞이면 기초도 확인 값(그 뒤 움직임을 모른다).
+//  확인한 날이 기간 안인데 다른 자료로도 기초를 모르면 기초도 확인 값(그날 움직임을 모른다).
+//  입금 · 출금은 건드리지 않는다 — 확인은 잔액만 알려 준다.
+
+export interface CashCheck {
+  last4: string;
+  /** 확인한 날 YYYY-MM-DD */
+  date: string;
+  balance: number;
+  note?: string;
+  createdBy?: string;
+  createdAt?: number;
+}
+
+export const cashCheckId = (last4: string, date: string) => `${last4}_${date}`;
+
+export function sanitizeCashCheck(raw: unknown): CashCheck | null {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const last4 = String(r.last4 ?? "").trim();
+  const date = String(r.date ?? "").trim();
+  if (r.balance === "" || r.balance === null || r.balance === undefined) return null;
+  const balance = Math.round(Number(r.balance));
+  if (!/^\d{4}$/.test(last4) || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(balance)) return null;
+  const note = String(r.note ?? "").trim().slice(0, 200);
+  return { last4, date, balance, ...(note ? { note } : {}) };
+}
+
+/** 이 통장 · 이 날까지의 가장 새 확인 */
+export const latestCashCheck = (checks: CashCheck[], last4: string, to: string): CashCheck | undefined =>
+  checks.filter((c) => c.last4 === last4 && c.date <= to).sort((a, b) => b.date.localeCompare(a.date))[0];
+
+export function applyCashCheck(row: DailyCashRow, checks: CashCheck[], from: string, to: string): DailyCashRow {
+  const c = latestCashCheck(checks, row.last4, to);
+  if (!c) return row;
+  if (row.source === "sms") {
+    const seen = row.lastSeen?.slice(0, 10);
+    if (seen && c.date <= seen) return row;
+  } else if (row.coveredTo && c.date < row.coveredTo) return row;
+  // 기초: 확인이 기간 앞이면 확인 값. 기간 안이고 다른 자료로도 모르면 확인 값(그날 움직임을 모른다 —
+  // 비워 두면 합계에서 0 으로 세어 확인한 잔액 전부가 그날 들어온 돈처럼 보인다)
+  const opening = c.date < from || row.opening === null ? c.balance : row.opening;
+  return { ...row, closing: c.balance, opening, checked: c };
 }

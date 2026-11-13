@@ -1,7 +1,7 @@
 // 자금 일보 — 기초 · 기말 잔액 · 입출금 합 · 빠진 문자 (`npm run finance:test-daily-cash`)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildDailyCash, ledgerAccountRow, ledgerCardRow, smsCardRow, smsToCardTx, smsToTx, type SmsTx } from "./daily-cash";
+import { applyCashCheck, buildDailyCash, ledgerAccountRow, ledgerCardRow, sanitizeCashCheck, smsCardRow, smsToCardTx, smsToTx, type DailyCashRow, type SmsTx } from "./daily-cash";
 import type { FinTransaction } from "./types";
 
 let n = 0;
@@ -107,4 +107,38 @@ test("카드 — 문자는 승인 − 취소, 장부는 지출 − 환급", () =
   assert.deepEqual([r.useSum, r.approveCount, r.cancelCount], [10_000, 1, 1]);
   const lr = ledgerCardRow([L("2026-11-01", "5678", "지출", 9_000), L("2026-11-02", "5678", "환급", 1_000)], { last4: "5678", label: "나카드" }, "2026-11-01", "2026-11-30");
   assert.deepEqual([lr.useSum, lr.approveCount, lr.cancelCount, lr.coveredTo], [8_000, 1, 1, "2026-11-02"]);
+});
+
+test("잔액 직접 확인 — 장부보다 새것이면 기말, 기간 앞이면 기초도", () => {
+  const base: DailyCashRow = { last4: "9719", label: "우리대출", source: "ledger", opening: null, closing: null, inSum: 0, outSum: 0, inCount: 0, outCount: 0, gap: 0, gapCount: 0, coveredTo: "2026-06-20" };
+  const checks = [
+    { last4: "9719", date: "2026-11-13", balance: 925_119 },
+    { last4: "9719", date: "2026-10-01", balance: 1_000 },
+    { last4: "7069", date: "2026-11-13", balance: 0 },
+  ];
+  const day = applyCashCheck(base, checks, "2026-11-13", "2026-11-13");
+  assert.equal(day.closing, 925_119);
+  assert.equal(day.opening, 925_119, "확인한 그날 — 다른 자료로도 모르면 전일도 확인 값");
+  assert.equal(applyCashCheck({ ...base, opening: 800_000 }, checks, "2026-11-13", "2026-11-13").opening, 800_000, "장부로 아는 전일 잔액은 그대로");
+  assert.equal(day.checked?.date, "2026-11-13");
+  const next = applyCashCheck(base, checks, "2026-11-14", "2026-11-14");
+  assert.deepEqual([next.opening, next.closing], [925_119, 925_119], "다음 날 — 기초 · 기말 모두 확인 값");
+  const before = applyCashCheck(base, checks, "2026-10-05", "2026-10-05");
+  assert.equal(before.closing, 1_000, "그 날까지의 가장 새 확인");
+  assert.equal(applyCashCheck(base, checks, "2026-09-01", "2026-09-01").checked, undefined, "확인 전 날짜는 그대로");
+  const zero = applyCashCheck({ ...base, last4: "7069", coveredTo: undefined }, checks, "2026-11-13", "2026-11-13");
+  assert.equal(zero.closing, 0, "0원도 잔액이다");
+  // 장부가 더 새것이면 장부
+  assert.equal(applyCashCheck({ ...base, coveredTo: "2026-11-20", closing: 5 }, checks, "2026-11-20", "2026-11-20").closing, 5);
+  // 문자는 같은 날이면 문자가 이긴다, 다음 날 확인이면 확인
+  const sms: DailyCashRow = { ...base, source: "sms", coveredTo: undefined, closing: 7, lastSeen: "2026-11-13 10:00" };
+  assert.equal(applyCashCheck(sms, checks, "2026-11-13", "2026-11-13").closing, 7);
+  assert.equal(applyCashCheck(sms, [{ last4: "9719", date: "2026-11-14", balance: 9 }], "2026-11-14", "2026-11-14").closing, 9);
+});
+
+test("잔액 확인 정리 — 끝 네 자리 · 날짜 · 정수", () => {
+  assert.deepEqual(sanitizeCashCheck({ last4: "9719", date: "2026-11-13", balance: "925119.4", note: " 은행 앱 " }), { last4: "9719", date: "2026-11-13", balance: 925_119, note: "은행 앱" });
+  assert.equal(sanitizeCashCheck({ last4: "97190", date: "2026-11-13", balance: 1 }), null);
+  assert.equal(sanitizeCashCheck({ last4: "9719", date: "11/13", balance: 1 }), null);
+  assert.equal(sanitizeCashCheck({ last4: "9719", date: "2026-11-13", balance: "x" }), null);
 });
