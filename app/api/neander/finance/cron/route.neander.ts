@@ -13,6 +13,7 @@ import { buildRunway, defaultAsOf, runwayDanger, sanitizeRunway } from "@/lib/ne
 import { buildBriefing, type FinAlert } from "@/lib/neander/finance/briefing";
 import { isEngineConfirmed } from "@/lib/neander/finance/trust";
 import { syncMoneyCalendar } from "@/lib/neander/finance/server/money-calendar";
+import { retryAnnouncements, scanTaxMails } from "@/lib/neander/finance/server/tax-notice";
 import type { FinImportBatch, FinTransaction } from "@/lib/neander/finance/types";
 import type { FinPaymentMethodDoc } from "@/lib/neander/finance/db-types";
 import type { FinProjectDoc } from "@/lib/neander/finance/project";
@@ -30,6 +31,8 @@ import type { FinProjectDoc } from "@/lib/neander/finance/project";
 //    ④′ 예고 없이 생긴 오픈라우터 키 — ERP 에 등록되지 않은 새 키를 노션 「API키알림」 으로 알린다 (server/key-watch.ts)
 //    ⑤ 돈 나가는 날 — 카드값 · 세금 · 급여 · 월세 · 이자를 노션 표로 맞추고, 납부 N일 전 · 당일에
 //       노션 멘션으로 알린다 (server/money-calendar.ts). 실패해도 나머지 점검은 그대로 끝난다
+//    ⑤′ 그 앞에 — 회사 메일함의 세금 고지서 메일(위택스 전자송달 등)을 고지서로 넣고, 도착 알림을
+//       못 보낸 고지서를 다시 보낸다 (server/tax-notice.ts). 고지서는 돈 나가는 날 표에 납기 줄이 된다
 //
 //  ⚠️ 현금 예측(통장이 언제 모자라나)은 런웨이(runway.ts)가 정본이다 — 화면의 런웨이와
 //     같은 설정 · 같은 함수로 「바닥나는 날」 을 받아 옮겨 적기만 한다. 여기서 따로 세지 않는다.
@@ -127,6 +130,16 @@ export async function GET(req: Request) {
     const monday = new Date(`${today}T00:00:00Z`).getUTCDay() === 1;
     if (monday) await db.collection(NEANDER_COL.finSettings).doc("briefing").set(briefing);
 
+    // ⑤′ 세금 고지서 메일 · 못 보낸 도착 알림
+    const taxMail = await scanTaxMails(db).catch((e) => {
+      console.error("[finance/cron] tax-mail", e);
+      return null;
+    });
+    const taxRetry = await retryAnnouncements(db).catch((e) => {
+      console.error("[finance/cron] tax-retry", e);
+      return null;
+    });
+
     // ⑤ 돈 나가는 날 — 노션 표 · 알림
     const money = await syncMoneyCalendar(db, { transactions, today }).catch((e) => {
       console.error("[finance/cron] money-calendar", e);
@@ -144,6 +157,7 @@ export async function GET(req: Request) {
       alerts: { active: briefing.alerts.length, new: fresh.length },
       briefing: monday ? briefing.headline : undefined,
       money,
+      tax: { mail: taxMail, retried: taxRetry },
     });
   } catch (e) {
     console.error("[finance/cron]", e);

@@ -33,6 +33,10 @@ export interface MoneyMatch {
   last4?: string;
   /** 사업장 (네안데르 · 일해라컴퍼니 …) */
   site?: string;
+  /** 계정 중분류가 이 가운데 하나 (국세 · 지방세) */
+  acctMids?: string[];
+  /** 금액이 딱 이만큼 (고지서 금액 — 원 단위). 있으면 계정은 보지 않는다 — 세금이 엉뚱한 계정으로 분류돼도 찾게 */
+  amount?: number;
 }
 
 export interface MoneyRule {
@@ -43,8 +47,14 @@ export interface MoneyRule {
   label: string;
   /** 나가는 달 (1~12). 비우면 매달 */
   months?: number[];
-  /** 그 달의 날. 31 이면 말일 (짧은 달은 그 달 마지막 날) */
+  /** 그 달의 날. 31 이면 말일 (짧은 달은 그 달 마지막 날). once 가 있으면 쓰지 않는다 */
   day: number;
+  /** 한 번만 오는 날 (YYYY-MM-DD) — 고지서 납기처럼. 있으면 months · day 대신 이날 하루 */
+  once?: string;
+  /** 정해진 금액 (고지서 금액) — 지난번 금액 대신 알림 · 표에 쓴다 */
+  amount?: number;
+  /** 사람이 「냈음」 으로 표시함 — 장부에 출금이 아직 없어도 냈음으로 본다 */
+  settled?: { date: string; amount?: number };
   /** 휴일이면 — next: 다음 영업일 · none: 그날 그대로 */
   shift: "next" | "none";
   /** 빠지는 통장 (보이는 글자 그대로) */
@@ -140,7 +150,7 @@ export function expandRules(rules: MoneyRule[], from: string, to: string): Money
   const endM = Number(to.slice(5, 7));
   while (y < endY || (y === endY && m <= endM)) {
     for (const rule of rules) {
-      if (rule.off) continue;
+      if (rule.off || rule.once) continue;
       if (rule.months?.length && !rule.months.includes(m)) continue;
       const day = Math.min(rule.day, lastDayOf(y, m));
       const nominal = `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -154,6 +164,13 @@ export function expandRules(rules: MoneyRule[], from: string, to: string): Money
       y += 1;
     }
   }
+  // 한 번만 오는 날 — 열쇠는 「규칙 ¦ 정해진 날」 그대로 (납기가 바뀌면 다른 줄이 된다 — 서버가 옛 줄을 치운다)
+  for (const rule of rules) {
+    if (rule.off || !rule.once || !/^\d{4}-\d{2}-\d{2}$/.test(rule.once)) continue;
+    const date = rule.shift === "next" ? nextBusinessDayKr(rule.once) : rule.once;
+    if (date < from || date > to) continue;
+    out.push({ key: `${rule.id}¦${rule.once}`, rule, nominal: rule.once, date, shifted: date !== rule.once });
+  }
   return out.sort((a, b) => a.date.localeCompare(b.date) || a.rule.label.localeCompare(b.rule.label));
 }
 
@@ -165,8 +182,13 @@ export function matchesRule(t: FinTransaction, m: MoneyMatch): boolean {
   if (t.txType === "수입" || t.txType === "자금거래") return false;
   if (netAmount(t) <= 0) return false;
   if (m.vendor && !m.vendor.split("|").some((v) => squash(t.vendor).includes(squash(v)))) return false;
-  if (m.acctMid && t.acctMid !== m.acctMid) return false;
-  if (m.acctMinor?.length && !m.acctMinor.includes(t.acctMinor ?? "")) return false;
+  if (m.amount !== undefined) {
+    if (Math.round(netAmount(t)) !== Math.round(m.amount)) return false;
+  } else {
+    if (m.acctMid && t.acctMid !== m.acctMid) return false;
+    if (m.acctMids?.length && !m.acctMids.includes(t.acctMid ?? "")) return false;
+    if (m.acctMinor?.length && !m.acctMinor.includes(t.acctMinor ?? "")) return false;
+  }
   if (m.last4 && String(t.last4 ?? "") !== m.last4) return false;
   if (m.site && t.site !== m.site) return false;
   return true;
@@ -229,11 +251,12 @@ export const moneyText = manwon;
 
 export function buildMoneyRows(rules: MoneyRule[], txs: FinTransaction[], from: string, to: string): MoneyRow[] {
   return expandRules(rules, from, to).map((occ) => {
-    const paid = paidFor(occ, txs);
-    const last = paid ? null : lastPaidBefore(occ.rule, occ.date, txs);
+    const s = occ.rule.settled;
+    const paid = paidFor(occ, txs) ?? (s ? { date: s.date, amount: s.amount ?? occ.rule.amount ?? 0, count: 1 } : null);
+    const last = paid || occ.rule.amount !== undefined ? null : lastPaidBefore(occ.rule, occ.date, txs);
     const parts: string[] = [];
     if (occ.shifted) parts.push(`${shortDate(occ.nominal)}이 쉬는 날이라 ${shortDate(occ.date)}로 밀림`);
-    if (paid) parts.push(`${shortDate(paid.date)} ${paid.amount.toLocaleString("ko-KR")}원 냄${paid.count > 1 ? ` (${paid.count}건)` : ""}`);
+    if (paid) parts.push(`${shortDate(paid.date)} ${paid.amount ? `${paid.amount.toLocaleString("ko-KR")}원 ` : ""}냄${paid.count > 1 ? ` (${paid.count}건)` : ""}`);
     else if (last) parts.push(`지난번 ${shortDate(last.date)} ${last.amount.toLocaleString("ko-KR")}원${last.count > 1 ? ` (${last.count}건)` : ""}`);
     if (occ.rule.note) parts.push(occ.rule.note);
     return {
@@ -241,7 +264,7 @@ export function buildMoneyRows(rules: MoneyRule[], txs: FinTransaction[], from: 
       state: paid ? "냈음" : "예정",
       paid,
       last,
-      amount: paid?.amount ?? last?.amount ?? null,
+      amount: (paid?.amount || null) ?? occ.rule.amount ?? last?.amount ?? null,
       basis: parts.join(" · "),
     };
   });
@@ -264,7 +287,9 @@ export function dueAlerts(rows: MoneyRow[], today: string, leadDays: number[]): 
  */
 export function alertText(row: MoneyRow, lead: number): string {
   const when = lead === 0 ? "오늘" : `${lead}일 뒤 ${shortDate(row.date)}`;
-  return [when, row.last ? `약 ${manwon(row.last.amount)}` : null, row.rule.account ?? null].filter(Boolean).join(" · ");
+  const how =
+    row.rule.amount !== undefined ? `${row.rule.amount.toLocaleString("ko-KR")}원` : row.last ? `약 ${manwon(row.last.amount)}` : row.rule.once ? "금액 모름" : null;
+  return [when, how, row.rule.account ?? null].filter(Boolean).join(" · ");
 }
 
 // ---- 설정 다듬기 ----------------------------------------------------
@@ -279,7 +304,8 @@ export function sanitizeMoneySettings(raw: unknown): MoneyCalendarSettings {
       const o = (x ?? {}) as Record<string, unknown>;
       const id = str(o.id);
       const label = str(o.label);
-      const day = Number(o.day);
+      const once = typeof o.once === "string" && /^\d{4}-\d{2}-\d{2}$/.test(o.once) ? o.once : undefined;
+      const day = once ? Number(once.slice(8, 10)) : Number(o.day);
       if (!id || !/^[a-z0-9-]+$/.test(id) || !label || !isKind(o.kind) || !(day >= 1 && day <= 31)) return null;
       const months = Array.isArray(o.months) ? o.months.map(Number).filter((n) => n >= 1 && n <= 12) : undefined;
       const mt = (o.match ?? null) as Record<string, unknown> | null;
@@ -290,6 +316,8 @@ export function sanitizeMoneySettings(raw: unknown): MoneyCalendarSettings {
         label,
         ...(months?.length ? { months } : {}),
         day,
+        ...(once ? { once } : {}),
+        ...(Number(o.amount) > 0 ? { amount: Math.round(Number(o.amount)) } : {}),
         shift: o.shift === "none" ? "none" : "next",
         ...(str(o.account) ? { account: str(o.account) } : {}),
         ...(mt
@@ -300,6 +328,8 @@ export function sanitizeMoneySettings(raw: unknown): MoneyCalendarSettings {
                 ...(Array.isArray(mt.acctMinor) && mt.acctMinor.length ? { acctMinor: mt.acctMinor.map(String) } : {}),
                 ...(str(mt.last4) ? { last4: str(mt.last4) } : {}),
                 ...(str(mt.site) ? { site: str(mt.site) } : {}),
+                ...(Array.isArray(mt.acctMids) && mt.acctMids.length ? { acctMids: mt.acctMids.map(String) } : {}),
+                ...(Number(mt.amount) > 0 ? { amount: Math.round(Number(mt.amount)) } : {}),
               },
             }
           : {}),

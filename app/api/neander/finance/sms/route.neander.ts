@@ -3,6 +3,7 @@ import { adminDb } from "@/lib/neander/server/admin";
 import { saveBankSms, smsTokenOk } from "@/lib/neander/finance/server/bank-sms";
 import { notifyNewSms } from "@/lib/neander/finance/server/sms-notify";
 import { watchNewKeys } from "@/lib/neander/finance/server/key-watch";
+import { ingestTaxText } from "@/lib/neander/finance/server/tax-notice";
 
 // ============================================================
 //  은행 입출금 문자 받기 — 회사 전용폰(매크로드로이드)이 부른다
@@ -20,6 +21,10 @@ import { watchNewKeys } from "@/lib/neander/finance/server/key-watch";
 //      월말 엑셀이 짝을 맞추면 잠정이 빠진다 (finance/sms-ledger.ts · server/import-append.ts)
 //    · 노션 「입출금알림」 · 「카드사용알림」에 한 줄 + @멘션 댓글(폰 알림) · ERP 확인 링크
 //  (finance/server/sms-notify.ts). 노션이 실패해도 응답은 200 — 저장은 끝났고, 다음 문자 때 다시 보낸다.
+//
+//  은행 · 카드 문자가 아니면 세금 고지서인지 본다 (finance/tax-notice.ts) — 국세 · 지방세 전자고지
+//  문자와 카카오톡 알림(매크로드로이드 「알림 받음」 → ?from=push:카카오톡, 본문 = 제목 + 내용).
+//  고지서면 neander_fin_tax_notices 에 한 장 + 「돈 나가는 날」 줄 + 도착 멘션 (server/tax-notice.ts)
 //  ⚠️ 열쇠가 새면 가짜 거래가 잠정으로 들어올 수 있다 — 월말 엑셀에 없으면 「문자에만 있음」으로 남는다.
 // ============================================================
 
@@ -65,6 +70,21 @@ export async function POST(req: Request) {
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: 400 });
   const notion = !r.duplicate && r.parsed.ok ? await notifyNewSms(db, r.id) : null;
   if (notion?.error) console.error("[finance/sms] 노션 알림", notion.error);
+  // 은행 · 카드 문자가 아니면 — 세금 고지서인가 (문자 · 카톡 알림)
+  const tax =
+    !r.duplicate && !r.parsed.ok
+      ? await ingestTaxText(db, {
+          text,
+          from,
+          receivedAt,
+          source: /[a-z가-힣]/i.test(from) ? "push" : "sms",
+          sourceId: `sms:${r.id}`,
+        }).catch((e) => {
+          console.error("[finance/sms] 세금 고지서", e);
+          return null;
+        })
+      : null;
+  if (tax?.announce?.error) console.error("[finance/sms] 고지서 노션", tax.announce.error);
   // 예고 없이 생긴 오픈라우터 키 — cron 은 하루 한 번이라, 낮에 자주 오는 문자를 신호로 30분에 한 번까지 살핀다
   const keyWatch = await watchNewKeys(db, { source: "sms", minIntervalMs: 30 * 60_000 });
   if (keyWatch.failed?.length) console.error("[finance/sms] 키 알림", keyWatch.failed);
@@ -76,5 +96,6 @@ export async function POST(req: Request) {
     kind: r.parsed.kind ?? r.parsed.card?.approval ?? null,
     amount: r.parsed.amount ?? null,
     notion: notion?.state ?? notion?.skipped ?? null,
+    tax: tax?.kind ? { kind: tax.kind, id: tax.id ?? tax.settled ?? null, created: tax.created ?? false, mention: tax.announce?.mention ?? null } : null,
   });
 }

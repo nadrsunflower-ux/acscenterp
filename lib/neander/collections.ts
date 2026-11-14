@@ -99,6 +99,11 @@ export const NEANDER_COL = {
    */
   finSmsInbox: "neander_fin_sms_inbox",
   /**
+   * 세금 고지서 — 국세 · 지방세 전자고지 알림(문자 · 카톡 · 메일)과 사람이 넣은 고지서 (finance/tax-notice.ts).
+   * 돈 나가는 날 표에 납기 줄이 된다. 보안 규칙에 없어 서버(api/neander/finance/tax-notices · sms · cron)만 접근한다
+   */
+  finTaxNotices: "neander_fin_tax_notices",
+  /**
    * 통장 잔액 직접 확인 — 「오늘 9719 에 925,119원」 처럼 사람이 은행 앱을 보고 적은 잔액.
    * 문자도 장부도 없는(또는 그보다 새) 날의 자금 일보 잔액이 된다 (finance/daily-cash.ts applyCashCheck).
    * 문서 id = `${last4}_${date}`. 서버(daily-cash 조회 · mutate)만 읽고 쓴다

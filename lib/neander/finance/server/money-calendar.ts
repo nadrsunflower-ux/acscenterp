@@ -11,6 +11,9 @@
 //       알림이 된다. 연결에 「댓글 쓰기」 권한이 없으면(403) 줄 본문에 멘션 문단을 붙인다.
 //       보낸 것은 money-calendar-sent 에 적어 같은 알림을 두 번 보내지 않는다
 //
+//    ④ 세금 고지서(neander_fin_tax_notices — 전자고지 알림 · 메일 · 사람이 넣은 것)도 납기 하루짜리
+//       줄로 같이 넣는다 (tax-notice.ts noticeRule). 납기가 바뀌었거나 무시한 고지서의 옛 줄은 휴지통으로
+//
 //  노션 연결은 이 일 전용이다 (NOTION_MONEY_TOKEN). 회의 보관 연결과 토큰을 나눈다 — 재무
 //  금액이 담긴 페이지에만 붙이고, 댓글 쓰기 권한도 여기에만 켠다. 표를 둘 페이지에 연결을
 //  붙여야 보인다.
@@ -34,6 +37,7 @@ import {
   type MoneyRow,
 } from "../money-calendar";
 import type { FinTransaction } from "../types";
+import { noticeRule, type TaxNotice } from "../tax-notice";
 
 const SETTINGS_DOC = "money-calendar";
 const SENT_DOC = "money-calendar-sent";
@@ -51,6 +55,10 @@ export interface MoneySyncResult {
   alerts?: { key: string; mode: "comment" | "block" }[];
   warnings?: string[];
 }
+
+/** ERP 고지서 화면 (app/neander/tax/[id]) — 고지서 줄의 알림 끝 링크. 주소는 sms-notify 의 ERP_ORIGIN 과 같다 */
+const ERP_BASE = (process.env.NEANDER_PUBLIC_ORIGIN ?? "").trim().replace(/\/+$/, "") || "https://neander-erp.vercel.app";
+export const taxNoticeUrl = (id: string) => `${ERP_BASE}/neander/tax/${encodeURIComponent(id)}`;
 
 export const moneyToken = () => process.env.NOTION_MONEY_TOKEN?.trim() ?? "";
 
@@ -78,13 +86,13 @@ export async function moneyCall<T = any>(method: "GET" | "POST" | "PATCH", path:
   }
 }
 
-const text = (s: string) => [{ type: "text", text: { content: s.slice(0, 1900) } }];
-const plain = (rt: any[] | undefined) => (rt ?? []).map((t: any) => t?.plain_text ?? "").join("");
+export const text = (s: string) => [{ type: "text", text: { content: s.slice(0, 1900) } }];
+export const plain = (rt: any[] | undefined) => (rt ?? []).map((t: any) => t?.plain_text ?? "").join("");
 
 /** 지났는데 장부에 출금이 없으면 「지남」 — 아직 그 달 내역을 안 올렸을 수도 있다 */
 const stateOf = (row: MoneyRow, today: string): RowState => (row.state === "냈음" ? "냈음" : row.date < today ? "지남" : "예정");
 
-function propsOf(row: MoneyRow, today: string) {
+export function propsOf(row: MoneyRow, today: string) {
   return {
     이름: { title: text(row.rule.label) },
     날짜: { date: { start: row.date } },
@@ -98,7 +106,7 @@ function propsOf(row: MoneyRow, today: string) {
 }
 
 /** 노션에 있는 줄과 견줄 값 — 같으면 고치지 않는다 (노션 요청 아끼기) */
-const fingerprint = (p: Record<string, any>) =>
+export const fingerprint = (p: Record<string, any>) =>
   JSON.stringify([
     plain(p.이름?.title),
     p.날짜?.date?.start ?? null,
@@ -108,11 +116,11 @@ const fingerprint = (p: Record<string, any>) =>
     plain(p.통장?.rich_text),
     plain(p.근거?.rich_text),
   ]);
-const wantPrint = (row: MoneyRow, today: string) =>
+export const wantPrint = (row: MoneyRow, today: string) =>
   JSON.stringify([row.rule.label, row.date, row.rule.kind, stateOf(row, today), row.amount, row.rule.account ?? "", row.basis]);
 
 /** 표가 없으면 만든다 — 설정의 페이지 아래, 처음 한 번 */
-async function ensureDataSource(db: Firestore, s: MoneyCalendarSettings): Promise<string> {
+export async function ensureDataSource(db: Firestore, s: MoneyCalendarSettings): Promise<string> {
   if (s.dataSourceId) return s.dataSourceId;
   const parent = parseNotionPageId(s.notionPage ?? "");
   if (!parent) throw new NotionArchiveError(0, "설정의 노션 페이지가 주소나 id 가 아닙니다.");
@@ -148,6 +156,17 @@ async function ensureDataSource(db: Firestore, s: MoneyCalendarSettings): Promis
     .doc(SETTINGS_DOC)
     .set({ databaseId: created.id, dataSourceId, databaseUrl: created.url ?? null, createdAt: Date.now() }, { merge: true });
   return dataSourceId;
+}
+
+/** 고지서 → 규칙 (무시한 것 빼고). 표 범위 밖의 것도 돌려준다 — 옛 줄 치우기에 쓴다 */
+export async function taxNoticeRules(db: Firestore) {
+  const snap = await db.collection(NEANDER_COL.finTaxNotices).where("state", "in", ["open", "paid"]).get();
+  return snap.docs
+    .map((d) => {
+      const r = noticeRule({ ...(d.data() as TaxNotice), id: d.id });
+      return r ? { ...r, noticeId: d.id } : null;
+    })
+    .filter((r): r is NonNullable<typeof r> => r !== null);
 }
 
 /** 표의 줄 전부 — 열쇠 → { 페이지 id, 지금 값 } */
@@ -221,7 +240,8 @@ export async function syncMoneyCalendar(
   const snap = await settingsRef.get();
   if (!snap.exists) return { skipped: "돈 나가는 날 설정이 아직 없습니다." };
   const s = sanitizeMoneySettings(snap.data());
-  if (!s.rules.length) return { skipped: "규칙이 없습니다." };
+  const notices = await taxNoticeRules(db);
+  if (!s.rules.length && !notices.length) return { skipped: "규칙이 없습니다." };
 
   const { today } = args;
   const warnings: string[] = [];
@@ -229,7 +249,7 @@ export async function syncMoneyCalendar(
   if (!holidayYears().includes(Number(horizon.slice(0, 4)))) {
     warnings.push(`${horizon.slice(0, 4)}년 공휴일이 표에 없습니다 — 주말만 거릅니다 (money-calendar.ts HOLIDAYS).`);
   }
-  const rows = buildMoneyRows(s.rules, args.transactions, addDays(today, -BEHIND_DAYS), horizon);
+  const rows = buildMoneyRows([...s.rules, ...notices], args.transactions, addDays(today, -BEHIND_DAYS), horizon);
   if (args.dryRun) return { rows: rows.length, warnings };
   if (!moneyToken()) return { skipped: "노션 연결 토큰(NOTION_MONEY_TOKEN)이 없습니다.", rows: rows.length };
   if (!s.notionPage && !s.dataSourceId) return { skipped: "노션 페이지가 아직 정해지지 않았습니다.", rows: rows.length };
@@ -258,6 +278,19 @@ export async function syncMoneyCalendar(
     }
   }
 
+  // ②′ 고지서 옛 줄 — 납기가 바뀌었거나(열쇠가 달라짐) 무시 · 삭제한 고지서의 줄은 휴지통으로
+  const noticeKey = new Map(notices.map((r) => [r.id, `${r.id}¦${r.once}`]));
+  const noticeIdOf = new Map(notices.map((r) => [r.id, r.noticeId ?? ""]));
+  let trashed = 0;
+  for (const [key, cur] of have) {
+    if (!key.startsWith("tax-")) continue;
+    const ruleId = key.split("¦")[0];
+    if (noticeKey.get(ruleId) === key) continue;
+    await moneyCall("PATCH", `/pages/${cur.id}`, { in_trash: true });
+    trashed += 1;
+  }
+  if (trashed) warnings.push(`고지서 옛 줄 ${trashed}개를 치웠습니다.`);
+
   // ③ 알림
   const alerts: MoneySyncResult["alerts"] = [];
   const due = dueAlerts(rows, today, s.leadDays);
@@ -274,7 +307,8 @@ export async function syncMoneyCalendar(
         for (const d of todo) {
           const pageId = pageOf.get(d.row.key);
           if (!pageId) continue;
-          const mode = await notifyMention(pageId, ids, alertText(d.row, d.lead));
+          const taxId = d.row.rule.id.startsWith("tax-") ? noticeIdOf.get(d.row.rule.id) : undefined;
+          const mode = await notifyMention(pageId, ids, alertText(d.row, d.lead), taxId ? { label: "ERP 에서 보기", url: taxNoticeUrl(taxId) } : undefined);
           sent[d.sentKey] = { at: Date.now(), mode };
           alerts.push({ key: d.sentKey, mode });
         }

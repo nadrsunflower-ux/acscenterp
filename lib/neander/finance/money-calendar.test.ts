@@ -103,3 +103,46 @@ test("설정 다듬기 — 잘못된 규칙은 버리고 기본 알림은 3일 �
   assert.deepEqual(s.leadDays, [3, 0]);
   assert.deepEqual(s.rules.map((r) => r.id), ["card-a"]);
 });
+
+test("한 번만 오는 날(고지서) — 그날 하루 · 휴일 밀림 · 금액이 같으면 계정이 달라도 냈음", () => {
+  const notice: MoneyRule = {
+    id: "tax-abc",
+    kind: "세금",
+    label: "부가가치세 고지 (네안데르)",
+    day: 28,
+    once: "2026-11-28", // 토요일 → 11/30(월)
+    amount: 811_640,
+    shift: "next",
+    match: { amount: 811_640, site: "네안데르" },
+    window: { before: 20, after: 7 },
+  };
+  const occ = expandRules([notice], "2026-11-01", "2027-12-31");
+  assert.equal(occ.length, 1);
+  assert.equal(occ[0].date, "2026-11-30");
+  assert.equal(occ[0].key, "tax-abc¦2026-11-28");
+
+  // 원천세로 잘못 분류된 출금도 금액 · 사업장이 같으면 찾는다
+  const paid = tx("2026-11-14", "국세납부", 811_640, { txType: "지출", acctMid: "국세", acctMinor: "원천징수소득세(근로)", site: "네안데르" } as Partial<FinTransaction>);
+  const other = tx("2026-11-14", "국세납부", 811_640, { txType: "지출", acctMid: "국세", site: "일해라컴퍼니" } as Partial<FinTransaction>);
+  assert.equal(buildMoneyRows([notice], [other], "2026-11-01", "2026-12-31")[0].state, "예정");
+  const row = buildMoneyRows([notice], [paid], "2026-11-01", "2026-12-31")[0];
+  assert.equal(row.state, "냈음");
+  assert.equal(row.amount, 811_640);
+
+  // 알림 글 — 정해진 금액은 원 단위 그대로
+  const open = buildMoneyRows([notice], [], "2026-11-01", "2026-12-31")[0];
+  assert.equal(alertText(open, 3), "3일 뒤 11/30(월) · 811,640원");
+  const noAmount = buildMoneyRows([{ ...notice, amount: undefined, match: undefined }], [], "2026-11-01", "2026-12-31")[0];
+  assert.equal(alertText(noAmount, 0), "오늘 · 금액 모름");
+
+  // 사람이 냈음으로 표시하면 장부에 없어도 냈음 — 알림이 안 간다
+  const settled = buildMoneyRows([{ ...notice, settled: { date: "2026-11-20" } }], [], "2026-11-01", "2026-12-31");
+  assert.equal(settled[0].state, "냈음");
+  assert.equal(dueAlerts(settled, "2026-11-27", [3, 0]).length, 0);
+
+  // 설정 문서에서도 한 번만 오는 날을 받는다
+  const s = sanitizeMoneySettings({ rules: [{ id: "one", kind: "세금", label: "한 번", once: "2026-11-27", amount: 1000, shift: "next" }] });
+  assert.equal(s.rules[0].once, "2026-11-27");
+  assert.equal(s.rules[0].day, 27);
+  assert.equal(s.rules[0].amount, 1000);
+});

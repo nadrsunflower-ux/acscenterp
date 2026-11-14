@@ -56,6 +56,7 @@ import {
   Wallet,
   Banknote,
   FolderKanban,
+  Receipt,
 } from "lucide-react";
 
 /** 사이드바 배지 키 — 값은 ShellContext.badges 에서 온다 */
@@ -145,6 +146,8 @@ export const FINANCE_NAV: NavGroup[] = [
       { href: "/neander/finance/grants", label: "지원금", icon: Landmark },
       { href: "/neander/finance/paybacks", label: "돌려줄 돈", icon: HandCoins },
       { href: "/neander/finance/suspense", label: "가수금", icon: ArrowLeftRight },
+      // 국세 · 지방세 전자고지로 받은 고지서 — 납기는 노션 「돈 나가는 날」 로 알린다
+      { href: "/neander/finance/tax", label: "세금 고지서", icon: Receipt },
       // 오픈라우터 키마다 쓴 돈을 어느 프로젝트에 썼는지 — 프로젝트 원가로 보낼 수 있다
       { href: "/neander/finance/api-costs", label: "API 비용", icon: Cpu },
     ],

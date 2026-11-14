@@ -81,6 +81,8 @@
     "meetings:verify-log": "tsx --conditions react-server scripts/neander/verify-meeting-log.ts",
     "finance:test-contract": "tsx --test lib/neander/finance/contract.test.ts",
     "finance:test-money-calendar": "tsx --test lib/neander/finance/money-calendar.test.ts",
+    "finance:test-tax-notice": "tsx --test lib/neander/finance/tax-notice.test.ts",
+    "finance:verify-tax-notice": "tsx --conditions react-server scripts/neander/verify-tax-notice.ts",
     "finance:test-bank-sms": "tsx --test lib/neander/finance/bank-sms.test.ts",
     "finance:test-daily-cash": "tsx --test lib/neander/finance/daily-cash.test.ts",
     "finance:test-sms-notify": "tsx --test lib/neander/finance/sms-notify.test.ts",
