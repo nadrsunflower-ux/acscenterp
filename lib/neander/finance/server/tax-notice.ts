@@ -21,6 +21,7 @@ import { NEANDER_COL } from "@/lib/neander/collections";
 import { addDays, buildMoneyRows, sanitizeMoneySettings } from "../money-calendar";
 import { arrivalText, noticeRule, readTaxNotice, type TaxNotice, type TaxNoticeInput, type TaxNoticeSource } from "../tax-notice";
 import { htmlToText } from "../pay-mail";
+import { syncMailbox } from "@/lib/neander/mail/server/sync";
 import type { FinTransaction } from "../types";
 import { ensureDataSource, fingerprint, moneyCall, moneyToken, notifyMention, plain, propsOf, recipientIds, taxNoticeUrl, wantPrint } from "./money-calendar";
 
@@ -237,17 +238,31 @@ const bodyText = (body: unknown): string => {
 
 /**
  * 회사 메일함(카페24 · 팀 공용 — pay-mail 과 같은 범위)에서 최근 `days` 일의 고지서 메일을 읽어 넣는다.
- * 메일함은 누군가 ERP 메일 화면을 열 때 채워진다 — 그래서 매일 아침 점검이 훑는다.
+ * 메일함은 누군가 ERP 메일 화면을 열어 둘 때만 채워진다 — 며칠 아무도 안 열면 고지서 메일이 안 들어온다.
+ * 그래서 읽기 전에 그 메일함을 한 번 받아 온다(syncMailbox — 화면의 20초 확인과 같은 길, 서울 리전).
+ * 비밀번호가 틀린 메일함(authFailed)은 건드리지 않는다 — 틀린 비밀번호로 두드리면 카페24 가 잠근다.
  */
-export async function scanTaxMails(db: Firestore, days = 14): Promise<{ read: number; created: number; settled: number }> {
+export async function scanTaxMails(db: Firestore, days = 14): Promise<{ read: number; created: number; settled: number; synced: number; syncErrors: number }> {
   const since = Date.now() - days * 86_400_000;
   const accounts = await db.collection(NEANDER_COL.mailAccounts).get();
   let read = 0;
   let created = 0;
   let settled = 0;
+  let synced = 0;
+  let syncErrors = 0;
   for (const acc of accounts.docs) {
-    const a = acc.data() as { team?: boolean; provider?: string };
+    const a = acc.data() as { team?: boolean; provider?: string; authFailed?: boolean };
     if (!a.team && a.provider && a.provider !== "cafe24") continue;
+    if (!a.authFailed) {
+      try {
+        const r = await syncMailbox(db, acc.id);
+        if (r.status === "error") syncErrors += 1;
+        else synced += 1;
+      } catch (e) {
+        syncErrors += 1;
+        console.error("[finance/tax-notice] 메일함 받기", e instanceof Error ? e.message : e);
+      }
+    }
     const snap = await acc.ref.collection("inbox").where("date", ">=", since).get();
     for (const d of snap.docs) {
       const m = d.data() as { from?: { address?: string; name?: string }; subject?: string; snippet?: string; body?: unknown; date?: number };
@@ -266,5 +281,5 @@ export async function scanTaxMails(db: Firestore, days = 14): Promise<{ read: nu
       if (r.settled) settled += 1;
     }
   }
-  return { read, created, settled };
+  return { read, created, settled, synced, syncErrors };
 }
