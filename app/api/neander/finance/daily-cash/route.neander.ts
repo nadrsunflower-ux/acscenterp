@@ -9,7 +9,8 @@ import { BANK_SMS_PARSER, matchCardLast4, parseBankSms } from "@/lib/neander/fin
 //  자금 일보 — 받은 은행 문자를 거래 줄로 (화면: /neander/finance/daily)
 // ------------------------------------------------------------
 //  GET ?from=&to= — 그날까지의 통장 거래 줄(기간 앞은 통장마다 마지막 한 줄 — 기초 잔액용)과
-//  기간 안 카드 승인 · 취소 줄, ERP 의 통장 · 카드 목록, 문자 통지를 신청한 통장 · 카드 목록
+//  카드 승인 · 취소 줄(기간 첫날이 든 달의 1일부터 — 법인카드 요약의 「전일까지 사용」용),
+//  처음 받은 카드 문자의 날, ERP 의 통장 · 카드 목록, 문자 통지를 신청한 통장 · 카드 목록
 //  (neander_fin_settings/sms-feed 의 linkedAccounts · linkedCards)을 준다.
 //  계산은 화면이 daily-cash.ts 로 한다 — 문자가 안 오는 것은 화면이 장부(월 엑셀)로 센다.
 //  받은 문자함은 보안 규칙에 없어 이 문으로만 읽는다 (로그인 + 재무 권한).
@@ -82,7 +83,8 @@ export async function GET(req: Request) {
       lastSeen,
       accounts,
       cards,
-      cardTxs: cardTxs.filter((t) => t.date >= from),
+      cardTxs: cardTxs.filter((t) => t.date >= `${from.slice(0, 7)}-01`),
+      ...(cardTxs[0] ? { cardSmsSince: cardTxs[0].date } : {}),
       cardLastSeen,
       linked,
       checks,

@@ -333,6 +333,41 @@ export function ledgerCardRow(ledger: FinTransaction[], card: CashAccount, from:
   };
 }
 
+// ---- 법인카드 요약 네 칸 — 통장의 「전일 잔액 · 입금 · 출금 · 금일 잔액」 자리 ----------
+//
+//  카드는 잔액이 없으니 「그달 1일부터 쌓인 사용액(승인 − 취소)」을 잔액 자리에 둔다.
+//    전일까지(기간 앞) + 승인 − 취소 = 금일까지(기간 끝)   — 통장 칸과 같은 셈
+//  쌓기 시작하는 날(since) = 기간 첫날이 든 달의 1일. 카드 문자가 그 뒤에 처음 왔으면 첫 문자 날
+//  (그 앞은 문자로 모른다 — 화면이 「문자는 11/10부터」 라고 밝힌다).
+//  문자로 받는 카드만 센다(통장 칸처럼 실시간 숫자). 카드 기록(월 엑셀)은 아래 표가 센다.
+
+export interface CardStrip {
+  since: string;
+  /** since ~ 기간 전날 사용 (그 날들이 없으면 0) */
+  before: number;
+  approveSum: number;
+  approveCount: number;
+  cancelSum: number;
+  cancelCount: number;
+  /** since ~ 기간 끝날 사용 = before + 승인 − 취소 */
+  through: number;
+}
+
+export function cardStrip(txs: CardTx[], last4s: string[], from: string, to: string, smsSince?: string): CardStrip {
+  const monthStart = `${from.slice(0, 7)}-01`;
+  const since = smsSince && smsSince > monthStart ? smsSince : monthStart;
+  const cards = new Set(last4s);
+  const net = (t: CardTx) => (t.approval === "승인" ? t.amount : -t.amount);
+  const mine = txs.filter((t) => cards.has(t.last4));
+  const before = mine.filter((t) => t.date >= since && t.date < from).reduce((s, t) => s + net(t), 0);
+  const inside = mine.filter((t) => t.date >= from && t.date <= to);
+  const ok = inside.filter((t) => t.approval === "승인");
+  const no = inside.filter((t) => t.approval === "취소");
+  const approveSum = ok.reduce((s, t) => s + t.amount, 0);
+  const cancelSum = no.reduce((s, t) => s + t.amount, 0);
+  return { since, before, approveSum, approveCount: ok.length, cancelSum, cancelCount: no.length, through: before + approveSum - cancelSum };
+}
+
 // ---- 잔액 직접 확인 — 문자도 장부도 없는 통장 ------------------------------
 //
 //  대출 · 지원금 통장처럼 문자가 안 오고 장부(월 엑셀)도 늦는 통장은 자금 일보에

@@ -51,6 +51,7 @@ import { HoverDetail } from "@/components/neander/finance/HoverDetail";
 import {
   applyCashCheck,
   buildDailyCash,
+  cardStrip,
   ledgerAccountRow,
   ledgerCardRow,
   smsCardRow,
@@ -64,6 +65,7 @@ import {
 import {
   ledgerCardLines,
   ledgerFlowLines,
+  smsCardKindLines,
   smsCardLines,
   smsFlowLines,
   type DetailLine,
@@ -200,6 +202,9 @@ export default function DailyCashPage() {
     return [...m.entries()].sort((a, b) => b[0].localeCompare(a[0]));
   }, [data, from, to]);
   const cardLabel = (last4: string) => data?.cards.find((c) => c.last4 === last4)?.label ?? `카드 ${last4}`;
+  // 법인카드 요약 네 칸 — 문자로 받는 카드만 (cardStrip · 통장 요약 칸과 같은 자리)
+  const smsCards = useMemo(() => cardRows.filter((x) => x.link === "sms").map((x) => x.last4), [cardRows]);
+  const strip = useMemo(() => (data ? cardStrip(data.cardTxs, smsCards, from, to, data.cardSmsSince) : null), [data, smsCards, from, to]);
   const staleCard = (r: CardRow | null) => !!r?.lastSeen && r.lastSeen.slice(0, 10) < addDays(today, -120);
 
   // ---- 말풍선 — 숫자에 커서를 두면 그 숫자의 내역 (HoverDetail · daily-cash-detail.ts) ----
@@ -320,6 +325,43 @@ export default function DailyCashPage() {
     );
   };
 
+  /** 법인카드 요약의 전일까지 · 금일까지 — 카드별로 나눠 본다 */
+  const cardStripCell = (pick: "before" | "through", value: ReactNode) => {
+    if (!data || !strip) return value;
+    const end = pick === "before" ? addDays(from, -1) : to;
+    return (
+      <HoverDetail
+        title={`${pick === "before" ? cardOpeningLabel : cardClosingLabel} · 문자 수신 카드`}
+        subtitle={`${md(strip.since)} ~ ${md(end)} · 승인 − 취소 · 카드별`}
+        flow="expense"
+        lines={() =>
+          smsCards
+            .map((last4) => ({ last4, amount: cardStrip(data.cardTxs, [last4], from, to, data.cardSmsSince)[pick] }))
+            .filter((x) => x.amount !== 0)
+            .sort((a, b) => b.amount - a.amount)
+            .map((x) => ({ key: x.last4, title: `${cardLabel(x.last4)} ${x.last4}`, amount: x.amount, flow: "expense" as const }))
+        }
+        countLabel={(n) => `${n}장 합계`}
+        emptyText="쓴 돈이 없어요."
+      >
+        {value}
+      </HoverDetail>
+    );
+  };
+  const cardKindCell = (approval: "승인" | "취소", count: number, value: ReactNode) =>
+    count === 0 ? (
+      value
+    ) : (
+      <HoverDetail
+        title={`문자 수신 카드 · ${approval}`}
+        subtitle={`${periodLabel} · 문자 기준 · 잠정 · 최근 것이 위`}
+        flow={approval === "승인" ? "expense" : "income"}
+        lines={() => smsCardKindLines(data?.cardTxs ?? [], smsCards, from, to, approval, cardLabel, { withDate })}
+      >
+        {value}
+      </HoverDetail>
+    );
+
   const quick = (label: string, f: string, t: string) => (
     <Button
       size="sm"
@@ -337,6 +379,18 @@ export default function DailyCashPage() {
   const lastMonthStart = `${lastMonthEnd.slice(0, 7)}-01`;
   const openingLabel = mode === "day" ? "전일 잔액" : "기초 잔액";
   const closingLabel = mode === "day" ? "금일 잔액" : "기말 잔액";
+  const cardOpeningLabel = mode === "day" ? "전일까지 사용" : "기간 앞 사용";
+  const cardClosingLabel = mode === "day" ? "금일까지 사용" : "기말까지 사용";
+  const stripMonth = Number(from.slice(5, 7));
+  const stripLate = !!strip && strip.since > `${from.slice(0, 7)}-01`;
+  const stripBeforeHint = !strip
+    ? undefined
+    : strip.since <= addDays(from, -1)
+      ? `${md(strip.since)} ~ ${md(addDays(from, -1))} · 문자 수신 카드`
+      : stripLate
+        ? `카드 문자는 ${md(strip.since)}부터`
+        : `${stripMonth}월 1일 — 쌓인 사용 없음`;
+  const stripThroughHint = !strip ? undefined : strip.since <= to ? `${md(strip.since)} ~ ${md(to)} · 문자 수신 카드` : `카드 문자는 ${md(strip.since)}부터`;
 
   return (
     <PageShell>
@@ -610,6 +664,20 @@ export default function DailyCashPage() {
           {/* ---- 법인카드 ---- */}
           {view === "card" && (
           <>
+          {strip && (
+            <>
+              <KpiStrip columns={4} className="mb-2">
+                <KpiItem label={cardOpeningLabel} value={cardStripCell("before", <Money value={strip.before} unit={false} flow="expense" />)} unit="원" hint={stripBeforeHint} />
+                <KpiItem label="승인" tone="danger" value={cardKindCell("승인", strip.approveCount, <Money value={strip.approveSum} unit={false} flow="expense" />)} unit="원" hint={`${strip.approveCount}건`} />
+                <KpiItem label="취소" tone="success" value={cardKindCell("취소", strip.cancelCount, <Money value={strip.cancelSum} unit={false} flow="income" />)} unit="원" hint={`${strip.cancelCount}건`} />
+                <KpiItem label={cardClosingLabel} value={cardStripCell("through", <Money value={strip.through} unit={false} flow="expense" />)} unit="원" hint={stripThroughHint} />
+              </KpiStrip>
+              <p className="mb-6 text-nd-caption text-nd-fg-3">
+                위 네 칸은 문자로 받는 카드만 합친 실시간 숫자예요. 「{cardOpeningLabel} · {cardClosingLabel}」은 {stripMonth}월 1일부터 쌓인 사용액(승인 − 취소)이에요
+                {stripLate ? ` — 카드 문자는 ${md(strip.since)}부터 받아 그 앞은 빠져 있어요` : ""}. 모든 카드 합계는 아래 표 제목 옆에 있어요.
+              </p>
+            </>
+          )}
           <SectionHeader
             title="법인카드"
             hint={`${cardRows.length}장 · 문자 수신 ${cardRows.filter((x) => x.link === "sms").length} · 기간 사용 ${ledgerLoading ? "…" : `${cardRows.reduce((s, x) => s + (x.row?.useSum ?? 0), 0).toLocaleString("ko-KR")}원`}`}

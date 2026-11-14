@@ -1,8 +1,8 @@
 // 자금 일보 말풍선 — 목록의 합이 표의 숫자와 원 단위로 같은가 (`npx tsx --test lib/neander/finance/daily-cash-detail.test.ts`)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildDailyCash, ledgerAccountRow, ledgerCardRow, smsCardRow, type CardTx, type SmsTx } from "./daily-cash";
-import { ledgerCardLines, ledgerFlowLines, smsCardLines, smsFlowLines, sumLines } from "./daily-cash-detail";
+import { buildDailyCash, cardStrip, ledgerAccountRow, ledgerCardRow, smsCardRow, type CardTx, type SmsTx } from "./daily-cash";
+import { ledgerCardLines, ledgerFlowLines, smsCardKindLines, smsCardLines, smsFlowLines, sumLines } from "./daily-cash-detail";
 import { netAmount, type FinTransaction } from "./types";
 
 let n = 0;
@@ -93,6 +93,13 @@ test("카드 — 문자 · 카드 기록 모두 사용액(승인 − 취소)과 
   const txs = [ct("2026-11-10", "12:10", "승인", 12_000, "김밥천국"), ct("2026-11-10", "12:30", "취소", 12_000, "김밥천국"), ct("2026-11-10", "18:00", "승인", 45_000, "쿠팡"), ct("2026-11-09", "09:00", "승인", 1_000)];
   const row = smsCardRow(txs, card, "2026-11-10", "2026-11-10");
   const lines = smsCardLines(txs, "1804", "2026-11-10", "2026-11-10");
+  // 요약 칸의 승인 · 취소 말풍선 = cardStrip 의 승인 · 취소 합
+  const strip = cardStrip(txs, ["1804"], "2026-11-10", "2026-11-10");
+  const ok = smsCardKindLines(txs, ["1804"], "2026-11-10", "2026-11-10", "승인", () => "(신법)이동주");
+  const no = smsCardKindLines(txs, ["1804"], "2026-11-10", "2026-11-10", "취소", () => "(신법)이동주");
+  assert.deepEqual([sumLines(ok), ok.length, sumLines(no), no.length], [strip.approveSum, strip.approveCount, strip.cancelSum, strip.cancelCount]);
+  assert.equal(ok[0].title, "쿠팡", "최근 것이 위");
+  assert.equal(ok[0].sub, "(신법)이동주 1804");
   assert.equal(sumLines(lines), row.useSum);
   assert.equal(lines.filter((l) => l.tag === "취소").length, row.cancelCount);
 

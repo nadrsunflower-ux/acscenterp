@@ -1,7 +1,7 @@
 // 자금 일보 — 기초 · 기말 잔액 · 입출금 합 · 빠진 문자 (`npm run finance:test-daily-cash`)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyCashCheck, buildDailyCash, ledgerAccountRow, ledgerCardRow, sanitizeCashCheck, smsCardRow, smsToCardTx, smsToTx, type DailyCashRow, type SmsTx } from "./daily-cash";
+import { applyCashCheck, buildDailyCash, cardStrip, ledgerAccountRow, ledgerCardRow, sanitizeCashCheck, smsCardRow, smsToCardTx, smsToTx, type CardTx, type DailyCashRow, type SmsTx } from "./daily-cash";
 import type { FinTransaction } from "./types";
 
 let n = 0;
@@ -107,6 +107,30 @@ test("카드 — 문자는 승인 − 취소, 장부는 지출 − 환급", () =
   assert.deepEqual([r.useSum, r.approveCount, r.cancelCount], [10_000, 1, 1]);
   const lr = ledgerCardRow([L("2026-11-01", "5678", "지출", 9_000), L("2026-11-02", "5678", "환급", 1_000)], { last4: "5678", label: "나카드" }, "2026-11-01", "2026-11-30");
   assert.deepEqual([lr.useSum, lr.approveCount, lr.cancelCount, lr.coveredTo], [8_000, 1, 1, "2026-11-02"]);
+});
+
+test("법인카드 요약 — 그달 1일(또는 첫 카드 문자)부터 쌓인 사용, 전일까지 + 승인 − 취소 = 금일까지", () => {
+  let k = 0;
+  const ct = (date: string, last4: string, approval: "승인" | "취소", amount: number): CardTx => ({ id: String(++k), date, time: "12:00", order: `${date} 12:00 ${k}`, last4, approval, amount });
+  const txs = [
+    ct("2026-10-31", "1111", "승인", 99_000), // 지난달 — 안 셈
+    ct("2026-11-10", "1111", "승인", 10_000),
+    ct("2026-11-12", "2222", "승인", 5_000),
+    ct("2026-11-12", "3333", "승인", 70_000), // 문자 수신 카드가 아님 — 안 셈
+    ct("2026-11-14", "1111", "승인", 14_900),
+    ct("2026-11-14", "1111", "승인", 16_200),
+    ct("2026-11-14", "2222", "취소", 5_000),
+  ];
+  const s = cardStrip(txs, ["1111", "2222"], "2026-11-14", "2026-11-14", "2026-11-10");
+  assert.equal(s.since, "2026-11-10", "문자가 1일 뒤에 시작했으면 첫 문자 날부터");
+  assert.deepEqual([s.before, s.approveSum, s.approveCount, s.cancelSum, s.cancelCount, s.through], [15_000, 31_100, 2, 5_000, 1, 41_100]);
+  assert.equal(s.before + s.approveSum - s.cancelSum, s.through);
+  // 다음 달 — 1일부터, 앞선 사용 없음
+  const dec = cardStrip([...txs, ct("2026-12-01", "1111", "승인", 3_000)], ["1111"], "2026-12-01", "2026-12-01", "2026-11-10");
+  assert.deepEqual([dec.since, dec.before, dec.through], ["2026-12-01", 0, 3_000]);
+  // 기간 보기 — 기간 첫날의 달 1일부터 기간 앞
+  const r = cardStrip(txs, ["1111", "2222"], "2026-11-12", "2026-11-14");
+  assert.deepEqual([r.since, r.before, r.approveSum, r.cancelSum, r.through], ["2026-11-01", 10_000, 36_100, 5_000, 41_100]);
 });
 
 test("잔액 직접 확인 — 장부보다 새것이면 기말, 기간 앞이면 기초도", () => {

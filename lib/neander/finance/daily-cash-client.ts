@@ -15,8 +15,10 @@ export interface DailyCashFetch {
   accounts: CashAccount[];
   /** ERP 결제수단의 카드 */
   cards: CashAccount[];
-  /** 기간 안 카드 승인 · 취소 (문자) */
+  /** 카드 승인 · 취소 (문자) — 기간 첫날이 든 달의 1일부터 기간 끝날까지. 표 · 내역은 기간으로 다시 거른다 */
   cardTxs: CardTx[];
+  /** 처음 받은 카드 문자의 날 — 그 앞은 문자로 모른다 */
+  cardSmsSince?: string;
   cardLastSeen: Record<string, string>;
   /** 문자 통지를 신청한 통장 · 카드 (끝 네 자리) */
   linked: { accounts: string[]; cards: string[] };

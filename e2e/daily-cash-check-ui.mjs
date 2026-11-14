@@ -23,12 +23,23 @@ let checks = [
   { last4: "1111", date: TODAY, balance: 925_119, note: "은행 앱", createdBy: "fixture@example.com" },
   { last4: "2222", date: TODAY, balance: 0 },
 ];
+const ct = (id, date, time, last4, approval, amount, merchant) => ({ id, date, time, order: `${date} ${time} ${id}`, last4, approval, amount, merchant });
 const daily = () => ({
   txs: [{ id: "s1", date: TODAY, time: "10:00", order: `${TODAY} 10:00 1`, last4: "3333", kind: "입금", amount: 50_000, balance: 1_050_000 }],
   lastSeen: { "3333": `${TODAY} 10:00` },
   accounts: [{ last4: "1111", label: "가상대출", site: "네안데르" }, { last4: "2222", label: "가상지원", site: "네안데르" }, { last4: "3333", label: "가상입금", site: "네안데르" }],
-  cards: [], cardTxs: [], cardLastSeen: {},
-  linked: { accounts: ["1111", "2222", "3333"], cards: [] },
+  // 카드 — 문자 수신 둘(가상카드A · 가상카드B) + 카드 기록만 있는 하나. 카드 문자는 11/10부터
+  cards: [{ last4: "4528", label: "가상카드A" }, { last4: "1804", label: "가상카드B" }, { last4: "9999", label: "가상장부카드" }],
+  cardTxs: [
+    ct("c1", "2026-11-10", "09:00", "4528", "승인", 10_000, "가상문구"),
+    ct("c2", "2026-11-12", "12:00", "1804", "승인", 5_000, "가상식당"),
+    ct("c3", TODAY, "14:26", "4528", "승인", 16_200, "가상배달"),
+    ct("c4", TODAY, "19:25", "4528", "승인", 14_900, "가상배달"),
+    ct("c5", TODAY, "20:00", "1804", "취소", 5_000, "가상식당"),
+  ],
+  cardLastSeen: { "4528": `${TODAY} 19:25`, "1804": `${TODAY} 20:00` },
+  cardSmsSince: "2026-11-10",
+  linked: { accounts: ["1111", "2222", "3333"], cards: ["4528", "1804"] },
   checks, total: 1,
 });
 const fixture = {
@@ -145,6 +156,38 @@ createRoot(document.getElementById('root')).render(<div data-app="neander" id="f
   assert.deepEqual(saves.at(-1), { action: "cashCheck.save", payload: { last4: "1111", date: TODAY, balance: 900_000, note: "은행 앱" } });
   await expect(rowOf("가상대출")).toContainText("900,000");
   checksDone.push("잔액 입력 · 덮어쓰기");
+
+  // 4-1. 법인카드 탭 — 통장처럼 네 칸: 전일까지 사용 · 승인 · 취소 · 금일까지 사용 (문자 수신 카드만, 11/10 첫 문자부터)
+  await page.getByRole("tab", { name: /법인카드/ }).click();
+  const kpi = page.locator("dl, [class*='grid']").filter({ hasText: "전일까지 사용" }).first();
+  await expect(kpi).toContainText("금일까지 사용");
+  const cellText = async (label) => (await page.getByText(label, { exact: true }).locator("xpath=ancestor::*[self::div or self::dd or self::li][2]").first().innerText()).replace(/\s+/g, " ");
+  const before = await cellText("전일까지 사용");
+  assert.ok(before.includes("15,000") && before.includes("11/10 ~ 11/12 · 문자 수신 카드"), before);
+  const approve = await cellText("승인");
+  assert.ok(approve.includes("31,100") && approve.includes("2건"), approve);
+  const cancel = await cellText("취소");
+  assert.ok(cancel.includes("5,000") && cancel.includes("1건"), cancel);
+  const through = await cellText("금일까지 사용");
+  assert.ok(through.includes("41,100") && through.includes("11/10 ~ 11/13 · 문자 수신 카드"), through);
+  await expect(page.locator("#fixture-app")).toContainText("카드 문자는 11/10부터 받아 그 앞은 빠져 있어요");
+  // 숫자를 누르면 내역 — 승인 두 건(최근 것이 위), 금일까지는 카드별
+  await page.getByRole("button", { name: "31,100" }).first().click();
+  const pop = page.getByRole("dialog", { name: "문자 수신 카드 · 승인 내역" });
+  await expect(pop).toBeVisible();
+  await expect(pop).toContainText("가상카드A 4528");
+  await expect(pop).toContainText("14,900");
+  await expect(pop).toContainText("16,200");
+  await page.locator("#fixture-app").screenshot({ path: path.join(out, "2-card.png"), animations: "disabled" });
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "41,100" }).first().click();
+  const pop2 = page.getByRole("dialog", { name: "금일까지 사용 · 문자 수신 카드 내역" });
+  await expect(pop2).toContainText("가상카드A 4528");
+  await expect(pop2).toContainText("41,100");
+  await expect(pop2).not.toContainText("가상장부카드");
+  await page.keyboard.press("Escape");
+  checksDone.push("법인카드 요약 네 칸 · 내역");
+  await page.getByRole("tab", { name: /통장/ }).click();
 
   // 5. 전날 — 확인 전이라 비어 있다
   await page.getByRole("button", { name: "전날" }).click();

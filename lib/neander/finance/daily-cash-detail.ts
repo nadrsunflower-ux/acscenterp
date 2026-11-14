@@ -95,6 +95,29 @@ export function smsCardLines(txs: CardTx[], last4: string, from: string, to: str
   }));
 }
 
+/** 문자 카드 여러 장의 승인만 · 취소만 — 법인카드 요약 칸(cardStrip 의 승인 · 취소 합과 같다) */
+export function smsCardKindLines(
+  txs: CardTx[],
+  last4s: string[],
+  from: string,
+  to: string,
+  approval: "승인" | "취소",
+  labelOf: (last4: string) => string,
+  opts: DetailOpts = {},
+): DetailLine[] {
+  const cards = new Set(last4s);
+  const mine = txs.filter((t) => cards.has(t.last4) && t.date >= from && t.date <= to && t.approval === approval);
+  return latestFirst(mine).map((t) => ({
+    key: t.id,
+    when: opts.withDate ? `${md(t.date)} ${t.time}` : t.time,
+    title: t.merchant?.trim() || "(가맹점 없음)",
+    sub: join(`${labelOf(t.last4)} ${t.last4}`, t.holder, t.installment),
+    amount: t.amount,
+    flow: approval === "승인" ? "expense" : "income",
+    ...(approval === "취소" ? { tag: "취소" } : {}),
+  }));
+}
+
 /** 카드 기록(월 엑셀)의 사용 — ledgerCardRow 와 같이 지출은 +, 환급은 − */
 export function ledgerCardLines(ledger: FinTransaction[], last4: string, from: string, to: string, opts: DetailOpts = {}): DetailLine[] {
   const mine = ledger.filter((t) => String(t.last4 ?? "") === last4 && t.date >= from && t.date <= to && (t.txType === "지출" || t.txType === "환급"));
