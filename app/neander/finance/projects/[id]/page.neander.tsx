@@ -446,21 +446,24 @@ function ProjectDetailEditor({ id }: { id: string }) {
       const done = (async () => {
         try {
           await saveFinProject(snap, id, opsBaseRef.current);
-          await refresh();
-          setLastSaved(snap);
-          setSavedAt(Date.now());
-          setFailed(null);
-          if (sameDraft(checked.value, snap)) {
-            // 보낸 뒤 더 고치지 않았으면 저장본을 따라간다 — 다른 사람이 고친 것도 보인다
-            setHist((h) => (h.present === snap ? { ...h, present: null } : h));
-          }
         } catch (e) {
           const message = e instanceof Error ? e.message : "저장에 실패했습니다.";
           setFailed((f) => ({ draft: snap, count: (f?.count ?? 0) + 1, message }));
+          return;
         } finally {
           inflight.current = null;
           setAutoSaving(false);
         }
+        // 서버에 들어간 순간 「저장됨」. 재무 데이터 동기화(refresh)는 기다리지 않는다 —
+        // 배포 직후 첫 요청 · 6시간마다 전체 받기(거래 1만여 건)에 걸리면 표시가 한참 「저장 중」 이었다(2026-11-17).
+        setLastSaved(snap);
+        setSavedAt(Date.now());
+        setFailed(null);
+        // 초안은 저장본을 받아 온 뒤에 비운다 — 먼저 비우면 옛 저장본(바꾸기 전 상태)이 잠깐 보인다.
+        // 보낸 뒤 더 고치지 않았으면 저장본을 따라간다 — 다른 사람이 고친 것도 보인다.
+        void refresh().then(() => {
+          if (sameDraft(checked.value, snap)) setHist((h) => (h.present === snap ? { ...h, present: null } : h));
+        });
       })();
       inflight.current = { snap, done };
       return done;
