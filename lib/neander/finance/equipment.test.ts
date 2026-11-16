@@ -40,10 +40,11 @@ test("conflicts: days over the owned count, grouped while the same projects over
     p("eduax", { startDate: "2026-12-12", endDate: "2026-12-12", deliveryDate: "2026-12-11", equipment: { photobooth: 3 } }),
     p("nh", { startDate: "2026-12-15", endDate: "2026-12-15", equipment: { photobooth: 2, kiosk: 2 } }),
     p("gone", { status: "cancelled", startDate: "2026-12-15", endDate: "2026-12-15", equipment: { photobooth: 3 } }),
+    p("silent", { status: "hold", startDate: "2026-12-15", endDate: "2026-12-15", equipment: { photobooth: 3, kiosk: 3 } }),
     p("plain", { startDate: "2026-12-11", endDate: "2026-12-11" }),
   ]);
   assert.deepEqual(byDay.get("2026-12-11")?.used, { photobooth: 4, sajuBooth: 0, kiosk: 1 });
-  assert.deepEqual(byDay.get("2026-12-15")?.used, { photobooth: 2, sajuBooth: 0, kiosk: 2 }, "취소는 세지 않는다");
+  assert.deepEqual(byDay.get("2026-12-15")?.used, { photobooth: 2, sajuBooth: 0, kiosk: 2 }, "취소 · 보류는 세지 않는다");
   const list = equipmentConflicts(byDay);
   assert.equal(list.length, 1);
   assert.deepEqual(

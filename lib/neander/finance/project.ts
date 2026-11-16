@@ -35,8 +35,8 @@ import { sanitizeEquipment, type ProjectEquipment } from "./equipment";
 
 /**
  * hold(보류) — 연락이 끊기는 등으로 될지 안 될지 알 수 없게 된 건(2026-11-16).
- * 취소는 아니라 장비 겹침 · 미수금 · 런웨이에 적어 둔 입금 회차에는 남기고,
- * 목록 · 달력에서는 흐리게 보이며 납기 D-day · 대시보드에서는 빠진다.
+ * 취소는 아니라 미수금 · 런웨이에 적어 둔 입금 회차에는 남기고, 목록 · 달력에서는
+ * 흐리게 보이며 납기 D-day · 대시보드 · 장비 겹침(2026-11-17 사용자)에서는 빠진다.
  */
 export const PROJECT_STATUSES = ["planning", "hold", "active", "done", "cancelled"] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];

@@ -10,7 +10,7 @@
 //    있어(경남정보대 11/9 문의 · 12/1 행사) 납기가 종료일보다 늦지 않으면 시작일 대신 납기를 쓴다.
 //    납기가 없으면 시작일부터. 납기가 종료일과 같은 옛 규칙(10-29 「마지막 날」) 건은 하루로
 //    잡히니, 장비를 적을 때 납기를 설치 첫날로 고친다.
-//  · 취소된 프로젝트는 세지 않는다. 심사 중은 센다 — 수주 전에 겹침을 봐야 한다.
+//  · 취소 · 보류(연락 두절, 2026-11-16 사용자) 프로젝트는 세지 않는다. 심사 중은 센다 — 수주 전에 겹침을 봐야 한다.
 //  · 보유 대수는 여기 상수(2026-11-13 사용자: 포토부스 3 · 키오스크 3).
 //    사주 포토부스는 그 3대와 따로 있는 전용 부스라 종류를 나눠 센다(2026-11-14 사용자 —
 //    대수는 말하지 않아 1대로 둠). 장비를 사거나 팔면 EQUIPMENT_OWNED 를 고친다.
@@ -93,11 +93,11 @@ export interface EquipmentDay {
 /** 쓰는 날이 이보다 길면 잘못 적은 날짜로 보고 세지 않는다(월 대행 1년치 같은 것) */
 const MAX_RANGE_DAYS = 120;
 
-/** 날짜 → 그날 쓰는 대수 · 쓰는 프로젝트. 장비를 적은 프로젝트만, 취소 빼고 */
+/** 날짜 → 그날 쓰는 대수 · 쓰는 프로젝트. 장비를 적은 프로젝트만, 취소 · 보류 빼고 */
 export function equipmentByDay(projects: EquipmentProject[]): Map<string, EquipmentDay> {
   const days = new Map<string, EquipmentDay>();
   for (const p of projects) {
-    if (p.status === "cancelled" || !hasEquipment(p.equipment)) continue;
+    if (p.status === "cancelled" || p.status === "hold" || !hasEquipment(p.equipment)) continue;
     const range = equipmentRange(p);
     if (!range) continue;
     let d = range.from;
