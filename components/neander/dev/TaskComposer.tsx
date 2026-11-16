@@ -189,7 +189,7 @@ export function TaskComposer({
                 </div>
               </Field>
 
-              <Field label="프로젝트">
+              <Field label="개발 프로젝트">
                 <Select value={featureId} onChange={(e) => setFeatureId(e.target.value)}>
                   <option value="">연결 안 함</option>
                   {features.map((f) => (

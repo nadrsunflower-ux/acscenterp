@@ -123,15 +123,15 @@ export default function SpacesPage() {
       <StudioHeader
         kicker="AI STUDIO 워크스페이스"
         kickerIcon={FolderOpen}
-        title="프로젝트"
+        title="영상 프로젝트"
         description="채널별 방향과 제작 기본값을 관리하세요. 자체 운영과 대행을 나눠 보여 줍니다."
         actions={
           <Button icon={Plus} onClick={() => setEditing({ new: true })}>
-            새 프로젝트
+            새 영상 프로젝트
           </Button>
         }
       />
-      <StudioNotice tone="info" title="프로젝트는 채널 하나의 기획 단위입니다" className="mb-7">
+      <StudioNotice tone="info" title="영상 프로젝트는 채널 하나의 기획 단위입니다" className="mb-7">
         위 툴바에서 프로젝트를 고르면 시장 트렌드 · 소재 발굴 · 바이럴 형식 · 성공 공식 · 영상 · 대본 · 게시 · 성과가 그 프로젝트 것으로 바뀝니다. 대시보드는 모든 프로젝트를 합쳐 보여 줍니다.
       </StudioNotice>
 
@@ -159,7 +159,7 @@ export default function SpacesPage() {
         }
       >
         {byClient.length === 0 ? (
-          <EmptyState compact icon={Building2} title="아직 계약 업체가 없습니다" description="「새 프로젝트」 에서 종류를 「대행」 으로 고르고 업체를 새로 만드세요. 업체 하나에 프로젝트를 여러 개 둘 수 있습니다." />
+          <EmptyState compact icon={Building2} title="아직 계약 업체가 없습니다" description="「새 영상 프로젝트」 에서 종류를 「대행」 으로 고르고 업체를 새로 만드세요. 업체 하나에 프로젝트를 여러 개 둘 수 있습니다." />
         ) : (
           <div className="space-y-5">
             {byClient.map(({ client, id, spaces }) => (
@@ -176,7 +176,7 @@ export default function SpacesPage() {
                     )}
                     {client && (client.canEdit || d.admin) && (
                       <Button size="sm" variant="secondary" icon={Plus} onClick={() => setEditing({ new: true, clientId: id })}>
-                        이 업체에 프로젝트
+                        이 업체에 영상 프로젝트
                       </Button>
                     )}
                   </>
@@ -204,7 +204,7 @@ export default function SpacesPage() {
                 {spaces.length ? (
                   <div className={GRID}>{[...running(spaces), ...preparing(spaces)].map(card)}</div>
                 ) : (
-                  <p className="text-nd-body text-nd-fg-3">이 업체의 프로젝트가 아직 없습니다 — 「이 업체에 프로젝트」 로 브랜드(채널)마다 만드세요.</p>
+                  <p className="text-nd-body text-nd-fg-3">이 업체의 프로젝트가 아직 없습니다 — 「이 업체에 영상 프로젝트」 로 브랜드(채널)마다 만드세요.</p>
                 )}
               </StudioCard>
             ))}
@@ -213,7 +213,7 @@ export default function SpacesPage() {
       </StudioSection>
 
       {archived.length > 0 && (
-        <StudioSection className="mt-10" title="보관한 프로젝트" description={d.admin ? "목록 · 자동 실행에서 빠졌고 자료는 그대로입니다. 관리자는 다시 쓸 수 있게 되살릴 수 있습니다." : "목록 · 자동 실행에서 빠졌고 자료는 그대로입니다. 되살리기는 관리자만 합니다."}>
+        <StudioSection className="mt-10" title="보관한 영상 프로젝트" description={d.admin ? "목록 · 자동 실행에서 빠졌고 자료는 그대로입니다. 관리자는 다시 쓸 수 있게 되살릴 수 있습니다." : "목록 · 자동 실행에서 빠졌고 자료는 그대로입니다. 되살리기는 관리자만 합니다."}>
           <StudioCard flush>
             <ul className="divide-y divide-nd-line">
               {archived.map((s) => (
@@ -338,7 +338,7 @@ function SpaceDialog({
         await onSaved(r.space, true);
         onClose();
       },
-      isNew ? "새 프로젝트를 만들었습니다 — 지금 프로젝트로 바꿨습니다." : "프로젝트를 고쳤습니다.",
+      isNew ? "새 영상 프로젝트를 만들었습니다 — 지금 프로젝트로 바꿨습니다." : "영상 프로젝트를 고쳤습니다.",
     );
   const agency = f?.kind === "agency";
   const clientLabel = f && agency ? (clients.find((c) => c.id === f.clientId)?.name ?? (f.clientId === NEW_CLIENT ? "새 업체" : "업체")) : "";
@@ -347,7 +347,7 @@ function SpaceDialog({
       open={target !== null}
       onClose={onClose}
       size="lg"
-      title={isNew ? "새 프로젝트" : "프로젝트 고치기"}
+      title={isNew ? "새 영상 프로젝트" : "영상 프로젝트 고치기"}
       description="채널의 방향과 제작 기본값을 정합니다. 기획 · 영상 · 게시 · 성과가 프로젝트마다 따로 쌓입니다."
       footer={
         <>
@@ -355,7 +355,7 @@ function SpaceDialog({
             취소
           </Button>
           <Button icon={isNew ? Plus : undefined} loading={busy === "save"} onClick={save} disabled={!f?.name.trim() || (needsClientName && !f?.newClient.trim())}>
-            {isNew ? "프로젝트 만들기" : "저장"}
+            {isNew ? "영상 프로젝트 만들기" : "저장"}
           </Button>
         </>
       }
@@ -369,7 +369,7 @@ function SpaceDialog({
           )}
           {isNew ? (
             <FormRow className="grid-cols-1 sm:grid-cols-2">
-              <Field label="프로젝트 종류" hint={agency ? "계약 업체의 브랜드 — 만든 뒤에는 바꿀 수 없습니다" : "우리 채널 · 팀 공용 — 만든 뒤에는 바꿀 수 없습니다"}>
+              <Field label="영상 프로젝트 종류" hint={agency ? "계약 업체의 브랜드 — 만든 뒤에는 바꿀 수 없습니다" : "우리 채널 · 팀 공용 — 만든 뒤에는 바꿀 수 없습니다"}>
                 <Select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value as SpaceKind })}>
                   {(["own", "agency"] as const).map((x) => (
                     <option key={x} value={x}>
@@ -407,7 +407,7 @@ function SpaceDialog({
               <Input value={f.newClient} maxLength={80} onChange={(e) => setF({ ...f, newClient: e.target.value })} placeholder="예: 주식회사 ○○" />
             </Field>
           )}
-          <Field label="프로젝트 이름" hint={agency ? "브랜드 · 채널 이름 (업체 하나에 여러 개)" : "채널 이름 (나중에 바꿀 수 있음)"}>
+          <Field label="영상 프로젝트 이름" hint={agency ? "브랜드 · 채널 이름 (업체 하나에 여러 개)" : "채널 이름 (나중에 바꿀 수 있음)"}>
             <Input value={f.name} maxLength={40} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder={agency ? "브랜드 · 채널 이름" : "채널 표시 이름"} />
           </Field>
           <Field label="어떤 채널인가 · AI 가 참고" hint="주제 · 시청자 · 톤을 적으면 AI 가 레이더 상품을 고르고 아침 브리핑을 쓸 때 참고합니다">

@@ -171,9 +171,9 @@ export function ActivityComposer({
                   <Select
                     value={featureId}
                     onChange={(e) => setFeatureId(e.target.value)}
-                    aria-label="프로젝트 연결"
+                    aria-label="개발 프로젝트 연결"
                   >
-                    <option value="">프로젝트 연결 (선택)</option>
+                    <option value="">개발 프로젝트 연결 (선택)</option>
                     {features.map((f) => (
                       <option key={f.id} value={f.id}>
                         {f.name}

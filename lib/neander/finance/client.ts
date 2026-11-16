@@ -607,9 +607,13 @@ export const deleteFinSuspense = (id: string) => mutate("suspense.delete", { id 
 
 // ---- 프로젝트 손익 ------------------------------------------
 
-/** 프로젝트를 통째로 저장. id 가 없으면 새로 만들고 id 를 돌려준다. */
-export const saveFinProject = (project: FinProjectInput, id?: string) =>
-  mutate<{ id: string }>("project.save", { id, project });
+/**
+ * 프로젝트를 통째로 저장. id 가 없으면 새로 만들고 id 를 돌려준다.
+ * opsBase = 이 초안이 바탕으로 삼은 문서의 opsUpdatedAt — 그 뒤 프로젝트 워크스페이스에서 운영 칸
+ * (메모 · 남은 일 · 장비 · 기간 …)을 고쳤으면 서버가 그 칸을 덮지 않는다 (projects/view.ts).
+ */
+export const saveFinProject = (project: FinProjectInput, id?: string, opsBase?: number) =>
+  mutate<{ id: string }>("project.save", { id, project, opsBase });
 
 export const deleteFinProject = (id: string) => mutate("project.delete", { id });
 

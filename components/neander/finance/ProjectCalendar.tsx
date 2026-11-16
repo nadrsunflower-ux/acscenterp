@@ -177,11 +177,15 @@ function EquipmentDialog({
   allProjects,
   onClose,
   onSaved,
+  saveEquipment,
+  detailHref,
 }: {
   project: CalProject;
   allProjects: CalProject[];
   onClose: () => void;
   onSaved?: () => Promise<void> | void;
+  saveEquipment: (id: string, equipment: ProjectEquipment) => Promise<unknown>;
+  detailHref: (id: string) => string;
 }) {
   const toast = useToast();
   const [draft, setDraft] = useState<ProjectEquipment | undefined>(project.equipment);
@@ -200,7 +204,7 @@ function EquipmentDialog({
     setSaving(true);
     setError(null);
     try {
-      await setFinProjectEquipment(project.id, draft ?? {});
+      await saveEquipment(project.id, draft ?? {});
       await onSaved?.();
       toast.success(hasEquipment(draft) ? `장비 배정을 저장했습니다 — ${equipmentText(draft)}` : "장비 배정을 지웠습니다");
       onClose();
@@ -226,7 +230,7 @@ function EquipmentDialog({
         .join(" · ")}
       footer={
         <>
-          <Link href={`/neander/finance/projects/${project.id}`} className={buttonClass("ghost", "md", "mr-auto")}>
+          <Link href={detailHref(project.id)} className={buttonClass("ghost", "md", "mr-auto")}>
             프로젝트 열기 <Icon icon={ArrowUpRight} size={15} />
           </Link>
           <Button variant="secondary" onClick={onClose} disabled={saving}>
@@ -261,6 +265,8 @@ export function ProjectCalendar({
   projects,
   allProjects,
   onChanged,
+  saveEquipment = setFinProjectEquipment,
+  detailHref = (id) => `/neander/finance/projects/${id}`,
   className,
 }: {
   /** 그릴 프로젝트 — 목록의 탭 · 검색 · 열 필터를 거친 것 */
@@ -269,6 +275,10 @@ export function ProjectCalendar({
   allProjects?: CalProject[];
   /** 장비 배정을 저장한 뒤 — 목록을 다시 읽는다 */
   onChanged?: () => Promise<void> | void;
+  /** 장비 배정 저장 — 기본은 재무(권한자). 프로젝트 워크스페이스는 팀원 모두가 쓰는 길을 넘긴다 */
+  saveEquipment?: (id: string, equipment: ProjectEquipment) => Promise<unknown>;
+  /** 「프로젝트 열기」 주소 — 기본은 재무 › 프로젝트 손익 */
+  detailHref?: (id: string) => string;
   className?: string;
 }) {
   const [open, setOpen] = useStickyState("finance.projects.calendarOpen", true);
@@ -462,6 +472,8 @@ export function ProjectCalendar({
           allProjects={everyone}
           onClose={() => setPicked(null)}
           onSaved={onChanged}
+          saveEquipment={saveEquipment}
+          detailHref={detailHref}
         />
       )}
     </Card>

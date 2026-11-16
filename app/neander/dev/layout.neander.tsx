@@ -17,7 +17,7 @@ const TABS: (TabItem & { exact?: boolean })[] = [
   { key: "home", href: "/neander/dev", label: "한눈에", icon: LayoutDashboard, exact: true },
   { key: "board", href: "/neander/dev/board", label: "작업 보드", icon: SquareKanban },
   { key: "timeline", href: "/neander/dev/timeline", label: "진행 소식", icon: Megaphone },
-  { key: "features", href: "/neander/dev/features", label: "프로젝트", icon: Blocks },
+  { key: "features", href: "/neander/dev/features", label: "개발 프로젝트", icon: Blocks },
 ];
 
 export default function DevLayout({ children }: { children: ReactNode }) {

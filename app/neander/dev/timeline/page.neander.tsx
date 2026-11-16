@@ -128,9 +128,9 @@ export default function TimelinePage() {
                 size="sm"
                 value={featureFilter}
                 onChange={(e) => setFeatureFilter(e.target.value)}
-                aria-label="프로젝트 필터"
+                aria-label="개발 프로젝트 필터"
               >
-                <option value="all">전체 프로젝트</option>
+                <option value="all">전체 개발 프로젝트</option>
                 {features.map((f) => (
                   <option key={f.id} value={f.id}>
                     {f.name}
@@ -169,7 +169,7 @@ export default function TimelinePage() {
             <EmptyState
               icon={Search}
               title="조건에 맞는 소식이 없어요"
-              description="검색어를 지우거나 프로젝트·작성자 필터를 '전체'로 되돌려 보세요."
+              description="검색어를 지우거나 개발 프로젝트·작성자 필터를 '전체'로 되돌려 보세요."
             />
           ) : (
             GROUP_ORDER.map((key) => {

@@ -392,6 +392,15 @@ function ProjectDetailEditor({ id }: { id: string }) {
     [toast],
   );
 
+  /**
+   * 이 초안이 바탕으로 삼은 저장본의 운영 칸 시각(opsUpdatedAt) — 고치기 시작한 순간의 것.
+   * 고치는 사이 프로젝트 워크스페이스에서 메모 · 남은 일 · 장비 · 기간을 바꾸면 서버가 그 칸을 지킨다.
+   */
+  const opsBaseRef = useRef(0);
+  useEffect(() => {
+    if (!draft) opsBaseRef.current = saved?.opsUpdatedAt ?? 0;
+  }, [draft, saved]);
+
   const form: FinProjectInput | null = draft ?? (saved ? toInput(saved) : null);
   const dirty = useMemo(
     () => !!draft && !!saved && !sameDraft(draft, toInput(saved)),
@@ -435,7 +444,7 @@ function ProjectDetailEditor({ id }: { id: string }) {
       setAutoSaving(true);
       const done = (async () => {
         try {
-          await saveFinProject(snap, id);
+          await saveFinProject(snap, id, opsBaseRef.current);
           await refresh();
           setLastSaved(snap);
           setSavedAt(Date.now());
@@ -482,7 +491,7 @@ function ProjectDetailEditor({ id }: { id: string }) {
         say.error(`프로젝트 변경을 저장하지 못했습니다 — ${checked.error}`);
         return;
       }
-      saveFinProject(left, id)
+      saveFinProject(left, id, opsBaseRef.current)
         .then(() => reload())
         .catch((e) => say.error(e instanceof Error ? e.message : "프로젝트 변경을 저장하지 못했습니다."));
     },

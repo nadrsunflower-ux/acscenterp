@@ -284,7 +284,7 @@ export default function ShortsDashboard() {
   const videoColumns: RecordColumn<Project>[] = [
     {
       key: "title",
-      header: "제목 · 프로젝트",
+      header: "제목 · 영상 프로젝트",
       mobile: "title",
       cell: (p) => (
         <div className="flex min-w-0 items-center gap-3">
@@ -452,12 +452,12 @@ export default function ShortsDashboard() {
       {/* 프로젝트별 현황 */}
       <StudioSection
         className="mb-8"
-        title="프로젝트별 현황"
+        title="영상 프로젝트별 현황"
         description="대시보드에서는 모든 프로젝트를 한 번에 봅니다. 「이 프로젝트로」 를 누르면 그 프로젝트의 영상 화면으로 갑니다."
         action={
           <Link href="/neander/shorts/spaces" className={buttonClass("ghost", "sm", "gap-1.5")}>
             <ArrowUpRight size={15} aria-hidden />
-            프로젝트 관리
+            영상 프로젝트 관리
           </Link>
         }
       >

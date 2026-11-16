@@ -52,14 +52,14 @@ export function FeatureProgress({
       <div className="flex flex-col items-center gap-3">
         <EmptyState
           icon={Blocks}
-          title="프로젝트를 먼저 만들어보세요"
+          title="개발 프로젝트를 먼저 만들어보세요"
           description="작업을 프로젝트 단위로 묶으면 코드를 몰라도 진행률을 한눈에 볼 수 있어요."
         />
         <Link
           href="/neander/dev/features"
           className="inline-flex items-center gap-1 text-nd-body font-medium text-nd-accent-strong hover:underline"
         >
-          프로젝트 관리로 이동
+          개발 프로젝트 관리로 이동
           <ArrowRight size={14} aria-hidden />
         </Link>
       </div>

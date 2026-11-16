@@ -133,7 +133,7 @@ function AddFeatureForm({ nextOrder, onDone }: { nextOrder: number; onDone?: () 
 
   return (
     <Card className="self-start">
-      <SectionHeader title="새 프로젝트" />
+      <SectionHeader title="새 개발 프로젝트" />
       <div className="flex flex-col gap-3">
         <Field label="이름" required>
           <Input
@@ -179,7 +179,7 @@ function AddFeatureForm({ nextOrder, onDone }: { nextOrder: number; onDone?: () 
             feature={{ id: "preview", color, name: name.trim() || "미리보기" }}
           />
           <Button onClick={submit} disabled={!canSubmit} loading={busy}>
-            {busy ? "추가 중…" : "프로젝트 추가"}
+            {busy ? "추가 중…" : "개발 프로젝트 추가"}
           </Button>
         </div>
       </div>
@@ -202,7 +202,7 @@ export function FeatureCreatePanel({
     return (
       <Card className="self-start">
         <p className="text-nd-body text-nd-fg-2">
-          프로젝트를 추가·수정하려면{" "}
+          개발 프로젝트를 추가·수정하려면{" "}
           <span className="font-medium text-nd-fg">팀원 계정</span>으로 로그인하세요.
         </p>
       </Card>
@@ -271,7 +271,7 @@ function FeatureCard({
   async function remove() {
     if (busy) return;
     const ok = await confirm({
-      title: `"${feature.name}" 프로젝트를 삭제할까요?`,
+      title: `"${feature.name}" 개발 프로젝트를 삭제할까요?`,
       message: total > 0 ? `연결된 작업 ${total}개의 프로젝트 표시가 사라집니다(작업은 유지).` : undefined,
       confirmLabel: "삭제",
       tone: "danger",
@@ -374,7 +374,7 @@ function FeatureCard({
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="프로젝트 이름"
+                placeholder="개발 프로젝트 이름"
               />
             </Field>
             <Field label="상태">
@@ -464,11 +464,11 @@ export function FeatureCardGrid({
     return (
       <EmptyState
         icon={Blocks}
-        title="아직 프로젝트가 없어요"
+        title="아직 개발 프로젝트가 없어요"
         description={
           canEdit
-            ? "프로젝트는 작업을 묶는 단위예요. 예: 결제 연동, 온보딩 개선. 왼쪽 폼에서 첫 프로젝트를 만들어 보세요."
-            : "프로젝트는 작업을 묶는 단위예요. 예: 결제 연동, 온보딩 개선. 팀원이 프로젝트를 등록하면 여기에 표시됩니다."
+            ? "개발 프로젝트는 작업을 묶는 단위예요. 예: 결제 연동, 온보딩 개선. 왼쪽 폼에서 첫 프로젝트를 만들어 보세요."
+            : "개발 프로젝트는 작업을 묶는 단위예요. 예: 결제 연동, 온보딩 개선. 팀원이 프로젝트를 등록하면 여기에 표시됩니다."
         }
       />
     );

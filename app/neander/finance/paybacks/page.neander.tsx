@@ -484,7 +484,8 @@ async function saveProjectDeduction(p: FinProjectDoc, next: FinProjectDeduction)
   const deductions = list.some((d) => d.id === next.id)
     ? list.map((d) => (d.id === next.id ? next : d))
     : [...list, next];
-  await saveFinProject({ ...base.value, deductions }, p.id);
+  // 읽어 둔 문서 이후 프로젝트 워크스페이스에서 고친 운영 칸(메모 · 남은 일 …)은 서버가 지킨다
+  await saveFinProject({ ...base.value, deductions }, p.id, p.opsUpdatedAt ?? 0);
 }
 
 // ---- 새로 적기 ------------------------------------------------------

@@ -51,7 +51,7 @@ export function StudioContextBar() {
   ) : (
     <>
       <span aria-hidden className={cn("h-2 w-2 shrink-0 rounded-full", kind === "agency" ? "bg-nd-warning" : "bg-nd-accent")} />
-      <span className="min-w-0 truncate font-semibold text-nd-fg">{currentSpace?.name ?? "프로젝트"}</span>
+      <span className="min-w-0 truncate font-semibold text-nd-fg">{currentSpace?.name ?? "영상 프로젝트"}</span>
       <SpaceKindBadge kind={kind} />
       {client && (
         <Link href={`/neander/shorts/clients/${client.id}`} className="min-w-0 truncate text-nd-fg-2 underline-offset-2 hover:text-nd-fg hover:underline">

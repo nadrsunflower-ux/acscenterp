@@ -60,10 +60,10 @@ export function ShortsSpaceSwitch({ inline = false }: { inline?: boolean } = {})
     .map((clientId) => ({ clientId, name: data?.clients.find((c) => c.id === clientId)?.name ?? "업체", spaces: list.filter((x) => spaceKind(x) === "agency" && (x.clientId ?? "") === clientId) }))
     .sort((a, b) => a.name.localeCompare(b.name, "ko"));
   return (
-    <Slot inline={inline} order={3} label="프로젝트" icon={FolderKanban}>
+    <Slot inline={inline} order={3} label="영상 프로젝트" icon={FolderKanban}>
         <Select
           size="sm"
-          aria-label="AI STUDIO 프로젝트"
+          aria-label="AI STUDIO 영상 프로젝트"
           value={space}
           onChange={(e) => (e.target.value === MANAGE ? router.push("/neander/shorts/spaces") : setSpace(e.target.value))}
           className={inline ? "w-full min-w-0 font-medium" : docked ? "w-auto max-w-[160px] font-medium" : "w-auto max-w-[200px] font-medium lg:max-w-[240px]"}
@@ -87,7 +87,7 @@ export function ShortsSpaceSwitch({ inline = false }: { inline?: boolean } = {})
               ))}
             </optgroup>
           ))}
-          <option value={MANAGE}>프로젝트 관리 · 새 프로젝트…</option>
+          <option value={MANAGE}>영상 프로젝트 관리 · 새 영상 프로젝트…</option>
         </Select>
     </Slot>
   );

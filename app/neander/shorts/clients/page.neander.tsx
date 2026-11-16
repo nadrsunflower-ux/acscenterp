@@ -101,7 +101,7 @@ export default function ClientsPage() {
         </Badge>
       ),
     },
-    { key: "spaces", header: "프로젝트", align: "right", cell: (r) => `${r.spaces}개` },
+    { key: "spaces", header: "영상 프로젝트", align: "right", cell: (r) => `${r.spaces}개` },
     {
       key: "month",
       header: `${M}월 제작 / 계약`,
@@ -310,7 +310,7 @@ function NewClient({ me, onClose, onCreated }: { me: string; onClose: () => void
       onClose={onClose}
       size="lg"
       title="새 업체"
-      description="플랜(구독 계약서 가격표)과 담당자를 먼저 정하세요. 브리프 · 제품 · 재무 계약은 만든 뒤 업체 화면에서 채우고, 대행 프로젝트(브랜드 · 채널)는 업체 화면의 「프로젝트」 탭에서 만듭니다."
+      description="플랜(구독 계약서 가격표)과 담당자를 먼저 정하세요. 브리프 · 제품 · 재무 계약은 만든 뒤 업체 화면에서 채우고, 대행 프로젝트(브랜드 · 채널)는 업체 화면의 「영상 프로젝트」 탭에서 만듭니다."
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>

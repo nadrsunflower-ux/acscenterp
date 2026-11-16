@@ -325,7 +325,7 @@ function AccountsTable({ accounts, profile, spaces, onChanged }: { accounts: Acc
         </div>
       ),
     },
-    { key: "space", header: "프로젝트", cell: (a) => <ProjectCell a={a} spaces={spaces.filter((x) => !x.archived || x.id === spaceOf(a))} onChanged={onChanged} /> },
+    { key: "space", header: "영상 프로젝트", cell: (a) => <ProjectCell a={a} spaces={spaces.filter((x) => !x.archived || x.id === spaceOf(a))} onChanged={onChanged} /> },
     {
       key: "status",
       header: "상태",

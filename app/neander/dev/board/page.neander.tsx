@@ -208,9 +208,9 @@ export default function BoardPage() {
           onChange={(e) => setFeatureFilter(e.target.value)}
           size="sm"
           className="w-auto"
-          aria-label="프로젝트 필터"
+          aria-label="개발 프로젝트 필터"
         >
-          <option value="all">전체 프로젝트</option>
+          <option value="all">전체 개발 프로젝트</option>
           {features.map((f) => (
             <option key={f.id} value={f.id}>
               {f.name}

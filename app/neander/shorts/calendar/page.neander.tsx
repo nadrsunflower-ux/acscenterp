@@ -204,7 +204,7 @@ export default function CalendarPage() {
         </span>
       ),
     },
-    { key: "where", header: "프로젝트 · 업체", mobileLabel: "프로젝트 · 업체", cell: ({ it }) => <span className="[overflow-wrap:anywhere]">{whereOf(it)}</span> },
+    { key: "where", header: "영상 프로젝트 · 업체", mobileLabel: "영상 프로젝트 · 업체", cell: ({ it }) => <span className="[overflow-wrap:anywhere]">{whereOf(it)}</span> },
     {
       key: "kind",
       header: "종류",
@@ -513,7 +513,7 @@ function ItemDialog({
   const rows: [string, string][] = [
     [it.time ? "날짜 · 시각" : "날짜", fmtWhenItem(it)],
     ["종류", kindLabel(it)],
-    ...(it.spaceId ? ([["프로젝트", spaceName(it.spaceId)]] as [string, string][]) : []),
+    ...(it.spaceId ? ([["영상 프로젝트", spaceName(it.spaceId)]] as [string, string][]) : []),
     ...(it.clientId ? ([["업체", clientName(it.clientId)]] as [string, string][]) : []),
     ...(!it.spaceId && !it.clientId ? ([["어디", where]] as [string, string][]) : []),
     ...(origin ? ([["내용", it.detail]] as [string, string][]) : []),
@@ -666,7 +666,7 @@ function EventDialog({ initial, date, canDelete, onClose }: { initial: ShortsEve
               ))}
             </Select>
           </Field>
-          <Field label="프로젝트" hint="대행 프로젝트 일정은 관리자와 그 업체 담당자만 봅니다">
+          <Field label="영상 프로젝트" hint="대행 프로젝트 일정은 관리자와 그 업체 담당자만 봅니다">
             <Select value={f.spaceId} onChange={(e) => setF({ ...f, spaceId: e.target.value })}>
               {spaces.map((s) => (
                 <option key={s.id} value={s.id}>

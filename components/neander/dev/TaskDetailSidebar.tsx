@@ -149,13 +149,13 @@ export function TaskDetailSidebar({
         onChange={(v) => updateDevTask(task.id, { kind: v as DevKind }, currentMember)}
       />
 
-      <SideRow label="프로젝트">
+      <SideRow label="개발 프로젝트">
         <Select
           value={task.featureId ?? ""}
           disabled={!canEdit}
           onChange={(e) => setFeature(e.target.value)}
           size="sm"
-          aria-label="프로젝트"
+          aria-label="개발 프로젝트"
         >
           <option value="">연결 안 함</option>
           {features.map((f) => (

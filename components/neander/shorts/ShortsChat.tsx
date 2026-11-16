@@ -255,7 +255,7 @@ function ShortsProposalCard({
             <Chip look={look} label={REF_LABEL[proposal.ref.kind]}>
               「{proposal.ref.label}」
             </Chip>
-            <Chip look={look} label="프로젝트">
+            <Chip look={look} label="영상 프로젝트">
               {proposal.spaceName}
             </Chip>
           </div>

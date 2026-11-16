@@ -84,6 +84,9 @@ export const GLOBAL_NAV: NavGroup[] = [
       { href: "/neander/tasks", label: "일일업무", icon: ListChecks },
       { href: "/neander/requests", label: "업무요청", icon: Send, badge: "requests" },
       { href: "/neander/schedule", label: "스케줄", icon: CalendarDays },
+      // 프로젝트 워크스페이스 — 행사 · 납품 건의 일정 · 장비 · 남은 일 · 메모를 팀원 모두가 본다.
+      // 금액 · 손익은 재무 › 프로젝트 손익(재무 권한)에만 있다 (lib/neander/projects/view.ts)
+      { href: "/neander/projects", label: "프로젝트", icon: FolderOpen },
     ],
   },
   {
@@ -101,10 +104,6 @@ export const GLOBAL_NAV: NavGroup[] = [
     items: [
       { href: "/neander/sales", label: "매출", icon: TrendingUp },
       { href: "/neander/finance", label: "재무", icon: Wallet },
-      // 프로젝트는 재무 워크스페이스 안의 화면이지만 여기에도 꺼내 둔다.
-      // 재무 › 분석 및 관리 맨 아래에만 있을 때는 두 번 들어가야 보여서
-      // 행사 건을 챙기는 사람이 찾지 못했다. 권한은 재무와 같다 (서버 게이트).
-      { href: "/neander/finance/projects", label: "프로젝트", icon: FolderOpen },
     ],
   },
   {
@@ -122,7 +121,7 @@ export const GLOBAL_NAV: NavGroup[] = [
  *
  *   데이터    : 엑셀 임포트 → 검토 대기함 → 월 마감        (이 달에 하는 일)
  *   재무      : 대시보드 · 거래 원장 · 카드 기록            (그래서 나온 결과)
- *   사업 관리 : 프로젝트 · 지원금 · 돌려줄 돈 · 가수금 · API 비용  (건마다 챙기는 돈)
+ *   사업 관리 : 프로젝트 손익 · 지원금 · 돌려줄 돈 · 가수금 · API 비용  (건마다 챙기는 돈)
  *   분석 및 관리 : 리포트 · 급여 · 세무 서류                 (장부를 맞춰 보는 것)
  *
  * 사업 관리는 원장을 건별로 묶어 보는 화면들이다 — 받을 돈 · 쓴 돈 · 돌려줄 돈을
@@ -142,7 +141,8 @@ export const FINANCE_NAV: NavGroup[] = [
   {
     label: "사업 관리",
     items: [
-      { href: "/neander/finance/projects", label: "프로젝트", icon: FolderOpen },
+      // 프로젝트별 금액 · 입금 · 지출 · 손익 — 일정 · 장비 · 메모는 프로젝트 워크스페이스(/neander/projects)
+      { href: "/neander/finance/projects", label: "프로젝트 손익", icon: FolderOpen },
       { href: "/neander/finance/grants", label: "지원금", icon: Landmark },
       { href: "/neander/finance/paybacks", label: "돌려줄 돈", icon: HandCoins },
       { href: "/neander/finance/suspense", label: "가수금", icon: ArrowLeftRight },
@@ -229,7 +229,7 @@ export const SHORTS_NAV: NavGroup[] = [
     items: [
       { href: "/neander/shorts", label: "대시보드", icon: LayoutDashboard, exact: true },
       // 채널 하나 = 프로젝트 (살림설계사무소 · AI 쿠팡 채널 …) — 위 툴바에서 고르면 아래 메뉴가 그 프로젝트 것으로
-      { href: "/neander/shorts/spaces", label: "프로젝트", icon: FolderKanban },
+      { href: "/neander/shorts/spaces", label: "영상 프로젝트", icon: FolderKanban },
       // 브랜드 대행 업체 — 계약 · 브리프 · 대행 프로젝트 · 재무 계약 · 계약서 · 월 N편 · 승인 · 월간 보고
       { href: "/neander/shorts/clients", label: "업체", icon: Building2 },
       // 업체마다의 계약 조건 · 재무 계약(받을 돈 · 연체) · 계약서를 한 표로 — 고치는 곳은 업체 상세 「재무 · 계약서」
@@ -289,7 +289,19 @@ export interface Workspace {
   nav: NavGroup[];
 }
 
+/**
+ * 프로젝트 워크스페이스 — 팀원 모두. 행사 · 납품 건의 일정 · 장비 · 남은 일 · 메모.
+ * 개발 허브의 「개발 프로젝트」 · AI STUDIO 의 「영상 프로젝트」와 다른 것이다.
+ */
+export const PROJECTS_NAV: NavGroup[] = [
+  {
+    label: "프로젝트",
+    items: [{ href: "/neander/projects", label: "전체 프로젝트", icon: FolderOpen }],
+  },
+];
+
 export const WORKSPACES: Workspace[] = [
+  { key: "projects", label: "프로젝트", href: "/neander/projects", icon: FolderOpen, nav: PROJECTS_NAV },
   { key: "finance", label: "재무", href: "/neander/finance", icon: Wallet, nav: FINANCE_NAV },
   { key: "sales", label: "매출", href: "/neander/sales", icon: TrendingUp, nav: SALES_NAV },
   { key: "shorts", label: "AI STUDIO", href: "/neander/shorts", icon: Clapperboard, nav: SHORTS_NAV },
@@ -305,7 +317,7 @@ const DEV_TABS: { href: string; label: string; exact?: boolean }[] = [
   { href: "/neander/dev", label: "한눈에", exact: true },
   { href: "/neander/dev/board", label: "작업 보드" },
   { href: "/neander/dev/timeline", label: "진행 소식" },
-  { href: "/neander/dev/features", label: "프로젝트" },
+  { href: "/neander/dev/features", label: "개발 프로젝트" },
 ];
 
 export const isFinancePath = (pathname: string) => pathname.startsWith("/neander/finance");

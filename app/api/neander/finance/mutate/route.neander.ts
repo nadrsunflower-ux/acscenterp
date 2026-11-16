@@ -21,6 +21,7 @@ import { installmentSplit } from "@/lib/neander/finance/project";
 import { isCovered, receiptKey } from "@/lib/neander/finance/receivables";
 import { netAmount } from "@/lib/neander/finance/types";
 import { sanitizeEquipment } from "@/lib/neander/finance/equipment";
+import { OPS_FIELDS } from "@/lib/neander/projects/view";
 import { cashCheckId, sanitizeCashCheck } from "@/lib/neander/finance/daily-cash";
 import { FieldValue } from "firebase-admin/firestore";
 
@@ -942,7 +943,8 @@ export async function POST(req: Request) {
         const out = await db.runTransaction(async (tx) => {
           const snap = await tx.get(ref);
           if (!snap.exists) return { error: "프로젝트가 없습니다.", status: 404 };
-          tx.update(ref, { equipment: next ?? FieldValue.delete(), updatedAt: now, updatedBy: user.email });
+          // 운영 칸 — 이 뒤에 열어 둔 상세 화면이 통째로 저장해도 덮지 않게 찍는다 (projects/view.ts)
+          tx.update(ref, { equipment: next ?? FieldValue.delete(), updatedAt: now, updatedBy: user.email, opsUpdatedAt: now, opsUpdatedBy: user.email });
           return { ok: true as const };
         });
         if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
@@ -952,7 +954,7 @@ export async function POST(req: Request) {
       case "project.save": {
         // 문서를 통째로 갈아치운다 (예산과 같은 방식). 줄 배열을 merge 하면
         // 지운 줄이 되살아난다. id 가 없으면 새로 만든다.
-        const { id, project } = payload as { id?: string; project: Record<string, unknown> };
+        const { id, project, opsBase } = payload as { id?: string; project: Record<string, unknown>; opsBase?: unknown };
         const parsed = sanitizeProject(project ?? {});
         if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
         const col = db.collection(NEANDER_COL.finProjects);
@@ -975,11 +977,19 @@ export async function POST(req: Request) {
           const prev = await col.doc(id).get();
           if (!prev.exists) return NextResponse.json({ error: "프로젝트가 없습니다." }, { status: 404 });
           const keep = prev.data() ?? {};
+          // 이 화면을 연 뒤(opsBase) 프로젝트 워크스페이스 · 달력에서 운영 칸을 고쳤으면 그 칸은 저장된 값을 지킨다.
+          // opsBase 를 안 보내는 옛 화면도 지킨다 — 운영 칸을 고친 적이 있으면 새로 고친 사람 쪽이 맞다.
+          const opsAt = typeof keep.opsUpdatedAt === "number" ? keep.opsUpdatedAt : 0;
+          const keepOps = opsAt > 0 && (typeof opsBase !== "number" || opsAt > opsBase);
+          const opsFromServer = keepOps ? Object.fromEntries(OPS_FIELDS.map((k) => [k, keep[k]])) : {};
           await col.doc(id).set(
             clean({
               ...parsed.value,
+              ...opsFromServer,
               createdAt: keep.createdAt ?? now,
               createdBy: keep.createdBy,
+              opsUpdatedAt: keep.opsUpdatedAt,
+              opsUpdatedBy: keep.opsUpdatedBy,
               updatedAt: now,
               updatedBy: user.email,
             }),

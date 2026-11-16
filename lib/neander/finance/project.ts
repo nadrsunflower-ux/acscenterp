@@ -608,9 +608,15 @@ export interface FinProjectDoc {
   createdBy?: string;
   updatedAt?: number;
   updatedBy?: string;
+  /**
+   * 운영 칸(메모 · 남은 일 · 다음엔 · 장비 · 기간 · 납기 — projects/view.ts OPS_FIELDS)을 마지막으로
+   * 프로젝트 워크스페이스 · 달력에서 고친 때. 그 전에 열어 둔 재무 화면의 통째 저장이 덮지 않게 서버가 본다.
+   */
+  opsUpdatedAt?: number;
+  opsUpdatedBy?: string;
 }
 
-export type FinProjectInput = Omit<FinProjectDoc, "id" | "createdAt" | "createdBy" | "updatedAt" | "updatedBy">;
+export type FinProjectInput = Omit<FinProjectDoc, "id" | "createdAt" | "createdBy" | "updatedAt" | "updatedBy" | "opsUpdatedAt" | "opsUpdatedBy">;
 
 // ---- 새 줄 ---------------------------------------------------
 

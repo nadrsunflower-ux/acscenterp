@@ -82,7 +82,7 @@ import type { WithId } from "@/components/neander/shorts/ShortsProvider";
 const TABS = [
   { key: "month", label: "월별 영상" },
   { key: "brief", label: "계약 · 브리프" },
-  { key: "spaces", label: "프로젝트" },
+  { key: "spaces", label: "영상 프로젝트" },
   { key: "finance", label: "재무 · 계약서" },
   { key: "products", label: "제품 · 사진" },
   { key: "accounts", label: "게시 계정" },
@@ -229,7 +229,7 @@ function ClientWorkspace({ initial }: { initial: ClientView }) {
     ) : tab === "spaces" ? (
       (c.canEdit || d.admin) && (
         <Link href={`/neander/shorts/spaces?newFor=${c.id}`} className={buttonClass("primary", "md", "gap-1.5")}>
-          <Plus size={16} aria-hidden /> 이 업체에 프로젝트
+          <Plus size={16} aria-hidden /> 이 업체에 영상 프로젝트
         </Link>
       )
     ) : tab === "finance" ? (
@@ -636,11 +636,11 @@ function AddVideo({ c, month, prog, onClose, onCreated }: { c: ClientView; month
         )}
         {!spaces.length && (
           <StudioNotice tone="warning" title="이 업체의 대행 프로젝트가 없습니다">
-            「프로젝트」 탭에서 브랜드(채널) 프로젝트를 먼저 만들어 주세요.
+            「영상 프로젝트」 탭에서 브랜드(채널) 프로젝트를 먼저 만들어 주세요.
           </StudioNotice>
         )}
         <FormRow className="grid-cols-1 sm:grid-cols-2">
-          <Field label="프로젝트 (브랜드 · 채널)">
+          <Field label="영상 프로젝트 (브랜드 · 채널)">
             <Select value={f.spaceId} disabled={!spaces.length} onChange={(e) => setF({ ...f, spaceId: e.target.value })}>
               {!spaces.length && <option value="">(프로젝트 없음)</option>}
               {spaces.map((x) => (
@@ -1096,7 +1096,7 @@ function AccountsTab({ c, onBrief }: { c: ClientView; onBrief: () => void }) {
                         )}
                       </div>
                       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-[13px]">
-                        <dt className="text-nd-fg-3">프로젝트</dt>
+                        <dt className="text-nd-fg-3">영상 프로젝트</dt>
                         <dd className="text-nd-fg-2">{spaceName(a)}</dd>
                         <dt className="text-nd-fg-3">연결한 사람</dt>
                         <dd className="text-nd-fg-2">
@@ -1196,12 +1196,12 @@ function SpacesTab({ c }: { c: ClientView }) {
         <EmptyState
           compact
           icon={Building2}
-          title="아직 프로젝트가 없습니다"
+          title="아직 영상 프로젝트가 없습니다"
           description="브랜드(채널)마다 대행 프로젝트를 만들면 그 안에서 기획 · 영상 · 게시 · 성과를 따로 관리합니다."
           action={
             (c.canEdit || d.admin) && (
               <Link href={`/neander/shorts/spaces?newFor=${c.id}`} className={buttonClass("primary", "sm", "gap-1.5")}>
-                <Plus size={15} aria-hidden /> 이 업체에 프로젝트
+                <Plus size={15} aria-hidden /> 이 업체에 영상 프로젝트
               </Link>
             )
           }
@@ -1350,7 +1350,7 @@ function FinanceTab({
       {!readOnly && options !== null && (
         <StudioCard title="재무 계약 프로젝트 잇기" description="재무의 계약 프로젝트(PJ-…)를 이어 계약 금액 · 입금 · 계약서를 봅니다 — 고치기는 재무 화면에서">
           <FormRow className="grid-cols-[minmax(0,1fr)_auto]">
-            <Field label="재무 계약 프로젝트" hint="재무 프로젝트가 아직 없으면 재무 › 프로젝트에서 계약을 먼저 만드세요 (계약서 만들기도 거기에 있습니다)">
+            <Field label="재무 계약 프로젝트" hint="재무 프로젝트가 아직 없으면 재무 › 프로젝트 손익에서 계약을 먼저 만드세요 (계약서 만들기도 거기에 있습니다)">
               <Select value={pick} onChange={(e) => setPick(e.target.value)}>
                 <option value="">고르기 — 최근 것부터</option>
                 {options
