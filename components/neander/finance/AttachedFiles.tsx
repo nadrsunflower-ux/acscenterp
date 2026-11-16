@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, ExternalLink, FileText, Paperclip, RefreshCw, Trash2, X } from "lucide-react";
+import { ChevronRight, Download, ExternalLink, FileText, Paperclip, RefreshCw, Trash2, X } from "lucide-react";
 import {
-  Button, Card, EmptyState, Icon, IconButton, InlineNotice, LoadingState, SectionHeader,
+  Button, Card, Collapse, EmptyState, Icon, IconButton, InlineNotice, LoadingState, SectionHeader,
   cn, useConfirm, useToast,
 } from "@/components/neander/ui";
 import { formatBytes } from "@/lib/neander/finance/docs";
@@ -13,6 +13,7 @@ import {
 import {
   canPreviewAttachedFile, grantFileClient, projectFileClient, type AttachedFileClient,
 } from "@/lib/neander/finance/attached-files-client";
+import { AttachedFilePreview } from "./AttachedFilePreview";
 
 const dateOf = (timestamp: number) => new Intl.DateTimeFormat("ko-KR", {
   timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
@@ -75,7 +76,25 @@ function AttachedFilesPanel({ ownerId, client, copy }: { ownerId: string; client
   const [operation, setOperation] = useState<{ id: string; action: "open" | "download" | "delete" } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  /** 펼친 줄 — 여러 개를 함께 펼쳐 둘 수 있다 */
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  /** 한 번 받은 원본 — 접었다 다시 펼칠 때 또 받지 않는다 */
+  const blobs = useRef(new Map<string, Blob>());
   const busy = uploading || operation !== null;
+
+  const toggle = (id: string) => setExpanded((current) => {
+    const next = new Set(current);
+    if (!next.delete(id)) next.add(id);
+    return next;
+  });
+  const loadPreview = useCallback(async (file: AttachedFile, signal: AbortSignal) => {
+    const key = `${file.id}:${file.sha256}`;
+    const cached = blobs.current.get(key);
+    if (cached) return cached;
+    const blob = await client.read(ownerId, file, signal);
+    blobs.current.set(key, blob);
+    return blob;
+  }, [client, ownerId]);
 
   const refresh = useCallback(async () => {
     listRequest.current?.abort();
@@ -174,6 +193,8 @@ function AttachedFilesPanel({ ownerId, client, copy }: { ownerId: string; client
         await client.remove(ownerId, file.id, controller.signal);
         if (request.current !== controller) return;
         setFiles((current) => current.filter((f) => f.id !== file.id));
+        blobs.current.delete(`${file.id}:${file.sha256}`);
+        setExpanded((current) => { const next = new Set(current); next.delete(file.id); return next; });
         toast.success("첨부파일을 삭제했습니다.");
       }
     } catch (e) {
@@ -231,22 +252,39 @@ function AttachedFilesPanel({ ownerId, client, copy }: { ownerId: string; client
           <EmptyState compact icon={Paperclip} title="아직 첨부파일이 없습니다" description={copy.emptyDescription} />
         ) : (
           <ul className="divide-y divide-nd-line" aria-label={`${copy.owner} ${copy.title} 목록`}>
-            {files.map((file) => (
-              <li key={file.id} className="flex min-w-0 flex-col gap-3 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center">
-                <span className="flex min-w-0 flex-1 items-start gap-2.5">
+            {files.map((file) => {
+              const open = expanded.has(file.id);
+              const previewId = `attached-preview-${file.id}`;
+              return (
+              <li key={file.id} className="min-w-0 py-3 first:pt-0 last:pb-0">
+                <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center">
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  aria-controls={previewId}
+                  title={open ? "미리보기 접기" : "미리보기 펼치기"}
+                  onClick={() => toggle(file.id)}
+                  className="-mx-2 -my-1 flex min-w-0 flex-1 items-start gap-2 rounded-nd-md px-2 py-1 text-left transition-colors duration-nd-fast hover:bg-nd-fg/[.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nd-accent"
+                >
+                  <Icon icon={ChevronRight} size={16} className={cn("mt-1 shrink-0 text-nd-fg-3 transition-transform duration-nd-fast", open && "rotate-90")} />
                   <Icon icon={FileText} size={18} className="mt-0.5 shrink-0 text-nd-fg-3" />
                   <span className="min-w-0">
                     <span className="block break-all text-nd-body font-medium text-nd-fg">{file.name}</span>
                     <span className="mt-1 block text-nd-caption text-nd-fg-3"><span className="nd-num">{formatBytes(file.size)}</span> · 등록일 {dateOf(file.uploadedAt)}</span>
                   </span>
-                </span>
+                </button>
                 <span className="flex shrink-0 flex-wrap items-center gap-1.5 pl-7 sm:pl-0">
                   {canPreviewAttachedFile(file) && <Button variant="secondary" size="sm" icon={ExternalLink} disabled={busy || loading} loading={operation?.id === file.id && operation.action === "open"} onClick={() => void act(file, "open")}>열기</Button>}
                   <Button variant="ghost" size="sm" icon={Download} disabled={busy || loading} loading={operation?.id === file.id && operation.action === "download"} onClick={() => void act(file, "download")}>받기</Button>
                   <IconButton icon={Trash2} label={`${file.name} 삭제`} variant="ghost" size="sm" disabled={busy || loading} onClick={() => void act(file, "delete")} className="text-nd-fg-3 hover:text-nd-danger-text" />
                 </span>
+                </div>
+                <Collapse open={open} id={previewId}>
+                  <AttachedFilePreview file={file} load={loadPreview} onDownload={() => void act(file, "download")} />
+                </Collapse>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </Card>

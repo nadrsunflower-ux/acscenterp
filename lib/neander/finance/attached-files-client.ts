@@ -218,7 +218,7 @@ export function attachedFileClient(url: string, key: string) {
     }
   }
 
-  return { list, upload, remove, download, open };
+  return { list, upload, remove, read, download, open };
 }
 
 export type AttachedFileClient = ReturnType<typeof attachedFileClient>;
