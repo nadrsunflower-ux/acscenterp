@@ -54,11 +54,13 @@ import {
 } from "@/lib/neander/finance/equipment";
 
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
-const STATUS_LABEL: Record<string, string> = { planning: "심사 중", active: "진행 중", done: "완료" };
+const STATUS_LABEL: Record<string, string> = { planning: "심사 중", hold: "보류", active: "진행 중", done: "완료" };
 
 /** 상태별 막대 모양 — 같은 계열을 옅게만 깔면 구분이 안 돼 심사 중은 점선으로 */
 const BAR_CLS: Record<string, string> = {
   planning: "border border-dashed border-nd-fg-3 bg-nd-content text-nd-fg",
+  // 보류 — 연락이 끊겨 알 수 없는 건. 점선 위에 흐리게
+  hold: "border border-dashed border-nd-fg-4 bg-nd-content text-nd-fg-3 opacity-60",
   active: "border border-nd-accent/40 bg-nd-accent-soft text-nd-accent-strong",
   done: "border border-nd-success/40 bg-nd-success-soft text-nd-success-text",
 };
@@ -118,6 +120,7 @@ function Bar({ seg, onPick }: { seg: CalSegment; onPick: (p: CalProject) => void
       className={cn(
         "relative z-[1] mx-1 my-[2px] flex min-w-0 items-center overflow-hidden whitespace-nowrap px-1.5 text-left text-[13px] font-medium leading-none transition-[filter] duration-nd-fast hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nd-accent/50",
         isDelivery ? DELIVERY_CLS : barCls(item.project.status),
+        isDelivery && item.project.status === "hold" && "opacity-60",
         contLeft ? "-ml-px rounded-l-none border-l-0" : "rounded-l-md",
         contRight ? "-mr-px rounded-r-none border-r-0" : "rounded-r-md",
       )}
@@ -345,6 +348,9 @@ export function ProjectCalendar({
         <>
           <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-nd-fg-2" aria-label="달력 보는 법">
             <span className="inline-flex items-center gap-1.5"><span aria-hidden className={cn("h-3.5 w-6 rounded", BAR_CLS.planning)} />심사 중</span>
+            {projects.some((p) => p.status === "hold") && (
+              <span className="inline-flex items-center gap-1.5"><span aria-hidden className={cn("h-3.5 w-6 rounded", BAR_CLS.hold)} />보류</span>
+            )}
             <span className="inline-flex items-center gap-1.5"><span aria-hidden className={cn("h-3.5 w-6 rounded", BAR_CLS.active)} />진행 중</span>
             <span className="inline-flex items-center gap-1.5"><span aria-hidden className={cn("h-3.5 w-6 rounded", BAR_CLS.done)} />완료</span>
             <span className="inline-flex items-center gap-1.5"><Icon icon={Flag} size={13} className="text-nd-warning-text" />납기</span>

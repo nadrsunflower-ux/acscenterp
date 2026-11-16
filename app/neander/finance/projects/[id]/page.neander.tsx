@@ -198,6 +198,7 @@ import {
 /** 상태 → 의미 색 (목록 화면과 같은 표) */
 const PROJECT_STATUS_TONE: Record<ProjectStatus, Tone> = {
   planning: "neutral",
+  hold: "neutral",
   active: "accent",
   done: "success",
   cancelled: "danger",

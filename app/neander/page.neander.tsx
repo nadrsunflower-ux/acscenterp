@@ -341,6 +341,7 @@ export default function DashboardPage() {
 /** 상태 → 의미 색 (프로젝트 목록 화면과 같은 표) */
 const PROJECT_STATUS_TONE: Record<ProjectStatus, Tone> = {
   planning: "neutral",
+  hold: "neutral",
   active: "accent",
   done: "success",
   cancelled: "danger",

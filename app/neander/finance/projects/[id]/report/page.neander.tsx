@@ -99,6 +99,7 @@ import { todayStrKST } from "@/lib/neander/format";
 
 const STATUS_TONE: Record<ProjectStatus, Tone> = {
   planning: "neutral",
+  hold: "neutral",
   active: "accent",
   done: "success",
   cancelled: "danger",

@@ -33,11 +33,17 @@ import { todayStrKST } from "../format";
 import { reconcileNoteRich, sanitizeNoteRich, type NoteRich } from "./rich-note";
 import { sanitizeEquipment, type ProjectEquipment } from "./equipment";
 
-export const PROJECT_STATUSES = ["planning", "active", "done", "cancelled"] as const;
+/**
+ * hold(보류) — 연락이 끊기는 등으로 될지 안 될지 알 수 없게 된 건(2026-11-16).
+ * 취소는 아니라 장비 겹침 · 미수금 · 런웨이에 적어 둔 입금 회차에는 남기고,
+ * 목록 · 달력에서는 흐리게 보이며 납기 D-day · 대시보드에서는 빠진다.
+ */
+export const PROJECT_STATUSES = ["planning", "hold", "active", "done", "cancelled"] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
 export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
   planning: "심사 중",
+  hold: "보류",
   active: "진행 중",
   done: "완료",
   cancelled: "취소",
@@ -45,6 +51,7 @@ export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
 
 export const PROJECT_STATUS_COLOR: Record<ProjectStatus, string> = {
   planning: "#f59e0b",
+  hold: "#94a3b8",
   active: "#2a78d6",
   done: "#16a34a",
   cancelled: "#a1a1aa",
@@ -1170,7 +1177,7 @@ export function sanitizeProject(
 }
 
 /** 목록 정렬 — 진행 중 → 심사 중 → 완료 → 취소, 같은 상태면 최근 수정순 */
-const STATUS_ORDER: Record<ProjectStatus, number> = { active: 0, planning: 1, done: 2, cancelled: 3 };
+const STATUS_ORDER: Record<ProjectStatus, number> = { active: 0, planning: 1, hold: 2, done: 3, cancelled: 4 };
 export function sortProjects(list: FinProjectDoc[]): FinProjectDoc[] {
   return [...list].sort((a, b) => {
     const s = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
@@ -1206,7 +1213,10 @@ export interface ProjectDigest {
   lineCount: number;
 }
 
-/** 아직 끝나지 않은 상태 — 대시보드에 올라오는 프로젝트 */
+/** 목록 · 달력에서 흐리게 보이는 상태 — 보류 */
+export const isDimmedProjectStatus = (status: ProjectStatus) => status === "hold";
+
+/** 아직 끝나지 않은 상태 — 대시보드에 올라오는 프로젝트. 보류는 움직이지 않는 건이라 뺀다 */
 export const OPEN_PROJECT_STATUSES: ProjectStatus[] = ["active", "planning"];
 
 /**

@@ -91,6 +91,7 @@ import {
   ENTITY_SHORT,
   PROJECT_STATUSES,
   PROJECT_STATUS_LABEL,
+  isDimmedProjectStatus,
   VAT_HINT,
   VAT_LABEL,
   VAT_MODES,
@@ -120,10 +121,14 @@ import {
 /** 상태 → 의미 색. 데이터가 가진 색이 아니라 상태의 뜻이라 tone 으로 */
 const PROJECT_STATUS_TONE: Record<ProjectStatus, Tone> = {
   planning: "neutral",
+  hold: "neutral",
   active: "accent",
   done: "success",
   cancelled: "danger",
 };
+
+/** 보류 줄 — 흐리게 깔고, 가리키면 읽을 만큼 돌아온다 */
+const DIMMED_ROW = "opacity-45 transition-opacity hover:opacity-90 focus:opacity-100";
 
 type AmountView = "profit" | "settlement";
 const EXTRA_COLUMNS = ["entity", "period", "estimate", "ledger", "ready", "docs"] as const;
@@ -534,7 +539,7 @@ export default function ProjectsPage() {
                         tabIndex={0}
                         role="link"
                         aria-label={`${row.p.name} 상세`}
-                        className="cursor-pointer focus:bg-nd-accent-soft/60 focus:outline-none"
+                        className={cn("cursor-pointer focus:bg-nd-accent-soft/60 focus:outline-none", isDimmedProjectStatus(row.p.status) && DIMMED_ROW)}
                       >
                         {columns.map((key) => (
                           <Td key={key} sticky={key === "name" ? "left" : undefined} num={isProjectRangeKey(key) || key === "ready" || key === "docs"} className={cn("whitespace-nowrap py-3", key === "name" && "pl-5", key === "delivery" && "text-nd-caption text-nd-fg-2")}>

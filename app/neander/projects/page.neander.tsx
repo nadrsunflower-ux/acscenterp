@@ -37,7 +37,7 @@ import {
 import { DeliveryDate } from "@/components/neander/finance/DeliveryDate";
 import { ProjectCalendar } from "@/components/neander/finance/ProjectCalendar";
 import { mdRange } from "@/components/neander/finance/EquipmentFields";
-import { PROJECT_STATUSES, PROJECT_STATUS_LABEL, type ProjectStatus } from "@/lib/neander/finance/project";
+import { PROJECT_STATUSES, PROJECT_STATUS_LABEL, isDimmedProjectStatus, type ProjectStatus } from "@/lib/neander/finance/project";
 import { equipmentText, hasEquipment } from "@/lib/neander/finance/equipment";
 import { patchProjectEquipment } from "@/lib/neander/projects/client";
 import { useProjects } from "@/lib/neander/projects/useProjects";
@@ -45,6 +45,7 @@ import { useProjects } from "@/lib/neander/projects/useProjects";
 /** 상태 → 의미 색 (재무 › 프로젝트 손익과 같음) */
 const PROJECT_STATUS_TONE: Record<ProjectStatus, Tone> = {
   planning: "neutral",
+  hold: "neutral",
   active: "accent",
   done: "success",
   cancelled: "danger",
@@ -146,7 +147,7 @@ export default function ProjectsPage() {
                           tabIndex={0}
                           role="link"
                           aria-label={`${p.name} 상세`}
-                          className="cursor-pointer focus:bg-nd-accent-soft/60 focus:outline-none"
+                          className={cn("cursor-pointer focus:bg-nd-accent-soft/60 focus:outline-none", isDimmedProjectStatus(p.status) && "opacity-45 transition-opacity hover:opacity-90 focus:opacity-100")}
                         >
                           <Td sticky="left" className="py-3 pl-5">
                             <Link href={`/neander/projects/${p.id}`} className="block max-w-[28rem] truncate font-medium text-nd-fg hover:underline">

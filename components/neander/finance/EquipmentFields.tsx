@@ -99,7 +99,7 @@ export function EquipmentConflictList({
                   {i > 0 && " · "}
                   <span className={u.id === me ? "font-semibold text-nd-fg" : undefined}>
                     {name(u.name)} {u.count}
-                    {u.status === "planning" ? "(심사 중)" : ""}
+                    {u.status === "planning" ? "(심사 중)" : u.status === "hold" ? "(보류)" : ""}
                   </span>
                 </span>
               ))}
