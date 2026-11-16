@@ -2,7 +2,7 @@
 // 실행: npx tsx --test lib/neander/finance/key-watch.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { KEY_WATCH_GRACE_MS, KEY_WATCH_TRIES, keyAlertMessage, kstStamp, limitText, sortNewKeys, type SeenKey, type WatchKey } from "./key-watch";
+import { KEY_WATCH_GRACE_MS, KEY_WATCH_TRIES, keyAlertMessage, keyRowTitle, kstStamp, limitText, sortNewKeys, type SeenKey, type WatchKey } from "./key-watch";
 
 const NOW = Date.parse("2026-11-10T11:00:00Z");
 const key = (hash: string, over: Partial<WatchKey> = {}): WatchKey => ({ hash, name: hash.toUpperCase(), limit: 250, limitReset: "monthly", disabled: false, createdAt: "2026-11-10T09:00:00Z", ...over });
@@ -57,6 +57,8 @@ test("알림 글 — 키 이름 · 한국 시각 · 한도, 한도 없으면 경
   assert.equal(kstStamp("2026-11-10T11:04:00Z"), "11/10 20:04");
   assert.equal(kstStamp(null), "모름");
   const m = keyAlertMessage(key("x", { name: "MYSTERY", limit: null, limitReset: null, createdAt: "2026-11-10T11:04:00Z" }));
-  assert.match(m, /^🔑 예고 없는 오픈라우터 키 「MYSTERY」 — 11\/10 20:04 생성 · 한도 없음\. 한도가 없어 쓰는 만큼 나갑니다\./);
+  assert.match(m, /^API키 알림 · 예고 없이 생긴 오픈라우터 키 — 11\/10 20:04 생성 · 한도 없음\. 한도가 없어 쓰는 만큼 나갑니다\./);
+  assert.equal(keyRowTitle(key("x", { name: "MYSTERY", limit: null })), "⚫ 한도 없음 · MYSTERY");
+  assert.equal(keyRowTitle(key("y", { name: "STUDIO_A_B" })), "⚫ 한도 $250 · STUDIO_A_B");
   assert.match(keyAlertMessage(key("y"), true), /^\[테스트\] /);
 });

@@ -19,7 +19,7 @@ import { gunzipSync } from "zlib";
 import type { Firestore } from "firebase-admin/firestore";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import { addDays, buildMoneyRows, sanitizeMoneySettings } from "../money-calendar";
-import { arrivalText, noticeRule, readTaxNotice, type TaxNotice, type TaxNoticeInput, type TaxNoticeSource } from "../tax-notice";
+import { ARRIVAL_HEADLINE, arrivalText, noticeRule, readTaxNotice, type TaxNotice, type TaxNoticeInput, type TaxNoticeSource } from "../tax-notice";
 import { htmlToText } from "../pay-mail";
 import { syncMailbox } from "@/lib/neander/mail/server/sync";
 import type { FinTransaction } from "../types";
@@ -192,7 +192,7 @@ export async function announceTaxNotice(db: Firestore, id: string, opts: { menti
     if (opts.mention && pageId && !n.announced && n.state === "open") {
       const { ids } = await recipientIds(s.recipients);
       if (ids.length) {
-        const mode = await notifyMention(pageId, ids, arrivalText(n), { label: "ERP 에서 보기", url: taxNoticeUrl(n.id) });
+        const mode = await notifyMention(pageId, ids, arrivalText(n), { label: "ERP 에서 보기", url: taxNoticeUrl(n.id) }, ARRIVAL_HEADLINE);
         await snap.ref.update({ announced: { at: Date.now(), mode } });
         out.mention = mode;
       } else {

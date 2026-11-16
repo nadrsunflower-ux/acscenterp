@@ -2,7 +2,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  alertHeadline,
   alertText,
+  rowTitle,
   buildMoneyRows,
   dueAlerts,
   expandRules,
@@ -90,8 +92,10 @@ test("알림 — 3일 전 · 당일만, 낸 회차는 뺀다", () => {
   assert.deepEqual(on13.map((a) => [a.row.rule.id, a.lead, a.sentKey]), [["card-a", 3, "card-a¦2026-11-15¦3"]]);
   assert.equal(dueAlerts(rows, "2026-11-16", [3, 0])[0].lead, 0);
   assert.equal(dueAlerts(rows, "2026-11-14", [3, 0]).length, 0);
-  assert.match(alertText(on13[0].row, 3), /^3일 뒤 11\/16\(월\) · (약 [\d.,]+만 원 · )?출금통장$/);
-  assert.match(alertText(on13[0].row, 0), /^오늘 · /);
+  assert.equal(alertText(on13[0].row, 3), "납부 예정 · D-3 · 11/16(월) · 출금통장");
+  assert.equal(alertText(on13[0].row, 0), "납부 예정 · D-day · 오늘 · 출금통장");
+  assert.equal(alertHeadline(on13[0].row), "납부 예정 🟠");
+  assert.match(rowTitle(on13[0].row), /^🟠 (약 [\d.,]+만 원|금액 모름) · A카드 대금$/);
 });
 
 test("설정 다듬기 — 잘못된 규칙은 버리고 기본 알림은 3일 전 · 당일", () => {
@@ -131,9 +135,12 @@ test("한 번만 오는 날(고지서) — 그날 하루 · 휴일 밀림 · 금
 
   // 알림 글 — 정해진 금액은 원 단위 그대로
   const open = buildMoneyRows([notice], [], "2026-11-01", "2026-12-31")[0];
-  assert.equal(alertText(open, 3), "3일 뒤 11/30(월) · 811,640원");
+  assert.equal(alertText(open, 3), "세금 납부 예정 · D-3 · 11/30(월)까지");
+  assert.equal(rowTitle(open), "🟡 811,640원 · 부가가치세 고지 (네안데르)");
+  assert.equal(alertHeadline(open), "세금 납부 예정 🟡");
   const noAmount = buildMoneyRows([{ ...notice, amount: undefined, match: undefined }], [], "2026-11-01", "2026-12-31")[0];
-  assert.equal(alertText(noAmount, 0), "오늘 · 금액 모름");
+  assert.equal(alertText(noAmount, 0), "세금 납부 예정 · D-day · 오늘까지");
+  assert.equal(rowTitle(noAmount), "🟡 금액 모름 · 부가가치세 고지 (네안데르)");
 
   // 사람이 냈음으로 표시하면 장부에 없어도 냈음 — 알림이 안 간다
   const settled = buildMoneyRows([{ ...notice, settled: { date: "2026-11-20" } }], [], "2026-11-01", "2026-12-31");

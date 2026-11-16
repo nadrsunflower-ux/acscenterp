@@ -22,7 +22,7 @@ import type { Firestore } from "firebase-admin/firestore";
 import { NEANDER_COL } from "@/lib/neander/collections";
 import { NotionArchiveError, parseNotionPageId } from "@/lib/neander/notion/archive-client";
 import { fetchKeySnaps, managementKey } from "@/lib/neander/shorts/server/ai-usage";
-import { keyAlertMessage, kstStamp, limitText, sortNewKeys, type SeenKey, type WatchKey } from "../key-watch";
+import { KEY_ALERT_HEADLINE, keyAlertMessage, keyRowTitle, kstStamp, limitText, sortNewKeys, type SeenKey, type WatchKey } from "../key-watch";
 import { moneyCall, moneyToken, notifyMention, recipientIds } from "./money-calendar";
 import { ERP_ORIGIN } from "./sms-notify";
 
@@ -148,7 +148,7 @@ async function sendAlert(db: Firestore, ctx: NotionCtx, k: WatchKey, prevPageId:
     const page = await moneyCall<any>("POST", "/pages", {
       parent: { type: "data_source_id", data_source_id: table.dataSourceId },
       properties: {
-        이름: { title: text(k.name) },
+        이름: { title: text(keyRowTitle(k)) },
         ...(k.createdAt ? { "만든 때": { date: { start: k.createdAt } } } : {}),
         한도: { rich_text: text(limitText(k)) },
         상태: { select: { name: test ? "테스트" : "예고 없음" } },
@@ -158,7 +158,7 @@ async function sendAlert(db: Firestore, ctx: NotionCtx, k: WatchKey, prevPageId:
     });
     pageId = String(page.id);
   }
-  if (ctx.userIds.length) await notifyMention(pageId, ctx.userIds, keyAlertMessage(k, test), { label: "API 비용 화면", url: apiCostsUrl() });
+  if (ctx.userIds.length) await notifyMention(pageId, ctx.userIds, keyAlertMessage(k, test), { label: "API 비용 화면", url: apiCostsUrl() }, KEY_ALERT_HEADLINE);
   return pageId;
 }
 

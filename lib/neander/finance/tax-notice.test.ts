@@ -115,6 +115,6 @@ test("고지서 → 돈 나가는 날 한 줄 — 금액이 같은 출금을 찾
 
 test("이름 · 도착 알림 글", () => {
   assert.equal(noticeLabel({ item: undefined, level: "지방세", site: undefined, payer: "홍길동" }), "지방세 고지 (홍길동)");
-  assert.equal(arrivalText(notice()), "고지서 도착 · 790,130원 · 납기 11/27(금)");
-  assert.equal(arrivalText(notice({ amount: undefined, dueDate: undefined, office: "서대문세무서" })), "고지서 도착 · 서대문세무서 · 납기 · 금액 못 읽음 — ERP 에서 채워 주세요");
+  assert.equal(arrivalText(notice()), "세금 고지 도착 · 납기 11/27(금)");
+  assert.equal(arrivalText(notice({ amount: undefined, dueDate: undefined, office: "서대문세무서" })), "세금 고지 도착 · 서대문세무서 · 납기 · 금액 못 읽음 — 채워 주세요");
 });

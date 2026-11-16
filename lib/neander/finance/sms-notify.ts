@@ -5,9 +5,12 @@
 //    · 입출금알림 — 통장 입금 · 출금 (은행 문자)
 //    · 카드사용알림 — 법인카드 승인 · 취소 (카드 문자)
 //  한 건이 한 줄이고, 그 줄에 받는 사람을 @멘션한 댓글을 달아 폰 알림이 가게 한다.
-//  노션 알림에는 줄 이름과 댓글이 같이 보인다 — 겹치지 않게 나눈다(사용자 요청: 핵심만).
-//    줄 이름 = 누구 · 어디서 (상대 · 가맹점)      댓글 = 입금/출금 · 금액 · 통장(카드) · 잔액
-//  이모지 · 시각(알림에 시각이 붙는다)은 알림에서 뺀다.
+//  폰 노션 알림은 「<연결 이름> commented / 줄 이름(굵게) / 댓글」 세 줄이다. 연결 이름은 고정이라
+//  (댓글의 보낸 이 이름 display_name 은 폰 알림에 안 나온다 — 2026-11-15 실측) 색 · 종류는 아래 둘에 싣는다.
+//    줄 이름 = 색 이모지 + 금액 + 누구    예) 🟦 12,000원 · 가나페이 / 🔴 +1,650,000원 · 주식회사가나
+//    댓글   = 무슨 일이 이미 일어났나 + 나머지(통장 · 할부 · 잔액 · 분류)   예) 입금됨 · 신한입금 · 잔액 …
+//  색은 사용자 지정(2026-11-15): 카드 사용 🟦 · 카드 취소 🟥 · 입금 🔴 · 출금 🔵
+//  시각은 알림에 붙으니 뺀다.
 //  카드 문자 속 잔액도 댓글 끝에 붙인다(사용자 요청 2026-11-12). 신한 법인카드는 모든 신한
 //  법인카드가 같이 쓰는 남은 한도이고, 국민카드 문자에는 잔액이 없어 안 붙는다.
 // ============================================================
@@ -19,6 +22,8 @@ export type SmsNoticeChannel = "inout" | "card";
 
 export interface SmsNotice {
   channel: SmsNoticeChannel;
+  /** 노션 댓글의 보낸 이 이름 — 폰 알림 맨 위 (무슨 일이 이미 일어났나 + 색) */
+  headline: string;
   /** 받은 문자함 문서 id — 노션 줄의 「열쇠」 */
   key: string;
   /** 노션 줄 이름 */
@@ -43,6 +48,15 @@ export interface SmsNotice {
 
 const won = (n: number) => `${n.toLocaleString("ko-KR")}원`;
 
+/** 이미 일어난 일 — 줄 이름 맨 앞 색 · 댓글 맨 앞 이름 (사용자 지정 색 2026-11-15) */
+export const SMS_MARK = {
+  승인: { emoji: "🟦", label: "카드 사용됨" },
+  취소: { emoji: "🟥", label: "카드 취소됨" },
+  입금: { emoji: "🔴", label: "입금됨" },
+  출금: { emoji: "🔵", label: "출금됨" },
+} as const;
+const headlineOf = (k: keyof typeof SMS_MARK) => `${SMS_MARK[k].label} ${SMS_MARK[k].emoji}`;
+
 /**
  * 문자 한 통 → 알림 한 줄. 거래로 못 읽은 문자(인증번호 · 안내 · 광고)는 null.
  * nameOf: 끝자리 → ERP 의 통장 · 카드 이름(별칭). resolveCard: 가린 카드 끝자리(「3*0*」) → 실제 끝자리
@@ -60,15 +74,18 @@ export function smsNotice(
     const cancel = card.approval === "취소";
     const party = card.merchant || undefined;
     const inst = card.installment && card.installment !== "일시불" ? card.installment : undefined;
+    const mark = cancel ? "취소" : "승인";
     return {
       channel: "card",
+      headline: headlineOf(mark),
       key: doc.id,
-      title: party ?? "가맹점 모름",
+      title: `${SMS_MARK[mark].emoji} ${cancel ? "-" : ""}${won(card.amount)} · ${party ?? "가맹점 모름"}`,
       message: [
-        `${cancel ? "취소 " : ""}${won(card.amount)}`,
+        SMS_MARK[mark].label,
         alias ?? where,
         inst,
-        card.remaining !== undefined ? `잔액 ${won(card.remaining)}` : undefined,
+        // 신한 법인카드 문자 속 잔액 = 모든 신한 법인카드가 같이 쓰는 남은 한도
+        card.remaining !== undefined ? `남은 한도 ${won(card.remaining)}` : undefined,
       ]
         .filter(Boolean)
         .join(" · "),
@@ -89,9 +106,10 @@ export function smsNotice(
   const party = tx.memo || undefined;
   return {
     channel: "inout",
+    headline: headlineOf(tx.kind),
     key: doc.id,
-    title: party ?? where,
-    message: [`${tx.kind} ${won(tx.amount)}`, alias ?? where, tx.balance !== undefined ? `잔액 ${won(tx.balance)}` : undefined]
+    title: `${SMS_MARK[tx.kind].emoji} ${tx.kind === "입금" ? "+" : "-"}${won(tx.amount)} · ${party ?? where}`,
+    message: [SMS_MARK[tx.kind].label, party ? alias ?? where : alias ?? null, tx.balance !== undefined ? `잔액 ${won(tx.balance)}` : undefined]
       .filter(Boolean)
       .join(" · "),
     at: `${tx.date}T${tx.time}:00+09:00`,

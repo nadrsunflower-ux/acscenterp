@@ -87,11 +87,19 @@ export function kstStamp(iso: string | null): string {
 }
 
 /** 폰 알림 글 — 미리보기에 키 이름부터 보이게 */
+/** 댓글의 보낸 이 이름 (노션 화면용 — 폰 알림엔 안 나온다) */
+export const KEY_ALERT_HEADLINE = "API키 알림 ⚫";
+
+/** 노션 줄 이름 — 색 + 금액 자리에 한도가 맨 앞 (2026-11-15 사용자 요청: 금액 먼저 · 색으로 구분) */
+export const keyRowTitle = (k: Pick<WatchKey, "name" | "limit">) =>
+  `⚫ ${k.limit === null ? "한도 없음" : `한도 $${Number.isInteger(k.limit) ? k.limit : k.limit.toFixed(2)}`} · ${k.name}`;
+
+/** 댓글 — 키 이름 · 한도는 줄 이름에 있으니 여기엔 무슨 알림인지 · 언제 · 어떻게 할지 */
 export function keyAlertMessage(k: WatchKey, test = false): string {
   const head = test ? "[테스트] " : "";
   const warn = k.limit === null ? " 한도가 없어 쓰는 만큼 나갑니다." : "";
   return (
-    `${head}🔑 예고 없는 오픈라우터 키 「${k.name}」 — ${kstStamp(k.createdAt)} 생성 · ${limitText(k)}.${warn} ` +
-    "ERP에 붙일 곳이 없는 키입니다. 예고한 키면 API 비용 화면에서 붙일 곳을 정하고, 모르는 키면 오픈라우터에서 끄세요."
+    `${head}API키 알림 · 예고 없이 생긴 오픈라우터 키 — ${kstStamp(k.createdAt)} 생성 · ${limitText(k)}.${warn} ` +
+    "예고한 키면 API 비용 화면에서 붙일 곳을 정하고, 모르는 키면 오픈라우터에서 끄세요."
   );
 }

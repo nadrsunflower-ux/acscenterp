@@ -316,7 +316,7 @@ async function sendOne(ctx: Ctx, ref: DocumentReference, data: Record<string, an
     const pingIds = ctx.userIds[n.channel];
     const ping = shouldPing(n, ctx.minAmount) && pingIds.length > 0;
     const link = ledgerId ? { label: "확인", url: txCardUrl(ledgerId) } : undefined;
-    const mode = ping ? await notifyMention(pageId, pingIds, n.message + classSuffix(cls), link) : null;
+    const mode = ping ? await notifyMention(pageId, pingIds, n.message + classSuffix(cls), link, n.headline) : null;
     const state: NotifyState = ping ? "sent" : "logged";
     await ref.set({ notify: { state, pageId, channel: n.channel, mode, at: Date.now(), tries, error: null } }, { merge: true });
     return state;

@@ -27,8 +27,10 @@ import { NotionArchiveError, parseNotionPageId } from "@/lib/neander/notion/arch
 import { NOTION_VERSION } from "@/lib/neander/notion/client";
 import {
   addDays,
+  alertHeadline,
   alertText,
   buildMoneyRows,
+  rowTitle,
   dueAlerts,
   holidayYears,
   MONEY_KINDS,
@@ -94,7 +96,7 @@ const stateOf = (row: MoneyRow, today: string): RowState => (row.state === "냈�
 
 export function propsOf(row: MoneyRow, today: string) {
   return {
-    이름: { title: text(row.rule.label) },
+    이름: { title: text(rowTitle(row)) },
     날짜: { date: { start: row.date } },
     종류: { select: { name: row.rule.kind } },
     상태: { select: { name: stateOf(row, today) } },
@@ -117,7 +119,7 @@ export const fingerprint = (p: Record<string, any>) =>
     plain(p.근거?.rich_text),
   ]);
 export const wantPrint = (row: MoneyRow, today: string) =>
-  JSON.stringify([row.rule.label, row.date, row.rule.kind, stateOf(row, today), row.amount, row.rule.account ?? "", row.basis]);
+  JSON.stringify([rowTitle(row), row.date, row.rule.kind, stateOf(row, today), row.amount, row.rule.account ?? "", row.basis]);
 
 /** 표가 없으면 만든다 — 설정의 페이지 아래, 처음 한 번 */
 export async function ensureDataSource(db: Firestore, s: MoneyCalendarSettings): Promise<string> {
@@ -205,12 +207,17 @@ export async function recipientIds(
   return { ids: [...found.values()], missing: [...want].filter((e) => !found.has(e)), byEmail: Object.fromEntries(found) };
 }
 
-/** 멘션 알림 — 댓글이 안 되면(권한 없음) 본문에 멘션 문단 */
+/**
+ * 멘션 알림 — 댓글이 안 되면(권한 없음) 본문에 멘션 문단.
+ * headline 은 댓글의 「보낸 이 이름」(노션 display_name) — 폰 알림 맨 위에 뜬다. 연결 하나로 알림 종류마다
+ * 다른 이름을 단다 (💳 카드 사용됨 🟦 · 🧾 세금 납부 예정 🟡 …). 노션이 이 칸을 거절하면 이름 없이 다시 보낸다
+ */
 export async function notifyMention(
   pageId: string,
   userIds: string[],
   message: string,
   link?: { label: string; url: string },
+  headline?: string,
 ): Promise<"comment" | "block"> {
   // 멘션은 끝에 — 폰 알림 미리보기가 받는 사람 이름이 아니라 내용부터 보이게
   const rich = [
@@ -222,7 +229,18 @@ export async function notifyMention(
     ]),
   ];
   try {
-    await moneyCall("POST", "/comments", { parent: { page_id: pageId }, rich_text: rich });
+    const body = { parent: { page_id: pageId }, rich_text: rich };
+    if (headline) {
+      try {
+        await moneyCall("POST", "/comments", { ...body, display_name: { type: "custom", custom: { name: headline.slice(0, 100) } } });
+        return "comment";
+      } catch (e) {
+        // 보낸 이 이름만 거절된 것(400) — 이름 없이 다시. 권한 없음(403)은 아래 본문 멘션으로
+        if (!(e instanceof NotionArchiveError) || e.status !== 400) throw e;
+        console.error("[money-calendar] 보낸 이 이름 거절", e.message);
+      }
+    }
+    await moneyCall("POST", "/comments", body);
     return "comment";
   } catch (e) {
     if (!(e instanceof NotionArchiveError) || e.status !== 403) throw e;
@@ -308,7 +326,13 @@ export async function syncMoneyCalendar(
           const pageId = pageOf.get(d.row.key);
           if (!pageId) continue;
           const taxId = d.row.rule.id.startsWith("tax-") ? noticeIdOf.get(d.row.rule.id) : undefined;
-          const mode = await notifyMention(pageId, ids, alertText(d.row, d.lead), taxId ? { label: "ERP 에서 보기", url: taxNoticeUrl(taxId) } : undefined);
+          const mode = await notifyMention(
+            pageId,
+            ids,
+            alertText(d.row, d.lead),
+            taxId ? { label: "ERP 에서 보기", url: taxNoticeUrl(taxId) } : undefined,
+            alertHeadline(d.row),
+          );
           sent[d.sentKey] = { at: Date.now(), mode };
           alerts.push({ key: d.sentKey, mode });
         }

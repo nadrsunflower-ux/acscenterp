@@ -249,15 +249,17 @@ export function noticeLabel(n: Pick<TaxNotice, "item" | "tags" | "site" | "payer
   return `${what} (${n.site ?? n.payer ?? "사업자 모름"})`;
 }
 
-/** 도착 알림 — 노션 멘션 댓글 글 (줄 이름은 따로 보인다) */
+/** 도착 알림 댓글의 보낸 이 이름 (노션 화면용 — 폰 알림엔 안 나온다). 줄은 세금 줄이라 🟡 */
+export const ARRIVAL_HEADLINE = "세금 고지 도착 🟡";
+
+/** 도착 알림 — 노션 멘션 댓글 글. 금액 · 세목은 줄 이름(🟡 금액 먼저)에 있으니 여기엔 도착 · 납기 · 어디 · 못 읽은 칸 */
 export function arrivalText(n: TaxNotice): string {
   const need = noticeNeeds(n).filter((x) => x === "납기" || x === "금액" || x === "사업자");
   return [
-    "고지서 도착",
-    n.amount ? won(n.amount) : null,
+    "세금 고지 도착",
     n.dueDate ? `납기 ${md(n.dueDate)}` : null,
     n.office ?? null,
-    need.length ? `${need.join(" · ")} 못 읽음 — ERP 에서 채워 주세요` : null,
+    need.length ? `${need.join(" · ")} 못 읽음 — 채워 주세요` : null,
   ]
     .filter(Boolean)
     .join(" · ");

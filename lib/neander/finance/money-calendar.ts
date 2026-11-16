@@ -281,15 +281,38 @@ export function dueAlerts(rows: MoneyRow[], today: string, leadDays: number[]): 
     .map((x) => ({ ...x, sentKey: `${x.row.key}¦${x.lead}` }));
 }
 
+//  폰 노션 알림 = 「<연결 이름> commented」 · 줄 이름(굵게) · 댓글 — 겹치지 않게 (2026-11-15 사용자 요청)
+//    rowTitle  = 색 + 금액이 맨 앞 + 무엇   예) 🟡 2,008,000원 · 부가가치세 (네안데르) / 🟠 약 152만 원 · 국민카드 대금
+//                세금 🟡 · 나머지(카드대금 · 급여 · 월세 · 이자 · 공과금) 🟠 — 미리 알리는 돈은 노랑 · 주황
+//    alertText = 미리 알림 이름 · D-3 · 언제 · 어느 통장   (아직 안 나간 돈이라는 것이 보이게)
+//    headline  = 댓글의 보낸 이 이름(display_name) — 노션 화면 댓글에만 보이고 폰 알림엔 안 나온다
+
+/** 금액 글 — 냈으면 낸 돈, 정해진 금액, 지난번 금액(약), 모르면 「금액 모름」 */
+export function amountText(row: Pick<MoneyRow, "paid" | "last" | "rule">): string {
+  if (row.paid?.amount) return `${row.paid.amount.toLocaleString("ko-KR")}원`;
+  if (row.rule.amount !== undefined) return `${row.rule.amount.toLocaleString("ko-KR")}원`;
+  if (row.last) return `약 ${manwon(row.last.amount)}`;
+  return "금액 모름";
+}
+
+/** 미리 알리는 돈 — 세금은 노랑, 나머지는 주황 */
+export const moneyMark = (rule: Pick<MoneyRule, "kind">) =>
+  rule.kind === "세금" ? { emoji: "🟡", label: "세금 납부 예정" } : { emoji: "🟠", label: "납부 예정" };
+
+/** 노션 줄 이름 — 색 + 금액이 맨 앞 */
+export const rowTitle = (row: Pick<MoneyRow, "paid" | "last" | "rule">) => `${moneyMark(row.rule).emoji} ${amountText(row)} · ${row.rule.label}`;
+
+/** 댓글의 보낸 이 이름 (노션 화면용) */
+export const alertHeadline = (row: Pick<MoneyRow, "rule">) => `${moneyMark(row.rule).label} ${moneyMark(row.rule).emoji}`;
+
 /**
- * 알림 글 — 줄 이름(납부 항목)은 노션 알림에 따로 보이니 여기엔 언제 · 얼마 · 어느 통장만.
- * 휴일 밀림 · 메모 같은 근거는 표의 「근거」 칸에 있다
+ * 알림 글 — 금액 · 항목은 줄 이름에 있으니 여기엔 D-day · 언제 · 어느 통장만.
+ * 세금은 「까지」 (납부기한), 나머지는 그날 빠지는 돈. 휴일 밀림 · 메모 같은 근거는 표의 「근거」 칸에 있다
  */
 export function alertText(row: MoneyRow, lead: number): string {
-  const when = lead === 0 ? "오늘" : `${lead}일 뒤 ${shortDate(row.date)}`;
-  const how =
-    row.rule.amount !== undefined ? `${row.rule.amount.toLocaleString("ko-KR")}원` : row.last ? `약 ${manwon(row.last.amount)}` : row.rule.once ? "금액 모름" : null;
-  return [when, how, row.rule.account ?? null].filter(Boolean).join(" · ");
+  const until = row.rule.kind === "세금" ? "까지" : "";
+  const when = lead === 0 ? `D-day · 오늘${until}` : `D-${lead} · ${shortDate(row.date)}${until}`;
+  return [moneyMark(row.rule).label, when, row.rule.account ?? null].filter(Boolean).join(" · ");
 }
 
 // ---- 설정 다듬기 ----------------------------------------------------
