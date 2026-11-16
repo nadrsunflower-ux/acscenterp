@@ -156,6 +156,7 @@ export async function POST(req: Request) {
             buyers: saved.buyers ?? null,
             nonBuyers: saved.nonBuyers ?? null,
             wage: saved.wage ?? null,
+            orderedAt: saved.orderedAt ?? null,
             note: saved.note ?? null,
             createdAt: previous?.createdAt ?? now,
             updatedAt: now,

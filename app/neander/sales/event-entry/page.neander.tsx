@@ -125,7 +125,8 @@ import {
   type SalesStore,
   type SalesSupplyItem,
 } from "@/lib/neander/sales/types";
-import { monthLabel } from "@/lib/neander/format";
+import { monthLabel, todayStrKST } from "@/lib/neander/format";
+import { daysBetween, ORDER_DAYS, orderedDate } from "@/lib/neander/sales/order-alert";
 
 const won = (n: number) => Math.round(n).toLocaleString("ko-KR");
 const STORE_ORDER: SalesStore[] = ["wow", "id", "online"];
@@ -169,6 +170,7 @@ export default function EventEntryPage() {
   );
   const [month, setMonth] = useStickyState("sales.eventEntry.month", "");
   const activeMonth = month || workingMonth(imports);
+  const today = todayStrKST();
 
   const monthEvents = useMemo(
     () =>
@@ -264,6 +266,52 @@ export default function EventEntryPage() {
       isNew: true,
     });
   }
+
+  // 노션 「이벤트발주알림」 링크로 들어왔을 때 — ?event=ID-042 는 그 이벤트를, ?new=1&store&name&from&to 는
+  // 캘린더 내용으로 채운 새 이벤트를 연다 (server/order-alert.ts orderEventUrl). 한 번만 읽고 주소에서 지운다.
+  const linkRead = useRef(false);
+  const [pendingDraft, setPendingDraft] = useState<Draft | null>(null);
+  useEffect(() => {
+    if (loading || linkRead.current) return;
+    linkRead.current = true;
+    const q = new URLSearchParams(window.location.search);
+    const iso = (v: string | null) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+    let d: Draft | null = null;
+    const code = q.get("event");
+    if (code) {
+      const e = events.find((x) => x.id === code);
+      if (e) d = toDraft(e);
+      else toast.error(`${code} 이벤트를 찾지 못했습니다.`);
+    } else if (q.get("new") === "1") {
+      const store: SalesStore = q.get("store") === "id" ? "id" : "wow";
+      const from = iso(q.get("from")) ?? todayStrKST();
+      const to = iso(q.get("to")) ?? from;
+      d = {
+        id: nextEventCode(store, events),
+        store,
+        name: q.get("name") ?? "",
+        from,
+        to: to < from ? from : to,
+        hoursPerDay: store === "wow" ? assumptions.wowOps.hoursPerDay : 0,
+        staff: store === "wow" ? 1 : 0,
+        supplies: 0,
+        supplyItems: [],
+        visits: [],
+        isNew: true,
+      };
+    }
+    if (code || q.get("new")) window.history.replaceState(null, "", window.location.pathname);
+    if (!d) return;
+    setMonth(d.from.slice(0, 7));
+    setPendingDraft(d);
+  }, [loading, events, assumptions, toast, setMonth]);
+  // 달을 바꾸면 편집기를 닫는 효과(위) 뒤에 연다
+  useEffect(() => {
+    if (pendingDraft && activeMonth === pendingDraft.from.slice(0, 7)) {
+      setDraft(pendingDraft);
+      setPendingDraft(null);
+    }
+  }, [pendingDraft, activeMonth]);
 
   async function save() {
     if (!draft) return;
@@ -502,6 +550,14 @@ export default function EventEntryPage() {
                         <span className="flex items-center gap-1.5">
                           <StoreBadge store={e.store} size="sm" />
                           <span className="truncate text-nd-body font-medium text-nd-fg">{e.name}</span>
+                          {e.store !== "online" &&
+                            !orderedDate(e) &&
+                            daysBetween(today, e.from) > 0 &&
+                            daysBetween(today, e.from) <= ORDER_DAYS.due && (
+                              <Badge tone={daysBetween(today, e.from) <= ORDER_DAYS.late ? "danger" : "warning"} size="sm">
+                                발주 전
+                              </Badge>
+                            )}
                         </span>
                         <span className="nd-num flex flex-wrap gap-x-2 text-nd-micro text-nd-fg-3">
                           <span>{e.id}</span>
@@ -604,6 +660,9 @@ function Editor({
   const [tab, setTab] = useState<TabKey>("basic");
   const { lines } = useSales();
   const set = (patch: Partial<Draft>) => onChange({ ...draft, ...patch });
+  /** 발주일 칸 아래 — 메모에서 읽은 날이 있으면 그 날, 없으면 알림이 언제 오는지 */
+  const fromNote = !draft.orderedAt ? orderedDate({ ...draft, orderedAt: undefined }) : null;
+  const orderHint = fromNote ? `메모에서 ${fromNote.date.slice(5).replace("-", "/")} 로 읽음` : draft.orderedAt ? undefined : `비어 있으면 D-${ORDER_DAYS.due}부터 노션 알림`;
   const days = eventDays(draft);
   const labor = laborOf(draft);
   const items = draft.supplyItems ?? [];
@@ -770,7 +829,10 @@ function Editor({
                 onValueChange={(v) => set({ wage: v ? Number(v) : undefined })}
               />
             </Field>
-            <Field label="메모" className="sm:col-span-2 lg:col-span-3">
+            <Field label="발주일" hint={orderHint}>
+              <Input size="sm" type="date" value={draft.orderedAt ?? ""} onChange={(e) => set({ orderedAt: e.target.value || undefined })} />
+            </Field>
+            <Field label="메모" className="sm:col-span-2 lg:col-span-2">
               <Textarea
                 size="sm"
                 rows={1}

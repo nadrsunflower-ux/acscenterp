@@ -11,6 +11,10 @@
       "schedule": "0 21 * * *"
     },
     {
+      "path": "/api/neander/sales/order-alert",
+      "schedule": "10 21 * * *"
+    },
+    {
       "path": "/api/neander/shorts/cron",
       "schedule": "30 21 * * *"
     },

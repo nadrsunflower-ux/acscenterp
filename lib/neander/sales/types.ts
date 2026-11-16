@@ -511,6 +511,11 @@ export interface SalesEvent {
   nonBuyers?: number;
   /** 하루치 방문자 기록 (있으면 buyers·nonBuyers 는 여기서 계산된다) */
   visits?: SalesEventVisit[];
+  /**
+   * 준비물을 발주한 날 `YYYY-MM-DD` — 생일 이벤트 발주 알림(order-alert.ts)이 본다.
+   * 비어 있으면 메모의 「10/13 발주」 를 읽는다 (2026-11 까지는 메모에만 적었다).
+   */
+  orderedAt?: string;
   note?: string;
   createdAt?: number;
   updatedAt?: number;
@@ -580,6 +585,7 @@ export function normalizeEvent(e: SalesEvent): SalesEvent {
     if (e.nonBuyers === undefined || e.nonBuyers === null) delete out.nonBuyers;
   }
   if (out.wage === undefined || out.wage === null || Number.isNaN(Number(out.wage))) delete out.wage;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(out.orderedAt ?? ""))) delete out.orderedAt;
   if (!String(out.note ?? "").trim()) delete out.note;
   return out;
 }
