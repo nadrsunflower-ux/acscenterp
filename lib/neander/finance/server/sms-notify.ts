@@ -11,6 +11,8 @@
 //  받는 사람은 돈 나가는 날과 같다(money-calendar.recipients). sms-feed.notifyRecipients 가
 //  있으면 그것을 쓴다. 표마다 따로 정하려면 sms-feed.channelRecipients.{inout|card} — 있으면
 //  그 표는 그 목록만 쓴다(노션 계정 메일 기준 — ERP 메일과 다를 수 있다).
+//  카드 한 장만 따로 정하려면 sms-feed.cardRecipients.{끝자리} — 그 카드 알림은 그 목록만 쓴다
+//  (예: 1804 이동주 개인 쓰임 법인카드 → 이동주만. 사용자 요청 2026-11-17).
 //  노션 연결도 같다(NOTION_MONEY_TOKEN — 재무알림 페이지에 붙어 있다).
 //
 //  ④ 어디에 쓴 돈인가 — 장부와 같은 자동분류 엔진으로 분류하고(server/classify-context.ts),
@@ -153,6 +155,8 @@ interface Ctx {
   paymentMethods: FinPaymentMethodDoc[];
   /** 표마다 멘션할 노션 사용자 id */
   userIds: Record<SmsNoticeChannel, string[]>;
+  /** 카드 끝자리마다 따로 정한 멘션 대상 — 있으면 userIds.card 대신 */
+  cardUserIds: Record<string, string[]>;
   minAmount: number;
   nameOf: (kind: "account" | "card", last4: string) => string | undefined;
   resolveCard: (last4: string) => string;
@@ -183,6 +187,12 @@ async function loadCtx(db: Firestore): Promise<Ctx> {
   const byChannel = (feed.channelRecipients ?? {}) as Partial<Record<SmsNoticeChannel, unknown>>;
   const emailsOf = (ch: SmsNoticeChannel) => (Array.isArray(byChannel[ch]) ? cleanEmails(byChannel[ch]) : base);
   const emails: Record<SmsNoticeChannel, string[]> = { inout: emailsOf("inout"), card: emailsOf("card") };
+  const byCard = (feed.cardRecipients ?? {}) as Record<string, unknown>;
+  const cardEmails: Record<string, string[]> = Object.fromEntries(
+    Object.entries(byCard)
+      .filter(([, v]) => Array.isArray(v))
+      .map(([l4, v]) => [String(l4).trim(), cleanEmails(v)]),
+  );
 
   // 받는 사람 노션 id — 메일 목록이 같으면 저장해 둔 값을 쓴다 (문자마다 사용자 목록을 부르지 않게)
   const notion = (feed.notion ?? {}) as {
@@ -192,7 +202,7 @@ async function loadCtx(db: Firestore): Promise<Ctx> {
     userKey?: string;
     columns?: Partial<Record<SmsNoticeChannel, number>>;
   };
-  const allEmails = [...new Set([...emails.inout, ...emails.card])].sort();
+  const allEmails = [...new Set([...emails.inout, ...emails.card, ...Object.values(cardEmails).flat()])].sort();
   const userKey = allEmails.join(",");
   let userMap: Record<string, string> = notion.userMap && typeof notion.userMap === "object" ? notion.userMap : {};
   if (!notionOff && (notion.userKey !== userKey || !notion.userMap)) {
@@ -200,8 +210,9 @@ async function loadCtx(db: Firestore): Promise<Ctx> {
     // update — 지도를 통째로 바꾼다 (merge 면 뺀 사람이 남는다). 예전 판의 userIds 는 지운다
     await feedRef.update({ "notion.userMap": userMap, "notion.userKey": userKey, "notion.userIds": FieldValue.delete() });
   }
-  const idsOf = (ch: SmsNoticeChannel) => emails[ch].map((e) => userMap[e]).filter((id): id is string => !!id);
-  const userIds: Record<SmsNoticeChannel, string[]> = { inout: idsOf("inout"), card: idsOf("card") };
+  const toIds = (list: string[]) => list.map((e) => userMap[e]).filter((id): id is string => !!id);
+  const userIds: Record<SmsNoticeChannel, string[]> = { inout: toIds(emails.inout), card: toIds(emails.card) };
+  const cardUserIds = Object.fromEntries(Object.entries(cardEmails).map(([l4, list]) => [l4, toIds(list)]));
 
   const paymentMethods = pmSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as FinPaymentMethodDoc[];
   const methods = paymentMethods as unknown as { last4?: string; alias?: string; kind?: string }[];
@@ -216,6 +227,7 @@ async function loadCtx(db: Firestore): Promise<Ctx> {
     columns: { ...(notion.columns ?? {}) },
     paymentMethods,
     userIds,
+    cardUserIds,
     minAmount: Number(notify.minAmount) || 0,
     nameOf: (kind, last4) => names.get(`${kind}:${last4}`),
     resolveCard: (l4) => matchCardLast4(l4, linkedCards) ?? matchCardLast4(l4, allCards) ?? l4,
@@ -313,7 +325,7 @@ async function sendOne(ctx: Ctx, ref: DocumentReference, data: Record<string, an
       pageId = String(page.id);
       await ref.set({ notify: { state: "row", pageId, channel: n.channel, at: Date.now(), tries } }, { merge: true });
     }
-    const pingIds = ctx.userIds[n.channel];
+    const pingIds = (n.channel === "card" ? ctx.cardUserIds[n.last4] : undefined) ?? ctx.userIds[n.channel];
     const ping = shouldPing(n, ctx.minAmount) && pingIds.length > 0;
     const link = ledgerId ? { label: "확인", url: txCardUrl(ledgerId) } : undefined;
     const mode = ping ? await notifyMention(pageId, pingIds, n.message + classSuffix(cls), link, n.headline) : null;
