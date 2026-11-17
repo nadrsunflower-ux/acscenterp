@@ -19,6 +19,42 @@ export function normalizeNumber(raw: string | null | undefined): string {
   return d.length >= 3 ? d.slice(0, 20) : "";
 }
 
+/**
+ * 매크로드로이드 요청에서 번호 · 이름 · 시각을 꺼낸다 — 본문 종류 머리는 보지 않고 모양으로 읽는다.
+ * 주소 뒤 값(?number=…)이 기본이고, 본문(JSON · 폼 · 번호만)이 있으면 그 값이 이긴다.
+ */
+export function parseMissedCallRequest(
+  body: string,
+  query: URLSearchParams,
+): { number: string; name: string; at: string | null } {
+  let number = query.get("number") ?? query.get("from") ?? "";
+  let name = query.get("name") ?? "";
+  let at: string | null = query.get("at");
+  const b = body.trim();
+  if (b.startsWith("{")) {
+    try {
+      const j = JSON.parse(b) as Record<string, unknown>;
+      if (j.number != null || j.from != null) number = String(j.number ?? j.from);
+      if (j.name != null) name = String(j.name);
+      if (j.at != null) at = String(j.at);
+    } catch {
+      // 이름에 따옴표가 섞여 JSON 이 깨진 경우 — 낱말 단위로 건진다
+      number = /"(?:number|from)"\s*:\s*"([^"]*)"/.exec(b)?.[1] ?? number;
+      name = /"name"\s*:\s*"(.*?)"\s*[,}]/.exec(b)?.[1] ?? name;
+      at = /"at"\s*:\s*"?(\d+)/.exec(b)?.[1] ?? at;
+    }
+  } else if (/(^|&|\n)\s*(number|from|name)=/.test(b)) {
+    const f = new URLSearchParams(b.replace(/\r?\n/g, "&"));
+    number = f.get("number") ?? f.get("from") ?? number;
+    name = f.get("name") ?? name;
+    at = f.get("at") ?? at;
+  } else if (b && !normalizeNumber(number)) {
+    // 본문에 번호만 넣은 경우
+    number = b.split(/\r?\n/)[0];
+  }
+  return { number, name, at };
+}
+
 /** 보기 좋은 번호 — 010-1234-5678 · 02-123-4567 · 1588-1234 */
 export function displayNumber(n: string): string {
   if (!n) return "발신번호 없음";

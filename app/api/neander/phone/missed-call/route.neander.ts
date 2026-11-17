@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/neander/server/admin";
 import { smsTokenOk } from "@/lib/neander/finance/server/bank-sms";
 import { notifyMissedCall, saveMissedCall } from "@/lib/neander/phone/server/missed-call";
+import { parseMissedCallRequest } from "@/lib/neander/phone/missed-call";
 
 // ============================================================
 //  회사폰 부재중 전화 받기 — 회사폰(매크로드로이드 「부재중 전화」 트리거)이 부른다
@@ -29,30 +30,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "열쇠가 올바르지 않습니다." }, { status: 401 });
   }
   const url = new URL(req.url);
-  const q = url.searchParams;
-  let number = q.get("number") ?? q.get("from") ?? "";
-  let name = q.get("name") ?? "";
-  let atRaw: unknown = q.get("at");
-  const type = req.headers.get("content-type") ?? "";
+  const type = (req.headers.get("content-type") ?? "").slice(0, 80);
+  // 본문 종류 머리는 믿지 않는다 — 매크로드로이드에서 고른 종류와 실제 모양이 다를 수 있다
+  // (2026-11-17 첫 실제 부재중은 번호 · 이름이 비어서 왔다). 모양을 보고 읽고, 요청 원문을 남긴다
+  let body = "";
   try {
-    if (type.includes("application/json")) {
-      const j = (await req.json().catch(() => ({}))) as { number?: unknown; from?: unknown; name?: unknown; at?: unknown };
-      number = String(j.number ?? j.from ?? number);
-      name = String(j.name ?? name);
-      atRaw = j.at ?? atRaw;
-    } else if (type.includes("application/x-www-form-urlencoded")) {
-      const f = new URLSearchParams(await req.text());
-      number = f.get("number") ?? f.get("from") ?? number;
-      name = f.get("name") ?? name;
-      atRaw = f.get("at") ?? atRaw;
-    }
+    body = (await req.text()).slice(0, 2000);
   } catch {
     return NextResponse.json({ error: "본문을 읽지 못했습니다." }, { status: 400 });
   }
+  const { number, name, at: atRaw } = parseMissedCallRequest(body, url.searchParams);
   const atNum = Number(atRaw);
   const at = atNum > 0 ? (atNum < 1e12 ? atNum * 1000 : atNum) : undefined;
 
-  const r = await saveMissedCall(db, { number, name, at });
+  const r = await saveMissedCall(db, { number, name, at, request: { type, body, query: url.search.slice(0, 500) } });
   const notion = r.duplicate ? null : await notifyMissedCall(db, r.id);
   if (notion?.error) console.error("[phone/missed-call] 노션 알림", notion.error);
   return NextResponse.json({

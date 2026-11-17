@@ -54,8 +54,8 @@ interface SettingsDoc {
 export interface PhoneCallDoc {
   number: string;
   name: string;
-  /** 매크로드로이드가 보낸 그대로 (번호 · 이름) */
-  raw: { number: string; name: string };
+  /** 매크로드로이드가 보낸 그대로 (번호 · 이름) + 요청 원문(본문 종류 · 본문 · 주소 뒤 값) — 빈칸으로 왔을 때 원인 찾기 */
+  raw: { number: string; name: string; type?: string; body?: string; query?: string };
   at: number;
   createdAt: number;
   hits: number;
@@ -82,7 +82,7 @@ const TABLE = {
 /** 한 통을 남긴다. 같은 번호 · 같은 분이면 받은 횟수만 올린다 */
 export async function saveMissedCall(
   db: Firestore,
-  input: { number?: string; name?: string; at?: number },
+  input: { number?: string; name?: string; at?: number; request?: { type: string; body: string; query: string } },
 ): Promise<{ id: string; duplicate: boolean; doc: PhoneCallDoc }> {
   const now = Date.now();
   const at = Number.isFinite(input.at) && input.at! > 0 && Math.abs(input.at! - now) < 7 * 24 * 3600_000 ? input.at! : now;
@@ -100,7 +100,11 @@ export async function saveMissedCall(
     const doc: PhoneCallDoc = {
       number,
       name,
-      raw: { number: String(input.number ?? "").slice(0, 40), name: String(input.name ?? "").slice(0, 80) },
+      raw: {
+        number: String(input.number ?? "").slice(0, 40),
+        name: String(input.name ?? "").slice(0, 80),
+        ...(input.request ? { type: input.request.type, body: input.request.body.slice(0, 500), query: input.request.query } : {}),
+      },
       at,
       createdAt: now,
       hits: 1,

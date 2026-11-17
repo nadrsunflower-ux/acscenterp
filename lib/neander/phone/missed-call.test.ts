@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cleanContactName, displayNumber, kstCallStamp, missedCallMessage, missedCallTitle, normalizeNumber } from "./missed-call";
+import { cleanContactName, displayNumber, kstCallStamp, missedCallMessage, missedCallTitle, normalizeNumber, parseMissedCallRequest } from "./missed-call";
 
 test("normalizeNumber — 숫자만 · +82 는 0", () => {
   assert.equal(normalizeNumber("010-1234-5678"), "01012345678");
@@ -42,4 +42,22 @@ test("알림 글 — 줄 이름은 누가 먼저 · 댓글은 종류 먼저", ()
     missedCallMessage({ number: "01012345678", name: "", at, recent: 3 }),
     "부재중 전화 · 11/17(화) 14:32 · 이 번호 30일 안 3번째 · 폰에 저장 안 된 번호",
   );
+});
+
+test("parseMissedCallRequest — 본문 종류 머리와 상관없이 모양으로 읽는다", () => {
+  const none = new URLSearchParams("");
+  assert.deepEqual(parseMissedCallRequest("number=010-1234-5678&name=김과장&at=1763357869", none), {
+    number: "010-1234-5678",
+    name: "김과장",
+    at: "1763357869",
+  });
+  assert.deepEqual(parseMissedCallRequest('{"number":"010-1234-5678","name":"김과장"}', none), { number: "010-1234-5678", name: "김과장", at: null });
+  // 이름에 따옴표가 섞여 깨진 JSON
+  assert.equal(parseMissedCallRequest('{"number":"01012345678","name":"김"과장"}', none).number, "01012345678");
+  // 줄마다 하나씩
+  assert.equal(parseMissedCallRequest("number=01012345678\nname=김과장", none).name, "김과장");
+  // 번호만
+  assert.equal(parseMissedCallRequest("010-1234-5678", none).number, "010-1234-5678");
+  // 주소 뒤 값
+  assert.deepEqual(parseMissedCallRequest("", new URLSearchParams("number=01012345678&name=%EA%B9%80")), { number: "01012345678", name: "김", at: null });
 });
