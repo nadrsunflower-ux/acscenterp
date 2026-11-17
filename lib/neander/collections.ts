@@ -99,6 +99,11 @@ export const NEANDER_COL = {
    */
   finSmsInbox: "neander_fin_sms_inbox",
   /**
+   * 회사폰 부재중 전화 — 매크로드로이드가 보낸 번호 · 폰 연락처 이름 (phone/missed-call.ts).
+   * 노션 「부재중전화」 알림의 원본. 보안 규칙에 없어 서버(api/neander/phone/missed-call)만 접근한다
+   */
+  phoneCalls: "neander_phone_calls",
+  /**
    * 세금 고지서 — 국세 · 지방세 전자고지 알림(문자 · 카톡 · 메일)과 사람이 넣은 고지서 (finance/tax-notice.ts).
    * 돈 나가는 날 표에 납기 줄이 된다. 보안 규칙에 없어 서버(api/neander/finance/tax-notices · sms · cron)만 접근한다
    */
