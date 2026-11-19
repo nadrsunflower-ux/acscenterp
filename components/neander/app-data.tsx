@@ -32,6 +32,12 @@ interface AppDataValue {
   loading: boolean;
   /** 로그인 계정이 접근 허용 대상인지 (팀원 이메일 또는 관리자) */
   authorized: boolean;
+  /**
+   * 팀원 명단을 받지 못한 이유.
+   *  · "denied" — 보안 규칙이 막음 = 팀원이 아닌 계정으로 로그인 (authorized=false)
+   *  · "failed" — 그 밖의 오류(네트워크 등)
+   */
+  membersError: "denied" | "failed" | null;
   /** 로그인 계정과 매칭된 팀원 (없으면 null) */
   currentMember: Member | null;
 }
@@ -45,13 +51,22 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<DailyTask[]>([]);
   const [requests, setRequests] = useState<WorkRequest[]>([]);
   const [membersLoaded, setMembersLoaded] = useState(false);
+  const [membersError, setMembersError] = useState<AppDataValue["membersError"]>(null);
 
   useEffect(() => {
     const unsubs = [
-      subscribeMembers((m) => {
-        setMembers(m);
-        setMembersLoaded(true);
-      }),
+      subscribeMembers(
+        (m) => {
+          setMembers(m);
+          setMembersError(null);
+          setMembersLoaded(true);
+        },
+        // 첫 응답이 에러면 로딩을 끝내야 한다 — 안 그러면 「불러오는 중」 에 갇힌다
+        (error) => {
+          setMembersError(error.code === "permission-denied" ? "denied" : "failed");
+          setMembersLoaded(true);
+        },
+      ),
       subscribeSales(setSales),
       subscribeTasks(setTasks),
       subscribeRequests(setRequests),
@@ -68,11 +83,12 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
   const authorized = useMemo(
     () =>
+      membersError !== "denied" &&
       isAllowedEmail(
         email,
         members.map((m) => (m.email ?? "").toLowerCase()).filter(Boolean),
       ),
-    [members, email],
+    [members, email, membersError],
   );
 
   const value: AppDataValue = {
@@ -82,6 +98,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     requests,
     loading: !membersLoaded,
     authorized,
+    membersError,
     currentMember,
   };
 

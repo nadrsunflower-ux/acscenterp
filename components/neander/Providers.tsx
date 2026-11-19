@@ -10,7 +10,7 @@ import { FinanceProvider } from "@/components/neander/finance/FinanceProvider";
 import { SalesProvider } from "@/components/neander/sales/SalesProvider";
 import { RecordingProvider } from "@/components/neander/meetings/RecordingProvider";
 import { Shell } from "@/components/neander/Shell";
-import { Lock } from "lucide-react";
+import { AlertTriangle, Lock } from "lucide-react";
 import { Button, ToastProvider, ConfirmProvider } from "@/components/neander/ui";
 import { LoadingScreen, StatusCard, StatusScreen } from "@/components/neander/shell/StatusScreen";
 
@@ -33,14 +33,42 @@ function NotAuthorized() {
         title="접근 권한이 없습니다"
         description={
           <>
-            <span className="font-medium text-nd-fg">{user?.email}</span> 계정은 등록된 팀원이
-            아닙니다. 관리자에게 이메일 등록을 요청하거나 다른 계정으로 로그인하세요.
+            지금 로그인한 <span className="font-medium text-nd-fg">{user?.email}</span> 계정은
+            등록된 팀원이 아닙니다. 구글 계정이 여러 개라면 로그아웃한 뒤 ERP에 등록한
+            계정으로 다시 로그인하세요. 처음이라면 관리자에게 이메일 등록을 요청하세요.
           </>
         }
       >
-        <Button variant="secondary" className="mt-6" onClick={() => logout()}>
-          로그아웃
+        <Button className="mt-6" onClick={() => logout()}>
+          로그아웃하고 다른 계정으로 로그인
         </Button>
+      </StatusCard>
+    </StatusScreen>
+  );
+}
+
+/** 팀원 명단을 받지 못함(권한 문제가 아닌 오류) — 무한 로딩 대신 다시 시도 · 로그아웃 */
+function MembersLoadFailed() {
+  const { user, logout } = useAuth();
+  return (
+    <StatusScreen>
+      <StatusCard
+        icon={AlertTriangle}
+        tone="danger"
+        title="팀원 정보를 불러오지 못했습니다"
+        description={
+          <>
+            <span className="font-medium text-nd-fg">{user?.email}</span> 계정으로 로그인돼
+            있습니다. 인터넷 연결을 확인하고 다시 시도하세요.
+          </>
+        }
+      >
+        <div className="mt-6 flex justify-center gap-2">
+          <Button onClick={() => window.location.reload()}>다시 시도</Button>
+          <Button variant="secondary" onClick={() => logout()}>
+            로그아웃
+          </Button>
+        </div>
       </StatusCard>
     </StatusScreen>
   );
@@ -48,8 +76,9 @@ function NotAuthorized() {
 
 /** members 로드 후 권한 확인 → 통과 시 Shell */
 function AuthorizedShell({ children }: { children: ReactNode }) {
-  const { loading, authorized } = useAppData();
+  const { loading, authorized, membersError } = useAppData();
   if (loading) return <LoadingScreen label="팀원 정보를 불러오는 중…" />;
+  if (membersError === "failed") return <MembersLoadFailed />;
   if (!authorized) return <NotAuthorized />;
   return (
     <ChatProvider>

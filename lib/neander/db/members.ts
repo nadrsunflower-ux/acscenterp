@@ -11,6 +11,7 @@ import {
   orderBy,
   getDocs,
   writeBatch,
+  type FirestoreError,
 } from "firebase/firestore";
 import { getNeanderDb, NEANDER_COL } from "@/lib/neander/firebase";
 import { clean, cleanForUpdate } from "./helpers";
@@ -39,11 +40,25 @@ async function removeEmailLookup(email?: string) {
   await deleteDoc(emailRef(e)).catch(() => {});
 }
 
-export function subscribeMembers(cb: (members: Member[]) => void) {
+/**
+ * 팀원 명단 실시간 구독.
+ *
+ * `onError` 를 꼭 받는다 — 팀원이 아닌 구글 계정으로 로그인하면 보안 규칙이
+ * 명단 읽기부터 막는다(permission-denied). 에러를 흘려 버리면 첫 응답이
+ * 영영 오지 않아 「팀원 정보를 불러오는 중…」 에 갇히고, 로그아웃할 길도 없다.
+ */
+export function subscribeMembers(
+  cb: (members: Member[]) => void,
+  onError?: (error: FirestoreError) => void,
+) {
   const q = query(col(), orderBy("createdAt", "asc"));
-  return onSnapshot(q, (snap) => {
-    cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Member, "id">) })));
-  });
+  return onSnapshot(
+    q,
+    (snap) => {
+      cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Member, "id">) })));
+    },
+    (error) => onError?.(error),
+  );
 }
 
 export async function addMember(input: MemberInput) {
