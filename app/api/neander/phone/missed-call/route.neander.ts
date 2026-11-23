@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/neander/server/admin";
 import { smsTokenOk } from "@/lib/neander/finance/server/bank-sms";
-import { notifyMissedCall, saveMissedCall } from "@/lib/neander/phone/server/missed-call";
-import { parseMissedCallRequest } from "@/lib/neander/phone/missed-call";
+import { ignoredMissedCall, notifyMissedCall, saveMissedCall } from "@/lib/neander/phone/server/missed-call";
+import { normalizeNumber, parseMissedCallRequest } from "@/lib/neander/phone/missed-call";
 
 // ============================================================
 //  회사폰 부재중 전화 받기 — 회사폰(매크로드로이드 「부재중 전화」 트리거)이 부른다
@@ -14,6 +14,7 @@ import { parseMissedCallRequest } from "@/lib/neander/phone/missed-call";
 //  매크로드로이드: 번호 = [call_number] · 이름 = [call_name] · 시각 = [system_time] (없어도 된다)
 //  남기고(neander_phone_calls) 노션 「부재중전화」 표에 한 줄 + @멘션 댓글 (phone/server/missed-call.ts).
 //  노션이 실패해도 응답은 200 — 저장은 끝났고, 다음 부재중 때 다시 보낸다.
+//  설정 missed-call.ignore 에 든 번호는 남기지도 알리지도 않는다 (ignored: true).
 // ============================================================
 
 export const dynamic = "force-dynamic";
@@ -42,6 +43,11 @@ export async function POST(req: Request) {
   const { number, name, at: atRaw } = parseMissedCallRequest(body, url.searchParams);
   const atNum = Number(atRaw);
   const at = atNum > 0 ? (atNum < 1e12 ? atNum * 1000 : atNum) : undefined;
+
+  // 무시할 번호(설정 missed-call.ignore)면 남기지도 알리지도 않는다
+  if (await ignoredMissedCall(db, number)) {
+    return NextResponse.json({ ok: true, ignored: true, number: normalizeNumber(number) || null });
+  }
 
   const r = await saveMissedCall(db, { number, name, at, request: { type, body, query: url.search.slice(0, 500) } });
   const notion = r.duplicate ? null : await notifyMissedCall(db, r.id);

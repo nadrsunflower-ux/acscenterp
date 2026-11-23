@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cleanContactName, displayNumber, kstCallStamp, missedCallMessage, missedCallTitle, normalizeNumber, parseMissedCallRequest } from "./missed-call";
+import { cleanContactName, displayNumber, isIgnoredNumber, kstCallStamp, missedCallMessage, missedCallTitle, normalizeNumber, parseMissedCallRequest } from "./missed-call";
 
 test("normalizeNumber — 숫자만 · +82 는 0", () => {
   assert.equal(normalizeNumber("010-1234-5678"), "01012345678");
@@ -60,4 +60,14 @@ test("parseMissedCallRequest — 본문 종류 머리와 상관없이 모양으�
   assert.equal(parseMissedCallRequest("010-1234-5678", none).number, "010-1234-5678");
   // 주소 뒤 값
   assert.deepEqual(parseMissedCallRequest("", new URLSearchParams("number=01012345678&name=%EA%B9%80")), { number: "01012345678", name: "김", at: null });
+});
+
+test("isIgnoredNumber — 적힌 모양과 상관없이 숫자로 견준다", () => {
+  const list = ["010-1111-2222", "+82 10 3333 4444"];
+  assert.equal(isIgnoredNumber(list, "01011112222"), true);
+  assert.equal(isIgnoredNumber(list, "010-3333-4444"), true);
+  assert.equal(isIgnoredNumber(list, "01055556666"), false);
+  assert.equal(isIgnoredNumber(list, ""), false); // 발신번호 없음은 무시 목록과 상관없이 알린다
+  assert.equal(isIgnoredNumber(undefined, "01011112222"), false);
+  assert.equal(isIgnoredNumber(["", null], "01011112222"), false);
 });

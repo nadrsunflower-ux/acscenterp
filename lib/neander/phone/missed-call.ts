@@ -19,6 +19,13 @@ export function normalizeNumber(raw: string | null | undefined): string {
   return d.length >= 3 ? d.slice(0, 20) : "";
 }
 
+/** 무시할 번호 목록(설정 missed-call.ignore)에 든 번호인가 — 적힌 모양(하이픈 · +82)과 상관없이 숫자로 견준다 */
+export function isIgnoredNumber(ignore: readonly unknown[] | null | undefined, number: string): boolean {
+  const n = normalizeNumber(number);
+  if (!n || !Array.isArray(ignore)) return false;
+  return ignore.some((x) => normalizeNumber(String(x ?? "")) === n);
+}
+
 /**
  * 매크로드로이드 요청에서 번호 · 이름 · 시각을 꺼낸다 — 본문 종류 머리는 보지 않고 모양으로 읽는다.
  * 주소 뒤 값(?number=…)이 기본이고, 본문(JSON · 폼 · 번호만)이 있으면 그 값이 이긴다.

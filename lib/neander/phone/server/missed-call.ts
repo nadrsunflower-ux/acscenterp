@@ -11,6 +11,7 @@
 //  (NOTION_MONEY_TOKEN · sms-feed.notionPage · 돈 나가는 날의 recipients).
 //  받는 사람만 따로 하려면 neander_fin_settings/missed-call 의 recipients (노션 계정 메일).
 //  끄려면 같은 문서 enabled=false. 메일은 코드에 적지 않는다 (공개 저장소).
+//  알리지 않을 번호는 같은 문서 ignore(번호 목록) — 그 번호는 남기지도 알리지도 않는다.
 //
 //  노션이 실패해도 저장은 끝났다 — notify.state=failed 로 두고, 다음 부재중 때 하루 안의
 //  실패분을 다시 보낸다 (줄을 만든 뒤 댓글에서 실패하면 pageId 가 남아 줄을 두 번 만들지 않는다).
@@ -25,6 +26,7 @@ import { NotionArchiveError, parseNotionPageId } from "@/lib/neander/notion/arch
 import { moneyCall, moneyToken, notifyMention, recipientIds } from "@/lib/neander/finance/server/money-calendar";
 import {
   cleanContactName,
+  isIgnoredNumber,
   displayNumber,
   MISSED_CALL_HEADLINE,
   missedCallMessage,
@@ -50,6 +52,8 @@ interface SettingsDoc {
   table?: TableRef;
   userIds?: string[];
   userKey?: string;
+  /** 알리지 않을 번호 — 남기지도 노션에 올리지도 않는다 (2026-11-23 사용자) */
+  ignore?: string[];
 }
 export interface PhoneCallDoc {
   number: string;
@@ -78,6 +82,17 @@ const TABLE = {
     회신함: { checkbox: {} },
   },
 };
+
+/** 무시할 번호 목록(missed-call.ignore)에 든 번호인가 — 설정을 못 읽으면 알린다(놓치지 않게) */
+export async function ignoredMissedCall(db: Firestore, number: string): Promise<boolean> {
+  try {
+    const d = ((await settingsRef(db).get()).data() ?? {}) as SettingsDoc;
+    return isIgnoredNumber(d.ignore, number);
+  } catch (e) {
+    console.error("[phone/missed-call] 무시 목록", e);
+    return false;
+  }
+}
 
 /** 한 통을 남긴다. 같은 번호 · 같은 분이면 받은 횟수만 올린다 */
 export async function saveMissedCall(
