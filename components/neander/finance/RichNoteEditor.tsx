@@ -245,12 +245,24 @@ export function RichNoteEditor({
   onChange,
   label = "메모",
   placeholder,
+  hideLabel,
+  grow,
+  textClassName = "text-[14px] leading-relaxed",
+  toolbarClassName,
 }: {
   note: string | undefined;
   rich: NoteRich | undefined;
   onChange: (note: string | undefined, rich: NoteRich | undefined) => void;
   label?: string;
   placeholder?: string;
+  /** 제목 글자를 화면에서 감춘다 (읽어 주기용으로는 남는다) */
+  hideLabel?: boolean;
+  /** 칸 안에서 따로 스크롤하지 않고 글만큼 자란다 (회의록처럼 문서로 읽히는 곳) */
+  grow?: boolean;
+  /** 편집 칸 글자 크기 · 줄 간격 */
+  textClassName?: string;
+  /** 도구 막대에 더할 모양 — 긴 글에서 막대를 붙여 둘 때(sticky) 쓴다 */
+  toolbarClassName?: string;
 }) {
   const areaRef = useRef<HTMLDivElement>(null);
   const shown = useRef<string | null>(null);
@@ -340,11 +352,20 @@ export function RichNoteEditor({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <span id={labelId} className="nd-field-label text-nd-caption font-medium text-nd-fg-2">
+      <span id={labelId} className={cn("nd-field-label text-nd-caption font-medium text-nd-fg-2", hideLabel && "sr-only")}>
         {label}
       </span>
-      <div className="overflow-hidden rounded-nd-md border border-nd-border bg-nd-content focus-within:border-nd-accent">
-        <div className="flex flex-wrap items-center gap-0.5 border-b border-nd-line bg-nd-sunken/60 px-1.5 py-1" role="toolbar" aria-label={`${label} 서식`}>
+      {/* 글만큼 자라는 칸은 막대를 붙여 둘 수 있게 overflow 를 가두지 않는다 (가두면 sticky 가 죽는다) */}
+      <div className={cn("rounded-nd-md border border-nd-border bg-nd-content focus-within:border-nd-accent", !grow && "overflow-hidden")}>
+        <div
+          className={cn(
+            "flex flex-wrap items-center gap-0.5 rounded-t-nd-md border-b border-nd-line px-1.5 py-1",
+            grow ? "bg-nd-sunken" : "bg-nd-sunken/60",
+            toolbarClassName,
+          )}
+          role="toolbar"
+          aria-label={`${label} 서식`}
+        >
           <Drop label="글꼴" button={<span>글꼴</span>} wide>
             {(close) => (
               <div className="flex flex-col">
@@ -430,7 +451,7 @@ export function RichNoteEditor({
         </div>
         <div className="relative">
           {empty && placeholder && (
-            <div aria-hidden className="pointer-events-none absolute left-3 top-2.5 text-[14px] text-nd-fg-3">
+            <div aria-hidden className={cn("pointer-events-none absolute left-3 top-2.5 whitespace-pre-line text-nd-fg-3", textClassName)}>
               {placeholder}
             </div>
           )}
@@ -450,7 +471,11 @@ export function RichNoteEditor({
               if (t) document.execCommand("insertText", false, t.replace(/\r\n?/g, "\n"));
             }}
             onDrop={(e) => e.preventDefault()}
-            className="nd-scroll max-h-[60vh] min-h-[5.5rem] overflow-y-auto whitespace-pre-wrap break-words px-3 py-2.5 text-[14px] leading-relaxed text-nd-fg outline-none"
+            className={cn(
+              "whitespace-pre-wrap break-words px-3 py-2.5 text-nd-fg outline-none",
+              grow ? "min-h-[220px]" : "nd-scroll max-h-[60vh] min-h-[5.5rem] overflow-y-auto",
+              textClassName,
+            )}
           />
         </div>
       </div>

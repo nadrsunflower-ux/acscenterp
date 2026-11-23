@@ -49,13 +49,14 @@ export const meetingEventText = (e: Pick<MeetingEvent, "kind" | "detail">) =>
 
 /** 기록으로 남길 만큼 바뀐 것 — 없으면 null (저장만 누른 경우는 기록하지 않는다) */
 export function describeMeetingEdit(
-  before: { date: string; title?: string; content: string; actionItems: unknown[]; links?: unknown[] },
-  after: { date: string; title?: string; content: string; actionItems: unknown[]; links?: unknown[] },
+  before: { date: string; title?: string; content: string; contentRich?: unknown; actionItems: unknown[]; links?: unknown[] },
+  after: { date: string; title?: string; content: string; contentRich?: unknown; actionItems: unknown[]; links?: unknown[] },
 ): string | null {
   const parts: string[] = [];
   if (before.date !== after.date) parts.push("날짜");
   if ((before.title ?? "") !== (after.title ?? "")) parts.push("제목");
   if (before.content !== after.content) parts.push("회의 내용");
+  else if (JSON.stringify(before.contentRich ?? null) !== JSON.stringify(after.contentRich ?? null)) parts.push("회의 내용 서식");
   if (JSON.stringify(before.actionItems) !== JSON.stringify(after.actionItems)) parts.push("액션플랜");
   if (JSON.stringify(before.links ?? []) !== JSON.stringify(after.links ?? [])) parts.push("자료 링크");
   return parts.length ? parts.join(" · ") : null;

@@ -102,6 +102,8 @@ import { ArchiveDialog } from "@/components/neander/meetings/ArchiveDialog";
 import { MeetingAttachments, useMeetingFiles } from "@/components/neander/meetings/MeetingFiles";
 import { MeetingRecording, RecordingControls } from "@/components/neander/meetings/MeetingRecording";
 import { MinutesText } from "@/components/neander/meetings/MinutesText";
+import { RichNoteEditor } from "@/components/neander/finance/RichNoteEditor";
+import { reconcileNoteRich, sanitizeNoteRich, type NoteRich } from "@/lib/neander/finance/rich-note";
 import { PrepButtons } from "@/components/neander/meetings/PrepButtons";
 import { UnlinkZone, useMeetingDrag } from "@/components/neander/meetings/MeetingDrag";
 import { useRecording } from "@/components/neander/meetings/RecordingProvider";
@@ -1272,7 +1274,7 @@ function MeetingReader({
 
           <div className="mt-8">
             {meeting.content ? (
-              <MinutesText text={meeting.content} />
+              <MinutesText text={meeting.content} rich={meeting.contentRich} />
             ) : (
               <div className="rounded-nd-lg border border-dashed border-nd-border px-5 py-8 text-center">
                 <p className="text-nd-body font-medium text-nd-fg-2">아직 회의 내용이 없습니다</p>
@@ -1419,6 +1421,8 @@ function MeetingEditor({
   const [date, setDate] = useState(initial.date);
   const [title, setTitle] = useState(initial.title ?? "");
   const [content, setContent] = useState(initial.content);
+  /** 회의 내용 서식 — 프로젝트 메모와 같은 편집기 · 같은 모양 (평문은 content) */
+  const [contentRich, setContentRich] = useState<NoteRich | undefined>(initial.contentRich);
   const [drafts, setDrafts] = useState<ActionDraft[]>(() => draftsFromMeeting(initial));
   const [linkDrafts, setLinkDrafts] = useState<LinkDraft[]>(
     () =>
@@ -1432,7 +1436,6 @@ function MeetingEditor({
   const draftedFrom = useRef(new Set<string>());
   /** 이미 채운 초안 — 같은 초안을 두 번 채우지 않는다 (개발 모드는 effect 를 두 번 돌린다) */
   const takenDraft = useRef<object | null>(null);
-  const contentRef = useRef<HTMLTextAreaElement>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
 
   // 제목·본문 칸은 글만큼 자란다 — 긴 제목이 잘리지 않고, 본문은 칸 안에서
@@ -1443,10 +1446,6 @@ function MeetingEditor({
     const el = titleRef.current;
     if (el) fitTextarea(el);
   }, [title]);
-  useLayoutEffect(() => {
-    const el = contentRef.current;
-    if (el) fitTextarea(el, { min: 220, extra: 2 });
-  }, [content]);
 
   // AI 초안을 폼에 채운다. 이미 쓴 내용은 지우지 않고 뒤에 붙인다 — 회의 중에
   // 손으로 적어 둔 메모가 사라지면 안 된다.
@@ -1598,6 +1597,8 @@ function MeetingEditor({
         date,
         title: emptyToUndef(title),
         content: content.trim(),
+        // 서식은 다듬은 글자에 맞춘다 — 남는 서식이 없으면 칸을 지운다
+        contentRich: reconcileNoteRich(content.trim(), sanitizeNoteRich(contentRich)),
         actionItems: items,
         links: links.length ? links : undefined,
       };
@@ -1682,16 +1683,21 @@ function MeetingEditor({
 
           {/* 본문 */}
           <div className="mt-8">
-            <label htmlFor="meeting-content" className="sr-only">
-              회의 내용
-            </label>
-            <Textarea
-              id="meeting-content"
-              ref={contentRef}
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
+            {/* ⚠️ 서식 편집기를 <label> 안에 두지 않는다 — label 안을 누르면 첫 도구(굵게)가 눌린다 */}
+            <RichNoteEditor
+              label="회의 내용"
+              hideLabel
+              grow
+              note={content || undefined}
+              rich={contentRich}
+              onChange={(note, rich) => {
+                setContent(note ?? "");
+                setContentRich(rich);
+              }}
               placeholder={"회의 내용을 적으세요.\n■ 소제목 · - 항목 · 1) 번호 로 쓰면 읽기 화면에서 목록으로 정리됩니다."}
-              className="min-h-[220px] w-full resize-none overflow-hidden !rounded-nd-lg !px-4 !py-3 !text-[15px] !leading-[1.7]"
+              textClassName="text-[15px] leading-[1.7]"
+              // 긴 회의록에서도 도구가 손 닿는 곳에 — 넓은 화면은 문서 칸 맨 위, 좁은 화면은 도구 막대 밑
+              toolbarClassName="sticky top-0 z-[4] max-lg:top-[calc(var(--nd-topbar-h)+3.5rem)]"
             />
           </div>
 

@@ -10,15 +10,33 @@
 //  마크다운 전체를 받아들이지 않는 이유: 회의록에는 「*」·「_」·「#」 가 뜻 없이
 //  들어간다(상품 코드 #1234 등). 우리가 실제로 쓰는 몇 가지만 알아본다.
 //  다만 주소(http…)는 뜻이 헷갈릴 일이 없어서 눌러 열 수 있게 해 둔다.
+//
+//  서식(굵게 · 형광펜 …)은 프로젝트 메모와 같은 `NoteRich` 로 따로 온다.
+//  줄마다 글머리 기호를 뗀 자리부터 같은 글자 구간의 조각을 잘라 그린다.
 // ============================================================
 
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { cn } from "@/components/neander/ui";
+import {
+  NOTE_COLORS,
+  NOTE_FONTS,
+  NOTE_HILITES,
+  NOTE_SIZES,
+  reconcileNoteRich,
+  type NoteRich,
+  type NoteRun,
+} from "@/lib/neander/finance/rich-note";
+
+/** 글자가 원문 몇째 줄의 몇째 글자부터인지 — 서식 조각을 잘라 올 자리 */
+interface Src {
+  line: number;
+  start: number;
+}
 
 type Block =
-  | { kind: "h"; text: string }
-  | { kind: "li"; text: string; depth: number; marker: string | null }
-  | { kind: "p"; text: string; depth: number }
+  | ({ kind: "h"; text: string } & Src)
+  | ({ kind: "li"; text: string; depth: number; marker: string | null } & Src)
+  | ({ kind: "p"; text: string; depth: number } & Src)
   | { kind: "gap" };
 
 // 「#1234 상품」 같은 코드는 제목이 아니다 — # 뒤에는 빈칸이 있어야 한다.
@@ -40,19 +58,23 @@ function depthOf(raw: string): number {
 
 export function parseMinutes(text: string): Block[] {
   const out: Block[] = [];
-  for (const raw of text.replace(/\r\n?/g, "\n").split("\n")) {
+  text.replace(/\r\n?/g, "\n").split("\n").forEach((raw, n) => {
     const line = raw.trim();
     if (!line) {
       if (out.length && out[out.length - 1].kind !== "gap") out.push({ kind: "gap" });
-      continue;
+      return;
     }
     const depth = depthOf(raw);
+    const lead = raw.length - raw.trimStart().length;
+    // 글머리 뒤 글자는 언제나 줄의 끝부분이다 — 원문에서의 시작 자리
+    const src = (t: string): Src => ({ line: n, start: lead + line.length - t.length });
     let m: RegExpMatchArray | null;
-    if (depth === 0 && ((m = line.match(HEADING)) || (m = line.match(BRACKET_HEADING)))) out.push({ kind: "h", text: m[1] });
-    else if ((m = line.match(BULLET))) out.push({ kind: "li", text: m[1], depth, marker: null });
-    else if ((m = line.match(NUMBERED)) || (m = line.match(CIRCLED))) out.push({ kind: "li", text: m[2], depth, marker: m[1] });
-    else out.push({ kind: "p", text: line, depth });
-  }
+    if (depth === 0 && (m = line.match(HEADING))) out.push({ kind: "h", text: m[1], ...src(m[1]) });
+    else if (depth === 0 && (m = line.match(BRACKET_HEADING))) out.push({ kind: "h", text: m[1], line: n, start: lead + 1 });
+    else if ((m = line.match(BULLET))) out.push({ kind: "li", text: m[1], depth, marker: null, ...src(m[1]) });
+    else if ((m = line.match(NUMBERED)) || (m = line.match(CIRCLED))) out.push({ kind: "li", text: m[2], depth, marker: m[1], ...src(m[2]) });
+    else out.push({ kind: "p", text: line, depth, ...src(line) });
+  });
   while (out[out.length - 1]?.kind === "gap") out.pop();
   return out;
 }
@@ -89,8 +111,60 @@ function withLinks(text: string): ReactNode {
   });
 }
 
-export function MinutesText({ text, className }: { text: string; className?: string }) {
+function runCss(r: NoteRun): CSSProperties | undefined {
+  const st: CSSProperties = {};
+  if (r.b) st.fontWeight = 700;
+  if (r.i) st.fontStyle = "italic";
+  const deco = [r.u && "underline", r.s && "line-through"].filter(Boolean).join(" ");
+  if (deco) st.textDecorationLine = deco;
+  if (r.c) st.color = NOTE_COLORS[r.c].css;
+  if (r.h) {
+    st.backgroundColor = NOTE_HILITES[r.h].css;
+    // 형광펜 위 글자는 밝은 배경 위라 언제나 짙게
+    if (!r.c) st.color = "#1d1d1f";
+  }
+  if (r.f) st.fontFamily = NOTE_FONTS[r.f].css;
+  if (r.z) st.fontSize = NOTE_SIZES[r.z].px;
+  return Object.keys(st).length ? st : undefined;
+}
+
+/** 한 줄의 조각에서 [start, start+len) 글자 구간만 잘라 온다 */
+function sliceRuns(runs: NoteRun[], start: number, len: number): NoteRun[] {
+  const out: NoteRun[] = [];
+  let at = 0;
+  const end = start + len;
+  for (const r of runs) {
+    const a = Math.max(start, at);
+    const b = Math.min(end, at + r.t.length);
+    if (b > a) out.push({ ...r, t: r.t.slice(a - at, b - at) });
+    at += r.t.length;
+    if (at >= end) break;
+  }
+  return out;
+}
+
+/** 글줄 그리기 — 서식이 있으면 조각마다 모양을 입히고, 주소는 링크로 */
+function inline(text: string, runs: NoteRun[] | undefined, start: number): ReactNode {
+  if (!runs || runs.every((r) => !runCss(r))) return withLinks(text);
+  const part = sliceRuns(runs, start, text.length);
+  if (part.map((r) => r.t).join("") !== text) return withLinks(text); // 어긋나면 글자를 지킨다
+  return part.map((r, k) => {
+    const st = runCss(r);
+    return st ? (
+      <span key={k} style={st}>
+        {withLinks(r.t)}
+      </span>
+    ) : (
+      <span key={k}>{withLinks(r.t)}</span>
+    );
+  });
+}
+
+export function MinutesText({ text, rich, className }: { text: string; rich?: NoteRich; className?: string }) {
   const blocks = parseMinutes(text);
+  // 평문만 바뀐 경우(MCP · 스크립트)에도 그대로인 줄의 서식은 살린다
+  const lines = reconcileNoteRich(text, rich)?.lines;
+  const fmt = (b: Extract<Block, Src>) => inline(b.text, lines?.[b.line], b.start);
   const nodes: ReactNode[] = [];
   blocks.forEach((b, i) => {
     const prev = blocks[i - 1];
@@ -103,7 +177,7 @@ export function MinutesText({ text, className }: { text: string; className?: str
           key={i}
           className="mb-1.5 mt-7 text-[17px] font-semibold leading-snug tracking-[-0.01em] text-nd-fg first:mt-0"
         >
-          {withLinks(b.text)}
+          {fmt(b)}
         </h3>,
       );
     } else if (b.kind === "li") {
@@ -123,13 +197,13 @@ export function MinutesText({ text, className }: { text: string; className?: str
           >
             {b.marker ?? (b.depth > 0 ? "◦" : "•")}
           </span>
-          <span className="min-w-0 break-words">{withLinks(b.text)}</span>
+          <span className="min-w-0 break-words">{fmt(b)}</span>
         </div>,
       );
     } else {
       nodes.push(
         <p key={i} className={cn("break-words", afterGap ? "mt-3" : "mt-1", "first:mt-0")} style={{ paddingLeft: b.depth * INDENT }}>
-          {withLinks(b.text)}
+          {fmt(b)}
         </p>,
       );
     }

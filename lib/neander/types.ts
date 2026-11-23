@@ -4,6 +4,7 @@
 // ============================================================
 
 import type { MailRef } from "@/lib/neander/mail/types";
+import type { NoteRich } from "@/lib/neander/finance/rich-note";
 
 // ---- 공통 enum / 라벨 -------------------------------------
 
@@ -195,6 +196,13 @@ export interface Meeting {
   date: string; // YYYY-MM-DD 회의 날짜
   title?: string;
   content: string; // 회의 내용 정리
+  /**
+   * 회의 내용 서식(굵게 · 형광펜 …) — 프로젝트 메모와 같은 모양(finance/rich-note.ts).
+   * 글자는 언제나 평문 `content` 에 있고, 이 칸은 줄마다 서식만 더한다.
+   * 누가 `content` 만 고쳐도(MCP · 스크립트) 그릴 때 reconcileNoteRich 로 맞춘다.
+   * Firestore 문서에는 JSON 글자로 들어간다(배열 안의 배열 금지) — db/meetings.ts 가 바꿔 준다.
+   */
+  contentRich?: NoteRich;
   /** 우선순위 액션플랜 (위에서부터 높은 우선순위) */
   actionItems: ActionItem[];
   /** 자료 링크 — 회의록을 웹 발표자료 등으로 직접 연결 (선택) */
