@@ -12,6 +12,7 @@ export const SHANGHAI_2026_HTML = `<!doctype html><html lang="ko"><head><meta ch
   --bg:#eef1f5; --surface:#ffffff; --sunk:#e3e8ef; --ink:#121a2b; --muted:#536076; --line:#d6dce6;
   --navy:#16223b; --navy-ink:#ffffff; --amber:#f2a31b; --time:#9a5b00;
   --red:#d33838; --red-soft:#fde8e8; --ga:#2f6fdb; --gb:#7b45d6; --walk:#e08a12; --ok:#1f8f55;
+  --route:#16223b; --route-case:rgba(255,255,255,.92); --toph:76px;
   --sans:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
   --zh:"PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei",system-ui,sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
@@ -20,11 +21,13 @@ export const SHANGHAI_2026_HTML = `<!doctype html><html lang="ko"><head><meta ch
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   --bg:#0b1019; --surface:#141b29; --sunk:#1b2436; --ink:#e9edf4; --muted:#9ba6ba; --line:#263048;
   --navy:#22314f; --navy-ink:#ffffff; --amber:#f5b43c; --time:#f5b43c;
-  --red:#ff6b6b; --red-soft:#3a1d22; --ga:#6f9dff; --gb:#ad8cff; --walk:#f0a03a; --ok:#4cc488; color-scheme:dark}}
+  --red:#ff6b6b; --red-soft:#3a1d22; --ga:#6f9dff; --gb:#ad8cff; --walk:#f0a03a; --ok:#4cc488;
+  --route:#eef2fa; --route-case:rgba(0,0,0,.7); color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#0b1019; --surface:#141b29; --sunk:#1b2436; --ink:#e9edf4; --muted:#9ba6ba; --line:#263048;
   --navy:#22314f; --navy-ink:#ffffff; --amber:#f5b43c; --time:#f5b43c;
-  --red:#ff6b6b; --red-soft:#3a1d22; --ga:#6f9dff; --gb:#ad8cff; --walk:#f0a03a; --ok:#4cc488; color-scheme:dark}
+  --red:#ff6b6b; --red-soft:#3a1d22; --ga:#6f9dff; --gb:#ad8cff; --walk:#f0a03a; --ok:#4cc488;
+  --route:#eef2fa; --route-case:rgba(0,0,0,.7); color-scheme:dark}
 
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.55;-webkit-text-size-adjust:100%;
@@ -63,7 +66,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .tabs a[aria-current="page"] b{color:var(--amber)}
 @media (min-width:900px){
   body{padding-bottom:40px}
-  .tabs{position:sticky;top:calc(env(safe-area-inset-top,0px) + 56px);bottom:auto;border-top:0;border-bottom:1px solid var(--line);padding-bottom:0}
+  .tabs{position:sticky;top:calc(env(safe-area-inset-top,0px) + var(--toph));bottom:auto;border-top:0;border-bottom:1px solid var(--line);padding-bottom:0}
   .tabs .wrap{display:flex;height:auto;padding-block:8px;gap:6px}
   .tabs a{flex-direction:row;gap:8px;padding:8px 16px;font-size:14px}
 }
@@ -110,15 +113,21 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .mapwrap{position:relative;border-radius:16px;overflow:hidden;border:1px solid var(--line);background:var(--sunk)}
 .map{height:min(48vh,440px);min-height:280px;background:#e8eaed}
 .legend{display:flex;flex-wrap:wrap;gap:6px 14px;padding:10px 12px;font-size:13px;color:var(--muted);background:var(--surface);border-top:1px solid var(--line)}
-.legend i{display:inline-block;width:22px;height:0;border-top:4px solid var(--navy);vertical-align:middle;margin-right:6px}
+.legend i{display:inline-block;width:22px;height:0;border-top:4px solid var(--route);vertical-align:middle;margin-right:6px}
 .legend i.walk{border-top:4px dashed var(--walk)} .legend i.train{border-top:4px dashed var(--red)}
 .legend i.ga{border-top-color:var(--ga)} .legend i.gb{border-top-color:var(--gb)}
-:root[data-theme="dark"] .legend i:not(.walk):not(.train):not(.ga):not(.gb){border-top-color:#8fa3c8}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .legend i:not(.walk):not(.train):not(.ga):not(.gb){border-top-color:#8fa3c8}}
+/* 동선 선: 색은 화면 모드 토큰을 따르고, 밑에 테두리 선을 깔아 어느 지도 위에서도 보이게 */
+.leaflet-overlay-pane path.rt-case{stroke:var(--route-case)}
+.leaflet-overlay-pane path.rt-base{stroke:var(--route)}
+.leaflet-overlay-pane path.rt-a{stroke:var(--ga)}
+.leaflet-overlay-pane path.rt-b{stroke:var(--gb)}
+.leaflet-overlay-pane path.rt-walk{stroke:var(--walk)}
+.leaflet-overlay-pane path.rt-train{stroke:var(--red)}
 @media (min-width:900px){
   .daygrid{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);align-items:start}
-  .mapwrap{position:sticky;top:calc(env(safe-area-inset-top,0px) + 120px)}
-  .map{height:calc(100vh - 230px);max-height:none}
+  .mapwrap{position:sticky;top:calc(env(safe-area-inset-top,0px) + var(--toph) + 70px)}
+  .map{height:calc(100vh - var(--toph) - 170px);max-height:none}
+  .card{scroll-margin-top:calc(var(--toph) + 70px)}
 }
 /* 다크모드에서 지도 어둡게 */
 :root[data-theme="dark"] .leaflet-tile-pane{filter:invert(.92) hue-rotate(180deg) brightness(.9) contrast(.9)}
@@ -514,10 +523,11 @@ function initMap(D){
   new Tiles({minZoom:9,maxZoom:17,maxNativeZoom:16,attribution:"© 高德地图 AutoNavi"}).addTo(map);
   const no=PINNO[D.id];const ll=k=>[P[k][3],P[k][2]];
   // 선
-  const col={a:"#2f6fdb",b:"#7b45d6",walk:"#e08a12",train:"#d33838",base:"#16223b"};
+  const cs=getComputedStyle(document.documentElement);
   D.items.forEach(it=>(it.go||[]).forEach(g=>{const to=g.to||it.pin;if(!g.from||!to)return;
-    const c=g.g?col[g.g]:g.m==="walk"?col.walk:g.m==="train"?col.train:col.base;
-    L.polyline([ll(g.from),ll(to)],{color:c,weight:g.m==="walk"?4:5,opacity:.9,dashArray:(g.m==="walk"||g.m==="train")?"8 8":null}).addTo(map)}));
+    const k=g.g?g.g:g.m==="walk"?"walk":g.m==="train"?"train":"base";const pts=[ll(g.from),ll(to)];const w=g.m==="walk"?4:5;
+    L.polyline(pts,{className:"rt-case",weight:w+4,opacity:1,interactive:false}).addTo(map);
+    L.polyline(pts,{className:"rt rt-"+k,weight:w,opacity:1,dashArray:(g.m==="walk"||g.m==="train")?"8 8":null,interactive:false}).addTo(map)}));
   // 핀
   const markers={};
   Object.keys(no).forEach(k=>{
@@ -696,6 +706,10 @@ document.addEventListener("change",e=>{
 window.addEventListener("hashchange",()=>show(location.hash.slice(1)));
 
 /* ── 시작 ── */
+// 머리줄 높이를 재서 넓은 화면의 탭 줄·지도 고정 위치에 쓴다
+const topEl=document.querySelector(".top");
+const setTop=()=>document.documentElement.style.setProperty("--toph",topEl.offsetHeight+"px");
+setTop();try{new ResizeObserver(setTop).observe(topEl)}catch(e){window.addEventListener("resize",setTop)}
 renderOverview();DAYS.forEach(renderDay);renderShop();renderPrep();
 tick();setInterval(tick,30000);
 const h=location.hash.slice(1);
