@@ -154,6 +154,12 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .badge{display:inline-grid;place-items:center;min-width:28px;height:28px;padding:0 6px;border-radius:14px;background:var(--navy);color:var(--amber);font-family:var(--mono);font-weight:600;font-size:14px;border:2px solid #fff}
 .badge.ga{background:var(--ga);color:#fff} .badge.gb{background:var(--gb);color:#fff} .badge.star{background:var(--red);color:#fff}
 .badge.none{background:var(--sunk);color:var(--muted)}
+.badge.h{background:#ffffff;color:#16223b;border-color:#16223b}
+.hotel{background:var(--surface);border:2px solid var(--navy);border-radius:16px;padding:18px;display:grid;gap:10px}
+.hotel h3{font-size:19px}
+.hotel p{margin:0;color:var(--muted);font-size:15px}
+.hotel .facts{display:grid;gap:4px;font-size:15px;color:var(--ink);margin:0;padding-left:20px}
+.hotel .facts li::marker{color:var(--amber)}
 .hd{min-width:0;display:grid;gap:3px}
 .tagrow{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .tag{font-size:13px;font-weight:700;border-radius:6px;padding:1px 8px;background:var(--sunk);color:var(--muted)}
@@ -181,6 +187,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 
 /* 지도 핀 */
 .pin{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#16223b;color:#f2a31b;font:600 14px/1 var(--mono);border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35)}
+.pin.h{background:#fff;color:#16223b;border-color:#16223b;border-radius:8px}
 .pin.ga{background:#2f6fdb;color:#fff}.pin.gb{background:#7b45d6;color:#fff}.pin.star{background:#d33838;color:#fff}
 .pin.sel{transform:scale(1.25)}
 .leaflet-popup-content{font-family:var(--sans);font-size:15px;margin:12px 14px;min-width:180px}
@@ -200,11 +207,11 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .where{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr))}
 .where .tip p{color:var(--ink)}
 .items{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(min(100%,230px),1fr))}
-.item{background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden;display:grid;grid-template-rows:auto 1fr}
-.item .im{background:#fff;aspect-ratio:4/3;display:grid;place-items:center;position:relative}
-.item .im img{max-height:100%;max-width:100%;object-fit:contain}
-.item .num{position:absolute;left:10px;top:10px}
-.item .tx{padding:12px 14px 14px;display:grid;gap:3px;align-content:start}
+.item{background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto 1fr}
+.item .im{background:#fff;aspect-ratio:4/3;position:relative;min-width:0;overflow:hidden}
+.item .im img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.item .num{position:absolute;left:10px;top:10px;z-index:1}
+.item .tx{padding:12px 14px 14px;display:grid;grid-template-columns:minmax(0,1fr);gap:3px;align-content:start;min-width:0}
 .item h3{font-size:17px}
 .item .zh{color:var(--ga);font-size:14px}
 .item .wh{font-size:14px;font-weight:700;color:var(--time)}
@@ -231,7 +238,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .kw .row button,.kw .row a{border:1px solid var(--line);background:var(--sunk);border-radius:8px;padding:6px 10px;font-size:14px;font-weight:600;text-decoration:none;white-space:nowrap}
 .kw .row a{background:var(--navy);color:#fff;border-color:var(--navy)}
 .vids{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))}
-.vid{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;text-decoration:none;display:grid}
+.vid{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;text-decoration:none;display:grid;grid-template-columns:minmax(0,1fr)}
 .vid img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block}
 .vid div{padding:10px 12px;display:grid;gap:4px}
 .vid b{font-size:15px;line-height:1.4}
@@ -282,6 +289,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
   <button type="button" id="driverClose">닫기</button>
   <p class="ask">请带我去这里</p>
   <p class="big" id="driverZh"></p>
+  <p class="ko zh" id="driverAddr" lang="zh-CN" style="font-size:clamp(22px,5vw,34px);color:#fff"></p>
   <p class="ko" id="driverKo"></p>
   <p class="help">「칭 따이 워 취 쩌리」 = 여기로 데려다 주세요. 화면을 기사님께 그대로 보여 주세요.</p>
 </div>
@@ -292,6 +300,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 /* ── 장소 (고덕지도 좌표 · GCJ-02) ── */
 const P={
  pvg:["푸동공항","上海浦东国际机场",121.808405,31.140627],
+ htl:["숙소 · 그랜드 머큐어 훙차오","上海虹桥美爵酒店",121.396887,31.205961,"长宁区仙霞路369号"],
  dhub:["디즈니 택시 하차장","上海迪士尼度假区西公交枢纽",121.668268,31.145833],
  dis:["디즈니랜드","上海迪士尼乐园",121.660536,31.144071],
  yang:["오래전 양꼬치","很久以前羊肉串(南京路第一百货店)",121.474374,31.235746],
@@ -334,7 +343,7 @@ const navUrl=(a,b,m)=>{const A=P[a],B=P[b];return \`https://uri.amap.com/navigat
 
 /* ── 일정 ── */
 const DAYS=[
-{id:"day1",n:1,date:[2026,11,28],wd:"토",title:"푸동공항 → 디즈니랜드",sum:"디즈니 16:30~21:30 → 양꼬치 → 발마사지",fit:["pvg","dis","yang"],items:[
+{id:"day1",n:1,date:[2026,11,28],wd:"토",title:"푸동공항 → 디즈니랜드",sum:"디즈니 16:30~21:30 → 양꼬치 → 발마사지 → 훙차오 숙소",fit:["pvg","dis","yang","htl"],items:[
  {t:"15:30",tag:"이동",title:"푸동공항 → 디즈니",sub:"上海浦东国际机场 → 上海迪士尼度假区",img:"p5",pin:"pvg",pts:["pvg","dhub"],b:[
   "디즈니는 바퀴 달린 캐리어 반입 불가. 공항에서 호텔로 짐 배송을 맡기거나 정문 보안검색대 동쪽 유료 보관소 이용",
   "택시·디디 20~30분, 80~130위안. 목적지는 「上海迪士尼度假区西公交枢纽」(택시 하차 지정 장소)",
@@ -365,10 +374,16 @@ const DAYS=[
   go:[{m:"walk",txt:"걸어서 약 10분",from:"yang",to:"kang"}],b:[
   "디즈니에서 하루 종일 걸은 다리 풀기. 양꼬치집에서 걸어서 약 10분",
   "남경로점은 24시간. 다만 새벽 1시 이후엔 마사지사가 2명뿐이라 예약 필수",
-  "발+전신 90분 코스가 가성비. 마이리얼트립 예약 시 4~6만원대"]}
+  "발+전신 90분 코스가 가성비. 마이리얼트립 예약 시 4~6만원대"]},
+ {t:"01:30",nd:1,tag:"숙소",title:"숙소로 · 체크인",sub:"그랜드 머큐어 상하이 훙차오 · 上海虹桥美爵酒店",pin:"htl",pts:["htl"],
+  go:[{m:"taxi",txt:"디디·택시 약 30분 (밤이라 덜 막힘)",from:"kang",to:"htl"}],b:[
+  "난징동루에서 서쪽으로 약 10km. 디디 목적지는 「上海虹桥美爵酒店」",
+  "기사님께는 「기사님께 보여주기」 화면(주소 长宁区仙霞路369号 포함)을 보여 주세요",
+  "공항에서 짐 배송을 맡겼다면 프런트에서 찾기"]}
 ]},
-{id:"day2",n:2,date:[2026,11,29],wd:"일",title:"예원 → 두 조 → 장자강 → 와이탄",sum:"점심 뒤 A조는 상해교통대, B조는 짝퉁시장 · 16:00 훙차오역에서 4명 다시 모임",fit:["yuy","sjtu","ap","hq","vue"],items:[
- {t:"09:00",tag:"관광",title:"예원",sub:"豫园 · 명나라 정원 + 구곡교 · 성황묘",img:"p14",pin:"yuy",pts:["yuy"],b:[
+{id:"day2",n:2,date:[2026,11,29],wd:"일",title:"예원 → 두 조 → 장자강 → 와이탄",sum:"점심 뒤 A조는 상해교통대, B조는 짝퉁시장 · 16:00 훙차오역에서 4명 다시 모임",fit:["yuy","sjtu","ap","hq","vue","htl"],items:[
+ {t:"09:00",tag:"관광",title:"예원",sub:"豫园 · 명나라 정원 + 구곡교 · 성황묘",img:"p14",pin:"yuy",pts:["yuy"],
+  go:[{m:"subway",txt:"숙소에서 08:15쯤 출발 · 걸어서 약 15분 10호선 伊犁路역 → 豫园역 직행 (택시면 약 30~40분)",from:"htl",to:"yuy"}],b:[
   "9:00 개장, 16:00 입장 마감, 11월 입장료 40위안 (월요일 휴무, 일요일은 OK)",
   "정원 1~1.5시간 + 구곡교·성황묘·예원상가 구경",
   "주말이라 문 열자마자 들어가야 덜 붐벼요"]},
@@ -407,11 +422,20 @@ const DAYS=[
   go:[{m:"walk",txt:"걸어서 15분",from:"bund",to:"vue"}],b:[
   "와이탄과 루자쭈이가 양쪽으로 보이는 루프탑. 야외 자쿠지로 유명",
   "일요일 입장 128위안(음료 1잔 포함) · 일~목 01:30까지. 스마트 캐주얼",
-  "배고프면 홍쿠이지아 마라롱샤 야식(새벽 2:30까지), 더 놀고 싶으면 클럽 INS"]}
+  "배고프면 홍쿠이지아 마라롱샤 야식(새벽 2:30까지), 더 놀고 싶으면 클럽 INS"]},
+ {t:"24:00",tag:"숙소",title:"숙소로",sub:"VUE는 일~목 01:30까지 · 숙소까지 택시 약 30분",pin:"htl",pts:["htl"],
+  go:[{m:"taxi",txt:"디디·택시 약 30분",from:"vue",to:"htl"}],b:[
+  "디디 목적지는 「上海虹桥美爵酒店」",
+  "월요일은 07:50에 체크아웃하고 나가야 하니 짐은 이날 밤에 미리 싸 두기"]}
 ]},
-{id:"day3",n:3,date:[2026,11,30],wd:"월",title:"따룬파 → 난징동루 쇼핑 → 귀국",sum:"아침 따룬파 → 숙소에서 짐 정리·체크아웃 → 난징동루 한 줄로 걸으며 쇼핑 → 점심 → 짐 찾고 공항",fit:["dhc","rt","qz","jj"],items:[
- {t:"08:30",tag:"아침",title:"생지엔 아침",sub:"大壶春 四川中路店 · 숙소 근처 · 상하이식 군만두",img:"p24",pin:"dhc",pts:["dhc"],b:[
-  "아직 체크아웃하지 말고 몸만 나오기 (짐 정리는 따룬파 다녀와서 한 번에)",
+{id:"day3",n:3,date:[2026,11,30],wd:"월",title:"따룬파 → 난징동루 쇼핑 → 귀국",sum:"아침에 체크아웃하고 캐리어 맡기기 → 생지엔 → 따룬파 → 난징동루 한 줄로 걸으며 쇼핑 → 점심 → 숙소에서 짐 찾고 공항",fit:["dhc","rt","qz","jj"],items:[
+ {t:"07:50",tag:"숙소",title:"체크아웃 · 캐리어 맡기기",sub:"그랜드 머큐어 상하이 훙차오 · 上海虹桥美爵酒店",pin:"htl",pts:["htl"],b:[
+  "숙소가 시내에서 약 10km 떨어진 훙차오라, 낮에 숙소를 두 번 오가지 않도록 아침에 체크아웃까지 끝내고 나가요",
+  "짐은 일요일 밤에 미리 싸 두고, 체크아웃하면서 프런트에 캐리어 맡기기 (13:25쯤 찾으러 옴)",
+  "디디로 대호춘까지 약 30~40분"]},
+ {t:"08:30",tag:"아침",title:"생지엔 아침",sub:"大壶春 四川中路店 · 와이탄 근처 · 상하이식 군만두",img:"p24",pin:"dhc",pts:["dhc"],
+  go:[{m:"taxi",txt:"07:50 디디 출발 · 약 30~40분",from:"htl",to:"dhc"}],b:[
+  "체크아웃은 끝났고 캐리어는 숙소에 맡겨 둔 상태",
   "바닥이 바삭한 생지엔 노포. 1인 약 27위안, 새우 생지엔(虾仁生煎) 추천",
   "09:00 디디 한 대로 따룬파 출발 (4명이면 6인승 「六座」 선택 안 해도 됨)"]},
  {t:"09:20",tag:"쇼핑",title:"따룬파 마트 털기",sub:"大润发(平型关店) · 俞泾港路11号 B1 · 08:00~22:00",img:"p25",pin:"rt",pts:["rt"],
@@ -419,34 +443,34 @@ const DAYS=[
   "난징동루에서 택시 20~25분, 약 28위안. 입구에 한국인 인기상품 코너가 따로 있어서 그것만 훑어도 충분 (후기 기준 1시간)",
   "필수템: I❤SH 티셔츠 39.9위안, 카만 에그롤, 레이즈 오이맛, 투도우펀, 하이디라오 소스, 세다람쥐 마카다미아",
   "카카오페이로 결제하면 300위안 이상 25위안 할인 (블로그 기준 12/31까지)",
-  "10:30 택시로 숙소 복귀 → 짐 싸고 체크아웃, 캐리어 맡기기"]},
- {t:"10:50",tag:"숙소",title:"숙소: 짐 싸고 체크아웃",sub:"난징동루 근처 숙소로 가정",pin:null,pts:[],
-  go:[{m:"taxi",txt:"10:30 택시로 숙소 복귀 · 약 20분"}],b:[
-  "짐 싸고 체크아웃, 캐리어는 숙소에 맡기기",
-  "13:20에 다시 와서 찾아 공항으로 출발"]},
- {t:"11:20",tag:"쇼핑",title:"칭즈 핸드크림부터 서쪽으로",sub:"青稚 南京东路66号 · 와이탄 쪽 끝 · 09:00~24:00",img:"p26",pin:"qz",pts:["qz","gx"],
-  go:[{m:"walk",txt:"캐리어 맡기고 걸어서"}],b:[
+  "10:30 디디로 난징동루 동쪽 끝 칭즈로 바로 이동. 산 물건은 계속 들고 다니니 큰 장바구니 챙기기"]},
+ {t:"10:50",tag:"쇼핑",title:"칭즈 핸드크림부터 서쪽으로",sub:"青稚 南京东路66号 · 와이탄 쪽 끝 · 09:00~24:00",img:"p26",pin:"qz",pts:["qz","gx"],
+  go:[{m:"taxi",txt:"10:30 디디 출발 · 약 20~25분",from:"rt",to:"qz"}],b:[
   "여기서부터는 난징동루를 와이탄 → 인민광장 방향으로 한 줄로 걷기만 하면 돼요 (약 1.2km)",
   "탄생화·상하이 에디션 핸드크림 1개 50~55위안. 무료 각인·포장은 3개에 30분 걸렸다는 후기가 있어서, 시간 없으면 포장만",
   "고급 선물은 와이탄 쪽 관샤(观夏) 향수·디퓨저 매장까지 걸어서 7분 (평일 11시 오픈)"]},
- {t:"11:45",tag:"쇼핑",title:"팝마트 · 미니소랜드",sub:"POP MART 南京东路299号 2F · 名创优品 南京东路479号",img:"p27",pin:"pop",pts:["pop","mns","mms"],
+ {t:"11:15",tag:"쇼핑",title:"팝마트 · 미니소랜드",sub:"POP MART 南京东路299号 2F · 名创优品 南京东路479号",img:"p27",pin:"pop",pts:["pop","mns","mms"],
   go:[{m:"walk",txt:"난징동루 따라 서쪽으로",from:"qz",to:"pop"}],b:[
   "팝마트 글로벌 플래그십 10:00~23:00: 라부부·스컬판다·텔레토비 랜덤박스",
   "미니소랜드는 난징동루에 여러 개라 479호 全球壹号店(3층 규모)으로. 산리오·치이카와·디즈니 굿즈",
   "같은 길에 M&M's 월드·레고 스토어도 있어서 지나가면서 구경"]},
- {t:"12:25",tag:"쇼핑",title:"제일식품상점",sub:"上海市第一食品商店 · 南京东路720号",img:"p28",pin:"ff",pts:["ff"],
+ {t:"11:55",tag:"쇼핑",title:"제일식품상점",sub:"上海市第一食品商店 · 南京东路720号",img:"p28",pin:"ff",pts:["ff"],
   go:[{m:"walk",txt:"걸어서 5분",from:"pop",to:"ff"}],b:[
   "화이트래빗 사탕을 맛별로 담아 무게로 계산. 회사·친구 뿌리기용",
   "대추누가·나비파이는 부모님 선물용",
   "같은 매장에서 200위안 넘게 사면 여권 내고 택스리펀 서류 받기"]},
- {t:"12:45",tag:"점심",title:"자자탕바오 점심",sub:"佳家汤包 黄河路 · 난징동루 서쪽 끝에서 걸어서 5분",img:"p29",pin:"jj",pts:["jj","gj"],
+ {t:"12:15",tag:"점심",title:"자자탕바오 점심",sub:"佳家汤包 黄河路 · 난징동루 서쪽 끝에서 걸어서 5분",img:"p29",pin:"jj",pts:["jj","gj"],
   go:[{m:"walk",txt:"걸어서 5분",from:"ff",to:"jj"}],b:[
   "주문하고 빚어 나오는 게살 탕바오. 1인 약 41위안, 게살 비빔면도 유명",
   "바로 앞 국제반점(国际饭店) 나비파이는 258겹 원조, 고급 선물용. 줄 길면 패스",
-  "13:20 디디로 숙소 (약 10분) → 캐리어 찾기"]},
- {t:"13:35",tag:"이동",title:"푸동공항 → 16:50 귀국",sub:"上海浦东国际机场 · 14:25 도착 목표",img:"p30",pin:"pvg",pts:["pvg"],
-  go:[{m:"taxi",txt:"13:20 디디로 숙소 → 캐리어 찾고 13:35 공항으로 · 약 50분",from:"jj",to:"pvg"}],b:[
-  "캐리어 4개면 디디 6인승(六座商务) 1대 또는 일반 2대. 약 50분, 4명 나누면 1인 1만 원대",
+  "12:50 디디로 숙소 (약 30~40분) → 캐리어 찾기"]},
+ {t:"13:25",tag:"숙소",title:"숙소에서 캐리어 찾기",sub:"上海虹桥美爵酒店 · 프런트",pin:"htl",pts:["htl"],
+  go:[{m:"taxi",txt:"12:50 디디 출발 · 약 30~40분",from:"jj",to:"htl"}],b:[
+  "맡긴 캐리어 찾고 바로 공항으로",
+  "공항 가는 디디는 캐리어 4개면 6인승(六座商务) 1대 또는 일반 2대"]},
+ {t:"13:35",tag:"이동",title:"푸동공항 → 16:50 귀국",sub:"上海浦东国际机场 · 14:40쯤 도착",img:"p30",pin:"pvg",pts:["pvg"],
+  go:[{m:"taxi",txt:"13:35 숙소 출발 · 훙차오 → 푸동 약 50km · 약 60~70분",from:"htl",to:"pvg"}],b:[
+  "숙소(훙차오)에서 푸동공항까지 약 50km, 디디 약 60~70분. 16:50 비행기라 14:40쯤 도착하면 2시간 남짓 여유",
   "공항: 체크인 → 세관에서 택스리펀 물건 확인 도장 → 출국심사 → 안쪽 환급 창구",
   "출국장에서 나비파이·베이징덕맛 프레첼 같은 막판 간식 쇼핑 가능",
   "늦어지면 칭즈나 제일식품상점부터 빼기"]}
@@ -456,7 +480,7 @@ const TRIP_END=[2026,11,30,16,50];
 /* ── 시간 (상하이 = UTC+8) ── */
 const sh=(y,mo,d,h,mi)=>Date.UTC(y,mo-1,d,h-8,mi);
 const FLAT=[];
-DAYS.forEach(D=>D.items.forEach((it,i)=>{const [h,m]=it.t.split(":").map(Number);it.at=sh(D.date[0],D.date[1],D.date[2],h,m);it.day=D;it.idx=i;it.key=D.id+"-"+i;FLAT.push(it)}));
+DAYS.forEach(D=>D.items.forEach((it,i)=>{const [h,m]=it.t.split(":").map(Number);it.at=sh(D.date[0],D.date[1],D.date[2],h,m)+(it.nd?864e5:0);it.day=D;it.idx=i;it.key=D.id+"-"+i;FLAT.push(it)}));
 FLAT.sort((a,b)=>a.at-b.at);
 const shNow=()=>new Date(Date.now()+8*3600e3); // UTC 필드로 읽으면 상하이 시각
 const pad=n=>String(n).padStart(2,"0");
@@ -486,7 +510,7 @@ const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"
 const zhSpan=s=>esc(s).replace(/([㐀-鿿][㐀-鿿\\w\\-（）()·]*)/g,'<span class="zh" lang="zh-CN">$1</span>');
 function placeRow(k){const p=P[k];return \`<div class="place"><a class="open" href="\${amap(k)}" target="_blank" rel="noopener"><span class="nm zh" lang="zh-CN">\${esc(p[1])}<small>\${esc(p[0])}</small></span><span class="go">고덕지도 열기 ↗</span></a>
 <div class="pact"><button type="button" data-copy="\${esc(p[1])}">중국어 복사</button><button type="button" data-show="\${k}">기사님께 보여주기</button></div></div>\`}
-function badgeCls(it){return it.group?"g"+it.group:(it.star?"star":"")}
+function badgeCls(it){return it.pin==="htl"?"h":it.group?"g"+it.group:(it.star?"star":"")}
 function legRow(g,toPin){
   const [lab,m]=MODE[g.m];const to=g.to||toPin;
   const link=(m&&g.from&&to)?\`<a href="\${navUrl(g.from,to,m)}" target="_blank" rel="noopener">길찾기 ↗</a>\`:"";
@@ -494,7 +518,7 @@ function legRow(g,toPin){
 }
 const PINNO={};
 function renderDay(D){
-  const no={};let c=0;D.items.forEach(it=>{if(it.pin&&!(it.pin in no))no[it.pin]=++c});PINNO[D.id]=no;
+  const no={};let c=0;D.items.forEach(it=>{if(it.pin&&!(it.pin in no))no[it.pin]=it.pin==="htl"?"H":++c});PINNO[D.id]=no;
   const legend=\`<div class="legend"><span><i></i>택시·지하철</span><span><i class="walk"></i>걷기</span>\${D.n===2?'<span><i class="ga"></i>A조</span><span><i class="gb"></i>B조</span><span><i class="train"></i>고속철</span>':""}<span>선은 순서만 표시 (실제 길 아님)</span></div>\`;
   const items=D.items.map((it,i)=>{
     const legs=(it.go||[]).map(g=>legRow(g,it.pin)).join("");
@@ -548,14 +572,25 @@ function renderOverview(){
 <div class="hero"><img src="/neander/2026shanghai/img/p1.jpg" alt="상하이 루자쭈이 야경"><div class="in">
 <p class="eyebrow" style="color:#f2a31b">SHANGHAI · 2026 · 4명</p><h1>상하이 2박 3일</h1>
 <div class="route"><span><b>11/28 토</b>푸동공항 → 디즈니랜드</span><span><b>11/29 일</b>예원 → 교통대·짝퉁시장 → 장자강 → 와이탄 → 루프탑</span><span><b>11/30 월</b>따룬파 → 난징동루 쇼핑 → 16:50 귀국</span></div>
-<div class="chips"><a class="chip" href="#day1" data-jump="day1-5">★ <span class="t">11/28 22:30</span> 오래전 양꼬치</a><a class="chip" href="#day2" data-jump="day2-2">★ <span class="t">11/29 14:30</span> 상해교통대</a><a class="chip navy" href="#day3" data-jump="day3-7">✈ <span class="t">11/30 16:50</span> 푸동 출발</a></div>
+<div class="chips"><a class="chip" href="#day1" data-jump="day1-5">★ <span class="t">11/28 22:30</span> 오래전 양꼬치</a><a class="chip" href="#day2" data-jump="day2-2">★ <span class="t">11/29 14:30</span> 상해교통대</a><a class="chip navy" href="#day3" data-jump="day3-8">✈ <span class="t">11/30 16:50</span> 푸동 출발</a></div>
 </div></div>
 <div class="sec"><h2>사흘 일정</h2><p class="lead">카드를 누르면 그날 지도와 동선이 열려요. 시간은 모두 상하이 시간 (한국보다 1시간 늦음).</p><div class="grid">\${dc}</div></div>
 <div class="sec"><h2>이렇게 쓰세요</h2><div class="grid">
 <div class="tip"><h3><span class="k n">고덕지도</span> 남색 버튼</h3><p>폰에서 누르면 고덕지도 앱이 열리면서 그 장소에 핀이 꽂혀요. 「기사님께 보여주기」를 누르면 택시에서 보여줄 큰 중국어 화면이 떠요.</p></div>
 <div class="tip"><h3>앱 필수</h3><p>알리페이 · 위챗 · 따종디엔핑 · 디디 · 디즈니 공식 앱 · 트립닷컴(고속철 표). 따룬파는 카카오페이 할인.</p></div>
 <div class="tip"><h3>일요일은 두 조</h3><p>점심 뒤 <span class="k a">A조 2명</span> 상해교통대, <span class="k b">B조 2명</span> 짝퉁시장. 16:00 훙차오역에서 다시 4명 집합.</p></div>
-<div class="tip"><h3>숙소는 난징동루 근처로 가정</h3><p>월요일은 따룬파 다녀와서 짐 싸고 체크아웃, 캐리어 맡긴 채 난징동루를 걸으며 쇼핑하고 13:20에 찾아서 공항으로.</p></div>
+<div class="tip"><h3>월요일은 아침에 체크아웃</h3><p>숙소가 훙차오라 07:50에 체크아웃하고 캐리어를 맡긴 채 시내로. 난징동루 쇼핑·점심 뒤 12:50에 숙소로 와서 짐 찾고 13:35 공항으로.</p></div>
+</div></div>
+<div class="sec"><h2>숙소</h2><div class="hotel">
+<h3>그랜드 머큐어 상하이 훙차오</h3>
+<p><span class="zh" lang="zh-CN">上海虹桥雅高美爵酒店</span> · Grand Mercure Shanghai Hongqiao</p>
+<ul class="facts">
+<li>주소: <span class="zh" lang="zh-CN">长宁区仙霞路369号</span> (창닝구 셴샤로 369호)</li>
+<li>시내(난징동루·와이탄)까지 택시 약 30~40분 · 훙차오역 약 20분 · 푸동공항 약 60~70분</li>
+<li>가까운 지하철: 10호선 <span class="zh" lang="zh-CN">伊犁路</span>역 (걸어서 약 15분) · 예원·교통대·난징동루로 직행</li>
+</ul>
+<div class="places">\${placeRow("htl")}</div>
+<div class="btnrow"><a class="btn" href="https://kr.trip.com/hotels/detail/?hotelId=345044" target="_blank" rel="noopener">트립닷컴 숙소 페이지 ↗</a></div>
 </div></div>\`;
 }
 
@@ -630,8 +665,8 @@ const PREP=[
 ["교통대 입장 등록 (A조) · Kubert 씨 약속","11/29 13:00부터 위챗 「参观交大」 등록 / 장자강역 17:07 도착 · 19:29 귀가, 역 근처 식당"],
 ["발마사지 예약 · 따종디엔핑 · 복장","캉다오(11/28 24:00) 예약, 양꼬치 원격 줄서기. VUE는 스마트 캐주얼"],
 ["월요일 쇼핑: 카카오페이 · 신용카드 · 여권","따룬파는 카카오페이 할인. 택스리펀은 같은 날·같은 매장 200위안 이상, 즉시환급은 사전승인 되는 본인 신용카드 필요"],
-["월요일: 13:35 공항 출발","16:50 국제선, 14:25 도착 목표. 늦어지면 칭즈나 제일식품상점부터 빼기"]];
-const KW=["pvg","dhub","dis","yang","kang","yuy","nx","lbl","sjtu","ap","hq","zjg","bund","vue","dhc","rt","qz","pop","mns","mms","ff","jj","gj","gx","ole"];
+["월요일: 07:50 체크아웃 · 13:35 숙소에서 공항 출발","짐은 일요일 밤에 싸 두기. 12:50 난징동루 출발 → 숙소에서 캐리어 찾기 → 16:50 국제선, 14:40쯤 도착. 늦어지면 칭즈나 제일식품상점부터 빼기"]];
+const KW=["htl","pvg","dhub","dis","yang","kang","yuy","nx","lbl","sjtu","ap","hq","zjg","bund","vue","dhc","rt","qz","pop","mns","mms","ff","jj","gj","gx","ole"];
 const SKIP=["phw","sbr","lv","yyl","hkj","ins","sht","cru","ljs","wk","ole"];
 const VIDS=[["OrNvBu26NQo","최신 상하이 맛집·카페·3박4일 코스까지 영상 하나로 상하이 여행 총정리하기","또 떠나는 남자 ddoddunam · 2026-11-22 · 조회 29만"],
 ["JXo3OLIEbDI","2박 3일 상하이 여행 브이로그 | 디즈니랜드부터 현지 mz 맛집까지 꽉 채워 보여드립니다","김베개 · 2025-09-22 · 조회 18만"],
@@ -676,6 +711,7 @@ function flyTo(d,i){
 /* ── 기사님 화면 · 복사 ── */
 let lastFocus=null;
 function driver(k){const p=P[k];lastFocus=document.activeElement;document.getElementById("driverZh").textContent=p[1];document.getElementById("driverKo").textContent=p[0];
+  const ad=document.getElementById("driverAddr");ad.textContent=p[4]||"";ad.hidden=!p[4];
   const d=document.getElementById("driver");d.hidden=false;document.getElementById("driverClose").focus();
   try{navigator.wakeLock&&navigator.wakeLock.request("screen").catch(()=>{})}catch(e){}}
 function closeDriver(){document.getElementById("driver").hidden=true;if(lastFocus)lastFocus.focus()}
