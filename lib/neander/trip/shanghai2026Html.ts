@@ -2,7 +2,7 @@
 // 로그인 없이 링크로 여는 독립 HTML. 사진·지도 타일·Leaflet 은 public/neander/2026shanghai/ 에 있다.
 // (중국 안에서도 열리도록 외부 CDN 을 쓰지 않는다. 구글 폰트는 막혀도 화면을 붙잡지 않게 비동기로 읽는다.)
 export const SHANGHAI_2026_HTML = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="theme-color" content="#16223b"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="상하이 2박3일"><style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
-<title>상하이 2박 3일</title>
+<title>상하이 3박 4일</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'">
 <style>
@@ -59,7 +59,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 /* 탭 */
 .tabs{position:fixed;left:0;right:0;bottom:0;z-index:950;background:var(--surface);border-top:1px solid var(--line);
   padding-bottom:env(safe-area-inset-bottom,0px)}
-.tabs .wrap{display:grid;grid-template-columns:repeat(6,1fr);gap:2px;height:var(--navh);align-items:stretch}
+.tabs .wrap{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;height:var(--navh);align-items:stretch}
 .tabs a{display:flex;flex-direction:column;align-items:center;justify-content:center;text-decoration:none;color:var(--muted);font-size:13px;font-weight:600;border-radius:10px;gap:1px;line-height:1.2}
 .tabs a b{font-size:15px;color:var(--ink);font-weight:700}
 .tabs a[aria-current="page"]{background:var(--navy);color:#c5cfe0}
@@ -259,7 +259,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 </head><body>
 <header class="top">
   <div class="wrap">
-    <div class="brand">상하이 2박 3일<small>11.28 – 11.30</small></div>
+    <div class="brand">상하이 3박 4일<small>11.27 – 11.30</small></div>
     <button class="now" id="now" type="button" aria-live="polite"><span class="dot"></span><span class="txt"><b id="nowA">일정 확인 중</b><span id="nowB"></span></span></button>
     <div class="clock" id="clock" title="상하이 시간 (한국보다 1시간 늦음)"><span>상하이</span><b>--:--</b></div>
   </div>
@@ -268,7 +268,8 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 <nav class="tabs" aria-label="화면">
   <div class="wrap">
     <a href="#overview" data-v="overview"><b>한눈에</b>전체</a>
-    <a href="#day1" data-v="day1"><b>토 28</b>디즈니</a>
+    <a href="#day0" data-v="day0"><b>금 27</b>디즈니</a>
+    <a href="#day1" data-v="day1"><b>토 28</b>4명</a>
     <a href="#day2" data-v="day2"><b>일 29</b>두 조</a>
     <a href="#day3" data-v="day3"><b>월 30</b>귀국</a>
     <a href="#shop" data-v="shop"><b>쇼핑</b>사올 것</a>
@@ -278,6 +279,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 
 <main>
   <section class="view wrap" id="v-overview" data-view="overview"></section>
+  <section class="view wrap" id="v-day0" data-view="day0" hidden></section>
   <section class="view wrap" id="v-day1" data-view="day1" hidden></section>
   <section class="view wrap" id="v-day2" data-view="day2" hidden></section>
   <section class="view wrap" id="v-day3" data-view="day3" hidden></section>
@@ -335,6 +337,8 @@ const P={
  cru:["황푸강 크루즈","黄浦江游览(十六铺码头)",121.498233,31.228588],
  ljs:["라오지스","老吉士酒家(天平路店)",121.437942,31.202820],
  wk:["우캉맨션","武康大楼",121.438278,31.204430],
+ zd:["점도덕 · 德小馆 정대점","点都德·德小馆(正大店)",121.499171,31.236682,"陆家嘴西路168号 正大广场 西区6楼614室"],
+ opt:["동방명주 앞 강변","东方明珠",121.501261,31.23949],
  lelabo:["르라보 × 징야 (우캉루)","LE LABO 武康路135号",null,null,"徐汇区武康路135号"],
  harmay:["화메이 안푸루 플래그십","HARMAY话梅 安福路",null,null,"武康路55号 (安福路口)"],
  vr:["《烧火工》 VR · 과학기술관","上海科技馆 烧火工沉浸体验空间",121.542073,31.218459,"浦东新区世纪大道2000号 B1"]
@@ -346,45 +350,83 @@ const navUrl=(a,b,m)=>{const A=P[a],B=P[b];return \`https://uri.amap.com/navigat
 
 /* ── 일정 ── */
 const DAYS=[
-{id:"day1",n:1,date:[2026,11,28],wd:"토",title:"푸동공항 → 디즈니랜드",sum:"디즈니 16:30~21:30 → 양꼬치 → 발마사지 → 훙차오 숙소",fit:["pvg","dis","yang","htl"],items:[
+{id:"day0",n:1,date:[2026,11,27],wd:"금",title:"선발대 2명 · 디즈니랜드",sum:"선발대 2명만 · 푸동공항 → 디즈니 16:30~21:30 → 양꼬치 → 발마사지 → 훙차오 숙소",fit:["pvg","dis","yang","htl"],items:[
  {t:"15:30",tag:"이동",title:"푸동공항 → 디즈니",sub:"上海浦东国际机场 → 上海迪士尼度假区",img:"p5",pin:"pvg",pts:["pvg","dhub"],b:[
-  "디즈니는 바퀴 달린 캐리어 반입 불가. 공항에서 호텔로 짐 배송을 맡기거나 정문 보안검색대 동쪽 유료 보관소 이용",
-  "택시·디디 20~30분, 80~130위안. 목적지는 「上海迪士尼度假区西公交枢纽」(택시 하차 지정 장소)",
-  "실명제 티켓이라 예약한 여권 원본 필수"]},
+  "도착 시각은 15:30으로 가정했어요. 실제 항공편이 다르면 디즈니 입장 시각만 밀고 당기면 돼요",
+  "디즈니는 바퀴 달린 짐 반입 금지(크기 상관없음), 56×36×23cm 넘는 가방도 금지. 공항에서 호텔로 짐 배송을 맡기는 게 가장 편해요",
+  "못 맡기면 파크 짐 보관: 1개 하루 80위안(작은 짐 10위안), 폐장 뒤 1시간까지. 위치는 공식 안내끼리 달라서 현장에서 확인",
+  "택시·디디 20~30분, 80~130위안. 목적지는 「上海迪士尼度假区西公交枢纽」(택시 하차 지정 장소)"]},
  {t:"16:30",tag:"액티비티",title:"디즈니 입장 → 주토피아",sub:"上海迪士尼乐园 · 세계 최초 주토피아 존",img:"p6",pin:"dis",pts:["dis"],
   go:[{m:"taxi",txt:"택시·디디 20~30분 · 80~130위안",from:"pvg",to:"dhub"}],b:[
-  "11/28(토) 1일권 569위안 (공식 홈페이지 기준) · 운영 08:30~21:30. 얼리버드는 10일 전 마감이라 일반권",
-  "주디·닉 경찰차를 타는 「주토피아 핫 퍼슈트」는 저녁에도 대기 1시간 넘는 날이 많아요",
-  "시간 아끼려면 DPA(유료 패스트트랙): 입장 후 공식 앱에서 1개 180위안대, 선착순"]},
- {t:"17:45",tag:"액티비티",title:"트론",sub:"TRON Lightcycle Power Run · 투모로우랜드",img:"p7",pin:"dis",pts:["dis"],b:[
-  "오토바이 자세로 엎드려 타는 롤러코스터. 조명 켜진 밤에 타야 분위기 최고",
-  "주토피아 + 트론 DPA 2개(360위안대)면 짧은 일정에도 둘 다 확실히 탈 수 있어요",
-  "키 122cm 이상, 가방은 탑승 전 보관 카트에"]},
+  "주의: 11/26 아침 공식몰 조회에서 11/27 1일권이 비어 있었어요(11/26·28·29는 정상). 매진일 수 있으니 공식 앱 → 트립닷컴·클룩 재고를 바로 확인",
+  "11/27 가격은 확인 못 함 (12/4·12/11 금요일은 499위안). 운영 08:30~21:30, 오후권·야간권 없음. 실명제라 예약한 여권 원본 필수",
+  "주디·닉 경찰차를 타는 「주토피아 핫 퍼슈트」 DPA(유료 패스트트랙)는 180위안대(11/28 기준), 금요일 저녁 대기 시간은 당일 앱으로 확인"]},
+ {t:"17:45",tag:"액티비티",title:"트론 · 미키 스노우 매직",sub:"TRON Lightcycle Power Run · Mickey's Snow Magic 17:45 / 19:15",img:"p7",pin:"dis",pts:["dis"],b:[
+  "오토바이 자세로 엎드려 타는 롤러코스터. 조명 켜진 밤에 타야 분위기 최고 (키 122cm 이상)",
+  "주토피아 + 트론 DPA 2개면 짧은 일정에도 둘 다 확실히 탈 수 있어요. 트론 DPA 가격은 확인 못 함",
+  "겨울 신규 공연 「미키의 눈 마법」이 미키 애비뉴에서 17:45, 19:15"]},
  {t:"18:15",tag:"공연",title:"겨울 퍼레이드 + 캐리비안",sub:"Disney Winter Magic Cavalcade · 캐리비안의 해적",img:"p8",pin:"dis",pts:["dis"],b:[
-  "18:15 겨울 퍼레이드 (11/28 공식 시간표)",
-  "퍼레이드 시간엔 다른 줄이 짧아져요. 캐리비안의 해적은 전투 장면 퀄리티로 유명",
+  "18:15 겨울 퍼레이드 (11/27 공식 시간표, 토요일과 같음)",
+  "퍼레이드 시간엔 다른 줄이 짧아져요. 캐리비안의 해적은 전투 장면 퀄리티로 유명. 렉스 레이서는 금요일엔 운영(토요일만 점검)",
   "파크 안 저녁은 간단히. 양꼬치 먹을 배 남겨두기"]},
- {t:"20:00",tag:"공연",title:"ILLUMINATE 불꽃 야간쇼",sub:"성 앞 불꽃 + 프로젝션 쇼 · 11/28은 20:00, 21:15",img:"p9",pin:"dis",pts:["dis"],b:[
+ {t:"20:00",tag:"공연",title:"ILLUMINATE 불꽃 야간쇼",sub:"성 앞 불꽃 + 프로젝션 쇼 · 20:00, 21:15",img:"p9",pin:"dis",pts:["dis"],b:[
   "20:00 회차를 보고 21:30 폐장까지 줄 짧아진 트론·주토피아 한 번 더 또는 굿즈 쇼핑",
-  "10주년 특별쇼 「Magic Together」도 20:15, 21:30에 있어요",
-  "폐장 직후엔 택시 줄이 길어요. 디디를 미리 부르거나 지하철 11호선 디즈니역"]},
+  "10주년 특별쇼 「Magic Together」도 20:15, 21:30",
+  "폐장 직후엔 택시 줄이 길어요. 디디를 미리 부르거나 지하철 11호선 디즈니역. 짐을 맡겼으면 찾아서 나오기"]},
  {t:"22:30",tag:"저녁 · 필수",star:1,title:"오래전 양꼬치",sub:"很久以前羊肉串 (南京路第一百货店) · B관 6층",img:"p10",pin:"yang",pts:["yang"],
   go:[{m:"taxi",txt:"택시 45~60분 (지하철은 1시간 이상)",from:"dis",to:"yang"}],b:[
-  "디즈니에서 택시 약 45~60분, 지하철로는 1시간 이상",
-  "새벽 3시까지 영업이라 늦게 가면 오히려 대기가 짧아요",
-  "추천: 呼伦贝尔羊肉串(양꼬치), 烤馒头(꽃빵구이), 烤茄子(가지구이) + 칭다오 맥주"]},
+  "이 지점 닫는 시간은 확인 못 함. 일정표 자료는 새벽 3시, 체인 안내는 「11:00~24:00, 지점마다 다름」이라 엇갈려요 → 디즈니에서 나올 때 위챗 공식 계정 「排队订座」로 원격 줄서기하면서 마감 시간 확인",
+  "후기 · 저녁엔 200팀 넘게 기다리는 날도 있지만, QR로 미리 줄 서서 30분 안에 들어간 후기가 있어요",
+  "추천: 쯔란 양꼬치(呼伦贝尔羊肉串, 12개 69.8위안) · 막창 · 단맛 옥수수 · 烤馒头(꽃빵구이) + 칭다오 맥주. 오이무침은 서비스로 나오기도",
+  "닫혀 있으면 대안: 같은 체인 南京西路818广场店"]},
  {t:"24:00",tag:"힐링",title:"발마사지",sub:"캉다오(康道天地) 남경로점 · 남경동로 479호 10층",img:"p11",pin:"kang",pts:["kang"],
   go:[{m:"walk",txt:"걸어서 약 10분",from:"yang",to:"kang"}],b:[
   "디즈니에서 하루 종일 걸은 다리 풀기. 양꼬치집에서 걸어서 약 10분",
   "남경로점은 24시간. 다만 새벽 1시 이후엔 마사지사가 2명뿐이라 예약 필수",
   "발+전신 90분 코스가 가성비. 마이리얼트립 예약 시 4~6만원대"]},
- {t:"01:30",nd:1,tag:"숙소",title:"숙소로 · 체크인",sub:"그랜드 머큐어 상하이 훙차오 · 上海虹桥美爵酒店",pin:"htl",pts:["htl"],
+ {t:"01:30",nd:1,tag:"숙소",title:"숙소로 · 체크인",sub:"그랜드 머큐어 상하이 훙차오 · 방 A (11/27~30)",pin:"htl",pts:["htl"],
   go:[{m:"taxi",txt:"디디·택시 약 30분 (밤이라 덜 막힘)",from:"kang",to:"htl"}],b:[
   "난징동루에서 서쪽으로 약 10km. 디디 목적지는 「上海虹桥美爵酒店」",
   "기사님께는 「기사님께 보여주기」 화면(주소 长宁区仙霞路369号 포함)을 보여 주세요",
   "공항에서 짐 배송을 맡겼다면 프런트에서 찾기"]}
 ]},
-{id:"day2",n:2,date:[2026,11,29],wd:"일",title:"예원 → 두 조 → 장자강 → 와이탄",sum:"점심 뒤 A조는 우캉루 향수 산책 → 상해교통대, B조는 《烧火工》 VR → 짝퉁시장 · 16:00 훙차오역에서 4명 다시 모임",fit:["yuy","sjtu","wk","vr","hq","vue","htl"],items:[
+{id:"day1",n:2,date:[2026,11,28],wd:"토",title:"4명 합류 · 루자쭈이 저녁",sum:"선발대는 오전 휴식 · 토요일 조 15:30 푸동 도착 → 숙소에서 4명 합류 → 점도덕 저녁 → 상하이타워 118층 → 강변 야경",fit:["htl","zd","sht","opt"],items:[
+ {t:"10:00",tag:"자유",title:"선발대 · 늦잠과 휴식",sub:"디즈니 + 새벽 마사지 다음 날",pin:"htl",pts:["htl"],b:[
+  "오전은 숙소에서 쉬기. 조식 뷔페는 06:00부터(아코르 집계 9.6/10). 지금 예약은 조식 불포함이라 먹으려면 현장 추가",
+  "나가고 싶으면 숙소에서 차로 10~15분 「쉬스(叙室)」 맞춤 조향 체험: 원료 100여 종 시향 → 조향사와 비율 정하기, 30ml 388위안 · 1~2시간 · 위챗 ID narratus 예약제"]},
+ {t:"15:30",tag:"이동",title:"토요일 조 2명 · 푸동공항 → 숙소",sub:"上海浦东国际机场 → 上海虹桥美爵酒店 · 방 B (11/28~30)",pin:"pvg",pts:["pvg","htl"],b:[
+  "입국·짐 찾기 뒤 16:15쯤 출발해서 17:30 전에 숙소 도착 목표",
+  "디디 60~90분 (토요일 오후라 막힐 수 있음) 또는 공항연결선(市域机场线) 푸동공항 → 虹桥2号航站楼 약 40분 · 26위안 + 택시 10~15분. 막히는 시간엔 연결선이 시간이 정확해요",
+  "선발대는 숙소에서 기다렸다가 같이 출발"]},
+ {t:"17:40",tag:"합류",title:"4명 합류 · 루자쭈이로",sub:"숙소 → 2호선 陆家嘴역",pin:"htl",pts:["htl"],
+  go:[{m:"taxi",txt:"공항에서 디디 60~90분 또는 공항연결선 + 택시",from:"pvg",to:"htl"}],b:[
+  "출발하면서 따종디엔핑(大众点评)으로 점도덕 정대점 원격 줄서기 (다음 일정 참고)",
+  "지하철: 숙소 근처 10호선 → 南京东路역에서 2호선 → 陆家嘴역, 약 50분 / 디디 6인승 약 40~50분"]},
+ {t:"18:30",tag:"저녁 · 필수",star:1,title:"점도덕 딤섬 저녁",sub:"点都德·德小馆(正大店) · 正大广场 서관 6층 614호",pin:"zd",pts:["zd"],
+  go:[{m:"subway",txt:"10호선 → 南京东路 환승 2호선 → 陆家嘴역 약 50분 (디디 40~50분)",from:"htl",to:"zd"}],b:[
+  "이 지점은 일반 점도덕이 아니라 자매 브랜드 「德小馆」이에요. 딤섬에 볶음 요리가 더 있고 인테리어가 현대식. 2026년 1~2월 방문 후기가 있어 영업 중으로 보여요",
+  "예약은 안 돼요. 따종디엔핑에서 「上海 点都德」 검색 → 正大店 → 排队(QUEUE). 한국 번호 로그인은 앱 버전 따라 달라서 출국 전에 가입·문자 수신을 시험해 두기",
+  "후기 · Ctrip 4.2/5 (21건), 1인 평균 114위안. 2026-01 후기: 주말 점심 대기 약 30분, 한국 여권 보여주면 메뉴 1개 무료(지금도 하는지는 확인 못 함), 한국어 메뉴판",
+  "후기에서 칭찬: 홍미창펀(红米肠)·하가우, 넓은 매장, 현대식 분위기 / 불만: 딤섬을 주문 뒤에 쪄서 하나씩 늦게 나옴, 신천지점이 더 맛있었다는 비교 후기",
+  "4명 주문안 (후기에서 반복 추천된 것만): 金莎海虾红米肠(새우튀김 홍미창펀, 6개 44위안) 2 · 金牌虾饺皇(하가우) 2 · 招牌烧卖 1 · 蜜汁叉烧包 1 · 百合酱蒸凤爪(닭발찜) 1 · 干炒牛河(소고기 볶음 쌀국수) 1 · 白灼菜心 1 · 避风塘乳鸽 1 → 약 450~550위안",
+  "부추 군만두·옥수수구이는 건너뛰어도 된다는 후기. 차는 1인 1잔 의무(약 8위안)",
+  "테이블 QR 주문, 알리페이 결제(카카오페이·토스 결제 사례도 있음). 200위안 넘으면 해외카드 수수료 3%라 나눠 내기",
+  "영업 마감·라스트오더·강 전망 여부는 확인 못 함 → 18:30 전후로 들어가기"]},
+ {t:"20:00",tag:"전망",title:"상하이타워 118층 전망대",sub:"上海中心大厦 上海之巅观光厅 · 08:30~22:00 (마지막 입장 21:30)",pin:"sht",pts:["sht"],
+  go:[{m:"walk",txt:"걸어서 약 10분",from:"zd",to:"sht"}],b:[
+  "중국 최고층 전망대. 세계 최고 속도급 엘리베이터로 118층까지",
+  "실명제라 여권 필요, 보안검색에 20~30분 걸린다는 후기 → 21:00 전에는 들어가기",
+  "클룩 35,600원부터 (현지 성인 약 180위안). 미리 사 두기 · 1~1.5시간"]},
+ {t:"21:15",tag:"야경",title:"루자쭈이 강변 야경",sub:"东方明珠 앞 강변 산책로 · 건너편 와이탄",pin:"opt",pts:["opt"],
+  go:[{m:"walk",txt:"걸어서 약 15분",from:"sht",to:"opt"}],b:[
+  "동방명주 앞 강변에서 건너편 와이탄 건물 야경. 와이탄 조명은 22:00에 꺼지니 21:45 전에 도착",
+  "일요일 밤엔 반대로 와이탄 쪽에서 이쪽(루자쭈이)을 봐요",
+  "한잔 더 하고 싶으면 IFC 58층 리츠칼튼 「Flair」 루프탑 (칵테일 약 130~180위안, 확인 필요)"]},
+ {t:"22:00",tag:"숙소",title:"숙소로",sub:"2호선 → 10호선 또는 디디 약 45분",pin:"htl",pts:["htl"],
+  go:[{m:"taxi",txt:"디디 약 45분 (지하철 약 50분)",from:"opt",to:"htl"}],b:[
+  "일요일은 08:15쯤 예원으로 출발하니 일찍 쉬기"]}
+]},
+{id:"day2",n:3,date:[2026,11,29],wd:"일",title:"예원 → 두 조 → 장자강 → 와이탄",sum:"점심 뒤 A조는 우캉루 향수 산책 → 상해교통대, B조는 《烧火工》 VR → 짝퉁시장 · 16:00 훙차오역에서 4명 다시 모임",fit:["yuy","sjtu","wk","vr","hq","vue","htl"],items:[
  {t:"09:00",tag:"관광",title:"예원",sub:"豫园 · 명나라 정원 + 구곡교 · 성황묘",img:"p14",pin:"yuy",pts:["yuy"],
   go:[{m:"subway",txt:"숙소에서 08:15쯤 출발 · 걸어서 약 15분 10호선 伊犁路역 → 豫园역 직행 (택시면 약 30~40분)",from:"htl",to:"yuy"}],b:[
   "9:00 개장, 16:00 입장 마감, 11월 입장료 40위안 (월요일 휴무, 일요일은 OK)",
@@ -392,7 +434,8 @@ const DAYS=[
   "주말이라 문 열자마자 들어가야 덜 붐벼요"]},
  {t:"11:30",tag:"점심",title:"남상만두점 점심",sub:"南翔馒头店 豫园路 · 샤오롱바오 원조집",img:"p15",pin:"nx",pts:["nx","lbl"],
   go:[{m:"walk",txt:"예원 바로 옆",from:"yuy",to:"nx"}],b:[
-  "07:30~20:00 · 2~3층 홀 1인 80~120위안. 주말엔 홀 대기가 1시간 넘을 수 있어 11시 반 전에 줄 서기",
+  "후기 · 10:30 전에 가야 덜 붐비고, 주말엔 홀 대기가 1시간 넘기도 해요 → 11:30 전에 줄 서기. 룸은 전화 예약 +86 21 6355 4206 (미슐랭 가이드 수록)",
+  "층별 가격(2025-10 후기): 1층 포장 小笼 6개 30위안 · 2층 小笼 38위안, 蟹粉小笼 48위안 · 3층 경관석 蟹黄汤包 1개 49위안. 「값에 비해 그저 그렇다」는 불만도 2025년까지 꾸준해요",
   "대안: 녹파랑(绿波廊) 본방차이·딤섬. 고덕지도에 「정문 공사 중」 표시가 있어 영업 여부 전화 확인 (021-63280602)",
   "12:45 두 조로 나눠 출발"]},
  {t:"12:45",tag:"향수",group:"a",title:"A조 (2명) · 우캉루 향수 산책",sub:"르라보 × 징야 · 화메이 · 은행잎 · 교통대에서 걸어서 10분",pin:"wk",pts:["lelabo","harmay","wk"],
@@ -436,14 +479,14 @@ const DAYS=[
  {t:"22:00",tag:"나이트",title:"VUE 루프탑 바",sub:"Hyatt on the Bund 32~33층 · 북와이탄",img:"p21",pin:"vue",pts:["vue"],
   go:[{m:"walk",txt:"걸어서 15분",from:"bund",to:"vue"}],b:[
   "와이탄과 루자쭈이가 양쪽으로 보이는 루프탑. 야외 자쿠지로 유명",
-  "일요일 입장 128위안(음료 1잔 포함) · 일~목 01:30까지. 스마트 캐주얼",
+  "입장 128~158위안(음료 1잔 포함, 날짜 없는 자료라 2026년 가격은 확인 못 함) · 스마트 캐주얼",
   "배고프면 홍쿠이지아 마라롱샤 야식(새벽 2:30까지), 더 놀고 싶으면 클럽 INS"]},
  {t:"24:00",tag:"숙소",title:"숙소로",sub:"VUE는 일~목 01:30까지 · 숙소까지 택시 약 30분",pin:"htl",pts:["htl"],
   go:[{m:"taxi",txt:"디디·택시 약 30분",from:"vue",to:"htl"}],b:[
   "디디 목적지는 「上海虹桥美爵酒店」",
   "월요일은 07:50에 체크아웃하고 나가야 하니 짐은 이날 밤에 미리 싸 두기"]}
 ]},
-{id:"day3",n:3,date:[2026,11,30],wd:"월",title:"따룬파 → 난징동루 쇼핑 → 귀국",sum:"아침에 체크아웃하고 캐리어 맡기기 → 생지엔 → 따룬파 → 칭즈 · 관샤 → 난징동루 한 줄로 걸으며 쇼핑 → 점심 → 숙소에서 짐 찾고 공항",fit:["dhc","rt","gx","jj"],items:[
+{id:"day3",n:4,date:[2026,11,30],wd:"월",title:"따룬파 → 난징동루 쇼핑 → 귀국",sum:"아침에 체크아웃하고 캐리어 맡기기 → 생지엔 → 따룬파 → 칭즈 · 관샤 → 난징동루 한 줄로 걸으며 쇼핑 → 점심 → 숙소에서 짐 찾고 공항",fit:["dhc","rt","gx","jj"],items:[
  {t:"07:50",tag:"숙소",title:"체크아웃 · 캐리어 맡기기",sub:"그랜드 머큐어 상하이 훙차오 · 上海虹桥美爵酒店",pin:"htl",pts:["htl"],b:[
   "숙소가 시내에서 약 10km 떨어진 훙차오라, 낮에 숙소를 두 번 오가지 않도록 아침에 체크아웃까지 끝내고 나가요",
   "짐은 일요일 밤에 미리 싸 두고, 체크아웃하면서 프런트에 캐리어 맡기기 (13:25쯤 찾으러 옴)",
@@ -451,7 +494,8 @@ const DAYS=[
  {t:"08:30",tag:"아침",title:"생지엔 아침",sub:"大壶春 四川中路店 · 와이탄 근처 · 상하이식 군만두",img:"p24",pin:"dhc",pts:["dhc"],
   go:[{m:"taxi",txt:"07:50 디디 출발 · 약 30~40분",from:"htl",to:"dhc"}],b:[
   "체크아웃은 끝났고 캐리어는 숙소에 맡겨 둔 상태",
-  "바닥이 바삭한 생지엔 노포. 1인 약 27위안, 새우 생지엔(虾仁生煎) 추천",
+  "바닥이 바삭한 생지엔 노포, 미슐랭 빕 구르망. 1인 약 27위안(생지엔 4개 9~13위안), 새우 생지엔(虾仁生煎) 추천",
+  "후기 · 08:00~21:00, 셀프 주문, 줄이 길게 서기도 해요. 카드 된다는 자료와 현금만이라는 자료가 엇갈려서 현금 조금 챙기기",
   "09:00 디디 한 대로 따룬파 출발 (4명이면 6인승 「六座」 선택 안 해도 됨)"]},
  {t:"09:20",tag:"쇼핑",title:"따룬파 마트 털기",sub:"大润发(平型关店) · 俞泾港路11号 B1 · 08:00~22:00",img:"p25",pin:"rt",pts:["rt"],
   go:[{m:"taxi",txt:"09:00 디디 출발 · 20~25분 · 약 28위안",from:"dhc",to:"rt"}],b:[
@@ -479,9 +523,11 @@ const DAYS=[
   "화이트래빗 사탕을 맛별로 담아 무게로 계산. 회사·친구 뿌리기용",
   "대추누가·나비파이는 부모님 선물용",
   "같은 매장에서 200위안 넘게 사면 여권 내고 택스리펀 서류 받기"]},
- {t:"12:20",tag:"점심",title:"자자탕바오 점심",sub:"佳家汤包 黄河路 · 난징동루 서쪽 끝에서 걸어서 5분",img:"p29",pin:"jj",pts:["jj","gj"],
+ {t:"12:20",tag:"점심",title:"자자탕바오 점심",sub:"佳家汤包 黄河路127号 · 난징동루 서쪽 끝에서 걸어서 5분",img:"p29",pin:"jj",pts:["jj","gj"],
   go:[{m:"walk",txt:"걸어서 5분",from:"ff",to:"jj"}],b:[
-  "주문하고 빚어 나오는 게살 탕바오. 1인 약 41위안, 게살 비빔면도 유명",
+  "주문하고 빚어 나오는 게살 탕바오. 1인 약 35~41위안, 황금 게살 비빔면도 유명",
+  "후기 · Trip.com 4.4/5 (223건), 07:30~20:30. QR 주문이고 외국인 손님이 많아요. 일찍 가야 덜 기다려요",
+  "바로 옆 「佳乐汤包」와 헷갈리지 말 것 (간판 확인: 佳家)",
   "바로 앞 국제반점(国际饭店) 나비파이는 258겹 원조, 고급 선물용. 줄 길면 패스",
   "12:50 디디로 숙소 (약 30~40분) → 캐리어 찾기"]},
  {t:"13:25",tag:"숙소",title:"숙소에서 캐리어 찾기",sub:"上海虹桥美爵酒店 · 프런트",pin:"htl",pts:["htl"],
@@ -508,8 +554,8 @@ function dur(ms){const m=Math.round(ms/60000);if(m<60)return m+"분";const h=Mat
 function status(){
   const now=Date.now();const first=FLAT[0];const end=sh(...TRIP_END);
   if(now<first.at){
-    const a=shNow();const today=Date.UTC(a.getUTCFullYear(),a.getUTCMonth(),a.getUTCDate());const dd=Math.round((Date.UTC(2026,10,28)-today)/864e5);
-    return {live:false,a:dd>0?\`출발까지 D-\${dd}\`:\`오늘 출발 · \${dur(first.at-now)} 뒤 시작\`,b:"11/28(토) 15:30 푸동공항 도착부터",go:first};
+    const a=shNow();const today=Date.UTC(a.getUTCFullYear(),a.getUTCMonth(),a.getUTCDate());const fd=first.day.date;const dd=Math.round((Date.UTC(fd[0],fd[1]-1,fd[2])-today)/864e5);
+    return {live:false,a:dd>0?\`출발까지 D-\${dd}\`:\`오늘 출발 · \${dur(first.at-now)} 뒤 시작\`,b:\`\${first.day.date[1]}/\${first.day.date[2]}(\${first.day.wd}) \${first.t} \${first.title}부터\`,go:first};
   }
   if(now>end)return {live:false,a:"여행 끝! 다들 수고했어요",b:"11/30(월) 16:50 푸동 출발",go:null};
   let cur=null,next=null;for(const it of FLAT){if(it.at<=now)cur=it;else{next=it;break}}
@@ -539,7 +585,7 @@ function legRow(g,toPin){
 const PINNO={};
 function renderDay(D){
   const no={};let c=0;D.items.forEach(it=>{if(it.pin&&!(it.pin in no))no[it.pin]=it.pin==="htl"?"H":++c});PINNO[D.id]=no;
-  const legend=\`<div class="legend"><span><i></i>택시·지하철</span><span><i class="walk"></i>걷기</span>\${D.n===2?'<span><i class="ga"></i>A조</span><span><i class="gb"></i>B조</span><span><i class="train"></i>고속철</span>':""}<span>선은 순서만 표시 (실제 길 아님)</span></div>\`;
+  const legend=\`<div class="legend"><span><i></i>택시·지하철</span><span><i class="walk"></i>걷기</span>\${D.id==="day2"?'<span><i class="ga"></i>A조</span><span><i class="gb"></i>B조</span><span><i class="train"></i>고속철</span>':""}<span>선은 순서만 표시 (실제 길 아님)</span></div>\`;
   const items=D.items.map((it,i)=>{
     const legs=(it.go||[]).map(g=>legRow(g,it.pin)).join("");
     const bd=it.pin?\`<span class="badge \${badgeCls(it)}">\${no[it.pin]}</span>\`:\`<span class="badge none">H</span>\`;
@@ -590,14 +636,15 @@ function renderOverview(){
 <ol>\${D.items.filter((it,i,a)=>!(it.pin==="dis"&&i>1)||it.t==="20:00").map(it=>\`<li class="\${it.star?"star":""}"><span class="t">\${it.t}</span><span>\${esc(it.title)}</span></li>\`).join("")}</ol><span class="more">동선·지도 보기 →</span></a>\`).join("");
   document.getElementById("v-overview").innerHTML=\`
 <div class="hero"><img src="/neander/2026shanghai/img/p1.jpg" alt="상하이 루자쭈이 야경"><div class="in">
-<p class="eyebrow" style="color:#f2a31b">SHANGHAI · 2026 · 4명</p><h1>상하이 2박 3일</h1>
-<div class="route"><span><b>11/28 토</b>푸동공항 → 디즈니랜드</span><span><b>11/29 일</b>예원 → 교통대·짝퉁시장 → 장자강 → 와이탄 → 루프탑</span><span><b>11/30 월</b>따룬파 → 난징동루 쇼핑 → 16:50 귀국</span></div>
-<div class="chips"><a class="chip" href="#day1" data-jump="day1-5">★ <span class="t">11/28 22:30</span> 오래전 양꼬치</a><a class="chip" href="#day2" data-jump="day2-4">★ <span class="t">11/29 14:30</span> 상해교통대</a><a class="chip navy" href="#day3" data-jump="day3-9">✈ <span class="t">11/30 16:50</span> 푸동 출발</a></div>
+<p class="eyebrow" style="color:#f2a31b">SHANGHAI · 2026 · 4명</p><h1>상하이 3박 4일</h1>
+<div class="route"><span><b>11/27 금</b>선발대 2명 · 디즈니랜드 → 양꼬치 → 발마사지</span><span><b>11/28 토</b>4명 합류 · 점도덕 → 상하이타워 → 루자쭈이 야경</span><span><b>11/29 일</b>예원 → 우캉루·교통대 / VR·짝퉁시장 → 장자강 → 와이탄 → 루프탑</span><span><b>11/30 월</b>따룬파 → 난징동루 쇼핑 → 16:50 귀국</span></div>
+<div class="chips"><a class="chip" href="#day1" data-jump="day1-3">★ <span class="t">11/28 18:30</span> 점도덕 저녁</a><a class="chip" href="#day2" data-jump="day2-4">★ <span class="t">11/29 14:30</span> 상해교통대</a><a class="chip navy" href="#day3" data-jump="day3-9">✈ <span class="t">11/30 16:50</span> 푸동 출발</a></div>
 </div></div>
-<div class="sec"><h2>사흘 일정</h2><p class="lead">카드를 누르면 그날 지도와 동선이 열려요. 시간은 모두 상하이 시간 (한국보다 1시간 늦음).</p><div class="grid">\${dc}</div></div>
+<div class="sec"><h2>나흘 일정</h2><p class="lead">카드를 누르면 그날 지도와 동선이 열려요. 시간은 모두 상하이 시간 (한국보다 1시간 늦음).</p><div class="grid">\${dc}</div></div>
 <div class="sec"><h2>이렇게 쓰세요</h2><div class="grid">
 <div class="tip"><h3><span class="k n">고덕지도</span> 남색 버튼</h3><p>폰에서 누르면 고덕지도 앱이 열리면서 그 장소에 핀이 꽂혀요. 「기사님께 보여주기」를 누르면 택시에서 보여줄 큰 중국어 화면이 떠요.</p></div>
 <div class="tip"><h3>앱 필수</h3><p>알리페이 · 위챗 · 따종디엔핑 · 디디 · 디즈니 공식 앱 · 트립닷컴(고속철 표). 따룬파는 카카오페이 할인.</p></div>
+<div class="tip"><h3>금·토는 따로, 저녁에 합류</h3><p>금요일엔 선발대 2명만 디즈니. 토요일 15:30에 나머지 2명이 푸동에 도착해 숙소에서 합류하고, 17:40부터 4명이 같이 루자쭈이로 가요.</p></div>
 <div class="tip"><h3>일요일은 두 조</h3><p>점심 뒤 <span class="k a">A조 2명</span> 우캉루 향수 산책 → 14:30 상해교통대, <span class="k b">B조 2명</span> 《烧火工》 VR → 짝퉁시장. 16:00 훙차오역에서 다시 4명 집합.</p></div>
 <div class="tip"><h3>월요일은 아침에 체크아웃</h3><p>숙소가 훙차오라 07:50에 체크아웃하고 캐리어를 맡긴 채 시내로. 난징동루 쇼핑·점심 뒤 12:50에 숙소로 와서 짐 찾고 13:35 공항으로.</p></div>
 </div></div>
@@ -659,7 +706,7 @@ function renderShop(){
   document.getElementById("v-shop").innerHTML=\`<div class="dayhead"><p class="eyebrow">쇼핑 리스트</p><h2>상하이에서 사올 것</h2><p class="sum">한국인 블로그·브이로그 후기에서 많이 사온 것 위주. 산 것은 체크해 두세요 (체크는 이 폰에만 저장돼요). 지금 <b>\${cnt} / \${SHOP.length}</b></p></div>
 <div class="where">
 <div class="tip"><h3>따룬파 마트 · 월 09:20</h3><p>마카다미아 · 에그롤 · 레이즈 오이맛 · 하이디라오 소스 · 투도우펀 · 취뚜어뚜어 · I❤SH 티셔츠 · 고량주</p></div>
-<div class="tip"><h3>난징동루 · 월 11:20~</h3><p>칭즈 핸드크림 · 팝마트 라부부 · 제일식품상점 (화이트래빗 · 나비파이 · 대추누가)</p></div>
+<div class="tip"><h3>난징동루 · 월 10:30~</h3><p>칭즈 핸드크림 · 관샤 · 팝마트 라부부 · 제일식품상점 (화이트래빗 · 나비파이 · 대추누가)</p></div>
 <div class="tip"><h3>그 밖의 매장</h3><p>스타벅스 시티컵 · 홀리랜드 디저트 · 고급 선물은 관샤(와이탄) · 국제반점 나비파이 · 블랜버니</p></div>
 <div class="tip"><h3>푸동공항 출국장</h3><p>위스키 · 우량예 · 석쿠먼 황주 · 대추호두말이 · 프레첼</p></div>
 </div>
@@ -681,14 +728,16 @@ function renderShop(){
 /* ── 준비 ── */
 const PREP=[
 ["고속철 왕복 4장 (11/29)","갈 때 G7138 훙차오 16:17→장자강 17:07, 올 때 D5565 장자강 19:29→훙차오 20:21. 트립닷컴·12306, 여권으로 예매"],
-["디즈니 1일권 (11/28 569위안) + 공식 앱 · 짐 처리","실명제라 여권 정보로 예약. 캐리어 반입 불가라 공항→호텔 짐 배송 또는 정문 옆 유료 보관소"],
+["디즈니 11/27 표 (선발대) · 짐 처리","11/26 공식몰 조회에서 11/27 1일권이 비어 있었어요(매진 가능성) → 공식 앱 · 트립닷컴 · 클룩 재고 바로 확인. 실명제라 여권으로 예약. 캐리어 반입 불가라 공항→호텔 짐 배송 또는 파크 짐 보관(1개 80위안)"],
+["따종디엔핑 가입 · 원격 줄서기 시험","점도덕 정대점(토 18:30) 원격 줄서기용. 한국 번호 로그인·문자 수신을 출국 전에 확인. 양꼬치는 위챗 공식 계정 「排队订座」"],
+["상하이타워 118층 표 (토 20:00)","클룩 35,600원부터, 실명제라 여권 정보 필요"],
 ["《烧火工》 VR 예약 (B조) · 화메이 영업 확인 (A조)","과학기술관 위챗 미니프로그램에서 실명(여권) 예약, 11/29 13:15~13:30 회차 · 가격·일요일 운영 시간도 확인 / 화메이 안푸루점 지금도 여는지"],
 ["교통대 입장 등록 (A조) · Kubert 씨 약속","11/29 13:00부터 위챗 「参观交大」 등록 / 장자강역 17:07 도착 · 19:29 귀가, 역 근처 식당"],
-["발마사지 예약 · 따종디엔핑 · 복장","캉다오(11/28 24:00) 예약, 양꼬치 원격 줄서기. VUE는 스마트 캐주얼"],
+["발마사지 예약 · 따종디엔핑 · 복장","캉다오(11/27 24:00) 예약, 양꼬치 원격 줄서기. VUE는 스마트 캐주얼"],
 ["월요일 쇼핑: 카카오페이 · 신용카드 · 여권","따룬파는 카카오페이 할인. 택스리펀은 같은 날·같은 매장 200위안 이상, 즉시환급은 사전승인 되는 본인 신용카드 필요"],
 ["월요일: 07:50 체크아웃 · 13:35 숙소에서 공항 출발","짐은 일요일 밤에 싸 두기. 12:50 난징동루 출발 → 숙소에서 캐리어 찾기 → 16:50 국제선, 14:40쯤 도착. 늦어지면 칭즈나 제일식품상점부터 빼기"]];
-const KW=["htl","pvg","dhub","dis","yang","kang","yuy","nx","lbl","sjtu","ap","hq","zjg","bund","vue","dhc","rt","qz","pop","mns","mms","ff","jj","gj","gx","wk","lelabo","harmay","vr"];
-const SKIP=["phw","sbr","lv","yyl","hkj","ins","sht","cru","ljs","ole"];
+const KW=["htl","pvg","dhub","dis","yang","kang","yuy","nx","lbl","sjtu","ap","hq","zjg","bund","vue","dhc","rt","qz","pop","mns","mms","ff","jj","gj","gx","wk","lelabo","harmay","vr","zd","sht","opt"];
+const SKIP=["phw","sbr","lv","yyl","hkj","ins","cru","ljs","ole"];
 const VIDS=[["OrNvBu26NQo","최신 상하이 맛집·카페·3박4일 코스까지 영상 하나로 상하이 여행 총정리하기","또 떠나는 남자 ddoddunam · 2026-11-22 · 조회 29만"],
 ["JXo3OLIEbDI","2박 3일 상하이 여행 브이로그 | 디즈니랜드부터 현지 mz 맛집까지 꽉 채워 보여드립니다","김베개 · 2025-09-22 · 조회 18만"],
 ["1zL_W0O9u_Y","카메라 끄라던 상하이 짝퉁시장, 그 안에서 벌어진 일","또떠나용 ddonayoung · 2025-05-07 · 조회 6만"],
@@ -706,7 +755,7 @@ function renderPrep(){
 }
 
 /* ── 화면 전환 ── */
-const VIEWS=["overview","day1","day2","day3","shop","prep"];
+const VIEWS=["overview","day0","day1","day2","day3","shop","prep"];
 function show(v,opts={}){
   if(!VIEWS.includes(v))v="overview";
   document.querySelectorAll(".view").forEach(s=>s.hidden=s.dataset.view!==v);
