@@ -552,7 +552,7 @@ export default function ReviewPage() {
    * 지난 행사의 정산이 뒤늦게 들어오므로 끝난 프로젝트도 고를 수 있어야 한다.
    */
   const projectOptions = useMemo(() => {
-    const rank = { active: 0, planning: 1, hold: 2, done: 3, cancelled: 4 } as const;
+    const rank = { active: 0, ongoing: 1, planning: 2, hold: 3, done: 4, cancelled: 5 } as const;
     return [...(projects ?? [])].sort(
       (a, b) =>
         rank[a.status] - rank[b.status] ||

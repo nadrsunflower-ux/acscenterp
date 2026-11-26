@@ -46,7 +46,7 @@ import type { OpsPatch, ProjectView } from "@/lib/neander/projects/view";
 
 const AUTOSAVE_MS = 800;
 
-const STATUS_TONE: Record<ProjectStatus, Tone> = { planning: "neutral", hold: "neutral", active: "accent", done: "success", cancelled: "danger" };
+const STATUS_TONE: Record<ProjectStatus, Tone> = { planning: "neutral", hold: "neutral", active: "accent", ongoing: "info", done: "success", cancelled: "danger" };
 
 type OpsForm = Pick<ProjectView, "startDate" | "endDate" | "deliveryDate" | "equipment" | "todos" | "lessons" | "note" | "noteRich">;
 const FORM_KEYS = ["startDate", "endDate", "deliveryDate", "equipment", "todos", "lessons", "note", "noteRich"] as const;

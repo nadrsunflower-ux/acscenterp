@@ -37,14 +37,19 @@ import { sanitizeEquipment, type ProjectEquipment } from "./equipment";
  * hold(보류) — 연락이 끊기는 등으로 될지 안 될지 알 수 없게 된 건(2026-11-16).
  * 취소는 아니라 미수금 · 런웨이에 적어 둔 입금 회차에는 남기고, 목록 · 달력에서는
  * 흐리게 보이며 납기 D-day · 대시보드 · 장비 겹침(2026-11-17 사용자)에서는 빠진다.
+ *
+ * ongoing(정기) — 월 8편 콘텐츠 · 연재 · R&D 처럼 끝나는 날 없이 계속 도는 건(2026-11-26).
+ * 진행 중과 똑같이 대시보드 · 미수금 · 런웨이 · AI 비용 붙일 곳에 남기고, 끝나는 날이
+ * 의미 없으니 납기 D-day 를 세지 않고 프로젝트 달력에도 올리지 않는다.
  */
-export const PROJECT_STATUSES = ["planning", "hold", "active", "done", "cancelled"] as const;
+export const PROJECT_STATUSES = ["planning", "hold", "active", "ongoing", "done", "cancelled"] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
 export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
   planning: "심사 중",
   hold: "보류",
   active: "진행 중",
+  ongoing: "정기",
   done: "완료",
   cancelled: "취소",
 };
@@ -53,6 +58,7 @@ export const PROJECT_STATUS_COLOR: Record<ProjectStatus, string> = {
   planning: "#f59e0b",
   hold: "#94a3b8",
   active: "#2a78d6",
+  ongoing: "#7c3aed",
   done: "#16a34a",
   cancelled: "#a1a1aa",
 };
@@ -1176,8 +1182,8 @@ export function sanitizeProject(
   };
 }
 
-/** 목록 정렬 — 진행 중 → 심사 중 → 완료 → 취소, 같은 상태면 최근 수정순 */
-const STATUS_ORDER: Record<ProjectStatus, number> = { active: 0, planning: 1, hold: 2, done: 3, cancelled: 4 };
+/** 목록 정렬 — 진행 중 → 정기 → 심사 중 → 보류 → 완료 → 취소, 같은 상태면 최근 수정순 */
+const STATUS_ORDER: Record<ProjectStatus, number> = { active: 0, ongoing: 1, planning: 2, hold: 3, done: 4, cancelled: 5 };
 export function sortProjects(list: FinProjectDoc[]): FinProjectDoc[] {
   return [...list].sort((a, b) => {
     const s = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
@@ -1217,17 +1223,23 @@ export interface ProjectDigest {
 export const isDimmedProjectStatus = (status: ProjectStatus) => status === "hold";
 
 /** 아직 끝나지 않은 상태 — 대시보드에 올라오는 프로젝트. 보류는 움직이지 않는 건이라 뺀다 */
-export const OPEN_PROJECT_STATUSES: ProjectStatus[] = ["active", "planning"];
+export const OPEN_PROJECT_STATUSES: ProjectStatus[] = ["active", "ongoing", "planning"];
+
+/** 납기를 세는 상태 — 끝나는 날이 있는 건만. 정기는 끝나는 날이 없어 뺀다 */
+const DEADLINE_PROJECT_STATUSES: ProjectStatus[] = ["active", "planning"];
+
+/** 프로젝트 달력에 올리는가 — 취소와 끝나는 날 없는 정기는 뺀다 */
+export const isOnProjectCalendar = (status: ProjectStatus) => status !== "cancelled" && status !== "ongoing";
 
 /**
  * 납기까지 남은 날 — 「D-9」 · 「오늘」 · 「3일 지남」.
- * 아직 끝나지 않은 건(심사 중 · 진행 중)만 센다. 끝난 건의 지난 납기는 늦은 게 아니다.
+ * 아직 끝나지 않은 건(심사 중 · 진행 중)만 센다. 끝난 건의 지난 납기는 늦은 게 아니고, 정기는 끝나는 날이 없다.
  */
 export function deliveryCountdown(
   p: Pick<FinProjectDoc, "deliveryDate" | "status">,
   today = todayStrKST(),
 ): { days: number; text: string; late: boolean } | null {
-  if (!p.deliveryDate || !OPEN_PROJECT_STATUSES.includes(p.status)) return null;
+  if (!p.deliveryDate || !DEADLINE_PROJECT_STATUSES.includes(p.status)) return null;
   const days = Math.round((Date.parse(`${p.deliveryDate}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
   if (days > 0) return { days, text: `D-${days}`, late: false };
   if (days === 0) return { days, text: "오늘", late: false };

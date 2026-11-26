@@ -877,7 +877,7 @@ export default function ApiCostsPage() {
 
   const book = useMemo<TargetBook>(() => {
     const byStart = (a: FinProjectDoc, b: FinProjectDoc) => String(b.startDate ?? "").localeCompare(String(a.startDate ?? "")) || a.name.localeCompare(b.name);
-    const open = (p: FinProjectDoc) => p.status === "active" || p.status === "planning";
+    const open = (p: FinProjectDoc) => p.status === "active" || p.status === "ongoing" || p.status === "planning";
     const spaces = view?.spaces ?? [];
     return {
       active: projects.filter(open).sort(byStart),

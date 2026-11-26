@@ -37,7 +37,7 @@ import {
 import { DeliveryDate } from "@/components/neander/finance/DeliveryDate";
 import { ProjectCalendar } from "@/components/neander/finance/ProjectCalendar";
 import { mdRange } from "@/components/neander/finance/EquipmentFields";
-import { PROJECT_STATUSES, PROJECT_STATUS_LABEL, isDimmedProjectStatus, type ProjectStatus } from "@/lib/neander/finance/project";
+import { PROJECT_STATUSES, PROJECT_STATUS_LABEL, isDimmedProjectStatus, isOnProjectCalendar, type ProjectStatus } from "@/lib/neander/finance/project";
 import { equipmentText, hasEquipment } from "@/lib/neander/finance/equipment";
 import { patchProjectEquipment } from "@/lib/neander/projects/client";
 import { useProjects } from "@/lib/neander/projects/useProjects";
@@ -47,6 +47,7 @@ const PROJECT_STATUS_TONE: Record<ProjectStatus, Tone> = {
   planning: "neutral",
   hold: "neutral",
   active: "accent",
+  ongoing: "info",
   done: "success",
   cancelled: "danger",
 };
@@ -71,7 +72,7 @@ export default function ProjectsPage() {
       .filter((p) => status === "all" || p.status === status)
       .filter((p) => !needle || [p.name, p.code, p.client ?? ""].some((s) => s.toLowerCase().includes(needle)));
   }, [projects, status, q]);
-  const calendarProjects = useMemo(() => rows.filter((p) => p.status !== "cancelled"), [rows]);
+  const calendarProjects = useMemo(() => rows.filter((p) => isOnProjectCalendar(p.status)), [rows]);
 
   if (loading) return <LoadingState />;
   if (error) return <ErrorState description={error} />;

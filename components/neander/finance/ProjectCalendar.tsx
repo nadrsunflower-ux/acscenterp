@@ -54,7 +54,7 @@ import {
 } from "@/lib/neander/finance/equipment";
 
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
-const STATUS_LABEL: Record<string, string> = { planning: "심사 중", hold: "보류", active: "진행 중", done: "완료" };
+const STATUS_LABEL: Record<string, string> = { planning: "심사 중", hold: "보류", active: "진행 중", ongoing: "정기", done: "완료" };
 
 /** 상태별 막대 모양 — 같은 계열을 옅게만 깔면 구분이 안 돼 심사 중은 점선으로 */
 const BAR_CLS: Record<string, string> = {

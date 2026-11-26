@@ -92,6 +92,7 @@ import {
   PROJECT_STATUSES,
   PROJECT_STATUS_LABEL,
   isDimmedProjectStatus,
+  isOnProjectCalendar,
   VAT_HINT,
   VAT_LABEL,
   VAT_MODES,
@@ -123,6 +124,7 @@ const PROJECT_STATUS_TONE: Record<ProjectStatus, Tone> = {
   planning: "neutral",
   hold: "neutral",
   active: "accent",
+  ongoing: "info",
   done: "success",
   cancelled: "danger",
 };
@@ -207,7 +209,7 @@ export default function ProjectsPage() {
     [baseRows, filters, sort],
   );
   const filterCount = activeProjectFilterCount(filters);
-  const calendarProjects = useMemo(() => rows.filter((r) => r.p.status !== "cancelled").map((r) => r.p), [rows]);
+  const calendarProjects = useMemo(() => rows.filter((r) => isOnProjectCalendar(r.p.status)).map((r) => r.p), [rows]);
 
   // 쪽을 넘긴 채로 조건을 바꾸면 빈 쪽이 보인다 — 조건이 바뀌면 첫 쪽으로
   const resetPage = () => setPage(1);
@@ -684,8 +686,8 @@ function NewProjectDialog({
   const submit = async () => {
     setSaving(true);
     setError(null);
-    // 납기를 비워 두면 진행 기간의 마지막 날로 잡는다 (2026-10-29 사용자 결정)
-    const input = { ...form, deliveryDate: form.deliveryDate ?? form.endDate ?? form.startDate };
+    // 납기를 비워 두면 진행 기간의 마지막 날로 잡는다 (2026-10-29 사용자 결정). 정기는 끝나는 날이 없어 비워 둔다
+    const input = { ...form, deliveryDate: form.deliveryDate ?? (form.status === "ongoing" ? undefined : form.endDate ?? form.startDate) };
     try {
       const r = linkCode
         ? await saveFinProject({ ...input, code: linkCode })

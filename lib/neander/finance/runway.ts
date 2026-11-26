@@ -503,7 +503,7 @@ export function projectInflows(
     // 회차를 안 나눈 계약 — 끝나지 않았고 받은 게 없으면 「날짜 미정」 으로 보인다
     const hasPaid = (p.installments ?? []).some(isInstallmentReceived);
     const contract = Math.round(Number(p.contractAmount) || 0);
-    if (!hasPaid && contract > 0 && (p.status === "planning" || p.status === "active")) {
+    if (!hasPaid && contract > 0 && (p.status === "planning" || p.status === "active" || p.status === "ongoing")) {
       out.push({
         id: `project:${p.id}`,
         projectId: p.id,

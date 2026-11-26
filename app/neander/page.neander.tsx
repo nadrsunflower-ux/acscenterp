@@ -343,6 +343,7 @@ const PROJECT_STATUS_TONE: Record<ProjectStatus, Tone> = {
   planning: "neutral",
   hold: "neutral",
   active: "accent",
+  ongoing: "info",
   done: "success",
   cancelled: "danger",
 };
