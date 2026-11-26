@@ -72,7 +72,7 @@ test("saju booth is its own kind — not one of the 3 photobooths", () => {
 
 test("a change of who overlaps splits the warning", () => {
   const byDay = equipmentByDay([
-    p("a", { startDate: "2026-12-01", endDate: "2026-12-03", equipment: { kiosk: 2 } }),
+    p("a", { startDate: "2026-12-01", endDate: "2026-12-03", equipment: { kiosk: 3 } }),
     p("b", { startDate: "2026-12-01", endDate: "2026-12-01", equipment: { kiosk: 2 } }),
     p("c", { startDate: "2026-12-03", endDate: "2026-12-03", equipment: { kiosk: 2 } }),
   ]);

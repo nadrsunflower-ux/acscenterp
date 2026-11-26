@@ -29,7 +29,7 @@ const projects = [
   proj("2026 가상 장기 G", "active", { startDate: "2026-11-25", endDate: "2026-12-08", deliveryDate: "2026-12-07" }),
   proj("2026 가상 취소 H", "cancelled", { startDate: "2026-12-15", endDate: "2026-12-15", equipment: { photobooth: 3 } }),
   proj("2026 가상 미정 I", "planning", {}),
-  proj("2026 가상 설치 J", "planning", { startDate: "2026-12-07", endDate: "2026-12-11", deliveryDate: "2026-12-07", equipment: { kiosk: 3 } }),
+  proj("2026 가상 설치 J", "planning", { startDate: "2026-12-07", endDate: "2026-12-11", deliveryDate: "2026-12-07", equipment: { kiosk: 4 } }),
 ];
 const fixture = { projects, docs: [], transactions: [], accounts: [], paymentMethods: [], vendorRules: [], loading: false };
 const mocks = {
@@ -151,14 +151,14 @@ createRoot(document.getElementById('root')).render(<div data-app="neander" id="f
   assert.equal(new Set(ys).size, 3, `겹치면 다른 줄 ${ys}`);
   checks.push("막대 폭 · 깃발 · 기간 밖 납기 · 취소 제외 · 겹침 줄");
 
-  // 3-1. 장비 겹침 — 키오스크 12/9~11 (A1 + J3) · 포토부스 12/11~12 (A1 + B3). 취소 H 는 세지 않는다
+  // 3-1. 장비 겹침 — 키오스크 12/9~11 (A1 + J4) · 포토부스 12/11~12 (A1 + B3). 취소 H 는 세지 않는다
   const alertBox = cal.locator('[role="alert"]');
   await expect(alertBox).toContainText("장비가 모자라는 날 2건");
   const lines = await alertBox.locator("li").allInnerTexts();
-  assert.ok(lines[0].includes("12/9(수) ~ 12/11(금) 키오스크 4대 필요 · 보유 3대"), lines[0]);
+  assert.ok(lines[0].includes("12/9(수) ~ 12/11(금) 키오스크 5대 필요 · 보유 4대"), lines[0]);
   assert.ok(lines[1].includes("12/11(금) ~ 12/12(토) 포토부스 4대 필요 · 보유 3대") && lines[1].includes("가상 교육 B 3(심사 중)"), lines[1]);
   assert.equal(await cal.locator('[data-cal-day="2026-12-11"]').getAttribute("data-equip-over"), "true");
-  assert.equal(await cal.locator('[data-cal-day="2026-12-15"]').getAttribute("data-equip-over"), null, "12/15 는 2/3 · 2/3 — 취소 H 제외");
+  assert.equal(await cal.locator('[data-cal-day="2026-12-15"]').getAttribute("data-equip-over"), null, "12/15 는 포토부스 2/3 · 키오스크 2/4 — 취소 H 제외");
   await expect(cal.locator('[data-cal-day="2026-12-11"] [data-equip-load="over"]')).toHaveCount(2);
   await expect(cal.locator('[data-cal-day="2026-12-15"] [data-equip-load="ok"]').first()).toContainText("2/3");
   await expect(bar("가상 체험 A").locator('[aria-label="장비 포토부스 1 · 키오스크 1"]')).toHaveCount(1);
@@ -190,7 +190,7 @@ createRoot(document.getElementById('root')).render(<div data-app="neander" id="f
   await page.getByRole("tab", { name: /진행 중/ }).click();
   await expect(bar("가상 체험 A")).toHaveCount(0);
   await expect(bar("가상 장기 G").first()).toBeVisible();
-  await expect(alertBox).toContainText("키오스크 4대 필요", { timeout: 2000 });
+  await expect(alertBox).toContainText("키오스크 5대 필요", { timeout: 2000 });
   checks.push("상태 탭을 따름 · 겹침은 전체로");
 
   // 5. 접기

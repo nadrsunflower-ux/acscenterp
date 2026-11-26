@@ -11,7 +11,8 @@
 //    납기가 없으면 시작일부터. 납기가 종료일과 같은 옛 규칙(10-29 「마지막 날」) 건은 하루로
 //    잡히니, 장비를 적을 때 납기를 설치 첫날로 고친다.
 //  · 취소 · 보류(연락 두절, 2026-11-16 사용자) 프로젝트는 세지 않는다. 심사 중은 센다 — 수주 전에 겹침을 봐야 한다.
-//  · 보유 대수는 여기 상수(2026-11-13 사용자: 포토부스 3 · 키오스크 3).
+//  · 보유 대수는 여기 상수(2026-11-13 사용자: 포토부스 3 · 키오스크 3 → 2026-11-26 사용자:
+//    12/1 증설을 미리 반영해 키오스크 4).
 //    사주 포토부스는 그 3대와 따로 있는 전용 부스라 종류를 나눠 센다(2026-11-14 사용자 —
 //    대수는 말하지 않아 1대로 둠). 장비를 사거나 팔면 EQUIPMENT_OWNED 를 고친다.
 //  · 종류를 더하면 DB 에 그 키로 저장된다. 이름(키)은 바꾸지 말 것 — 예전 배정이 사라진다.
@@ -24,8 +25,8 @@ export type EquipmentKind = (typeof EQUIPMENT_KINDS)[number];
 
 export const EQUIPMENT_LABEL: Record<EquipmentKind, string> = { photobooth: "포토부스", sajuBooth: "사주 포토부스", kiosk: "키오스크" };
 
-/** 보유 대수 — 2026-11-13 사용자 「포토부스 3대, 키오스크 3대」 · 2026-11-14 「사주 포토부스는 별도(3대에 안 들어감)」 */
-export const EQUIPMENT_OWNED: Record<EquipmentKind, number> = { photobooth: 3, sajuBooth: 1, kiosk: 3 };
+/** 보유 대수 — 2026-11-13 사용자 「포토부스 3대, 키오스크 3대」 · 2026-11-14 「사주 포토부스는 별도(3대에 안 들어감)」 · 2026-11-26 키오스크 4대(12/1 증설 미리 반영) */
+export const EQUIPMENT_OWNED: Record<EquipmentKind, number> = { photobooth: 3, sajuBooth: 1, kiosk: 4 };
 
 /** 한 프로젝트에 적을 수 있는 최대 — 오타(30 → 3)를 막는 정도 */
 export const EQUIPMENT_MAX = 20;
