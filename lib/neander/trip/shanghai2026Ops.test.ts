@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyOp, minuteOf, revertChange, TripOpError } from "./shanghai2026Ops";
+import { applyOp, hhmm, minuteOf, revertChange, TripOpError } from "./shanghai2026Ops";
 import { SHANGHAI_2026_PLAN as BASE } from "./shanghai2026Plan";
 
 let n = 0;
@@ -85,4 +85,25 @@ test("사진은 사이트 사진 이름만", () => {
   assert.equal(day(ok.plan, "day1").items.find((x) => x.id === ok.change.id)!.img, "g_dimsum");
   const bad = applyOp(BASE, { op: "add", day: "day1", item: { t: "10:30", title: "a", img: "../x" } }, id);
   assert.equal(day(bad.plan, "day1").items.find((x) => x.id === bad.change.id)!.img, undefined);
+});
+
+test("시간 옮기기 — 시작 · 끝이 바뀌고 순서가 다시 맞춰진다 · 되돌리기", () => {
+  const d0 = day(BASE, "day2");
+  const it = d0.items[0]; // 09:00 예원
+  const { plan, change } = applyOp(BASE, { op: "time", id: it.id, t: "12:10", e: "13:00" }, id);
+  const items = day(plan, "day2").items;
+  const moved = items.find((x) => x.id === it.id)!;
+  assert.equal(moved.t, "12:10");
+  assert.equal(moved.e, "13:00");
+  assert.equal(items.indexOf(moved), 1);
+  const times = items.map((x) => minuteOf(x.t));
+  assert.deepEqual(times, [...times].sort((a, b) => a - b));
+  const back = revertChange(plan, change).plan;
+  assert.deepEqual(day(back, "day2").items.map((x) => x.id), d0.items.map((x) => x.id));
+  // 끝이 시작보다 빠르면 끝은 버린다 · 자정 넘김
+  const late = applyOp(BASE, { op: "time", id: it.id, t: "23:30", e: "00:40" }, id);
+  assert.equal(day(late.plan, "day2").items.find((x) => x.id === it.id)!.e, "00:40");
+  const bad = applyOp(BASE, { op: "time", id: it.id, t: "10:00", e: "09:00" }, id);
+  assert.equal(day(bad.plan, "day2").items.find((x) => x.id === it.id)!.e, undefined);
+  assert.equal(hhmm(1470), "00:30");
 });

@@ -10,7 +10,8 @@ export type Chip = [string, string];
 export type Mode = "walk" | "taxi" | "subway" | "train";
 export interface Leg { m: Mode; d?: string; c?: string; n?: string; from?: string; to?: string }
 export interface TripItem {
-  id: string; t: string; nd?: 1; k: string; title: string; sub?: string; img?: string;
+  /** t 시작 · e 끝(없으면 화면이 다음 일정까지로 그린다) */
+  id: string; t: string; e?: string; nd?: 1; k: string; title: string; sub?: string; img?: string;
   pin: string | null; pts: string[]; star?: 1; i?: Chip[]; w?: string; tip?: Chip[];
   menu?: string[]; menuSum?: string; go?: Leg[];
 }
@@ -42,6 +43,28 @@ const clean = (v: unknown, max: number): string =>
 
 const PHOTO = /^(p\d{1,2}|g_[a-z]{2,12})$/;
 const TIME = /^([01]\d|2[0-4]):([0-5]\d)$/;
+
+/** 끝 시각 — 시작보다 늦고 12시간 안이어야 받는다 */
+function endOf(t: string, raw: unknown): string | undefined {
+  const e = clean(raw, 5);
+  if (!TIME.test(e)) return undefined;
+  const d = minuteOf(e) - minuteOf(t);
+  return d >= 5 && d <= 12 * 60 ? e : undefined;
+}
+
+/** 분(5시~다음 날 5시 기준) → "HH:MM" — 자정 넘으면 00:30 처럼 */
+export function hhmm(min: number): string {
+  const m = ((Math.round(min) % 1440) + 1440) % 1440;
+  return String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+}
+
+/** 정렬 뒤 앞 일정이 바뀐 일정은 「오는 길」 출발지를 비운다 (새 앞 일정에서 오게) */
+function fixLegs(before: TripItem[], after: TripItem[]) {
+  const prev = new Map(before.map((x, i) => [x.id, before[i - 1]?.id]));
+  after.forEach((it, i) => {
+    if (prev.has(it.id) && prev.get(it.id) !== after[i - 1]?.id && it.go?.[0]?.from) delete it.go[0].from;
+  });
+}
 
 /** 하루 안 순서 — 새벽 5시 전은 다음 날로 본다 (24:00 · 01:30 이 맨 뒤로) */
 export function minuteOf(t: string): number {
@@ -93,6 +116,7 @@ export function sanitizeItem(raw: unknown, plan: TripPlan, opts: { id: string; p
   const k = (CATS as readonly string[]).includes(String(r.k)) ? String(r.k) : "sight";
   const item: TripItem = { id: opts.id, t, k, title, pin: null, pts: [] };
   if (Number(t.slice(0, 2)) < 5) item.nd = 1;
+  const e = endOf(t, r.e); if (e) item.e = e;
   const sub = clean(r.sub, 120); if (sub) item.sub = sub;
   if (r.star) item.star = 1;
   const w = clean(r.w, 120); if (w) item.w = w;
@@ -142,7 +166,9 @@ export function sanitizeItem(raw: unknown, plan: TripPlan, opts: { id: string; p
 }
 
 export interface TripOp {
-  op: "add" | "update" | "delete" | "reorder";
+  op: "add" | "update" | "delete" | "reorder" | "time";
+  /** time: 새 시작 · 끝 */
+  t?: unknown; e?: unknown;
   day?: string;
   id?: string;
   /** reorder: 그날 일정 id 를 새 순서대로 전부 */
@@ -218,6 +244,20 @@ export function applyOp(plan0: TripPlan, op: TripOp, newId: () => string): { pla
   const id = String(op.id ?? "");
   const found = findItem(plan, id);
   if (!found) throw new TripOpError("그 일정이 이미 지워졌어요. 새로고침해 주세요.");
+  if (op.op === "time") {
+    const t = clean(op.t, 5);
+    if (!TIME.test(t)) throw new TripOpError("시간을 읽지 못했어요.");
+    const it: TripItem = JSON.parse(JSON.stringify(found.item));
+    it.t = t;
+    if (Number(t.slice(0, 2)) < 5) it.nd = 1; else delete it.nd;
+    const e = endOf(t, op.e);
+    if (e) it.e = e; else delete it.e;
+    const before = found.day.items;
+    const others = before.filter((x) => x.id !== id);
+    found.day.items = sortItems([...others, it]);
+    fixLegs(before, found.day.items);
+    return { plan, change: { op: "update", id, day: found.day.id, beforeDay: found.day.id, before: found.item, after: it, title: it.title } };
+  }
   if (op.op === "delete") {
     found.day.items.splice(found.index, 1);
     return { plan, change: { op: "delete", id, day: found.day.id, before: found.item, title: found.item.title } };

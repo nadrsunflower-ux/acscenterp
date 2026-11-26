@@ -206,6 +206,35 @@ p{margin:0}
 .scard .tile0 .ic{width:32px;height:32px}
 .scard{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;touch-action:manipulation}
 .tl{position:relative}
+.cal{position:relative;display:grid;grid-template-columns:42px minmax(0,1fr);margin:10px 0 0}
+.cal .hrs{position:relative}
+.cal .hrs span{position:absolute;right:8px;transform:translateY(-50%);font-size:13px;color:var(--muted);font-weight:600;white-space:nowrap}
+.cal .col{position:relative;border-left:1px solid var(--line);background-image:linear-gradient(to bottom,var(--line) 1px,transparent 1px)}
+.ev{position:absolute;display:flex;gap:8px;align-items:flex-start;border-radius:12px;padding:6px 8px 6px 10px;overflow:hidden;cursor:pointer;
+  background:color-mix(in srgb,var(--cat) 15%,var(--surface));border-left:4px solid var(--cat);-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;touch-action:manipulation;transition:box-shadow .15s}
+.ev .evc{flex:1;min-width:0;display:grid;gap:1px;align-content:start}
+.ev .et{font-size:13px;font-weight:800;color:var(--cat);display:flex;align-items:center;gap:4px;white-space:nowrap}
+:root:not([data-theme="dark"]) .k-meet .et,:root:not([data-theme="dark"]) .k-sight .et{filter:brightness(.8)}
+.ev .et .ic{width:13px;height:13px;color:var(--red)}
+.ev b{font-size:15px;font-weight:800;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ev .es{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev .meta{margin-top:4px;gap:2px 10px}
+.ev .meta span{font-size:13px}
+.ev img,.ev .tile0{width:58px;height:58px;border-radius:10px;object-fit:cover;flex:none;display:grid;place-items:center;background:color-mix(in srgb,var(--cat) 22%,var(--surface));color:var(--cat)}
+.ev .tile0 .ic{width:26px;height:26px}
+.ev.sm{padding-top:4px;padding-bottom:4px}
+.ev.sm b{-webkit-line-clamp:1;font-size:14px}
+.ev.xs{padding:0 8px 0 10px;align-items:center;border-radius:8px;z-index:2;box-shadow:0 1px 3px rgba(20,33,61,.12)}
+.ev.xs .evc{display:flex;gap:6px;align-items:center;white-space:nowrap}
+.ev.xs b{font-size:13px;-webkit-line-clamp:1;white-space:nowrap;text-overflow:ellipsis;display:block}
+.ev.isnow{box-shadow:0 0 0 2.5px var(--coral)}
+.ev.drag{z-index:30;box-shadow:0 14px 32px rgba(20,33,61,.3),0 0 0 2.5px var(--coral);cursor:grabbing}
+.ev.saving{opacity:.7}
+.ev .rs{position:absolute;left:0;right:0;bottom:0;height:14px;cursor:ns-resize;touch-action:none}
+.ev .rs::after{content:"";position:absolute;left:50%;bottom:3px;width:26px;height:4px;margin-left:-13px;border-radius:2px;background:color-mix(in srgb,var(--cat) 55%,transparent)}
+.ev.xs .rs{height:8px}.ev.xs .rs::after{display:none}
+.nowl{position:absolute;left:-5px;right:0;height:2px;background:var(--red);z-index:25;pointer-events:none}
+.nowl::before{content:"";position:absolute;left:-5px;top:-4px;width:10px;height:10px;border-radius:50%;background:var(--red)}
 .tl.dragging .hop{display:none}
 .tl.dragging .stop:not(.lift){transition:transform .15s}
 .stop.lift{position:relative;z-index:20}
@@ -380,7 +409,7 @@ details.more>.kw{padding:0 12px 12px}
 #driver .ko{font-size:18px;color:#c5cfe0}
 #driver .help{font-size:14px;color:#8d98ad}
 #driver button{position:absolute;top:calc(env(safe-area-inset-top,0px) + 14px);right:max(14px,env(safe-area-inset-right,0px));background:#22314f;color:#fff;border-radius:12px;padding:10px 16px;font-size:16px;font-weight:700}
-.toast{position:fixed;left:50%;bottom:calc(var(--navh) + env(safe-area-inset-bottom,0px) + 80px);transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:14px;font-size:15px;font-weight:700;z-index:2100;max-width:calc(100% - 32px);display:flex;align-items:center;gap:12px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.toast{position:fixed;left:50%;width:max-content;bottom:calc(var(--navh) + env(safe-area-inset-bottom,0px) + 80px);transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:14px;font-size:15px;font-weight:700;z-index:2100;max-width:calc(100% - 32px);display:flex;align-items:center;gap:12px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
 .toast button{color:var(--coral);font-weight:800}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
 </style>
@@ -519,6 +548,7 @@ function applyPlan(plan,v){
   PLAN=plan;PV=v||0;P=plan.places;DAYS=plan.days;FLAT=[];BYID={};
   DAYS.forEach(D=>D.items.forEach((it,i)=>{const [h,m]=it.t.split(":").map(Number);it.at=sh(D.date[0],D.date[1],D.date[2],h,m)+(h<5?864e5:0);it.day=D;it.idx=i;BYID[it.id]=it;FLAT.push(it)}));
   FLAT.sort((a,b)=>a.at-b.at);
+  DAYS.forEach(spans);
 }
 function status(){
   const now=Date.now();const first=FLAT[0];const end=sh(...TRIP_END);
@@ -575,22 +605,40 @@ function renderOverview(){
 }
 function rbtns(k){if(!k)return "";const p=P[k];return \`<div class="rbtns"><a class="rbtn" href="\${amap(k)}" target="_blank" rel="noopener"><i>\${I("pin")}</i>지도</a><button class="rbtn" type="button" data-copy="\${esc(p[1])}"><i>\${I("copy")}</i>복사</button><button class="rbtn" type="button" data-show="\${k}"><i>\${CHE}</i>기사님</button></div>\`}
 
-/* ── 하루 ── */
+/* ── 하루 (구글 캘린더처럼 세로 시간표) ── */
 let CUR_DAY="day0";const MAPS={};let mapOpen=true;
+const HPX=76,SNAP=5,MIN_T=300,MAX_T=1740; // 1시간 높이 · 5분 단위 · 05:00 ~ 다음 날 05:00
+const mOf=t=>{const [h,m]=t.split(":").map(Number);return (h<5?h+24:h)*60+m};
+const hhmm=m=>{m=((Math.round(m)%1440)+1440)%1440;return pad(Math.floor(m/60))+":"+pad(m%60)};
+/** 끝 시각이 없으면 다음 일정 시작까지(최대 2시간), 마지막은 1시간 */
+function spans(D){D.items.forEach((it,i)=>{const s=mOf(it.t);const nx=D.items[i+1];let e=it.e?mOf(it.e):(nx&&mOf(nx.t)>s?Math.min(mOf(nx.t),s+120):s+60);if(e<=s)e=s+30;it.sMin=s;it.eMin=e})}
+function layout(D){
+  // 시간이 실제로 겹치는 일정만 나란히 (짧은 일정이 최소 높이 때문에 살짝 겹쳐 보이는 건 그대로 둔다)
+  const evs=D.items.map(it=>({it,s:it.sMin,e:it.eMin})).sort((a,b)=>a.s-b.s||a.e-b.e);
+  let group=[],gEnd=-1;const flush=()=>{const cols=[];group.forEach(v=>{let c=cols.findIndex(end=>end<=v.s);if(c<0){c=cols.length;cols.push(0)}cols[c]=v.e;v.col=c});group.forEach(v=>v.n=cols.length);group=[]};
+  evs.forEach(v=>{if(v.s>=gEnd&&group.length)flush();group.push(v);gEnd=Math.max(gEnd,v.e)});flush();return evs;
+}
+function evHtml(v,r0){
+  const it=v.it;const top=(it.sMin-r0)/60*HPX;const h=Math.max((it.eMin-it.sMin)/60*HPX-3,19);
+  const size=h<36?"xs":h<66?"sm":"lg";const w=100/v.n;
+  const leg=(it.go||[])[0];
+  return \`<div class="ev k-\${it.k} \${size} \${it.star?"star":""}" id="it-\${it.id}" data-open="\${it.id}" role="button" tabindex="0" style="top:\${top}px;height:\${h}px;left:calc(\${v.col*w}% + 2px);width:calc(\${w}% - 4px)">
+<span class="evc"><span class="et tnum">\${it.t} – \${hhmm(it.eMin)}\${it.star?I("star","fill"):""}</span><b>\${esc(it.title)}</b>\${size==="lg"&&it.sub?\`<span class="es">\${zhSpan(it.sub)}</span>\`:""}\${size==="lg"&&h>96?\`<span class="meta">\${leg?\`<span>\${I(MODE[leg.m][0])}\${esc(leg.d||MODE[leg.m][1])}</span>\`:""}\${metaHtml(it,2)}</span>\`:""}</span>
+\${size==="lg"&&v.n===1?(it.img?\`<img loading="lazy" draggable="false" src="/neander/2026shanghai/img/\${it.img}.jpg" alt="">\`:\`<span class="tile0">\${I(CAT[it.k][0])}</span>\`):""}\${API?'<span class="rs" aria-hidden="true"></span>':""}</div>\`;
+}
 function renderDay(id){
   const D=DAYOF(id)||DAYS[0];CUR_DAY=D.id;
   document.getElementById("dayTitle").innerHTML=\`\${D.date[1]}/\${D.date[2]} \${D.wd}<small>\${esc(D.title)}</small>\`;
   document.getElementById("strip").innerHTML=DAYS.map(x=>\`<a href="#\${x.id}" \${x.id===D.id?'aria-current="page"':""}><span class="tnum" style="color:inherit;font-size:15px">\${x.date[2]}</span><span>\${x.wd}</span></a>\`).join("");
   const no={};let c=0;D.items.forEach(it=>{if(hasXY(it.pin)&&!(it.pin in no))no[it.pin]=it.pin==="htl"?"H":++c});D.no=no;
-  const rows=D.items.map(it=>{
-    const hops=(it.go||[]).map(g=>{const u=legUrl(it,g);const tx=\`\${I(MODE[g.m][0])}\${esc(g.d||MODE[g.m][1])}\${g.c?\` · \${esc(g.c)}\`:""}\`;
-      return \`<li class="hop"><span class="rail"></span><span class="seg">\${u?\`<a class="hpill" href="\${u}" target="_blank" rel="noopener" title="\${MODE[g.m][1]} 길찾기">\${tx}\${I("nav","go")}</a>\`:\`<span class="hpill">\${tx}</span>\`}</span></li>\`}).join("");
-    return \`\${hops}<li class="stop k-\${it.k}" id="it-\${it.id}"><span class="rail"><span class="dot">\${I(CAT[it.k][0])}</span></span>
-<button type="button" class="card scard" data-open="\${it.id}"><span style="min-width:0"><span class="tm tnum">\${it.t}\${it.star?I("star","fill"):""}</span><h3>\${esc(it.title)}</h3>\${it.sub?\`<p class="sub">\${zhSpan(it.sub)}</p>\`:""}\${(it.i||[]).length?\`<span class="meta">\${metaHtml(it,3)}</span>\`:""}</span>\${it.img?\`<img loading="lazy" draggable="false" src="/neander/2026shanghai/img/\${it.img}.jpg" alt="">\`:\`<span class="tile0">\${I(CAT[it.k][0])}</span>\`}</button></li>\`}).join("");
+  const evs=layout(D);
+  const lo=D.items.length?Math.min(...D.items.map(x=>x.sMin)):540,hi=D.items.length?Math.max(...D.items.map(x=>x.eMin)):1260;
+  const r0=Math.max(MIN_T,Math.floor(lo/60)*60-60),r1=Math.min(MAX_T,Math.ceil(hi/60)*60+120);D.r0=r0;D.r1=r1;
+  let hrs="";for(let m=r0;m<=r1;m+=60)hrs+=\`<span style="top:\${(m-r0)/60*HPX}px">\${hhmm(m).slice(0,2)}시</span>\`;
   const stars=D.items.filter(it=>it.star).length;
   document.getElementById("dayWrap").innerHTML=\`<div class="daybody px"><div class="mapbox \${mapOpen?"":"hide"}" style="margin-left:-16px;margin-right:-16px" id="mapbox"><div class="map" id="map"></div></div>
-<div><div class="dayinfo"><span class="dchip">\${I("users")}\${esc(D.ppl)}</span><span class="dchip">\${I("pin")}\${D.items.length}곳</span>\${stars?\`<span class="dchip">\${I("star","fill")}꼭 \${stars}</span>\`:""}\${API&&D.items.length>1?\`<span class="dchip" style="color:var(--muted)">\${I("shuffle")}꾹 눌러 끌면 순서 바뀜</span>\`:""}</div>
-<ol class="tl">\${rows||'<li class="card" style="padding:20px;text-align:center;color:var(--muted)">아직 일정이 없어요</li>'}</ol></div></div>\`;
+<div><div class="dayinfo"><span class="dchip">\${I("users")}\${esc(D.ppl)}</span><span class="dchip">\${I("pin")}\${D.items.length}곳</span>\${stars?\`<span class="dchip">\${I("star","fill")}꼭 \${stars}</span>\`:""}\${API&&D.items.length?\`<span class="dchip" style="color:var(--muted)">\${I("clock")}꾹 눌러 옮기면 시간 변경</span>\`:""}</div>
+<div class="cal" style="height:\${(r1-r0)/60*HPX+20}px"><div class="hrs">\${hrs}</div><div class="col" id="calCol" style="background-size:100% \${HPX}px">\${evs.map(v=>evHtml(v,r0)).join("")}<div class="nowl" id="nowl" hidden></div></div></div></div></div>\`;
   if(window.innerWidth>=900){const mb=document.getElementById("mapbox");mb.style.marginLeft=mb.style.marginRight="0"}
   initMap(D);tick();
 }
@@ -628,62 +676,60 @@ function flyTo(id){
     m.map.flyTo([P[it.pin][3],P[it.pin][2]],it.pin==="zjg"?13:15,{duration:.8});setTimeout(()=>m.markers[it.pin]&&m.markers[it.pin].openPopup(),850)},120);
 }
 
-/* ── 끌어서 순서 바꾸기 ── 카드를 꾹 누르거나(폰) 왼쪽 동그라미를 잡고 끈다 */
-let DR=null,justDragged=false;
-function drStart(e){
-  if(!API||DR||e.button>0)return;
-  const li=e.target.closest(".stop");if(!li||!li.closest("#v-day"))return;
-  const onDot=!!e.target.closest(".dot");
-  DR={li,id:li.id.slice(3),x:e.clientX,y:e.clientY,py:e.clientY,on:false,touch:e.pointerType!=="mouse",pid:e.pointerId};
-  if(onDot)drBegin();
-  else if(DR.touch)DR.timer=setTimeout(drBegin,330);
+/* ── 꾹 눌러 옮기기 · 아래 끝 잡고 늘리기 ── 5분 단위로 시간이 바뀐다 */
+let CD=null,justDragged=false;
+function cdStart(e){
+  if(!API||CD||e.button>0)return;
+  const ev=e.target.closest("#v-day .ev");if(!ev)return;
+  const it=BYID[ev.id.slice(3)];if(!it)return;
+  const rs=!!e.target.closest(".rs");
+  CD={ev,it,mode:rs?"resize":"move",x:e.clientX,y:e.clientY,cy:e.clientY,on:false,touch:e.pointerType!=="mouse",pid:e.pointerId,s0:it.sMin,e0:it.eMin,ns:it.sMin,ne:it.eMin};
+  if(rs)cdBegin();else if(CD.touch)CD.timer=setTimeout(cdBegin,350);
 }
-function drBegin(){
-  if(!DR||DR.on)return;DR.on=true;
-  const tl=DR.li.parentElement;const r=DR.li.getBoundingClientRect();
-  DR.grab=DR.py-r.top;tl.classList.add("dragging");DR.li.classList.add("lift");DR.tl=tl;
+function cdBegin(){
+  if(!CD||CD.on)return;CD.on=true;CD.py0=CD.y+scrollY;CD.top0=parseFloat(CD.ev.style.top);CD.h0=parseFloat(CD.ev.style.height);
+  CD.ev.classList.add("drag");CD.ev.style.left="2px";CD.ev.style.width="calc(100% - 4px)";
+  if(CD.ev.classList.contains("xs")||CD.ev.classList.contains("sm")){}
   try{navigator.vibrate&&navigator.vibrate(12)}catch(e){}
-  drPlace();DR.raf=requestAnimationFrame(drScroll);
+  cdApply();CD.raf=requestAnimationFrame(cdScroll);
 }
-function drPlace(){
-  const {li,tl}=DR;const top=DR.py-DR.grab;
-  // 손가락이 이웃 카드의 가운데를 넘으면 자리를 바꾼다
-  let prev=li.previousElementSibling,next=li.nextElementSibling;
-  while(prev&&!prev.classList.contains("stop"))prev=prev.previousElementSibling;
-  while(next&&!next.classList.contains("stop"))next=next.nextElementSibling;
-  const mid=el=>{const r=el.getBoundingClientRect();return r.top+r.height/2};
-  if(prev&&DR.py<mid(prev))tl.insertBefore(li,prev);
-  else if(next&&DR.py>mid(next))tl.insertBefore(li,next.nextSibling);
-  li.style.transform="none";const nat=li.getBoundingClientRect().top;li.style.transform=\`translateY(\${top-nat}px)\`;
+function cdApply(){
+  const D=CUR_DAY&&DAYOF(CUR_DAY);const dur=CD.e0-CD.s0;
+  const dmin=Math.round(((CD.cy+scrollY)-CD.py0)/HPX*60/SNAP)*SNAP;
+  if(CD.mode==="move"){CD.ns=Math.min(Math.max(CD.s0+dmin,D.r0),D.r1-dur);CD.ne=CD.ns+dur}
+  else{CD.ns=CD.s0;CD.ne=Math.min(Math.max(CD.e0+dmin,CD.s0+15),Math.min(CD.s0+720,D.r1))}
+  CD.ev.style.top=(CD.ns-D.r0)/60*HPX+"px";CD.ev.style.height=Math.max((CD.ne-CD.ns)/60*HPX-3,22)+"px";
+  const et=CD.ev.querySelector(".et");if(et)et.firstChild.textContent=\`\${hhmm(CD.ns)} – \${hhmm(CD.ne)}\`;
 }
-function drScroll(){
-  if(!DR||!DR.on)return;const bottom=innerHeight-(innerWidth>=900?0:70);
-  const v=DR.py<120?-10:DR.py>bottom-70?10:0;if(v){scrollBy(0,v);drPlace()}
-  DR.raf=requestAnimationFrame(drScroll);
+function cdScroll(){
+  if(!CD||!CD.on)return;const bottom=innerHeight-(innerWidth>=900?0:70);
+  const v=CD.cy<130?-9:CD.cy>bottom-60?9:0;if(v){scrollBy(0,v);cdApply()}
+  CD.raf=requestAnimationFrame(cdScroll);
 }
-function drMove(e){
-  if(!DR||e.pointerId!==DR.pid)return;DR.py=e.clientY;
-  if(!DR.on){const dx=Math.abs(e.clientX-DR.x),dy=Math.abs(e.clientY-DR.y);
-    if(DR.touch){if(dx>8||dy>8){clearTimeout(DR.timer);DR=null}return}
-    if(dy>6)drBegin();else return}
-  e.preventDefault();drPlace();
+function cdMove(e){
+  if(!CD||e.pointerId!==CD.pid)return;CD.cy=e.clientY;
+  if(!CD.on){const dx=Math.abs(e.clientX-CD.x),dy=Math.abs(e.clientY-CD.y);
+    if(CD.touch){if(dx>8||dy>8){clearTimeout(CD.timer);CD=null}return}
+    if(dy>4)cdBegin();else return}
+  e.preventDefault();cdApply();
 }
-async function drEnd(e){
-  if(!DR||(e&&e.pointerId!==DR.pid))return;const d=DR;DR=null;clearTimeout(d.timer);cancelAnimationFrame(d.raf);
+async function cdEnd(e){
+  if(!CD||(e&&e.pointerId!==CD.pid))return;const d=CD;CD=null;clearTimeout(d.timer);cancelAnimationFrame(d.raf);
   if(!d.on)return;
   justDragged=true;setTimeout(()=>justDragged=false,80);
-  d.li.classList.remove("lift");d.li.style.transform="";d.tl.classList.remove("dragging");
-  const D=DAYOF(CUR_DAY);const ids=[...d.tl.querySelectorAll(".stop")].map(x=>x.id.slice(3));
-  if(e&&e.type==="pointercancel"||ids.join()===D.items.map(x=>x.id).join()){renderDay(CUR_DAY);return}
-  const r=await send({op:"reorder",day:D.id,ids,by:ME.get()});
-  if(r)toast("순서를 바꿨어요",r.hid);else renderDay(CUR_DAY);
+  if(e&&e.type==="pointercancel"){renderDay(CUR_DAY);return}
+  if(d.ns===d.s0&&d.ne===d.e0){renderDay(CUR_DAY);return}
+  d.ev.classList.add("saving");
+  const r=await send({op:"time",id:d.it.id,t:hhmm(d.ns),e:hhmm(d.ne),by:ME.get()});
+  if(r)toast(\`\${hhmm(d.ns)} – \${hhmm(d.ne)} 로 바꿨어요\`,r.hid);else renderDay(CUR_DAY);
 }
-document.addEventListener("pointerdown",drStart);
-document.addEventListener("pointermove",drMove,{passive:false});
-document.addEventListener("pointerup",drEnd);
-document.addEventListener("pointercancel",drEnd);
-document.addEventListener("touchmove",e=>{if(DR&&DR.on)e.preventDefault()},{passive:false});
-document.addEventListener("contextmenu",e=>{if(DR)e.preventDefault()});
+document.addEventListener("pointerdown",cdStart);
+document.addEventListener("pointermove",cdMove,{passive:false});
+document.addEventListener("pointerup",cdEnd);
+document.addEventListener("pointercancel",cdEnd);
+document.addEventListener("touchmove",e=>{if(CD&&CD.on)e.preventDefault()},{passive:false});
+document.addEventListener("contextmenu",e=>{if(CD)e.preventDefault()});
+document.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.classList&&e.target.classList.contains("ev"))openItem(e.target.id.slice(3))});
 
 /* ── 상세 시트 ── */
 const TIPCLS={up:"good",down:"bad",alert:"al"};
@@ -706,7 +752,7 @@ function openItem(id){
   const legs=(it.go||[]).map(g=>{const u=legUrl(it,g);return \`<div class="leg">\${I(MODE[g.m][0])}<span class="tx"><b>\${MODE[g.m][1]} \${esc(g.d||"")}\${g.c?\` · \${esc(g.c)}\`:""}</b>\${g.n?\`<span>\${zhSpan(g.n)}</span>\`:""}</span>\${u?\`<a href="\${u}" target="_blank" rel="noopener">\${I("nav")}길찾기</a>\`:""}</div>\`}).join("");
   const go=goUrl(it);
   openSheet(\`<div class="scroll"><div class="cover k-\${it.k}">\${it.img?\`<img src="/neander/2026shanghai/img/\${it.img}.jpg" alt="\${esc(it.title)} 사진">\${it.img.startsWith("g_")?'<span class="ai">AI 참고 이미지</span>':""}\`:I(CAT[it.k][0])}<div class="tb"><button class="glass round" type="button" data-close aria-label="닫기">\${I("chevl")}</button>\${hasXY(it.pin)?\`<button class="glass round" type="button" data-fly="\${it.id}" aria-label="지도에서 보기">\${I("target")}</button>\`:""}</div></div>
-<div class="body"><div><p class="tnum" style="color:var(--coral);font-weight:800;font-size:15px">\${it.day.date[1]}/\${it.day.date[2]} \${it.day.wd} · \${it.t}</p><h2>\${esc(it.title)}\${it.star?I("star","fill"):""}</h2>\${it.sub?\`<p class="zhn">\${zhSpan(it.sub)}</p>\`:""}\${(it.i||[]).length?\`<div class="meta">\${metaHtml(it)}</div>\`:""}</div>
+<div class="body"><div><p class="tnum" style="color:var(--coral);font-weight:800;font-size:15px">\${it.day.date[1]}/\${it.day.date[2]} \${it.day.wd} · \${it.t} – \${hhmm(it.eMin)}</p><h2>\${esc(it.title)}\${it.star?I("star","fill"):""}</h2>\${it.sub?\`<p class="zhn">\${zhSpan(it.sub)}</p>\`:""}\${(it.i||[]).length?\`<div class="meta">\${metaHtml(it)}</div>\`:""}</div>
 \${it.w?\`<p class="warn">\${I("alert")}<span>\${zhSpan(it.w)}</span></p>\`:""}
 \${rbtns(k)}
 \${legs?\`<div class="sec3"><h3>오는 길</h3><div class="legs">\${legs}</div></div>\`:""}
@@ -744,7 +790,8 @@ function openEditor(id,dayId){
   openSheet(\`<div class="scroll"><div class="grab"></div><div class="body">
 <div style="display:flex;align-items:center;justify-content:space-between"><h2>\${it?"일정 고치기":"일정 추가"}</h2><button class="ibtn" type="button" data-close aria-label="닫기">\${I("x")}</button></div>
 <form class="form" id="edForm" autocomplete="off">
-<div class="two">\${f("날짜",\`<select name="day">\${DAYS.map(x=>\`<option value="\${x.id}" \${x===D?"selected":""}>\${x.date[1]}/\${x.date[2]} \${x.wd}</option>\`).join("")}</select>\`)}\${f("시간",\`<input type="time" name="t" required value="\${it?it.t.replace("24:00","00:00"):"12:00"}">\`,"새벽(00~04시)은 그날 밤으로 들어가요")}</div>
+\${f("날짜",\`<select name="day">\${DAYS.map(x=>\`<option value="\${x.id}" \${x===D?"selected":""}>\${x.date[1]}/\${x.date[2]} \${x.wd}</option>\`).join("")}</select>\`)}
+<div class="two">\${f("시작",\`<input type="time" name="t" required value="\${it?it.t.replace("24:00","00:00"):"12:00"}">\`,"00~04시는 그날 밤")}\${f("끝",\`<input type="time" name="e" value="\${it&&it.e?it.e.replace("24:00","00:00"):it?hhmm(it.eMin):""}">\`,"비우면 다음 일정까지")}</div>
 <div class="f"><span style="font-size:14px;font-weight:700;color:var(--muted)">종류</span><div class="cats">\${Object.entries(CAT).map(([k,v])=>\`<label class="k-\${k}"><input type="radio" name="k" value="\${k}" \${(it?it.k:"sight")===k?"checked":""}><i>\${I(v[0])}</i>\${v[1]}</label>\`).join("")}</div></div>
 \${f("제목",\`<input type="text" name="title" maxlength="60" required value="\${esc(it?it.title:"")}" placeholder="예: 와이탄 야경">\`)}
 \${f("한 줄 설명",\`<input type="text" name="sub" maxlength="120" value="\${esc(it&&it.sub||"")}" placeholder="중국어 이름 · 층수 같은 것">\`)}
@@ -767,7 +814,7 @@ function openEditor(id,dayId){
     const fd=new FormData(form);let t=String(fd.get("t")||"");
     const by=String(fd.get("by")||"").trim();ME.set(by);
     const pv=String(fd.get("place")||"");const gm=String(fd.get("gm")||"");
-    const item={t,k:fd.get("k")||"sight",title:fd.get("title"),sub:fd.get("sub"),star:fd.get("star")?1:0,
+    const item={t,e:String(fd.get("e")||""),k:fd.get("k")||"sight",title:fd.get("title"),sub:fd.get("sub"),star:fd.get("star")?1:0,
       w:fd.get("w"),i:linesToChips(String(fd.get("i")||""),it&&it.i),tip:linesToChips(String(fd.get("tip")||""),it&&it.tip),
       menu:String(fd.get("menu")||"").split(/[,，]/).map(s=>s.trim()).filter(Boolean),menuSum:it&&it.menuSum||"",img:it&&it.img||""};
     const placeSame=it&&pv===curPlace;
@@ -880,9 +927,12 @@ function rerender(){
 function tickClock(){const a=shNow();const c=document.getElementById("clock");if(c)c.textContent="상하이 "+pad(a.getUTCHours())+":"+pad(a.getUTCMinutes())}
 function tick(){
   tickClock();const S=status();const hd=document.getElementById("heroD");if(hd)hd.textContent=S.d;
-  document.querySelectorAll(".stop.isnow").forEach(c=>c.classList.remove("isnow"));
-  document.querySelectorAll(".scard .tm em").forEach(e=>e.remove());
-  if(S.cur){const c=document.getElementById("it-"+S.cur.id);if(c){c.classList.add("isnow");const tm=c.querySelector(".tm");tm.insertAdjacentHTML("beforeend","<em>지금</em>")}}
+  document.querySelectorAll(".ev.isnow").forEach(c=>c.classList.remove("isnow"));
+  if(S.cur){const c=document.getElementById("it-"+S.cur.id);if(c)c.classList.add("isnow")}
+  // 오늘 보는 날이면 지금 시각에 빨간 선
+  const nl=document.getElementById("nowl");const CDay=DAYOF(CUR_DAY);
+  if(nl&&CDay){const a2=shNow();const nowM=(Date.now()-sh(CDay.date[0],CDay.date[1],CDay.date[2],0,0))/60000;
+    const on=VIEW.startsWith("day")&&nowM>=CDay.r0&&nowM<=CDay.r1;nl.hidden=!on;if(on)nl.style.top=(nowM-CDay.r0)/60*HPX+"px"}
   const a=shNow();const ymd=[a.getUTCFullYear(),a.getUTCMonth()+1,a.getUTCDate()].join("-");const td=DAYS.find(D=>D.date.join("-")===ymd);
   if(td&&!VIEW.startsWith("day"))document.getElementById("planTab").href="#"+td.id;
 }
@@ -903,6 +953,7 @@ function copy(text){
 
 document.addEventListener("click",e=>{
   if(justDragged){e.preventDefault();e.stopPropagation();return}
+  if(e.target.closest(".rs"))return;
   const t=e.target.closest("[data-copy],[data-show],[data-fly],[data-open],[data-f],[data-close],[data-edit],[data-del],[data-history],[data-revert],#fab,#mapToggle,#scrim,#driverClose");if(!t)return;
   if(t.dataset.copy!==undefined){e.preventDefault();copy(t.dataset.copy)}
   else if(t.dataset.show){e.preventDefault();driver(t.dataset.show)}
