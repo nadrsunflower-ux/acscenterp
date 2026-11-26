@@ -40,6 +40,7 @@ import {
 } from "../money-calendar";
 import type { FinTransaction } from "../types";
 import { noticeRule, type TaxNotice } from "../tax-notice";
+import { plannedAmount, type PayrollInput } from "../payroll";
 
 const SETTINGS_DOC = "money-calendar";
 const SENT_DOC = "money-calendar-sent";
@@ -249,6 +250,17 @@ export async function notifyMention(
   }
 }
 
+/** 급여 지급 표 (지급하는 달 → 표). 못 읽으면 지난번 금액으로 알린다 — 알림 전체를 멈추지 않는다 */
+async function payrollPlans(db: Firestore): Promise<Map<string, PayrollInput>> {
+  try {
+    const snap = await db.collection(NEANDER_COL.finPayroll).get();
+    return new Map(snap.docs.map((d) => [d.id, { ...(d.data() as PayrollInput), id: d.id }]));
+  } catch (e) {
+    console.error("[money-calendar] 급여 지급 표를 못 읽음", e);
+    return new Map();
+  }
+}
+
 /** 하루 한 번 — 표 맞추기 + 오늘 보낼 알림 */
 export async function syncMoneyCalendar(
   db: Firestore,
@@ -267,7 +279,13 @@ export async function syncMoneyCalendar(
   if (!holidayYears().includes(Number(horizon.slice(0, 4)))) {
     warnings.push(`${horizon.slice(0, 4)}년 공휴일이 표에 없습니다 — 주말만 거릅니다 (money-calendar.ts HOLIDAYS).`);
   }
-  const rows = buildMoneyRows([...s.rules, ...notices], args.transactions, addDays(today, -BEHIND_DAYS), horizon);
+  const payroll = await payrollPlans(db);
+  const rows = buildMoneyRows([...s.rules, ...notices], args.transactions, addDays(today, -BEHIND_DAYS), horizon, (occ) => {
+    // 급여 규칙(계정 중분류 「급여」) — 그 달 급여 지급 표에 적은 금액. 규칙의 사업장 몫만
+    if (occ.rule.kind !== "급여·월세" || occ.rule.match?.acctMid !== "급여") return null;
+    const p = plannedAmount(payroll.get(occ.nominal.slice(0, 7)), occ.rule.match?.site);
+    return p ? { amount: p.amount, note: `급여 지급 표 ${p.count}줄 ${p.amount.toLocaleString("ko-KR")}원` } : null;
+  });
   if (args.dryRun) return { rows: rows.length, warnings };
   if (!moneyToken()) return { skipped: "노션 연결 토큰(NOTION_MONEY_TOKEN)이 없습니다.", rows: rows.length };
   if (!s.notionPage && !s.dataSourceId) return { skipped: "노션 페이지가 아직 정해지지 않았습니다.", rows: rows.length };

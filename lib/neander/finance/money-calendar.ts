@@ -237,8 +237,10 @@ export interface MoneyRow extends MoneyOccurrence {
   state: MoneyState;
   paid: MoneyPaid | null;
   last: (MoneyPaid & { nominal: string }) | null;
-  /** 이번 회차 금액 짐작 — 냈으면 낸 돈, 아니면 지난번 금액 */
+  /** 이번 회차 금액 짐작 — 냈으면 낸 돈, 정해진 금액, 미리 적은 금액, 지난번 금액 순 */
   amount: number | null;
+  /** 다른 화면에 미리 적어 둔 이번 회차 금액 (급여 지급 표) */
+  planned?: { amount: number; note: string };
   /** 근거 한 줄 (휴일 밀림 · 지난번 · 메모) */
   basis: string;
 }
@@ -249,22 +251,35 @@ const manwon = (n: number) => {
 };
 export const moneyText = manwon;
 
-export function buildMoneyRows(rules: MoneyRule[], txs: FinTransaction[], from: string, to: string): MoneyRow[] {
+/**
+ * planned — 회차마다 미리 적어 둔 금액이 있으면 돌려준다 (급여 지급 표 · server/money-calendar.ts).
+ * 정해진 금액(rule.amount)보다 뒤, 지난번 금액보다 앞이다.
+ */
+export function buildMoneyRows(
+  rules: MoneyRule[],
+  txs: FinTransaction[],
+  from: string,
+  to: string,
+  planned?: (occ: MoneyOccurrence) => { amount: number; note: string } | null | undefined,
+): MoneyRow[] {
   return expandRules(rules, from, to).map((occ) => {
     const s = occ.rule.settled;
     const paid = paidFor(occ, txs) ?? (s ? { date: s.date, amount: s.amount ?? occ.rule.amount ?? 0, count: 1 } : null);
+    const plan = occ.rule.amount === undefined ? (planned?.(occ) ?? undefined) : undefined;
     const last = paid || occ.rule.amount !== undefined ? null : lastPaidBefore(occ.rule, occ.date, txs);
     const parts: string[] = [];
     if (occ.shifted) parts.push(`${shortDate(occ.nominal)}이 쉬는 날이라 ${shortDate(occ.date)}로 밀림`);
     if (paid) parts.push(`${shortDate(paid.date)} ${paid.amount ? `${paid.amount.toLocaleString("ko-KR")}원 ` : ""}냄${paid.count > 1 ? ` (${paid.count}건)` : ""}`);
-    else if (last) parts.push(`지난번 ${shortDate(last.date)} ${last.amount.toLocaleString("ko-KR")}원${last.count > 1 ? ` (${last.count}건)` : ""}`);
+    else if (plan) parts.push(plan.note);
+    if (!paid && last) parts.push(`지난번 ${shortDate(last.date)} ${last.amount.toLocaleString("ko-KR")}원${last.count > 1 ? ` (${last.count}건)` : ""}`);
     if (occ.rule.note) parts.push(occ.rule.note);
     return {
       ...occ,
       state: paid ? "냈음" : "예정",
       paid,
       last,
-      amount: (paid?.amount || null) ?? occ.rule.amount ?? last?.amount ?? null,
+      ...(plan ? { planned: plan } : {}),
+      amount: (paid?.amount || null) ?? occ.rule.amount ?? plan?.amount ?? last?.amount ?? null,
       basis: parts.join(" · "),
     };
   });
@@ -288,9 +303,10 @@ export function dueAlerts(rows: MoneyRow[], today: string, leadDays: number[]): 
 //    headline  = 댓글의 보낸 이 이름(display_name) — 노션 화면 댓글에만 보이고 폰 알림엔 안 나온다
 
 /** 금액 글 — 냈으면 낸 돈, 정해진 금액, 지난번 금액(약), 모르면 「금액 모름」 */
-export function amountText(row: Pick<MoneyRow, "paid" | "last" | "rule">): string {
+export function amountText(row: Pick<MoneyRow, "paid" | "last" | "rule" | "planned">): string {
   if (row.paid?.amount) return `${row.paid.amount.toLocaleString("ko-KR")}원`;
   if (row.rule.amount !== undefined) return `${row.rule.amount.toLocaleString("ko-KR")}원`;
+  if (row.planned) return `${row.planned.amount.toLocaleString("ko-KR")}원`;
   if (row.last) return `약 ${manwon(row.last.amount)}`;
   return "금액 모름";
 }
@@ -300,7 +316,7 @@ export const moneyMark = (rule: Pick<MoneyRule, "kind">) =>
   rule.kind === "세금" ? { emoji: "🟡", label: "세금 납부 예정" } : { emoji: "🟠", label: "납부 예정" };
 
 /** 노션 줄 이름 — 색 + 금액이 맨 앞 */
-export const rowTitle = (row: Pick<MoneyRow, "paid" | "last" | "rule">) => `${moneyMark(row.rule).emoji} ${amountText(row)} · ${row.rule.label}`;
+export const rowTitle = (row: Pick<MoneyRow, "paid" | "last" | "rule" | "planned">) => `${moneyMark(row.rule).emoji} ${amountText(row)} · ${row.rule.label}`;
 
 /** 댓글의 보낸 이 이름 (노션 화면용) */
 export const alertHeadline = (row: Pick<MoneyRow, "rule">) => `${moneyMark(row.rule).label} ${moneyMark(row.rule).emoji}`;
