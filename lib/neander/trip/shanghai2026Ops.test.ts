@@ -65,3 +65,24 @@ test("새 장소는 좌표 없는 검색어 장소로 들어간다", () => {
   assert.equal(it.pts.length, 1);
   assert.deepEqual(plan.places[it.pts[0]], ["카페", "某某咖啡", null, null, "武康路1号"]);
 });
+
+test("끌어서 순서 바꾸기 — 시간 칸은 그대로, 일정만 이동 · 되돌리기", () => {
+  const d0 = day(BASE, "day3");
+  const ids = d0.items.map((x) => x.id);
+  const moved = [ids[3], ...ids.slice(0, 3), ...ids.slice(4)];
+  const { plan, change } = applyOp(BASE, { op: "reorder", day: "day3", ids: moved }, id);
+  const after = day(plan, "day3").items;
+  assert.deepEqual(after.map((x) => x.id), moved);
+  assert.deepEqual(after.map((x) => x.t), d0.items.map((x) => x.t));
+  assert.equal(after[0].go?.[0]?.from, undefined, "앞이 바뀐 일정은 출발지를 비운다");
+  assert.throws(() => applyOp(BASE, { op: "reorder", day: "day3", ids: moved.slice(1) }, id), TripOpError);
+  const back = revertChange(plan, change).plan;
+  assert.deepEqual(day(back, "day3").items, d0.items);
+});
+
+test("사진은 사이트 사진 이름만", () => {
+  const ok = applyOp(BASE, { op: "add", day: "day1", item: { t: "10:30", title: "a", img: "g_dimsum" } }, id);
+  assert.equal(day(ok.plan, "day1").items.find((x) => x.id === ok.change.id)!.img, "g_dimsum");
+  const bad = applyOp(BASE, { op: "add", day: "day1", item: { t: "10:30", title: "a", img: "../x" } }, id);
+  assert.equal(day(bad.plan, "day1").items.find((x) => x.id === bad.change.id)!.img, undefined);
+});

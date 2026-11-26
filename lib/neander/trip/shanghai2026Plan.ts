@@ -303,7 +303,8 @@ export const SHANGHAI_2026_PLAN: TripPlan = {
        "짐 배송 맡겼으면 프런트에서 찾기"
       ]
      ],
-     "id": "s8"
+     "id": "s8",
+     "img": "g_hotel"
     }
    ]
   },
@@ -345,7 +346,8 @@ export const SHANGHAI_2026_PLAN: TripPlan = {
        "쉬스(叙室) 맞춤 조향 · 차로 10~15분 · 30ml ¥388 · 위챗 narratus 예약"
       ]
      ],
-     "id": "s9"
+     "id": "s9",
+     "img": "g_hotel"
     },
     {
      "t": "15:30",
@@ -372,7 +374,8 @@ export const SHANGHAI_2026_PLAN: TripPlan = {
        "16:15 출발 → 17:30 전 숙소"
       ]
      ],
-     "id": "s10"
+     "id": "s10",
+     "img": "p5"
     },
     {
      "t": "17:40",
@@ -399,7 +402,8 @@ export const SHANGHAI_2026_PLAN: TripPlan = {
       ]
      ],
      "w": "19:00 넘으면 관샤 건너뛰고 점도덕으로",
-     "id": "s11"
+     "id": "s11",
+     "img": "g_ride"
     },
     {
      "t": "18:05",
@@ -450,7 +454,8 @@ export const SHANGHAI_2026_PLAN: TripPlan = {
        "근처 观夏香铺 즉석 블렌딩 · 시간 미확인"
       ]
      ],
-     "id": "s12"
+     "id": "s12",
+     "img": "g_scent"
     },
     {
      "t": "19:20",
@@ -520,7 +525,8 @@ export const SHANGHAI_2026_PLAN: TripPlan = {
        "마감 미확인 (다른 지점 21:30)"
       ]
      ],
-     "id": "s13"
+     "id": "s13",
+     "img": "g_dimsum"
     },
     {
      "t": "20:50",
@@ -573,7 +579,8 @@ export const SHANGHAI_2026_PLAN: TripPlan = {
        "十六铺 강변 야경 · 22:00 소등"
       ]
      ],
-     "id": "s14"
+     "id": "s14",
+     "img": "g_goldfish"
     },
     {
      "t": "22:00",
@@ -596,7 +603,8 @@ export const SHANGHAI_2026_PLAN: TripPlan = {
        "내일 08:15 출발"
       ]
      ],
-     "id": "s15"
+     "id": "s15",
+     "img": "g_hotel"
     }
    ]
   },
@@ -758,7 +766,8 @@ export const SHANGHAI_2026_PLAN: TripPlan = {
        "13:00 「参观交大」 4명 등록"
       ]
      ],
-     "id": "s18"
+     "id": "s18",
+     "img": "g_wukang"
     },
     {
      "t": "14:30",
@@ -984,7 +993,8 @@ export const SHANGHAI_2026_PLAN: TripPlan = {
        "짐 미리 싸 두기 · 월 07:50 체크아웃"
       ]
      ],
-     "id": "s24"
+     "id": "s24",
+     "img": "g_hotel"
     }
    ]
   },
@@ -1022,7 +1032,8 @@ export const SHANGHAI_2026_PLAN: TripPlan = {
        "프런트에 캐리어 → 13:25 찾으러"
       ]
      ],
-     "id": "s25"
+     "id": "s25",
+     "img": "g_lobby"
     },
     {
      "t": "08:30",
@@ -1226,7 +1237,8 @@ export const SHANGHAI_2026_PLAN: TripPlan = {
        "수입 식품 위주라 조금 비쌀 수"
       ]
      ],
-     "id": "s30"
+     "id": "s30",
+     "img": "g_mart"
     },
     {
      "t": "12:05",
@@ -1301,7 +1313,8 @@ export const SHANGHAI_2026_PLAN: TripPlan = {
        "앞 국제반점 나비파이 · 줄 길면 패스"
       ]
      ],
-     "id": "s32"
+     "id": "s32",
+     "img": "g_tangbao"
     },
     {
      "t": "13:25",
@@ -1325,7 +1338,8 @@ export const SHANGHAI_2026_PLAN: TripPlan = {
        "캐리어 4개 → 6인승(六座商务) 1대 · 일반 2대"
       ]
      ],
-     "id": "s33"
+     "id": "s33",
+     "img": "g_lobby"
     },
     {
      "t": "13:35",

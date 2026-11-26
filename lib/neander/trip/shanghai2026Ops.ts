@@ -40,6 +40,7 @@ export class TripOpError extends Error {}
 const clean = (v: unknown, max: number): string =>
   typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max) : "";
 
+const PHOTO = /^(p\d{1,2}|g_[a-z]{2,12})$/;
 const TIME = /^([01]\d|2[0-4]):([0-5]\d)$/;
 
 /** 하루 안 순서 — 새벽 5시 전은 다음 날로 본다 (24:00 · 01:30 이 맨 뒤로) */
@@ -102,7 +103,9 @@ export function sanitizeItem(raw: unknown, plan: TripPlan, opts: { id: string; p
     if (menu.length) item.menu = menu;
   }
   const menuSum = clean(r.menuSum, 40); if (menuSum && item.menu) item.menuSum = menuSum;
-  if (opts.prevImg && r.img === opts.prevImg) item.img = opts.prevImg;
+  // 사진은 이 사이트 img/ 폴더의 파일 이름만 (p14 · g_dimsum) — 밖의 주소를 끼워 넣지 못하게
+  if (typeof r.img === "string" && PHOTO.test(r.img)) item.img = r.img;
+  else if (opts.prevImg && r.img === opts.prevImg) item.img = opts.prevImg;
 
   let place: [string, Place] | undefined;
   const np = opts.place;
@@ -139,15 +142,39 @@ export function sanitizeItem(raw: unknown, plan: TripPlan, opts: { id: string; p
 }
 
 export interface TripOp {
-  op: "add" | "update" | "delete";
+  op: "add" | "update" | "delete" | "reorder";
   day?: string;
   id?: string;
+  /** reorder: 그날 일정 id 를 새 순서대로 전부 */
+  ids?: unknown;
   item?: unknown;
   place?: NewPlace;
 }
 
 /** 바뀐 것 한 건 — 되돌리기에 쓴다 */
-export interface Change { op: TripOp["op"]; id: string; day: string; beforeDay?: string; before?: TripItem; after?: TripItem; title: string }
+export interface Change {
+  op: TripOp["op"]; id: string; day: string; beforeDay?: string; before?: TripItem; after?: TripItem; title: string;
+  /** reorder: 그날 일정 전체 전후 */
+  beforeItems?: TripItem[]; afterItems?: TripItem[];
+}
+
+/**
+ * 끌어서 순서 바꾸기 — 시간 칸은 그대로 두고 일정만 옮긴다.
+ * (10:00 A · 12:00 B · 14:00 C 에서 C 를 맨 위로 → 10:00 C · 12:00 A · 14:00 B)
+ * 앞 일정이 바뀐 일정은 「오는 길」의 출발지를 비워서 새 앞 일정에서 오게 한다.
+ */
+export function reorderItems(items: TripItem[], ids: string[]): TripItem[] {
+  const times = items.map((x) => x.t);
+  const byId = new Map(items.map((x) => [x.id, x]));
+  const prevOf = new Map(items.map((x, i) => [x.id, items[i - 1]?.id]));
+  return ids.map((id, k) => {
+    const it: TripItem = JSON.parse(JSON.stringify(byId.get(id)));
+    it.t = times[k];
+    if (Number(it.t.slice(0, 2)) < 5) it.nd = 1; else delete it.nd;
+    if (prevOf.get(id) !== ids[k - 1] && it.go?.[0]?.from) delete it.go[0].from;
+    return it;
+  });
+}
 
 const findItem = (plan: TripPlan, id: string) => {
   for (const d of plan.days) {
@@ -176,6 +203,18 @@ export function applyOp(plan0: TripPlan, op: TripOp, newId: () => string): { pla
     day.items = sortItems([...day.items, item]);
     return { plan, change: { op: "add", id: item.id, day: day.id, after: item, title: item.title } };
   }
+  if (op.op === "reorder") {
+    const day = plan.days.find((d) => d.id === op.day);
+    if (!day) throw new TripOpError("날짜를 골라 주세요.");
+    const ids = Array.isArray(op.ids) ? op.ids.map(String) : [];
+    const cur = day.items.map((x) => x.id);
+    if (ids.length !== cur.length || new Set(ids).size !== ids.length || !ids.every((x) => cur.includes(x))) {
+      throw new TripOpError("다른 사람이 방금 이 날을 바꿨어요. 다시 해 주세요.");
+    }
+    const before = day.items;
+    day.items = reorderItems(before, ids);
+    return { plan, change: { op: "reorder", id: day.id, day: day.id, title: "순서 바꾸기", beforeItems: before, afterItems: day.items } };
+  }
   const id = String(op.id ?? "");
   const found = findItem(plan, id);
   if (!found) throw new TripOpError("그 일정이 이미 지워졌어요. 새로고침해 주세요.");
@@ -199,6 +238,15 @@ export function applyOp(plan0: TripPlan, op: TripOp, newId: () => string): { pla
 /** 바뀐 것 되돌리기 — 더한 건 지우고, 지운 건 되살리고, 고친 건 예전 모양으로 */
 export function revertChange(plan0: TripPlan, ch: Change): { plan: TripPlan; change: Change } {
   const plan: TripPlan = JSON.parse(JSON.stringify(plan0));
+  if (ch.op === "reorder") {
+    const day = plan.days.find((d) => d.id === ch.day);
+    const back = ch.beforeItems ?? [];
+    const same = (a: TripItem[], b: TripItem[]) => a.length === b.length && a.every((x) => b.some((y) => y.id === x.id));
+    if (!day || !same(day.items, back)) throw new TripOpError("그 뒤로 이 날이 바뀌어서 순서를 되돌릴 수 없어요.");
+    const now = day.items;
+    day.items = back;
+    return { plan, change: { op: "reorder", id: day.id, day: day.id, title: "순서 바꾸기", beforeItems: now, afterItems: back } };
+  }
   const found = findItem(plan, ch.id);
   if (ch.op === "add") {
     if (!found) throw new TripOpError("이미 지워진 일정이에요.");
